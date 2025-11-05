@@ -1,8 +1,25 @@
 {
   "name": "playwright-opentelemetry",
-  "version": "1.0.0",
+  "version": "0.0.1",
+  "description": "A reporter for Playwright that can export traces and spans in opentelemetry format.",
   "type": "module",
-  "description": "",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/endform/playwright-opentelemetry#readme",
+  "bugs": {
+    "url": "https://github.com/endform/playwright-opentelemetry/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/endform/playwright-opentelemetry.git"
+  },
+  "author": "Oliver Stenbom <oliver@endform.dev>",
+  "keywords": [
+    "playwright",
+    "opentelemetry",
+    "reporting",
+    "testing",
+    "automation"
+  ],
   "files": [
     "dist"
   ],
@@ -15,22 +32,17 @@
   },
   "scripts": {
     "build": "tsdown",
-    "dev": "tsdown --watch"
+    "dev": "tsdown --watch",
+    "test:unit": "vitest",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
   },
-  "author": "Oliver Stenbom",
-  "license": "Apache-2.0",
-  "keywords": [
-    "playwright",
-    "opentelemetry",
-    "reporting",
-    "testing",
-    "automation"
-  ],
   "packageManager": "pnpm@10.10.0",
   "devDependencies": {
     "@playwright/test": "^1.56.1",
     "@types/node": "^24.10.0",
     "tsdown": "^0.16.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.7"
   }
 }
