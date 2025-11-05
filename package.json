@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/endform/playwright-opentelemetry.git"
+    "url": "https://github.com/endform/playwright-opentelemetry"
   },
   "author": "Oliver Stenbom <oliver@endform.dev>",
   "keywords": [
