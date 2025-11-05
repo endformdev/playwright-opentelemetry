@@ -1,15 +1,35 @@
 {
   "name": "playwright-opentelemetry",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
-  "main": "index.js",
-  "scripts": {},
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch"
+  },
+  "author": "Oliver Stenbom",
+  "license": "Apache-2.0",
+  "keywords": [
+    "playwright",
+    "opentelemetry",
+    "reporting",
+    "testing",
+    "automation"
+  ],
   "packageManager": "pnpm@10.10.0",
   "devDependencies": {
     "@playwright/test": "^1.56.1",
-    "@types/node": "^24.10.0"
+    "@types/node": "^24.10.0",
+    "tsdown": "^0.16.0"
   }
 }
