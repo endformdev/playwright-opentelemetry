@@ -4,13 +4,13 @@
   "description": "A reporter for Playwright that can export traces and spans in opentelemetry format.",
   "type": "module",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/endform/playwright-opentelemetry#readme",
+  "homepage": "https://github.com/endformdev/playwright-opentelemetry#readme",
   "bugs": {
-    "url": "https://github.com/endform/playwright-opentelemetry/issues"
+    "url": "https://github.com/endformdev/playwright-opentelemetry/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/endform/playwright-opentelemetry"
+    "url": "https://github.com/endformdev/playwright-opentelemetry"
   },
   "author": "Oliver Stenbom <oliver@endform.dev>",
   "keywords": [
