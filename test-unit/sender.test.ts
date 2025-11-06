@@ -68,7 +68,7 @@ describe("sendSpans", () => {
 						{
 							scope: {
 								name: "playwright-opentelemetry",
-								version: "1.0.0",
+								version: expect.any(String),
 							},
 							spans: [
 								{

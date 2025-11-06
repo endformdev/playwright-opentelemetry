@@ -105,26 +105,19 @@ export async function sendSpans(
 	console.log("Headers:", headers);
 	console.log("Body:", body);
 
-	try {
-		const response = await fetch(endpoint, {
-			method: "POST",
-			body,
-			headers: {
-				"content-type": "application/json",
-				...headers,
-			},
-		});
-		console.log("Response:", response.statusText);
-		console.log("Response text:", await response.text());
+	const response = await fetch(endpoint, {
+		method: "POST",
+		body,
+		headers: {
+			"content-type": "application/json",
+			...headers,
+		},
+	});
 
-		if (!response.ok) {
-			const error = await response.text();
-			throw new Error(
-				`Failed to send spans: ${response.status} ${response.statusText}, ${error}`,
-			);
-		}
-	} catch (error) {
-		console.error("Error sending spans:", error);
-		throw error;
+	if (!response.ok) {
+		const error = await response.text();
+		throw new Error(
+			`Failed to send spans: ${response.status} ${response.statusText}, ${error}`,
+		);
 	}
 }
