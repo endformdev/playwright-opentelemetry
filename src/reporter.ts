@@ -25,13 +25,14 @@ export type Span = {
 export class PlaywrightOpentelemetryReporter implements Reporter {
 	private spans: Span[] = [];
 
-	constructor(private options: PlaywrightOpentelemetryReporterOptions) {
-		console.log("options", options);
-		this.options = options;
-	}
+	constructor(private options?: PlaywrightOpentelemetryReporterOptions) {}
 
 	onEnd(_result: FullResult) {
-		sendSpans(this.spans);
+		sendSpans(this.spans, {
+			endpoint:
+				this.options?.opentelemetryEndpoint ||
+				"http://localhost:4318/v1/traces",
+		});
 	}
 
 	onTestBegin(test: TestCase) {

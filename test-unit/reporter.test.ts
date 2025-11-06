@@ -42,7 +42,6 @@ test("sends a span for a test that ran", () => {
 
 	// Verify sendSpans was called
 	expect(sendSpans).toHaveBeenCalledTimes(1);
-	expect(sendSpans).toHaveBeenCalledWith(expect.any(Array));
 	expect(sendSpans).toHaveBeenCalledWith(
 		expect.arrayContaining([
 			expect.objectContaining({
@@ -56,5 +55,8 @@ test("sends a span for a test that ran", () => {
 				spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
 			}),
 		]),
+		{
+			endpoint: "http://localhost:4317",
+		},
 	);
 });
