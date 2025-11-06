@@ -20,7 +20,7 @@ test("sends a span for a test that ran", () => {
 
 	// Create the reporter
 	const reporter = new PlaywrightOpentelemetryReporter({
-		opentelemetryTracesEndpoint: "http://localhost:4317/v1/traces",
+		tracesEndpoint: "http://localhost:4317/v1/traces",
 	});
 
 	// Create a mock test case

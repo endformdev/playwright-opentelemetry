@@ -1,7 +1,8 @@
+import { version } from "../package.json" with { type: "json" };
 import type { Span } from "./reporter";
 
 export interface SendSpansOptions {
-	endpoint: string;
+	tracesEndpoint: string;
 	headers?: Record<string, string>;
 }
 
@@ -11,7 +12,9 @@ function dateToNanoseconds(date: Date): string {
 }
 
 // Convert simple attributes to OTLP format
-function toOtlpAttributes(attributes: Record<string, string | number | boolean>) {
+function toOtlpAttributes(
+	attributes: Record<string, string | number | boolean>,
+) {
 	return Object.entries(attributes).map(([key, value]) => {
 		if (typeof value === "number") {
 			return {
@@ -61,7 +64,10 @@ function buildOtlpRequest(spans: Span[]) {
 			{
 				resource: {
 					attributes: [
-						{ key: "service.name", value: { stringValue: "playwright-tests" } },
+						{
+							key: "service.name",
+							value: { stringValue: "playwright-tests" },
+						},
 						{
 							key: "service.namespace",
 							value: { stringValue: "playwright" },
@@ -72,7 +78,7 @@ function buildOtlpRequest(spans: Span[]) {
 					{
 						scope: {
 							name: "playwright-opentelemetry",
-							version: "1.0.0",
+							version,
 						},
 						spans: otlpSpans,
 					},
@@ -84,30 +90,41 @@ function buildOtlpRequest(spans: Span[]) {
 
 export async function sendSpans(
 	spans: Span[],
-	options?: SendSpansOptions,
+	options: SendSpansOptions,
 ): Promise<void> {
 	if (spans.length === 0) {
 		return;
 	}
 
-	const endpoint = options?.endpoint || "http://localhost:4318/v1/traces";
-	const headers = options?.headers || {};
+	const endpoint = options.tracesEndpoint;
+	const headers = options.headers || {};
 
 	const body = JSON.stringify(buildOtlpRequest(spans));
 
-	const response = await fetch(endpoint, {
-		method: "POST",
-		body,
-		headers: {
-			"content-type": "application/json",
-			...headers,
-		},
-	});
+	console.log("Sending spans to", endpoint);
+	console.log("Headers:", headers);
+	console.log("Body:", body);
 
-	if (!response.ok) {
-		const error = await response.text();
-		throw new Error(
-			`Failed to send spans: ${response.status} ${response.statusText}, ${error}`,
-		);
+	try {
+		const response = await fetch(endpoint, {
+			method: "POST",
+			body,
+			headers: {
+				"content-type": "application/json",
+				...headers,
+			},
+		});
+		console.log("Response:", response.statusText);
+		console.log("Response text:", await response.text());
+
+		if (!response.ok) {
+			const error = await response.text();
+			throw new Error(
+				`Failed to send spans: ${response.status} ${response.statusText}, ${error}`,
+			);
+		}
+	} catch (error) {
+		console.error("Error sending spans:", error);
+		throw error;
 	}
 }

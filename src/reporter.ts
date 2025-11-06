@@ -23,11 +23,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	constructor(private options?: PlaywrightOpentelemetryReporterOptions) {}
 
-	onEnd(_result: FullResult) {
-		sendSpans(this.spans, {
-			endpoint:
-				this.options?.opentelemetryTracesEndpoint ||
-				"http://localhost:4318/v1/traces",
+	async onEnd(_result: FullResult) {
+		await sendSpans(this.spans, {
+			tracesEndpoint:
+				this.options?.tracesEndpoint || "http://localhost:4318/v1/traces",
+			headers: this.options?.headers,
 		});
 	}
 

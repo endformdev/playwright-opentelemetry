@@ -1,3 +1,4 @@
 export interface PlaywrightOpentelemetryReporterOptions {
-	opentelemetryTracesEndpoint: string;
+	tracesEndpoint: string;
+	headers?: Record<string, string>;
 }

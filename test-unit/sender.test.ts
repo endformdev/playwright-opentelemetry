@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Span } from "../src/reporter";
-import { sendSpans } from "../src/sender";
+import { type SendSpansOptions, sendSpans } from "../src/sender";
+
+const defaultOptions: SendSpansOptions = {
+	tracesEndpoint: "http://localhost:4318/v1/traces",
+};
 
 describe("sendSpans", () => {
 	const mockFetch = vi.fn();
@@ -31,7 +35,7 @@ describe("sendSpans", () => {
 			},
 		];
 
-		await sendSpans(spans);
+		await sendSpans(spans, defaultOptions);
 
 		expect(mockFetch).toHaveBeenCalledTimes(1);
 		expect(mockFetch).toHaveBeenCalledWith("http://localhost:4318/v1/traces", {
@@ -113,7 +117,7 @@ describe("sendSpans", () => {
 		];
 
 		await sendSpans(spans, {
-			endpoint: "https://api.honeycomb.io/v1/traces",
+			tracesEndpoint: "https://api.honeycomb.io/v1/traces",
 		});
 
 		expect(mockFetch).toHaveBeenCalledWith(
@@ -143,7 +147,7 @@ describe("sendSpans", () => {
 		];
 
 		await sendSpans(spans, {
-			endpoint: "https://api.honeycomb.io/v1/traces",
+			tracesEndpoint: "https://api.honeycomb.io/v1/traces",
 			headers: {
 				"x-honeycomb-team": "my-api-key",
 				"x-custom-header": "custom-value",
@@ -183,7 +187,7 @@ describe("sendSpans", () => {
 			},
 		];
 
-		await sendSpans(spans);
+		await sendSpans(spans, defaultOptions);
 
 		const callArgs = mockFetch.mock.calls[0];
 		const body = JSON.parse(callArgs[1].body);
@@ -220,7 +224,7 @@ describe("sendSpans", () => {
 			},
 		];
 
-		await sendSpans(spans);
+		await sendSpans(spans, defaultOptions);
 
 		const callArgs = mockFetch.mock.calls[0];
 		const body = JSON.parse(callArgs[1].body);
@@ -240,7 +244,7 @@ describe("sendSpans", () => {
 			status: 200,
 		});
 
-		await sendSpans([]);
+		await sendSpans([], defaultOptions);
 
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
@@ -267,7 +271,7 @@ describe("sendSpans", () => {
 			},
 		];
 
-		await sendSpans(spans);
+		await sendSpans(spans, defaultOptions);
 
 		const callArgs = mockFetch.mock.calls[0];
 		const body = JSON.parse(callArgs[1].body);
@@ -300,7 +304,7 @@ describe("sendSpans", () => {
 			},
 		];
 
-		await expect(sendSpans(spans)).rejects.toThrow(
+		await expect(sendSpans(spans, defaultOptions)).rejects.toThrow(
 			"Failed to send spans: 500 Internal Server Error, Server error details",
 		);
 	});
@@ -320,6 +324,8 @@ describe("sendSpans", () => {
 			},
 		];
 
-		await expect(sendSpans(spans)).rejects.toThrow("Network error");
+		await expect(sendSpans(spans, defaultOptions)).rejects.toThrow(
+			"Network error",
+		);
 	});
 });

@@ -1,5 +1,8 @@
+import fs from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 import type { PlaywrightOpentelemetryReporterOptions } from "./dist/index.mjs";
+
+loadEnv();
 
 /**
  * Read environment variables from file.
@@ -26,9 +29,13 @@ export default defineConfig({
 	reporter: [
 		[
 			"./dist/index.mjs",
-			<PlaywrightOpentelemetryReporterOptions>{
-				opentelemetryTracesEndpoint: "http://localhost:4317/v1/traces",
-			},
+			{
+				tracesEndpoint:
+					process.env.TRACES_ENDPOINT || "http://localhost:4317/v1/traces",
+				headers: {
+					Authorization: `Bearer ${process.env.TRACES_TOKEN}`,
+				},
+			} satisfies PlaywrightOpentelemetryReporterOptions,
 		],
 	],
 	/* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
@@ -55,3 +62,17 @@ export default defineConfig({
 	//   reuseExistingServer: !process.env.CI,
 	// },
 });
+
+function loadEnv() {
+	const envFile = ".env";
+	if (fs.existsSync(envFile)) {
+		const lines = fs.readFileSync(envFile, "utf-8").split("\n");
+		for (const line of lines) {
+			if (!line || line.startsWith("#")) continue;
+			const [key, value] = line.split("=");
+			if (key && value && !process.env[key]) {
+				process.env[key.trim()] = value.trim();
+			}
+		}
+	}
+}
