@@ -7,14 +7,16 @@ test("has title", async ({ page }) => {
 	await expect(page).toHaveTitle(/Playwright/);
 });
 
-test("get started link", async ({ page }) => {
-	await page.goto("https://playwright.dev/");
+test.describe("described tests", () => {
+	test("get started link", async ({ page }) => {
+		await page.goto("https://playwright.dev/");
 
-	await test.step("Check the get started page", async () => {
-		await page.getByRole("link", { name: "Get started" }).click();
+		await test.step("Check the get started page", async () => {
+			await page.getByRole("link", { name: "Get started" }).click();
 
-		await expect(
-			page.getByRole("heading", { name: "Installation" }),
-		).toBeVisible();
+			await expect(
+				page.getByRole("heading", { name: "Installation" }),
+			).toBeVisible();
+		});
 	});
 });

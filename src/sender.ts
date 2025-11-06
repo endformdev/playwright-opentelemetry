@@ -1,9 +1,9 @@
-import { version } from "../package.json" with { type: "json" };
 import type { Span } from "./reporter";
 
 export interface SendSpansOptions {
 	tracesEndpoint: string;
 	headers?: Record<string, string>;
+	playwrightVersion: string;
 }
 
 // Convert Date to nanoseconds for OTLP format
@@ -41,7 +41,7 @@ function toOtlpAttributes(
 const SPAN_KIND_INTERNAL = 1;
 
 // Build the OTLP trace export request
-function buildOtlpRequest(spans: Span[]) {
+function buildOtlpRequest(spans: Span[], playwrightVersion: string) {
 	const otlpSpans = spans.map((span) => ({
 		traceId: span.traceId,
 		spanId: span.spanId,
@@ -72,13 +72,17 @@ function buildOtlpRequest(spans: Span[]) {
 							key: "service.namespace",
 							value: { stringValue: "playwright" },
 						},
+						{
+							key: "service.version",
+							value: { stringValue: playwrightVersion },
+						},
 					],
 				},
 				scopeSpans: [
 					{
 						scope: {
 							name: "playwright-opentelemetry",
-							version,
+							version: playwrightVersion,
 						},
 						spans: otlpSpans,
 					},
@@ -99,10 +103,11 @@ export async function sendSpans(
 	const endpoint = options.tracesEndpoint;
 	const headers = options.headers || {};
 
-	const body = JSON.stringify(buildOtlpRequest(spans));
+	const body = JSON.stringify(
+		buildOtlpRequest(spans, options.playwrightVersion),
+	);
 
 	console.log("Sending spans to", endpoint);
-	console.log("Headers:", headers);
 	console.log("Body:", body);
 
 	const response = await fetch(endpoint, {

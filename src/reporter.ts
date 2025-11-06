@@ -7,11 +7,14 @@ import type {
 	TestCase,
 	TestResult,
 } from "@playwright/test/reporter";
+import type { PlaywrightOpentelemetryReporterOptions } from "./options";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
-} from "./attributes";
-import type { PlaywrightOpentelemetryReporterOptions } from "./options";
+	ATTR_TEST_CASE_NAME,
+	ATTR_TEST_CASE_RESULT_STATUS,
+} from "./otel-attributes";
+import { TEST_CASE_SPAN_NAME } from "./reporter-attributes";
 import { sendSpans } from "./sender";
 
 export type Span = {
@@ -28,6 +31,7 @@ export type Span = {
 export class PlaywrightOpentelemetryReporter implements Reporter {
 	private spans: Span[] = [];
 	private rootDir?: string;
+	private playwrightVersion?: string;
 
 	constructor(private options: PlaywrightOpentelemetryReporterOptions) {
 		if (!options || !options.tracesEndpoint) {
@@ -38,12 +42,15 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	onBegin(config: FullConfig, _suite: Suite) {
 		// Store rootDir for calculating relative paths
 		this.rootDir = config.rootDir;
+		// Store Playwright version for service.version attribute
+		this.playwrightVersion = config.version;
 	}
 
 	async onEnd(_result: FullResult) {
 		await sendSpans(this.spans, {
 			tracesEndpoint: this.options.tracesEndpoint,
 			headers: this.options.headers,
+			playwrightVersion: this.playwrightVersion || "unknown",
 		});
 	}
 
@@ -55,6 +62,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const attributes: Record<string, string | number | boolean> = {
 			"test.status": result.status,
 		};
+
+		// Add test case name from titlePath
+		// titlePath format: ['', 'project', 'filename', ...describes, 'testname']
+		// We want: [...describes, 'testname'] joined with ' > '
+		const titlePath = test.titlePath();
+		if (titlePath.length >= 3) {
+			// Skip root (''), project name, and filename to get describes and test name
+			const caseName = titlePath.slice(3).join(" > ");
+			attributes[ATTR_TEST_CASE_NAME] = caseName;
+		}
+
+		// Add test case result status
+		attributes[ATTR_TEST_CASE_RESULT_STATUS] = result.status;
 
 		// Add code location attributes if available
 		if (test.location) {
@@ -72,11 +92,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const span: Span = {
 			traceId: generateTraceId(),
 			spanId: generateSpanId(),
-			name: test.title,
+			name: TEST_CASE_SPAN_NAME,
 			startTime: result.startTime,
 			endTime: new Date(result.startTime.getTime() + result.duration),
 			attributes,
-			status: { code: result.status === "passed" ? 1 : 2 }, // 1=OK, 2=ERROR
+			status: { code: result.status === test.expectedStatus ? 1 : 2 }, // 1=OK, 2=ERROR
 		};
 
 		this.spans.push(span);

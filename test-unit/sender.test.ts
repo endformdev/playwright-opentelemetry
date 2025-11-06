@@ -4,6 +4,7 @@ import { type SendSpansOptions, sendSpans } from "../src/sender";
 
 const defaultOptions: SendSpansOptions = {
 	tracesEndpoint: "http://localhost:4318/v1/traces",
+	playwrightVersion: "1.56.1",
 };
 
 describe("sendSpans", () => {
@@ -62,6 +63,10 @@ describe("sendSpans", () => {
 								key: "service.namespace",
 								value: { stringValue: "playwright" },
 							},
+							{
+								key: "service.version",
+								value: { stringValue: expect.any(String) },
+							},
 						],
 					},
 					scopeSpans: [
@@ -118,6 +123,7 @@ describe("sendSpans", () => {
 
 		await sendSpans(spans, {
 			tracesEndpoint: "https://api.honeycomb.io/v1/traces",
+			playwrightVersion: "1.56.1",
 		});
 
 		expect(mockFetch).toHaveBeenCalledWith(
@@ -152,6 +158,7 @@ describe("sendSpans", () => {
 				"x-honeycomb-team": "my-api-key",
 				"x-custom-header": "custom-value",
 			},
+			playwrightVersion: "1.56.1",
 		});
 
 		expect(mockFetch).toHaveBeenCalledWith(
@@ -327,5 +334,38 @@ describe("sendSpans", () => {
 		await expect(sendSpans(spans, defaultOptions)).rejects.toThrow(
 			"Network error",
 		);
+	});
+
+	test("uses playwright version as service.version when provided", async () => {
+		mockFetch.mockResolvedValue({
+			ok: true,
+			status: 200,
+		});
+
+		const spans: Span[] = [
+			{
+				traceId: "trace1",
+				spanId: "span1",
+				name: "test span",
+				startTime: new Date("2001-09-09T01:46:40.000Z"),
+				endTime: new Date("2001-09-09T01:46:40.500Z"),
+				attributes: {},
+				status: { code: 1 },
+			},
+		];
+
+		await sendSpans(spans, {
+			...defaultOptions,
+			playwrightVersion: "1.56.1",
+		});
+
+		const callArgs = mockFetch.mock.calls[0];
+		const body = JSON.parse(callArgs[1].body);
+
+		const serviceVersionAttr = body.resourceSpans[0].resource.attributes.find(
+			(attr: { key: string }) => attr.key === "service.version",
+		);
+
+		expect(serviceVersionAttr.value.stringValue).toBe("1.56.1");
 	});
 });
