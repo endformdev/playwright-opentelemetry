@@ -5,18 +5,37 @@ export interface SendSpansOptions {
 	headers?: Record<string, string>;
 }
 
-// Convert span attributes to OTLP format
-function toOtlpAttributes(
-	attributes: Array<{
-		key: string;
-		value: { stringValue?: string; intValue?: number; boolValue?: boolean };
-	}>,
-) {
-	return attributes.map((attr) => ({
-		key: attr.key,
-		value: attr.value,
-	}));
+// Convert Date to nanoseconds for OTLP format
+function dateToNanoseconds(date: Date): string {
+	return (BigInt(date.getTime()) * BigInt(1_000_000)).toString();
 }
+
+// Convert simple attributes to OTLP format
+function toOtlpAttributes(attributes: Record<string, string | number | boolean>) {
+	return Object.entries(attributes).map(([key, value]) => {
+		if (typeof value === "number") {
+			return {
+				key,
+				value: Number.isInteger(value)
+					? { intValue: value }
+					: { doubleValue: value },
+			};
+		} else if (typeof value === "boolean") {
+			return {
+				key,
+				value: { boolValue: value },
+			};
+		} else {
+			return {
+				key,
+				value: { stringValue: value },
+			};
+		}
+	});
+}
+
+// SPAN_KIND_INTERNAL = 1
+const SPAN_KIND_INTERNAL = 1;
 
 // Build the OTLP trace export request
 function buildOtlpRequest(spans: Span[]) {
@@ -25,9 +44,9 @@ function buildOtlpRequest(spans: Span[]) {
 		spanId: span.spanId,
 		parentSpanId: span.parentSpanId || undefined,
 		name: span.name,
-		kind: span.kind,
-		startTimeUnixNano: span.startTimeUnixNano,
-		endTimeUnixNano: span.endTimeUnixNano,
+		kind: SPAN_KIND_INTERNAL,
+		startTimeUnixNano: dateToNanoseconds(span.startTime),
+		endTimeUnixNano: dateToNanoseconds(span.endTime),
 		attributes: toOtlpAttributes(span.attributes),
 		droppedAttributesCount: 0,
 		events: [],

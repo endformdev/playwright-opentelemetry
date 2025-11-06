@@ -20,7 +20,7 @@ test("sends a span for a test that ran", () => {
 
 	// Create the reporter
 	const reporter = new PlaywrightOpentelemetryReporter({
-		opentelemetryEndpoint: "http://localhost:4317",
+		opentelemetryTracesEndpoint: "http://localhost:4317/v1/traces",
 	});
 
 	// Create a mock test case
@@ -46,17 +46,16 @@ test("sends a span for a test that ran", () => {
 		expect.arrayContaining([
 			expect.objectContaining({
 				name: "example test",
-				kind: 1, // SPAN_KIND_INTERNAL
-				startTimeUnixNano: "1762423200000000000",
-				endTimeUnixNano: "1762423201500000000",
-				attributes: [{ key: "test.status", value: { stringValue: "passed" } }],
+				startTime: new Date("2025-11-06T10:00:00.000Z"),
+				endTime: new Date("2025-11-06T10:00:01.500Z"),
+				attributes: { "test.status": "passed" },
 				status: { code: 1 }, // OK
 				traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
 				spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
 			}),
 		]),
 		{
-			endpoint: "http://localhost:4317",
+			endpoint: "http://localhost:4317/v1/traces",
 		},
 	);
 });

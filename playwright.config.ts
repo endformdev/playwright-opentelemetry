@@ -27,7 +27,7 @@ export default defineConfig({
 		[
 			"./dist/index.mjs",
 			<PlaywrightOpentelemetryReporterOptions>{
-				opentelemetryEndpoint: "http://localhost:4317",
+				opentelemetryTracesEndpoint: "http://localhost:4317/v1/traces",
 			},
 		],
 	],

@@ -12,13 +12,9 @@ export type Span = {
 	spanId: string;
 	parentSpanId?: string;
 	name: string;
-	kind: number;
-	startTimeUnixNano: string;
-	endTimeUnixNano: string;
-	attributes: Array<{
-		key: string;
-		value: { stringValue?: string; intValue?: number; boolValue?: boolean };
-	}>;
+	startTime: Date;
+	endTime: Date;
+	attributes: Record<string, string | number | boolean>;
 	status: { code: number };
 };
 
@@ -30,7 +26,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	onEnd(_result: FullResult) {
 		sendSpans(this.spans, {
 			endpoint:
-				this.options?.opentelemetryEndpoint ||
+				this.options?.opentelemetryTracesEndpoint ||
 				"http://localhost:4318/v1/traces",
 		});
 	}
@@ -44,14 +40,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			traceId: this.generateTraceId(),
 			spanId: this.generateSpanId(),
 			name: test.title,
-			kind: 1, // SPAN_KIND_INTERNAL
-			startTimeUnixNano: String(result.startTime.getTime() * 1_000_000),
-			endTimeUnixNano: String(
-				(result.startTime.getTime() + result.duration) * 1_000_000,
-			),
-			attributes: [
-				{ key: "test.status", value: { stringValue: result.status } },
-			],
+			startTime: result.startTime,
+			endTime: new Date(result.startTime.getTime() + result.duration),
+			attributes: {
+				"test.status": result.status,
+			},
 			status: { code: result.status === "passed" ? 1 : 2 }, // 1=OK, 2=ERROR
 		};
 
