@@ -22,11 +22,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private spans: Span[] = [];
 
 	constructor(private options: PlaywrightOpentelemetryReporterOptions) {
-		if (!options) {
-			throw new Error(getConfigurationErrorMessage());
-		}
-
-		if (!options.tracesEndpoint) {
+		if (!options || !options.tracesEndpoint) {
 			throw new Error(getConfigurationErrorMessage());
 		}
 	}
