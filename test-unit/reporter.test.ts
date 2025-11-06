@@ -7,9 +7,8 @@ import type {
 } from "@playwright/test/reporter";
 import { expect, test, vi } from "vitest";
 import {
-	ATTR_CODE_COLUMN,
-	ATTR_CODE_FILEPATH,
-	ATTR_CODE_LINENO,
+	ATTR_CODE_FILE_PATH,
+	ATTR_CODE_LINE_NUMBER,
 } from "../src/attributes";
 import PlaywrightOpentelemetryReporter from "../src";
 
@@ -68,9 +67,8 @@ test("sends a span for a test that ran", () => {
 				endTime: new Date("2025-11-06T10:00:01.500Z"),
 				attributes: {
 					"test.status": "passed",
-					[ATTR_CODE_FILEPATH]: "example.spec.ts",
-					[ATTR_CODE_LINENO]: 3,
-					[ATTR_CODE_COLUMN]: 1,
+					[ATTR_CODE_FILE_PATH]: "example.spec.ts",
+					[ATTR_CODE_LINE_NUMBER]: 3,
 				},
 				status: { code: 1 }, // OK
 				traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
@@ -135,9 +133,8 @@ test("handles test without location information", () => {
 
 	// Verify no code attributes are present
 	const spans = (sendSpans as any).mock.calls[0][0];
-	expect(spans[0].attributes).not.toHaveProperty(ATTR_CODE_FILEPATH);
-	expect(spans[0].attributes).not.toHaveProperty(ATTR_CODE_LINENO);
-	expect(spans[0].attributes).not.toHaveProperty(ATTR_CODE_COLUMN);
+	expect(spans[0].attributes).not.toHaveProperty(ATTR_CODE_FILE_PATH);
+	expect(spans[0].attributes).not.toHaveProperty(ATTR_CODE_LINE_NUMBER);
 });
 
 test("calculates relative path correctly for nested directories", () => {
@@ -180,7 +177,6 @@ test("calculates relative path correctly for nested directories", () => {
 	// Verify sendSpans was called
 	expect(sendSpans).toHaveBeenCalledTimes(1);
 	const spans = (sendSpans as any).mock.calls[0][0];
-	expect(spans[0].attributes[ATTR_CODE_FILEPATH]).toBe("sub/dir/nested.spec.ts");
-	expect(spans[0].attributes[ATTR_CODE_LINENO]).toBe(10);
-	expect(spans[0].attributes[ATTR_CODE_COLUMN]).toBe(5);
+	expect(spans[0].attributes[ATTR_CODE_FILE_PATH]).toBe("sub/dir/nested.spec.ts");
+	expect(spans[0].attributes[ATTR_CODE_LINE_NUMBER]).toBe(10);
 });

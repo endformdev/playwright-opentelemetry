@@ -8,9 +8,8 @@ import type {
 	TestResult,
 } from "@playwright/test/reporter";
 import {
-	ATTR_CODE_COLUMN,
-	ATTR_CODE_FILEPATH,
-	ATTR_CODE_LINENO,
+	ATTR_CODE_FILE_PATH,
+	ATTR_CODE_LINE_NUMBER,
 } from "./attributes";
 import type { PlaywrightOpentelemetryReporterOptions } from "./options";
 import { sendSpans } from "./sender";
@@ -59,16 +58,15 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		// Add code location attributes if available
 		if (test.location) {
-			const { file, line, column } = test.location;
+			const { file, line } = test.location;
 
 			// Calculate relative path from rootDir
 			const relativePath = this.rootDir
 				? path.relative(this.rootDir, file)
 				: file;
 
-			attributes[ATTR_CODE_FILEPATH] = relativePath;
-			attributes[ATTR_CODE_LINENO] = line;
-			attributes[ATTR_CODE_COLUMN] = column;
+			attributes[ATTR_CODE_FILE_PATH] = relativePath;
+			attributes[ATTR_CODE_LINE_NUMBER] = line;
 		}
 
 		const span: Span = {
