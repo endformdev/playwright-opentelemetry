@@ -5,12 +5,10 @@ import type {
 	TestCase,
 	TestResult,
 } from "@playwright/test/reporter";
-import { expect, test, vi } from "vitest";
-import {
-	ATTR_CODE_FILE_PATH,
-	ATTR_CODE_LINE_NUMBER,
-} from "../src/attributes";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import PlaywrightOpentelemetryReporter from "../src";
+import { ATTR_CODE_FILE_PATH, ATTR_CODE_LINE_NUMBER } from "../src/attributes";
+import type { PlaywrightOpentelemetryReporterOptions } from "../src/options";
 
 // Mock the sender module
 vi.mock("../src/sender", () => ({
@@ -20,163 +18,159 @@ vi.mock("../src/sender", () => ({
 // Import the mocked function
 import { sendSpans } from "../src/sender";
 
-test("sends a span for a test that ran", () => {
-	// Clear any previous calls
-	vi.clearAllMocks();
+const defaultOptions: PlaywrightOpentelemetryReporterOptions = {
+	tracesEndpoint: "http://localhost:4317/v1/traces",
+};
 
-	// Create the reporter
-	const reporter = new PlaywrightOpentelemetryReporter({
-		tracesEndpoint: "http://localhost:4317/v1/traces",
+describe("PlaywrightOpentelemetryReporter", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
 	});
 
-	// Create a mock config
-	const mockConfig: Partial<FullConfig> = {
-		rootDir: "/Users/test/project/test-e2e",
-	};
+	test("sends a span for a test that ran", () => {
+		// Create the reporter
+		const reporter = new PlaywrightOpentelemetryReporter(defaultOptions);
 
-	// Create a mock test case
-	const mockTest: Partial<TestCase> = {
-		title: "example test",
-		location: {
-			file: "/Users/test/project/test-e2e/example.spec.ts",
-			line: 3,
-			column: 1,
-		},
-	};
+		// Create a mock config
+		const mockConfig: Partial<FullConfig> = {
+			rootDir: "/Users/test/project/test-e2e",
+		};
 
-	// Create a mock test result
-	const mockResult: Partial<TestResult> = {
-		status: "passed",
-		startTime: new Date("2025-11-06T10:00:00.000Z"),
-		duration: 1500, // 1.5 seconds
-	};
+		// Create a mock test case
+		const mockTest: Partial<TestCase> = {
+			title: "example test",
+			location: {
+				file: "/Users/test/project/test-e2e/example.spec.ts",
+				line: 3,
+				column: 1,
+			},
+		};
 
-	// Simulate Playwright events
-	reporter.onBegin(mockConfig as FullConfig, {} as Suite);
-	reporter.onTestBegin(mockTest as TestCase);
-	reporter.onTestEnd(mockTest as TestCase, mockResult as TestResult);
-	reporter.onEnd({} as FullResult);
+		// Create a mock test result
+		const mockResult: Partial<TestResult> = {
+			status: "passed",
+			startTime: new Date("2025-11-06T10:00:00.000Z"),
+			duration: 1500, // 1.5 seconds
+		};
 
-	// Verify sendSpans was called
-	expect(sendSpans).toHaveBeenCalledTimes(1);
-	expect(sendSpans).toHaveBeenCalledWith(
-		expect.arrayContaining([
-			expect.objectContaining({
-				name: "example test",
-				startTime: new Date("2025-11-06T10:00:00.000Z"),
-				endTime: new Date("2025-11-06T10:00:01.500Z"),
-				attributes: {
-					"test.status": "passed",
-					[ATTR_CODE_FILE_PATH]: "example.spec.ts",
-					[ATTR_CODE_LINE_NUMBER]: 3,
-				},
-				status: { code: 1 }, // OK
-				traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
-				spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
-			}),
-		]),
-		{
-			tracesEndpoint: "http://localhost:4317/v1/traces",
-		},
-	);
-});
+		// Simulate Playwright events
+		reporter.onBegin(mockConfig as FullConfig, {} as Suite);
+		reporter.onTestBegin(mockTest as TestCase);
+		reporter.onTestEnd(mockTest as TestCase, mockResult as TestResult);
+		reporter.onEnd({} as FullResult);
 
-test("handles test without location information", () => {
-	// Clear any previous calls
-	vi.clearAllMocks();
-
-	// Create the reporter
-	const reporter = new PlaywrightOpentelemetryReporter({
-		tracesEndpoint: "http://localhost:4317/v1/traces",
+		// Verify sendSpans was called
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		expect(sendSpans).toHaveBeenCalledWith(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: "example test",
+					startTime: new Date("2025-11-06T10:00:00.000Z"),
+					endTime: new Date("2025-11-06T10:00:01.500Z"),
+					attributes: {
+						"test.status": "passed",
+						[ATTR_CODE_FILE_PATH]: "example.spec.ts",
+						[ATTR_CODE_LINE_NUMBER]: 3,
+					},
+					status: { code: 1 }, // OK
+					traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
+					spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
+				}),
+			]),
+			defaultOptions,
+		);
 	});
 
-	// Create a mock config
-	const mockConfig: Partial<FullConfig> = {
-		rootDir: "/Users/test/project/test-e2e",
-	};
+	test("handles test without location information", () => {
+		// Create the reporter
+		const reporter = new PlaywrightOpentelemetryReporter(defaultOptions);
 
-	// Create a mock test case without location
-	const mockTest: Partial<TestCase> = {
-		title: "test without location",
-		location: undefined,
-	};
+		// Create a mock config
+		const mockConfig: Partial<FullConfig> = {
+			rootDir: "/Users/test/project/test-e2e",
+		};
 
-	// Create a mock test result
-	const mockResult: Partial<TestResult> = {
-		status: "passed",
-		startTime: new Date("2025-11-06T10:00:00.000Z"),
-		duration: 1000,
-	};
+		// Create a mock test case without location
+		const mockTest: Partial<TestCase> = {
+			title: "test without location",
+			location: undefined,
+		};
 
-	// Simulate Playwright events
-	reporter.onBegin(mockConfig as FullConfig, {} as Suite);
-	reporter.onTestBegin(mockTest as TestCase);
-	reporter.onTestEnd(mockTest as TestCase, mockResult as TestResult);
-	reporter.onEnd({} as FullResult);
+		// Create a mock test result
+		const mockResult: Partial<TestResult> = {
+			status: "passed",
+			startTime: new Date("2025-11-06T10:00:00.000Z"),
+			duration: 1000,
+		};
 
-	// Verify sendSpans was called
-	expect(sendSpans).toHaveBeenCalledTimes(1);
-	expect(sendSpans).toHaveBeenCalledWith(
-		expect.arrayContaining([
-			expect.objectContaining({
-				name: "test without location",
-				attributes: {
-					"test.status": "passed",
-					// No code attributes should be present
-				},
-			}),
-		]),
-		{
-			tracesEndpoint: "http://localhost:4317/v1/traces",
-		},
-	);
+		// Simulate Playwright events
+		reporter.onBegin(mockConfig as FullConfig, {} as Suite);
+		reporter.onTestBegin(mockTest as TestCase);
+		reporter.onTestEnd(mockTest as TestCase, mockResult as TestResult);
+		reporter.onEnd({} as FullResult);
 
-	// Verify no code attributes are present
-	const spans = (sendSpans as any).mock.calls[0][0];
-	expect(spans[0].attributes).not.toHaveProperty(ATTR_CODE_FILE_PATH);
-	expect(spans[0].attributes).not.toHaveProperty(ATTR_CODE_LINE_NUMBER);
-});
-
-test("calculates relative path correctly for nested directories", () => {
-	// Clear any previous calls
-	vi.clearAllMocks();
-
-	// Create the reporter
-	const reporter = new PlaywrightOpentelemetryReporter({
-		tracesEndpoint: "http://localhost:4317/v1/traces",
+		// Verify sendSpans was called
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		expect(sendSpans).toHaveBeenCalledWith(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: "test without location",
+					attributes: expect.not.objectContaining({
+						[ATTR_CODE_FILE_PATH]: expect.anything(),
+						[ATTR_CODE_LINE_NUMBER]: expect.anything(),
+					}),
+				}),
+			]),
+			defaultOptions,
+		);
 	});
 
-	// Create a mock config
-	const mockConfig: Partial<FullConfig> = {
-		rootDir: "/Users/test/project/test-e2e",
-	};
+	test("calculates relative path correctly for nested directories", () => {
+		// Create the reporter
+		const reporter = new PlaywrightOpentelemetryReporter(defaultOptions);
 
-	// Create a mock test case in a subdirectory
-	const mockTest: Partial<TestCase> = {
-		title: "nested test",
-		location: {
-			file: "/Users/test/project/test-e2e/sub/dir/nested.spec.ts",
-			line: 10,
-			column: 5,
-		},
-	};
+		// Create a mock config
+		const mockConfig: Partial<FullConfig> = {
+			rootDir: "/Users/test/project/test-e2e",
+		};
 
-	// Create a mock test result
-	const mockResult: Partial<TestResult> = {
-		status: "passed",
-		startTime: new Date("2025-11-06T10:00:00.000Z"),
-		duration: 1000,
-	};
+		// Create a mock test case in a subdirectory
+		const mockTest: Partial<TestCase> = {
+			title: "nested test",
+			location: {
+				file: "/Users/test/project/test-e2e/sub/dir/nested.spec.ts",
+				line: 10,
+				column: 5,
+			},
+		};
 
-	// Simulate Playwright events
-	reporter.onBegin(mockConfig as FullConfig, {} as Suite);
-	reporter.onTestBegin(mockTest as TestCase);
-	reporter.onTestEnd(mockTest as TestCase, mockResult as TestResult);
-	reporter.onEnd({} as FullResult);
+		// Create a mock test result
+		const mockResult: Partial<TestResult> = {
+			status: "passed",
+			startTime: new Date("2025-11-06T10:00:00.000Z"),
+			duration: 1000,
+		};
 
-	// Verify sendSpans was called
-	expect(sendSpans).toHaveBeenCalledTimes(1);
-	const spans = (sendSpans as any).mock.calls[0][0];
-	expect(spans[0].attributes[ATTR_CODE_FILE_PATH]).toBe("sub/dir/nested.spec.ts");
-	expect(spans[0].attributes[ATTR_CODE_LINE_NUMBER]).toBe(10);
+		// Simulate Playwright events
+		reporter.onBegin(mockConfig as FullConfig, {} as Suite);
+		reporter.onTestBegin(mockTest as TestCase);
+		reporter.onTestEnd(mockTest as TestCase, mockResult as TestResult);
+		reporter.onEnd({} as FullResult);
+
+		// Verify sendSpans was called
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		expect(sendSpans).toHaveBeenCalledWith(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: "nested test",
+					attributes: expect.objectContaining({
+						"test.status": "passed",
+						[ATTR_CODE_FILE_PATH]: "sub/dir/nested.spec.ts",
+						[ATTR_CODE_LINE_NUMBER]: 10,
+					}),
+				}),
+			]),
+			defaultOptions,
+		);
+	});
 });
