@@ -1,20 +1,6 @@
-import type {
-	FullResult,
-	Reporter,
-	TestCase,
-	TestResult,
-} from "@playwright/test/reporter";
+import type { PlaywrightOpentelemetryReporterOptions } from "./options";
+import { PlaywrightOpentelemetryReporter } from "./reporter";
 
-export default class PlaywrightOpentelemetryReporter implements Reporter {
-	onEnd(result: FullResult) {
-		console.log(result);
-	}
-
-	onTestBegin(test: TestCase) {
-		console.log(test.title);
-	}
-
-	onTestEnd(test: TestCase, result: TestResult) {
-		console.log(test.title, result.status);
-	}
-}
+export type { PlaywrightOpentelemetryReporterOptions };
+export type { Span } from "./reporter";
+export default PlaywrightOpentelemetryReporter;
