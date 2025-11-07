@@ -20,7 +20,7 @@ vi.mock("../src/sender", () => ({
 	sendSpans: vi.fn(),
 }));
 
-import { TEST_CASE_SPAN_NAME } from "../src/reporter-attributes";
+import { TEST_SPAN_NAME } from "../src/reporter-attributes";
 // Import the mocked function
 import { sendSpans } from "../src/sender";
 
@@ -73,7 +73,7 @@ describe("PlaywrightOpentelemetryReporter", () => {
 		expect(sendSpans).toHaveBeenCalledWith(
 			expect.arrayContaining([
 				expect.objectContaining({
-					name: TEST_CASE_SPAN_NAME,
+					name: TEST_SPAN_NAME,
 					startTime: new Date("2025-11-06T10:00:00.000Z"),
 					endTime: new Date("2025-11-06T10:00:01.500Z"),
 					attributes: {
@@ -135,7 +135,7 @@ describe("PlaywrightOpentelemetryReporter", () => {
 		expect(sendSpans).toHaveBeenCalledWith(
 			expect.arrayContaining([
 				expect.objectContaining({
-					name: TEST_CASE_SPAN_NAME,
+					name: TEST_SPAN_NAME,
 					attributes: expect.not.objectContaining({
 						[ATTR_CODE_FILE_PATH]: expect.anything(),
 						[ATTR_CODE_LINE_NUMBER]: expect.anything(),
@@ -189,7 +189,7 @@ describe("PlaywrightOpentelemetryReporter", () => {
 		expect(sendSpans).toHaveBeenCalledWith(
 			expect.arrayContaining([
 				expect.objectContaining({
-					name: TEST_CASE_SPAN_NAME,
+					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]: "nested test",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
@@ -251,7 +251,7 @@ describe("PlaywrightOpentelemetryReporter", () => {
 		expect(sendSpans).toHaveBeenCalledWith(
 			expect.arrayContaining([
 				expect.objectContaining({
-					name: TEST_CASE_SPAN_NAME,
+					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]: "described tests > get started link",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
@@ -315,7 +315,7 @@ describe("PlaywrightOpentelemetryReporter", () => {
 		expect(sendSpans).toHaveBeenCalledWith(
 			expect.arrayContaining([
 				expect.objectContaining({
-					name: TEST_CASE_SPAN_NAME,
+					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]:
 							"Feature A > Scenario 1 > Case B > should work correctly",
@@ -372,7 +372,7 @@ describe("PlaywrightOpentelemetryReporter", () => {
 		expect(sendSpans).toHaveBeenCalledWith(
 			expect.arrayContaining([
 				expect.objectContaining({
-					name: TEST_CASE_SPAN_NAME,
+					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]: "failing test",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "failed",
@@ -429,7 +429,7 @@ describe("PlaywrightOpentelemetryReporter", () => {
 		expect(sendSpans).toHaveBeenCalledWith(
 			expect.arrayContaining([
 				expect.objectContaining({
-					name: TEST_CASE_SPAN_NAME,
+					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]: "expected to fail",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "failed",

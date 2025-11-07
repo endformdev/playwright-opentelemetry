@@ -14,7 +14,7 @@ import {
 	ATTR_TEST_CASE_NAME,
 	ATTR_TEST_CASE_RESULT_STATUS,
 } from "./otel-attributes";
-import { TEST_CASE_SPAN_NAME } from "./reporter-attributes";
+import { TEST_SPAN_NAME } from "./reporter-attributes";
 import { sendSpans } from "./sender";
 
 export type Span = {
@@ -90,7 +90,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const span: Span = {
 			traceId: generateTraceId(),
 			spanId: generateSpanId(),
-			name: TEST_CASE_SPAN_NAME,
+			name: TEST_SPAN_NAME,
 			startTime: result.startTime,
 			endTime: new Date(result.startTime.getTime() + result.duration),
 			attributes,
