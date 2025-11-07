@@ -7,4 +7,8 @@ We're just getting started, this project is in early development. Reach out if y
 ## Development
 
 - `pnpm dev` starts a dev server that outputs `dist/index.mjs`
-- `pnpm playwright test` uses the compiled reporter output
+- `pnpm build` otherwise creates a one-off compiled build
+- `pnpm test:unit` to run the unit tests
+- `pnpm test:e2e` uses the compiled reporter output
+- `pnpm typecheck` for typescript
+- `pnpm format` to format files
