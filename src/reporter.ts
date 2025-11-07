@@ -59,9 +59,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	onTestEnd(test: TestCase, result: TestResult) {
-		const attributes: Record<string, string | number | boolean> = {
-			"test.status": result.status,
-		};
+		const attributes: Record<string, string | number | boolean> = {};
 
 		// Add test case name from titlePath
 		// titlePath format: ['', 'project', 'filename', ...describes, 'testname']

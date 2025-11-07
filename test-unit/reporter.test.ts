@@ -77,7 +77,6 @@ describe("PlaywrightOpentelemetryReporter", () => {
 					startTime: new Date("2025-11-06T10:00:00.000Z"),
 					endTime: new Date("2025-11-06T10:00:01.500Z"),
 					attributes: {
-						"test.status": "passed",
 						[ATTR_TEST_CASE_NAME]: "example test",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
 						[ATTR_CODE_FILE_PATH]: "example.spec.ts",
@@ -192,7 +191,6 @@ describe("PlaywrightOpentelemetryReporter", () => {
 				expect.objectContaining({
 					name: TEST_CASE_SPAN_NAME,
 					attributes: expect.objectContaining({
-						"test.status": "passed",
 						[ATTR_TEST_CASE_NAME]: "nested test",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
 						[ATTR_CODE_FILE_PATH]: "sub/dir/nested.spec.ts",
@@ -255,7 +253,6 @@ describe("PlaywrightOpentelemetryReporter", () => {
 				expect.objectContaining({
 					name: TEST_CASE_SPAN_NAME,
 					attributes: expect.objectContaining({
-						"test.status": "passed",
 						[ATTR_TEST_CASE_NAME]: "described tests > get started link",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
 						[ATTR_CODE_FILE_PATH]: "example.spec.ts",
@@ -320,7 +317,6 @@ describe("PlaywrightOpentelemetryReporter", () => {
 				expect.objectContaining({
 					name: TEST_CASE_SPAN_NAME,
 					attributes: expect.objectContaining({
-						"test.status": "passed",
 						[ATTR_TEST_CASE_NAME]:
 							"Feature A > Scenario 1 > Case B > should work correctly",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
@@ -378,7 +374,6 @@ describe("PlaywrightOpentelemetryReporter", () => {
 				expect.objectContaining({
 					name: TEST_CASE_SPAN_NAME,
 					attributes: expect.objectContaining({
-						"test.status": "failed",
 						[ATTR_TEST_CASE_NAME]: "failing test",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "failed",
 						[ATTR_CODE_FILE_PATH]: "test.spec.ts",
@@ -436,7 +431,6 @@ describe("PlaywrightOpentelemetryReporter", () => {
 				expect.objectContaining({
 					name: TEST_CASE_SPAN_NAME,
 					attributes: expect.objectContaining({
-						"test.status": "failed",
 						[ATTR_TEST_CASE_NAME]: "expected to fail",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "failed",
 						[ATTR_CODE_FILE_PATH]: "test.spec.ts",
