@@ -1,3 +1,4 @@
+import { version } from "../package.json" with { type: "json" };
 import type { Span } from "./reporter";
 
 export interface SendSpansOptions {
@@ -82,7 +83,7 @@ function buildOtlpRequest(spans: Span[], playwrightVersion: string) {
 					{
 						scope: {
 							name: "playwright-opentelemetry",
-							version: playwrightVersion,
+							version,
 						},
 						spans: otlpSpans,
 					},

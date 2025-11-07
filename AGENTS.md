@@ -1,8 +1,6 @@
 # Agent Guidelines for playwright-opentelemetry
 
 ## Build & Test Commands
-- `pnpm build` - Build the project using tsdown
-- `pnpm dev` - Watch mode build
 - `pnpm test:unit` - Run all unit tests (vitest)
 - `pnpm test:e2e` - Run e2e tests (playwright)
 - `pnpm typecheck` - Type checking with tsc

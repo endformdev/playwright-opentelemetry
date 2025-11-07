@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
-import type { PlaywrightOpentelemetryReporterOptions } from "./dist/index.mjs";
+import type { PlaywrightOpentelemetryReporterOptions } from "./src/index.ts";
 
 loadEnv();
 
@@ -20,7 +20,7 @@ export default defineConfig({
 	/* Reporter to use. See https://playwright.dev/docs/test-reporters */
 	reporter: [
 		[
-			"./dist/index.mjs",
+			"./src/index.ts",
 			{
 				tracesEndpoint:
 					process.env.TRACES_ENDPOINT || "http://localhost:4317/v1/traces",
