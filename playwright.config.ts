@@ -4,6 +4,14 @@ import type { PlaywrightOpentelemetryReporterOptions } from "./dist/index.mjs";
 
 loadEnv();
 
+if (!process.env.TRACES_ENDPOINT) {
+	throw new Error("TRACES_ENDPOINT is not set");
+}
+
+if (!process.env.TRACES_TOKEN) {
+	throw new Error("TRACES_TOKEN is not set");
+}
+
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
@@ -22,8 +30,7 @@ export default defineConfig({
 		[
 			"./dist/index.mjs",
 			{
-				tracesEndpoint:
-					process.env.TRACES_ENDPOINT || "http://localhost:4317/v1/traces",
+				tracesEndpoint: process.env.TRACES_ENDPOINT,
 				headers: {
 					Authorization: `Bearer ${process.env.TRACES_TOKEN}`,
 				},
