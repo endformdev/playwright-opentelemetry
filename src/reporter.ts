@@ -127,11 +127,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		traceId: string,
 		parentTitlePath: string[],
 	) {
-		// Only create spans for test.step category
-		if (step.category !== "test.step") {
-			return;
-		}
-
 		const attributes: Record<string, string | number | boolean> = {};
 
 		// Build the full title path for this step

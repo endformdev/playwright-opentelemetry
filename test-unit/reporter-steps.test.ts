@@ -607,7 +607,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(testSpan.name).toBe(TEST_SPAN_NAME);
 	});
 
-	test("filters out non-test.step categories", () => {
+	test("includes all step categories", () => {
 		const reporter = new PlaywrightOpentelemetryReporter(defaultOptions);
 
 		const mockConfig: Partial<FullConfig> = {
@@ -677,14 +677,38 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(sendSpans).toHaveBeenCalledTimes(1);
 		const [spans] = (sendSpans as any).mock.calls[0];
 
-		// Should have 2 spans: 1 test span + 1 test.step span (others filtered out)
-		expect(spans).toHaveLength(2);
+		// Should have 4 spans: 1 test span + 3 step spans (all categories included)
+		expect(spans).toHaveLength(4);
 
 		const stepSpans = spans.filter((s: Span) => s.name === TEST_STEP_SPAN_NAME);
-		expect(stepSpans).toHaveLength(1);
-		expect(stepSpans[0].attributes[ATTR_TEST_STEP_NAME]).toBe("User step");
-		expect(stepSpans[0].attributes[ATTR_TEST_STEP_TITLE]).toBe("User step");
-		expect(stepSpans[0].attributes[ATTR_TEST_STEP_CATEGORY]).toBe("test.step");
+		expect(stepSpans).toHaveLength(3);
+
+		// Find each step by category
+		const testStepSpan = stepSpans.find(
+			(s: Span) => s.attributes[ATTR_TEST_STEP_CATEGORY] === "test.step",
+		);
+		const expectStepSpan = stepSpans.find(
+			(s: Span) => s.attributes[ATTR_TEST_STEP_CATEGORY] === "expect",
+		);
+		const apiStepSpan = stepSpans.find(
+			(s: Span) => s.attributes[ATTR_TEST_STEP_CATEGORY] === "pw:api",
+		);
+
+		expect(testStepSpan).toBeDefined();
+		expect(testStepSpan?.attributes[ATTR_TEST_STEP_NAME]).toBe("User step");
+		expect(testStepSpan?.attributes[ATTR_TEST_STEP_TITLE]).toBe("User step");
+
+		expect(expectStepSpan).toBeDefined();
+		expect(expectStepSpan?.attributes[ATTR_TEST_STEP_NAME]).toBe(
+			"expect.toBeVisible",
+		);
+		expect(expectStepSpan?.attributes[ATTR_TEST_STEP_TITLE]).toBe(
+			"expect.toBeVisible",
+		);
+
+		expect(apiStepSpan).toBeDefined();
+		expect(apiStepSpan?.attributes[ATTR_TEST_STEP_NAME]).toBe("page.click");
+		expect(apiStepSpan?.attributes[ATTR_TEST_STEP_TITLE]).toBe("page.click");
 	});
 
 	test("handles complex nested structure with mixed step types", () => {
@@ -698,7 +722,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		// Nested structure:
 		// Step 1 (test.step)
 		//   -> SubStep 1.1 (test.step)
-		//   -> SubStep 1.2 (expect) - should be filtered
+		//   -> SubStep 1.2 (expect)
 		// Step 2 (test.step)
 
 		const mockSubStep11: Partial<TestStep> = {
@@ -763,9 +787,8 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(sendSpans).toHaveBeenCalledTimes(1);
 		const [spans] = (sendSpans as any).mock.calls[0];
 
-		// Should have 4 spans: 1 test + Step 1 + SubStep 1.1 + Step 2
-		// (expect step filtered out)
-		expect(spans).toHaveLength(4);
+		// Should have 5 spans: 1 test + Step 1 + SubStep 1.1 + SubStep 1.2 (expect) + Step 2
+		expect(spans).toHaveLength(5);
 
 		const testSpan = spans.find((s: Span) => s.name === TEST_SPAN_NAME);
 		const step1Span = spans.find(
@@ -778,6 +801,11 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 				s.name === TEST_STEP_SPAN_NAME &&
 				s.attributes[ATTR_TEST_STEP_TITLE] === "SubStep 1.1",
 		);
+		const expectStepSpan = spans.find(
+			(s: Span) =>
+				s.name === TEST_STEP_SPAN_NAME &&
+				s.attributes[ATTR_TEST_STEP_TITLE] === "expect.toBeVisible",
+		);
 		const step2Span = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
@@ -787,11 +815,13 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(testSpan).toBeDefined();
 		expect(step1Span).toBeDefined();
 		expect(substep11Span).toBeDefined();
+		expect(expectStepSpan).toBeDefined();
 		expect(step2Span).toBeDefined();
 
 		// Verify parent relationships
 		expect(step1Span.parentSpanId).toBe(testSpan.spanId);
 		expect(substep11Span.parentSpanId).toBe(step1Span.spanId);
+		expect(expectStepSpan?.parentSpanId).toBe(step1Span.spanId);
 		expect(step2Span.parentSpanId).toBe(testSpan.spanId);
 
 		// Verify step names with nesting
@@ -799,15 +829,15 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(substep11Span.attributes[ATTR_TEST_STEP_NAME]).toBe(
 			"Step 1 > SubStep 1.1",
 		);
+		expect(expectStepSpan?.attributes[ATTR_TEST_STEP_NAME]).toBe(
+			"Step 1 > expect.toBeVisible",
+		);
 		expect(step2Span.attributes[ATTR_TEST_STEP_NAME]).toBe("Step 2");
 
-		// Verify expect step was filtered out
-		const expectSpan = spans.find(
-			(s: Span) =>
-				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_TITLE] === "expect.toBeVisible",
-		);
-		expect(expectSpan).toBeUndefined();
+		// Verify categories are correctly set
+		expect(substep11Span.attributes[ATTR_TEST_STEP_CATEGORY]).toBe("test.step");
+		expect(expectStepSpan?.attributes[ATTR_TEST_STEP_CATEGORY]).toBe("expect");
+		expect(step2Span.attributes[ATTR_TEST_STEP_CATEGORY]).toBe("test.step");
 	});
 
 	test("adds category attribute to step spans", () => {
