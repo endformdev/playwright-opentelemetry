@@ -5,6 +5,7 @@ export interface SendSpansOptions {
 	tracesEndpoint: string;
 	headers?: Record<string, string>;
 	playwrightVersion: string;
+	debug?: boolean;
 }
 
 // Convert Date to nanoseconds for OTLP format
@@ -108,8 +109,10 @@ export async function sendSpans(
 		buildOtlpRequest(spans, options.playwrightVersion),
 	);
 
-	console.log("Sending spans to", endpoint);
-	console.log("Body:", body);
+	if (options.debug) {
+		console.log("Sending spans to", endpoint);
+		console.log("Body:", body);
+	}
 
 	const response = await fetch(endpoint, {
 		method: "POST",

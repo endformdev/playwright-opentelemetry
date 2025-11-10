@@ -5,6 +5,7 @@ import { type SendSpansOptions, sendSpans } from "../src/sender";
 const defaultOptions: SendSpansOptions = {
 	tracesEndpoint: "http://localhost:4318/v1/traces",
 	playwrightVersion: "1.56.1",
+	debug: true,
 };
 
 describe("sendSpans", () => {

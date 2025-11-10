@@ -27,6 +27,7 @@ import { sendSpans } from "./sender";
 export interface PlaywrightOpentelemetryReporterOptions {
 	tracesEndpoint: string;
 	headers?: Record<string, string>;
+	debug?: boolean;
 }
 
 export type Span = {
@@ -63,6 +64,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			tracesEndpoint: this.options.tracesEndpoint,
 			headers: this.options.headers,
 			playwrightVersion: this.playwrightVersion || "unknown",
+			debug: this.options.debug ?? false,
 		});
 	}
 
@@ -181,7 +183,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	printsToStdio(): boolean {
-		return false;
+		return this.options.debug ?? false;
 	}
 }
 

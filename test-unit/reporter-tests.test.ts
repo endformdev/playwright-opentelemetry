@@ -27,6 +27,7 @@ import { sendSpans } from "../src/sender";
 
 const defaultOptions: PlaywrightOpentelemetryReporterOptions = {
 	tracesEndpoint: "http://localhost:4317/v1/traces",
+	debug: true,
 };
 
 describe("PlaywrightOpentelemetryReporter - Tests", () => {
