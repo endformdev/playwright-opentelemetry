@@ -12,6 +12,7 @@ import {
 	ATTR_CODE_LINE_NUMBER,
 	ATTR_TEST_CASE_NAME,
 	ATTR_TEST_CASE_RESULT_STATUS,
+	ATTR_TEST_CASE_TITLE,
 } from "../src/otel-attributes";
 import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
 
@@ -78,6 +79,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 					endTime: new Date("2025-11-06T10:00:01.500Z"),
 					attributes: {
 						[ATTR_TEST_CASE_NAME]: "example test",
+						[ATTR_TEST_CASE_TITLE]: "example test",
 						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
 						[ATTR_CODE_FILE_PATH]: "example.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 3,

@@ -13,10 +13,12 @@ import {
 	ATTR_CODE_LINE_NUMBER,
 	ATTR_TEST_CASE_NAME,
 	ATTR_TEST_CASE_RESULT_STATUS,
+	ATTR_TEST_CASE_TITLE,
 } from "./otel-attributes";
 import {
 	ATTR_TEST_STEP_CATEGORY,
 	ATTR_TEST_STEP_NAME,
+	ATTR_TEST_STEP_TITLE,
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "./reporter-attributes";
@@ -79,6 +81,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_TEST_CASE_NAME] = caseName;
 		}
 
+		// Add test case title (just the test name)
+		attributes[ATTR_TEST_CASE_TITLE] = test.title;
+
 		// Add test case result status
 		attributes[ATTR_TEST_CASE_RESULT_STATUS] = result.status;
 
@@ -111,7 +116,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Process test steps recursively
 		if (result.steps && result.steps.length > 0) {
 			for (const step of result.steps) {
-				this.processTestStep(step, span.spanId, traceId);
+				this.processTestStep(step, span.spanId, traceId, []);
 			}
 		}
 	}
@@ -120,6 +125,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		step: TestStep,
 		parentSpanId: string,
 		traceId: string,
+		parentTitlePath: string[],
 	) {
 		// Only create spans for test.step category
 		if (step.category !== "test.step") {
@@ -128,8 +134,16 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		const attributes: Record<string, string | number | boolean> = {};
 
-		// Add step name and category
-		attributes[ATTR_TEST_STEP_NAME] = step.title;
+		// Build the full title path for this step
+		const currentTitlePath = [...parentTitlePath, step.title];
+
+		// Add step name (full path from test case to this step)
+		attributes[ATTR_TEST_STEP_NAME] = currentTitlePath.join(" > ");
+
+		// Add step title (just this step's title)
+		attributes[ATTR_TEST_STEP_TITLE] = step.title;
+
+		// Add step category
 		attributes[ATTR_TEST_STEP_CATEGORY] = step.category;
 
 		// Add code location attributes if available
@@ -161,14 +175,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Recursively process nested steps
 		if (step.steps && step.steps.length > 0) {
 			for (const childStep of step.steps) {
-				this.processTestStep(childStep, stepSpan.spanId, traceId);
+				this.processTestStep(
+					childStep,
+					stepSpan.spanId,
+					traceId,
+					currentTitlePath,
+				);
 			}
 		}
 	}
 
-	// printsToStdio(): boolean {
-	// 	return false;
-	// }
+	printsToStdio(): boolean {
+		return false;
+	}
 }
 
 function generateTraceId(): string {

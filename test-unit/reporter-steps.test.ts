@@ -11,6 +11,7 @@ import PlaywrightOpentelemetryReporter from "../src";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
+	ATTR_TEST_CASE_TITLE,
 } from "../src/otel-attributes";
 import type {
 	PlaywrightOpentelemetryReporterOptions,
@@ -25,6 +26,7 @@ vi.mock("../src/sender", () => ({
 import {
 	ATTR_TEST_STEP_CATEGORY,
 	ATTR_TEST_STEP_NAME,
+	ATTR_TEST_STEP_TITLE,
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "../src/reporter-attributes";
@@ -106,11 +108,17 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(stepSpan.startTime).toEqual(new Date("2025-11-06T10:00:00.100Z"));
 		expect(stepSpan.endTime).toEqual(new Date("2025-11-06T10:00:00.600Z"));
 
+		// Verify test span has title attribute
+		expect(testSpan.attributes).toMatchObject({
+			[ATTR_TEST_CASE_TITLE]: "should login",
+		});
+
 		// Verify step span attributes
 		expect(stepSpan.attributes).toMatchObject({
 			[ATTR_CODE_FILE_PATH]: "auth.spec.ts",
 			[ATTR_CODE_LINE_NUMBER]: 10,
 			[ATTR_TEST_STEP_NAME]: "Login step",
+			[ATTR_TEST_STEP_TITLE]: "Login step",
 			[ATTR_TEST_STEP_CATEGORY]: "test.step",
 		});
 	});
@@ -184,12 +192,12 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		const parentStepSpan = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_NAME] === "Login flow",
+				s.attributes[ATTR_TEST_STEP_TITLE] === "Login flow",
 		);
 		const childStepSpan = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_NAME] === "Fill username",
+				s.attributes[ATTR_TEST_STEP_TITLE] === "Fill username",
 		);
 
 		expect(testSpan).toBeDefined();
@@ -203,6 +211,18 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		// All spans should share the same traceId
 		expect(parentStepSpan.traceId).toBe(testSpan.traceId);
 		expect(childStepSpan.traceId).toBe(testSpan.traceId);
+
+		// Verify step names include the full path
+		expect(parentStepSpan.attributes[ATTR_TEST_STEP_NAME]).toBe("Login flow");
+		expect(parentStepSpan.attributes[ATTR_TEST_STEP_TITLE]).toBe("Login flow");
+
+		// Child step name should include parent in path
+		expect(childStepSpan.attributes[ATTR_TEST_STEP_NAME]).toBe(
+			"Login flow > Fill username",
+		);
+		expect(childStepSpan.attributes[ATTR_TEST_STEP_TITLE]).toBe(
+			"Fill username",
+		);
 	});
 
 	test("creates spans for multiple sibling steps", () => {
@@ -374,17 +394,17 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		const level1Span = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_NAME] === "Level 1",
+				s.attributes[ATTR_TEST_STEP_TITLE] === "Level 1",
 		);
 		const level2Span = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_NAME] === "Level 2",
+				s.attributes[ATTR_TEST_STEP_TITLE] === "Level 2",
 		);
 		const level3Span = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_NAME] === "Level 3",
+				s.attributes[ATTR_TEST_STEP_TITLE] === "Level 3",
 		);
 
 		expect(testSpan).toBeDefined();
@@ -401,6 +421,20 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(level1Span.traceId).toBe(testSpan.traceId);
 		expect(level2Span.traceId).toBe(testSpan.traceId);
 		expect(level3Span.traceId).toBe(testSpan.traceId);
+
+		// Verify step names build the full path
+		expect(level1Span.attributes[ATTR_TEST_STEP_NAME]).toBe("Level 1");
+		expect(level1Span.attributes[ATTR_TEST_STEP_TITLE]).toBe("Level 1");
+
+		expect(level2Span.attributes[ATTR_TEST_STEP_NAME]).toBe(
+			"Level 1 > Level 2",
+		);
+		expect(level2Span.attributes[ATTR_TEST_STEP_TITLE]).toBe("Level 2");
+
+		expect(level3Span.attributes[ATTR_TEST_STEP_NAME]).toBe(
+			"Level 1 > Level 2 > Level 3",
+		);
+		expect(level3Span.attributes[ATTR_TEST_STEP_TITLE]).toBe("Level 3");
 	});
 
 	test("handles step with error correctly", () => {
@@ -524,9 +558,10 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		// Should not have location attributes
 		expect(stepSpan.attributes).not.toHaveProperty(ATTR_CODE_FILE_PATH);
 		expect(stepSpan.attributes).not.toHaveProperty(ATTR_CODE_LINE_NUMBER);
-		// But should have name and category
+		// But should have name, title and category
 		expect(stepSpan.attributes).toMatchObject({
 			[ATTR_TEST_STEP_NAME]: "Step without location",
+			[ATTR_TEST_STEP_TITLE]: "Step without location",
 			[ATTR_TEST_STEP_CATEGORY]: "test.step",
 		});
 	});
@@ -648,6 +683,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		const stepSpans = spans.filter((s: Span) => s.name === TEST_STEP_SPAN_NAME);
 		expect(stepSpans).toHaveLength(1);
 		expect(stepSpans[0].attributes[ATTR_TEST_STEP_NAME]).toBe("User step");
+		expect(stepSpans[0].attributes[ATTR_TEST_STEP_TITLE]).toBe("User step");
 		expect(stepSpans[0].attributes[ATTR_TEST_STEP_CATEGORY]).toBe("test.step");
 	});
 
@@ -735,17 +771,17 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		const step1Span = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_NAME] === "Step 1",
+				s.attributes[ATTR_TEST_STEP_TITLE] === "Step 1",
 		);
 		const substep11Span = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_NAME] === "SubStep 1.1",
+				s.attributes[ATTR_TEST_STEP_TITLE] === "SubStep 1.1",
 		);
 		const step2Span = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_NAME] === "Step 2",
+				s.attributes[ATTR_TEST_STEP_TITLE] === "Step 2",
 		);
 
 		expect(testSpan).toBeDefined();
@@ -758,11 +794,18 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(substep11Span.parentSpanId).toBe(step1Span.spanId);
 		expect(step2Span.parentSpanId).toBe(testSpan.spanId);
 
+		// Verify step names with nesting
+		expect(step1Span.attributes[ATTR_TEST_STEP_NAME]).toBe("Step 1");
+		expect(substep11Span.attributes[ATTR_TEST_STEP_NAME]).toBe(
+			"Step 1 > SubStep 1.1",
+		);
+		expect(step2Span.attributes[ATTR_TEST_STEP_NAME]).toBe("Step 2");
+
 		// Verify expect step was filtered out
 		const expectSpan = spans.find(
 			(s: Span) =>
 				s.name === TEST_STEP_SPAN_NAME &&
-				s.attributes[ATTR_TEST_STEP_NAME] === "expect.toBeVisible",
+				s.attributes[ATTR_TEST_STEP_TITLE] === "expect.toBeVisible",
 		);
 		expect(expectSpan).toBeUndefined();
 	});
@@ -819,6 +862,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(stepSpan).toBeDefined();
 		expect(stepSpan.attributes).toMatchObject({
 			[ATTR_TEST_STEP_NAME]: "User defined step",
+			[ATTR_TEST_STEP_TITLE]: "User defined step",
 			[ATTR_TEST_STEP_CATEGORY]: "test.step",
 		});
 	});
