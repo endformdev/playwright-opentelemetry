@@ -7,13 +7,13 @@ import type {
 } from "@playwright/test/reporter";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import PlaywrightOpentelemetryReporter from "../src";
-import type { PlaywrightOpentelemetryReporterOptions } from "../src/options";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
 	ATTR_TEST_CASE_NAME,
 	ATTR_TEST_CASE_RESULT_STATUS,
 } from "../src/otel-attributes";
+import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
 
 // Mock the sender module
 vi.mock("../src/sender", () => ({
@@ -28,7 +28,7 @@ const defaultOptions: PlaywrightOpentelemetryReporterOptions = {
 	tracesEndpoint: "http://localhost:4317/v1/traces",
 };
 
-describe("PlaywrightOpentelemetryReporter", () => {
+describe("PlaywrightOpentelemetryReporter - Tests", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
