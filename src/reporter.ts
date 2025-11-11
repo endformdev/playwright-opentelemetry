@@ -25,8 +25,9 @@ import {
 import { sendSpans } from "./sender";
 
 export interface PlaywrightOpentelemetryReporterOptions {
-	tracesEndpoint: string;
-	headers?: Record<string, string>;
+	otlpEndpoint?: string;
+	otlpHeaders?: Record<string, string>;
+	serviceName?: string;
 	debug?: boolean;
 }
 
@@ -45,9 +46,31 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private spans: Span[] = [];
 	private rootDir?: string;
 	private playwrightVersion?: string;
+	private resolvedEndpoint: string;
+	private resolvedHeaders: Record<string, string>;
+	private resolvedServiceName: string;
 
-	constructor(private options: PlaywrightOpentelemetryReporterOptions) {
-		if (!options || !options.tracesEndpoint) {
+	constructor(private options: PlaywrightOpentelemetryReporterOptions = {}) {
+		// Resolve configuration with environment variable precedence
+		// Environment variables take priority over config options
+		this.resolvedEndpoint =
+			process.env.OTEL_EXPORTER_OTLP_ENDPOINT || options.otlpEndpoint || "";
+
+		// Parse headers from environment variable if present
+		const envHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS
+			? parseOtlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
+			: {};
+		this.resolvedHeaders = {
+			...options.otlpHeaders,
+			...envHeaders, // env headers override config headers
+		};
+
+		this.resolvedServiceName =
+			process.env.OTEL_SERVICE_NAME ||
+			options.serviceName ||
+			"playwright-tests";
+
+		if (!this.resolvedEndpoint) {
 			throw new Error(getConfigurationErrorMessage());
 		}
 	}
@@ -61,8 +84,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	async onEnd(_result: FullResult) {
 		await sendSpans(this.spans, {
-			tracesEndpoint: this.options.tracesEndpoint,
-			headers: this.options.headers,
+			tracesEndpoint: this.resolvedEndpoint,
+			headers: this.resolvedHeaders,
+			serviceName: this.resolvedServiceName,
 			playwrightVersion: this.playwrightVersion || "unknown",
 			debug: this.options.debug ?? false,
 		});
@@ -199,10 +223,27 @@ function generateSpanId(): string {
 	).join("");
 }
 
+function parseOtlpHeaders(headersString: string): Record<string, string> {
+	const headers: Record<string, string> = {};
+	// Headers are comma-separated key=value pairs
+	const pairs = headersString.split(",");
+	for (const pair of pairs) {
+		const [key, ...valueParts] = pair.split("=");
+		if (key && valueParts.length > 0) {
+			headers[key.trim()] = valueParts.join("=").trim();
+		}
+	}
+	return headers;
+}
+
 function getConfigurationErrorMessage(): string {
 	return (
-		`playwright-opentelemetry reporter requires options with 'tracesEndpoint' to be provided.\n\n` +
-		`Example configuration in playwright.config.ts:\n\n` +
+		`playwright-opentelemetry reporter requires an OTLP endpoint to be configured.\n\n` +
+		`You can configure it using environment variables:\n\n` +
+		`  export OTEL_EXPORTER_OTLP_ENDPOINT="https://api.honeycomb.io"\n` +
+		`  export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=YOUR_API_KEY"\n` +
+		`  export OTEL_SERVICE_NAME="my-service"\n\n` +
+		`Or via playwright.config.ts:\n\n` +
 		`import { defineConfig } from '@playwright/test';\n` +
 		`import type { PlaywrightOpentelemetryReporterOptions } from 'playwright-opentelemetry';\n\n` +
 		`export default defineConfig({\n` +
@@ -210,13 +251,15 @@ function getConfigurationErrorMessage(): string {
 		`    [\n` +
 		`      'playwright-opentelemetry',\n` +
 		`      {\n` +
-		`        tracesEndpoint: 'http://localhost:4317/v1/traces',\n` +
-		`        headers: {\n` +
+		`        otlpEndpoint: 'http://localhost:4317/v1/traces',\n` +
+		`        otlpHeaders: {\n` +
 		`          Authorization: 'Bearer YOUR_TOKEN',\n` +
 		`        },\n` +
+		`        serviceName: 'my-service',\n` +
 		`      } satisfies PlaywrightOpentelemetryReporterOptions,\n` +
 		`    ],\n` +
 		`  ],\n` +
-		`});\n`
+		`});\n\n` +
+		`Note: Environment variables take precedence over config file options.\n`
 	);
 }

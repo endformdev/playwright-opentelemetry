@@ -4,6 +4,7 @@ import type { Span } from "./reporter";
 export interface SendSpansOptions {
 	tracesEndpoint: string;
 	headers?: Record<string, string>;
+	serviceName: string;
 	playwrightVersion: string;
 	debug?: boolean;
 }
@@ -43,7 +44,11 @@ function toOtlpAttributes(
 const SPAN_KIND_INTERNAL = 1;
 
 // Build the OTLP trace export request
-function buildOtlpRequest(spans: Span[], playwrightVersion: string) {
+function buildOtlpRequest(
+	spans: Span[],
+	serviceName: string,
+	playwrightVersion: string,
+) {
 	const otlpSpans = spans.map((span) => ({
 		traceId: span.traceId,
 		spanId: span.spanId,
@@ -68,7 +73,7 @@ function buildOtlpRequest(spans: Span[], playwrightVersion: string) {
 					attributes: [
 						{
 							key: "service.name",
-							value: { stringValue: "playwright-tests" },
+							value: { stringValue: serviceName },
 						},
 						{
 							key: "service.namespace",
@@ -106,7 +111,7 @@ export async function sendSpans(
 	const headers = options.headers || {};
 
 	const body = JSON.stringify(
-		buildOtlpRequest(spans, options.playwrightVersion),
+		buildOtlpRequest(spans, options.serviceName, options.playwrightVersion),
 	);
 
 	if (options.debug) {

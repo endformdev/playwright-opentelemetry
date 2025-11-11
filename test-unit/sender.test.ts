@@ -4,6 +4,7 @@ import { type SendSpansOptions, sendSpans } from "../src/sender";
 
 const defaultOptions: SendSpansOptions = {
 	tracesEndpoint: "http://localhost:4318/v1/traces",
+	serviceName: "playwright-tests",
 	playwrightVersion: "1.56.1",
 	debug: true,
 };
@@ -124,6 +125,7 @@ describe("sendSpans", () => {
 
 		await sendSpans(spans, {
 			tracesEndpoint: "https://api.honeycomb.io/v1/traces",
+			serviceName: "playwright-tests",
 			playwrightVersion: "1.56.1",
 		});
 
@@ -159,6 +161,7 @@ describe("sendSpans", () => {
 				"x-honeycomb-team": "my-api-key",
 				"x-custom-header": "custom-value",
 			},
+			serviceName: "playwright-tests",
 			playwrightVersion: "1.56.1",
 		});
 

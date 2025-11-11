@@ -26,7 +26,7 @@ import { TEST_SPAN_NAME } from "../src/reporter-attributes";
 import { sendSpans } from "../src/sender";
 
 const defaultOptions: PlaywrightOpentelemetryReporterOptions = {
-	tracesEndpoint: "http://localhost:4317/v1/traces",
+	otlpEndpoint: "http://localhost:4317/v1/traces",
 	debug: true,
 };
 
@@ -91,8 +91,10 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				}),
 			]),
 			expect.objectContaining({
-				...defaultOptions,
+				tracesEndpoint: "http://localhost:4317/v1/traces",
+				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
+				debug: true,
 			}),
 		);
 	});
@@ -146,8 +148,10 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				}),
 			]),
 			expect.objectContaining({
-				...defaultOptions,
+				tracesEndpoint: "http://localhost:4317/v1/traces",
+				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
+				debug: true,
 			}),
 		);
 	});
@@ -202,8 +206,10 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				}),
 			]),
 			expect.objectContaining({
-				...defaultOptions,
+				tracesEndpoint: "http://localhost:4317/v1/traces",
+				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
+				debug: true,
 			}),
 		);
 	});
@@ -264,8 +270,10 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				}),
 			]),
 			expect.objectContaining({
-				...defaultOptions,
+				tracesEndpoint: "http://localhost:4317/v1/traces",
+				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
+				debug: true,
 			}),
 		);
 	});
@@ -329,8 +337,10 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				}),
 			]),
 			expect.objectContaining({
-				...defaultOptions,
+				tracesEndpoint: "http://localhost:4317/v1/traces",
+				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
+				debug: true,
 			}),
 		);
 	});
@@ -386,8 +396,10 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				}),
 			]),
 			expect.objectContaining({
-				...defaultOptions,
+				tracesEndpoint: "http://localhost:4317/v1/traces",
+				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
+				debug: true,
 			}),
 		);
 	});
@@ -443,8 +455,10 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				}),
 			]),
 			expect.objectContaining({
-				...defaultOptions,
+				tracesEndpoint: "http://localhost:4317/v1/traces",
+				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
+				debug: true,
 			}),
 		);
 	});
