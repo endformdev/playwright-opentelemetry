@@ -4,12 +4,12 @@ import type { PlaywrightOpentelemetryReporterOptions } from "./dist/index.mjs";
 
 loadEnv();
 
-if (!process.env.TRACES_ENDPOINT) {
-	throw new Error("TRACES_ENDPOINT is not set");
+if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+	throw new Error("OTEL_EXPORTER_OTLP_ENDPOINT is not set");
 }
 
-if (!process.env.TRACES_TOKEN) {
-	throw new Error("TRACES_TOKEN is not set");
+if (!process.env.OTEL_EXPORTER_OTLP_HEADERS) {
+	throw new Error("OTEL_EXPORTER_OTLP_HEADERS is not set");
 }
 
 /**
@@ -30,10 +30,7 @@ export default defineConfig({
 		[
 			"./dist/index.mjs",
 			{
-				tracesEndpoint: process.env.TRACES_ENDPOINT,
-				headers: {
-					Authorization: `Bearer ${process.env.TRACES_TOKEN}`,
-				},
+				debug: false,
 			} satisfies PlaywrightOpentelemetryReporterOptions,
 		],
 	],
@@ -68,9 +65,12 @@ function loadEnv() {
 		const lines = fs.readFileSync(envFile, "utf-8").split("\n");
 		for (const line of lines) {
 			if (!line || line.startsWith("#")) continue;
-			const [key, value] = line.split("=");
+			const equalIndex = line.indexOf("=");
+			if (equalIndex === -1) continue;
+			const key = line.substring(0, equalIndex).trim();
+			const value = line.substring(equalIndex + 1).trim();
 			if (key && value && !process.env[key]) {
-				process.env[key.trim()] = value.trim();
+				process.env[key] = value;
 			}
 		}
 	}

@@ -13,10 +13,7 @@ import {
 	ATTR_CODE_LINE_NUMBER,
 	ATTR_TEST_CASE_TITLE,
 } from "../src/otel-attributes";
-import type {
-	PlaywrightOpentelemetryReporterOptions,
-	Span,
-} from "../src/reporter";
+import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
 
 // Mock the sender module
 vi.mock("../src/sender", () => ({
