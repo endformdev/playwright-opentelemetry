@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "../dist/fixture.mjs";
 
 test("has title", async ({ page }) => {
 	await page.goto("https://playwright.dev/");

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
-import type { PlaywrightOpentelemetryReporterOptions } from "./dist/index.mjs";
+import type { PlaywrightOpentelemetryReporterOptions } from "./dist/reporter.mjs";
 
 loadEnv();
 
@@ -28,7 +28,7 @@ export default defineConfig({
 	/* Reporter to use. See https://playwright.dev/docs/test-reporters */
 	reporter: [
 		[
-			"./dist/index.mjs",
+			"./dist/reporter.mjs",
 			{
 				debug: false,
 			} satisfies PlaywrightOpentelemetryReporterOptions,

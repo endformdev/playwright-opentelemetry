@@ -249,7 +249,7 @@ function getConfigurationErrorMessage(): string {
 		`export default defineConfig({\n` +
 		`  reporter: [\n` +
 		`    [\n` +
-		`      'playwright-opentelemetry',\n` +
+		`      'playwright-opentelemetry/reporter',\n` +
 		`      {\n` +
 		`        otlpEndpoint: 'http://localhost:4317/v1/traces',\n` +
 		`        otlpHeaders: {\n` +
