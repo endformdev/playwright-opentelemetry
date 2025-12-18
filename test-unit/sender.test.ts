@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { Span } from "../src/reporter";
-import { type SendSpansOptions, sendSpans } from "../src/sender";
+import type { Span } from "../src/reporter/reporter";
+import { type SendSpansOptions, sendSpans } from "../src/reporter/sender";
 
 const defaultOptions: SendSpansOptions = {
 	tracesEndpoint: "http://localhost:4318/v1/traces",

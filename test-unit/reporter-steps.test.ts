@@ -7,16 +7,16 @@ import type {
 	TestStep,
 } from "@playwright/test/reporter";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
+import PlaywrightOpentelemetryReporter from "../src/reporter";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
 	ATTR_TEST_CASE_TITLE,
-} from "../src/otel-attributes";
-import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
-import PlaywrightOpentelemetryReporter from "../src/reporter-entry";
+} from "../src/reporter/otel-attributes";
 
 // Mock the sender module
-vi.mock("../src/sender", () => ({
+vi.mock("../src/reporter/sender", () => ({
 	sendSpans: vi.fn(),
 }));
 
@@ -26,9 +26,9 @@ import {
 	ATTR_TEST_STEP_TITLE,
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
-} from "../src/reporter-attributes";
+} from "../src/reporter/reporter-attributes";
 // Import the mocked function
-import { sendSpans } from "../src/sender";
+import { sendSpans } from "../src/reporter/sender";
 
 const defaultOptions: PlaywrightOpentelemetryReporterOptions = {
 	otlpEndpoint: "http://localhost:4317/v1/traces",
