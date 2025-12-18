@@ -13,6 +13,7 @@ import {
 	createMockRoute,
 	DEFAULT_REPORTER_OPTIONS,
 	type FullResult,
+	getUniqueOutputDir,
 	PlaywrightOpentelemetryReporter,
 	playwrightFixturePropagator,
 	runReporterTest,
@@ -67,35 +68,43 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 			DEFAULT_REPORTER_OPTIONS,
 		);
 		const config = buildConfig();
-		const testCase = buildTestCase({
-			title: "test with requests around onTestBegin",
-		});
+		// Use unique output directory for this test
+		const outputDir = getUniqueOutputDir("test-requests-around-onTestBegin");
+		const testCase = buildTestCase(
+			{ title: "test with requests around onTestBegin" },
+			outputDir,
+		);
 		const testResult = buildTestResult({ steps: [] });
 
+		// Create mock suite that returns the test case
+		const mockSuite = {
+			allTests: () => [testCase],
+		} as Suite;
+
 		// 1. onBegin - test suite starts
-		reporter.onBegin(config, {} as Suite);
+		reporter.onBegin(config, mockSuite);
 
 		// 2. Network request BEFORE onTestBegin
 		//    This simulates a request happening during test setup/fixture initialization
 		await playwrightFixturePropagator({
 			route: createMockRoute("GET", "https://api.example.com/before"),
-			testId: testCase.title,
-			outputDir: "/tmp/test-output",
+			testId: testCase.id,
+			outputDir,
 		});
 
 		// 3. onTestBegin - test officially starts
-		reporter.onTestBegin(testCase);
+		await reporter.onTestBegin(testCase);
 
 		// 4. Network request AFTER onTestBegin
 		//    This simulates a normal request during test execution
 		await playwrightFixturePropagator({
 			route: createMockRoute("GET", "https://api.example.com/after"),
-			testId: testCase.title,
-			outputDir: "/tmp/test-output",
+			testId: testCase.id,
+			outputDir,
 		});
 
 		// 5. onTestEnd and onEnd - test completes
-		reporter.onTestEnd(testCase, testResult);
+		await reporter.onTestEnd(testCase, testResult);
 		await reporter.onEnd({} as FullResult);
 
 		// Verify spans were sent
@@ -195,8 +204,9 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 				expect.objectContaining({
 					name: HTTP_CLIENT_SPAN_NAME,
 					kind: SPAN_KIND_CLIENT,
-					startTime: new Date("2025-11-06T10:00:00.200Z"),
-					endTime: new Date("2025-11-06T10:00:00.350Z"),
+					// Timing is captured at actual request time
+					startTime: expect.any(Date),
+					endTime: expect.any(Date),
 					// Span status MUST be left unset for 2xx responses
 					status: { code: SPAN_STATUS_CODE_UNSET },
 					attributes: expect.objectContaining({

@@ -10,7 +10,7 @@ export const test = base.extend<{
 	testTraceInfo: TestTraceInfo;
 }>({
 	testTraceInfo: [
-		async (_, use, testInfo) => {
+		async ({ playwright }, use, testInfo) => {
 			await use({
 				testId: testInfo.testId,
 				outputDir: testInfo.outputDir,

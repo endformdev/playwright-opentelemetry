@@ -19,10 +19,13 @@ export interface TestHarnessOptions {
 
 export interface ConfigDefinition {
 	rootDir?: string;
+	/** Output directory for the test project (used for trace file coordination) */
+	outputDir?: string;
 	version?: string;
 }
 
 export interface TestDefinition {
+	id?: string;
 	title: string;
 	titlePath?: string[];
 	expectedStatus?: "passed" | "failed" | "skipped" | "timedOut";
@@ -73,8 +76,17 @@ export interface StepDefinition {
 }
 
 export const DEFAULT_ROOT_DIR = "/Users/test/project/test-e2e";
+export const DEFAULT_OUTPUT_DIR = "/tmp/playwright-test-output";
 export const DEFAULT_VERSION = "1.56.1";
 export const DEFAULT_START_TIME = new Date("2025-11-06T10:00:00.000Z");
+
+/** Generate a unique output directory for a test to avoid conflicts */
+export function getUniqueOutputDir(testId?: string): string {
+	const uniqueId =
+		testId ??
+		`test-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+	return `${DEFAULT_OUTPUT_DIR}/${uniqueId}`;
+}
 const DEFAULT_DURATION = 1000;
 const DEFAULT_STEP_DURATION = 100;
 const DEFAULT_STEP_CATEGORY = "test.step";
@@ -134,12 +146,22 @@ export async function runReporterTest({
 
 	// Build mock objects
 	const mergedConfig = buildConfig(config);
-	const testCase = buildTestCase(test);
+	// Generate a unique test ID if not provided
+	const testId =
+		test.id ?? `test-${test.title.replace(/\s+/g, "-").toLowerCase()}`;
+	// Use unique output directory per test to avoid conflicts
+	const outputDir = config?.outputDir ?? getUniqueOutputDir(testId);
+	const testCase = buildTestCase(test, outputDir);
 	const testResult = buildTestResult(result, DEFAULT_START_TIME);
 
+	// Create mock suite that returns the test case
+	const mockSuite = {
+		allTests: () => [testCase],
+	} as Suite;
+
 	// Execute hooks in order
-	reporter.onBegin(mergedConfig, {} as Suite);
-	reporter.onTestBegin(testCase);
+	reporter.onBegin(mergedConfig, mockSuite);
+	await reporter.onTestBegin(testCase);
 
 	// Execute step hooks (depth-first: begin -> nested -> end)
 	if (testResult.steps && testResult.steps.length > 0) {
@@ -149,10 +171,11 @@ export async function runReporterTest({
 			testResult,
 			testResult.steps,
 			result?.steps ?? [],
+			outputDir,
 		);
 	}
 
-	reporter.onTestEnd(testCase, testResult);
+	await reporter.onTestEnd(testCase, testResult);
 	await reporter.onEnd({} as FullResult);
 
 	return { reporter };
@@ -161,12 +184,22 @@ export async function runReporterTest({
 /**
  * Creates a mock Playwright Route object for testing the fixture propagator
  */
-export function createMockRoute(method: string, url: string) {
+export function createMockRoute(
+	method: string,
+	url: string,
+	options?: { statusCode?: number },
+) {
+	const statusCode = options?.statusCode ?? 200;
 	return {
 		request: () => ({
 			url: () => url,
 			method: () => method,
+			headers: () => ({}),
 		}),
+		fetch: async () => ({
+			status: () => statusCode,
+		}),
+		fulfill: async () => {},
 		continue: async () => {},
 	} as Parameters<typeof playwrightFixturePropagator>[0]["route"];
 }
@@ -178,7 +211,10 @@ export function buildConfig(def?: ConfigDefinition): FullConfig {
 	} as FullConfig;
 }
 
-export function buildTestCase(def: TestDefinition): TestCase {
+export function buildTestCase(
+	def: TestDefinition,
+	outputDir: string = DEFAULT_OUTPUT_DIR,
+): TestCase {
 	const titlePath = def.titlePath ?? [
 		"",
 		"chromium",
@@ -186,10 +222,22 @@ export function buildTestCase(def: TestDefinition): TestCase {
 		def.title,
 	];
 
+	// Generate a stable test ID from the title if not provided
+	const id = def.id ?? `test-${def.title.replace(/\s+/g, "-").toLowerCase()}`;
+
+	// Create a mock parent suite with project info
+	const parentSuite = {
+		project: () => ({
+			outputDir,
+		}),
+	};
+
 	return {
+		id,
 		title: def.title,
 		titlePath: () => titlePath,
 		expectedStatus: def.expectedStatus ?? "passed",
+		parent: parentSuite,
 		location: def.location
 			? {
 					file: def.location.file,
@@ -263,32 +311,28 @@ async function executeStepHooks(
 	result: TestResult,
 	steps: TestStep[],
 	stepDefs: StepDefinition[],
+	outputDir: string,
 ) {
 	for (let i = 0; i < steps.length; i++) {
 		const step = steps[i];
 		const stepDef = stepDefs[i];
 
 		// Call onStepBegin
-		reporter.onStepBegin(test, result, step);
+		await reporter.onStepBegin(test, result, step);
 
 		// Execute network actions if present (simulating fixture calls during step)
 		if (stepDef?.networkActions) {
 			for (const networkAction of stepDef.networkActions) {
-				// Create a mock route object for the fixture propagator
-				const mockRoute = {
-					request: () => ({
-						url: () => networkAction.url,
-						method: () => networkAction.method,
-					}),
-					continue: async () => {},
-				};
+				const mockRoute = createMockRoute(
+					networkAction.method,
+					networkAction.url,
+					{ statusCode: networkAction.statusCode },
+				);
 
 				await playwrightFixturePropagator({
-					route: mockRoute as Parameters<
-						typeof playwrightFixturePropagator
-					>[0]["route"],
-					testId: test.title,
-					outputDir: "/tmp/test-output",
+					route: mockRoute,
+					testId: test.id,
+					outputDir,
 				});
 			}
 		}
@@ -301,11 +345,12 @@ async function executeStepHooks(
 				result,
 				step.steps,
 				stepDef?.steps ?? [],
+				outputDir,
 			);
 		}
 
 		// Call onStepEnd
-		reporter.onStepEnd(test, result, step);
+		await reporter.onStepEnd(test, result, step);
 	}
 }
 

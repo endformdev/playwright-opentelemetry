@@ -9,6 +9,15 @@ import type {
 	TestStep,
 } from "@playwright/test/reporter";
 import {
+	cleanupTestFiles,
+	collectNetworkSpans,
+	generateSpanId,
+	generateTraceId,
+	getOrCreateTraceId,
+	popSpanContext,
+	pushSpanContext,
+} from "../shared/trace-files";
+import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
 	ATTR_TEST_CASE_NAME,
@@ -40,7 +49,19 @@ export type Span = {
 	endTime: Date;
 	attributes: Record<string, string | number | boolean>;
 	status: { code: number };
+	kind?: number;
 };
+
+/**
+ * Per-test trace state tracked by the reporter.
+ * This allows coordination between onTestBegin, onStepBegin/End, and onTestEnd.
+ */
+interface TestTraceState {
+	traceId: string;
+	testSpanId: string;
+	/** Maps step to its generated span ID */
+	stepSpanIds: Map<TestStep, string>;
+}
 
 export class PlaywrightOpentelemetryReporter implements Reporter {
 	private spans: Span[] = [];
@@ -49,6 +70,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private resolvedEndpoint: string;
 	private resolvedHeaders: Record<string, string>;
 	private resolvedServiceName: string;
+	/** Per-test trace state, keyed by test.id (stable hash across hooks) */
+	private testStates: Map<string, TestTraceState> = new Map();
+	/** Maps test.id to its project's outputDir */
+	private testOutputDirs: Map<string, string> = new Map();
 
 	constructor(private options: PlaywrightOpentelemetryReporterOptions = {}) {
 		// Resolve configuration with environment variable precedence
@@ -75,11 +100,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 	}
 
-	onBegin(config: FullConfig, _suite: Suite) {
+	onBegin(config: FullConfig, suite: Suite) {
 		// Store rootDir for calculating relative paths
 		this.rootDir = config.rootDir;
 		// Store Playwright version for service.version attribute
 		this.playwrightVersion = config.version;
+
+		// Build map of test IDs to their project's outputDir
+		for (const test of suite.allTests()) {
+			const project = test.parent.project();
+			if (project?.outputDir) {
+				this.testOutputDirs.set(test.id, project.outputDir);
+			}
+		}
 	}
 
 	async onEnd(_result: FullResult) {
@@ -92,13 +125,90 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		});
 	}
 
-	onTestBegin(_test: TestCase) {}
+	async onTestBegin(test: TestCase) {
+		const testId = test.id;
+		const outputDir = this.getOutputDir(testId);
 
-	onStepBegin(_test: TestCase, _result: TestResult, _step: TestStep) {}
+		// Generate IDs synchronously FIRST so state is available immediately
+		// (Playwright may call onStepBegin before this async function completes)
+		const testSpanId = generateSpanId();
+		const initialTraceId = generateTraceId();
 
-	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
+		// Store state immediately before any async work
+		this.testStates.set(testId, {
+			traceId: initialTraceId,
+			testSpanId,
+			stepSpanIds: new Map(),
+		});
 
-	onTestEnd(test: TestCase, result: TestResult) {
+		// Now do async file coordination
+		// If fixture already created trace ID, use that one instead
+		const fileTraceId = await getOrCreateTraceId(outputDir, testId);
+		if (fileTraceId !== initialTraceId) {
+			this.testStates.get(testId)!.traceId = fileTraceId;
+		}
+
+		// Push test span context so fixture can read it (synchronous for reliability)
+		pushSpanContext(outputDir, testId, testSpanId, TEST_SPAN_NAME);
+	}
+
+	async onStepBegin(test: TestCase, _result: TestResult, step: TestStep) {
+		const testId = test.id;
+		const outputDir = this.getOutputDir(testId);
+
+		// Get or create state (defensive against race conditions with async onTestBegin)
+		let state = this.testStates.get(testId);
+		if (!state) {
+			// onTestBegin hasn't completed yet, create state now
+			const traceId = await getOrCreateTraceId(outputDir, testId);
+			const testSpanId = generateSpanId();
+			state = {
+				traceId,
+				testSpanId,
+				stepSpanIds: new Map(),
+			};
+			this.testStates.set(testId, state);
+			pushSpanContext(outputDir, testId, testSpanId, TEST_SPAN_NAME);
+		}
+
+		// Generate and track span ID for this step
+		const stepSpanId = generateSpanId();
+		state.stepSpanIds.set(step, stepSpanId);
+
+		// Push step span context so fixture can read current parent (synchronous)
+		pushSpanContext(outputDir, testId, stepSpanId, step.title);
+	}
+
+	onStepEnd(test: TestCase, _result: TestResult, _step: TestStep) {
+		const testId = test.id;
+		// Only pop if we have state (defensive against race conditions)
+		if (!this.testStates.has(testId)) {
+			return;
+		}
+		const outputDir = this.getOutputDir(testId);
+		popSpanContext(outputDir, testId);
+	}
+
+	async onTestEnd(test: TestCase, result: TestResult) {
+		const testId = test.id;
+		const outputDir = this.getOutputDir(testId);
+
+		// Get or create state (defensive against race conditions)
+		let state = this.testStates.get(testId);
+		if (!state) {
+			// Create state if it doesn't exist (shouldn't normally happen)
+			const traceId = await getOrCreateTraceId(outputDir, testId);
+			const testSpanId = generateSpanId();
+			state = {
+				traceId,
+				testSpanId,
+				stepSpanIds: new Map(),
+			};
+			this.testStates.set(testId, state);
+		}
+
+		const { traceId, testSpanId } = state;
+
 		const attributes: Record<string, string | number | boolean> = {};
 
 		// Add test case name from titlePath
@@ -130,10 +240,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_CODE_LINE_NUMBER] = line;
 		}
 
-		const traceId = generateTraceId();
 		const span: Span = {
 			traceId,
-			spanId: generateSpanId(),
+			spanId: testSpanId,
 			name: TEST_SPAN_NAME,
 			startTime: result.startTime,
 			endTime: new Date(result.startTime.getTime() + result.duration),
@@ -146,9 +255,30 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Process test steps recursively
 		if (result.steps && result.steps.length > 0) {
 			for (const step of result.steps) {
-				this.processTestStep(step, span.spanId, traceId, []);
+				this.processTestStep(step, testSpanId, traceId, [], state);
 			}
 		}
+
+		// Collect network spans from fixture and re-parent orphans to test span
+		const networkSpans = await collectNetworkSpans(outputDir, testId);
+		for (const networkSpan of networkSpans) {
+			// If the network span's parent is itself (orphan) or doesn't match trace,
+			// re-parent it to the test span
+			if (
+				networkSpan.parentSpanId === networkSpan.spanId ||
+				networkSpan.traceId !== traceId
+			) {
+				networkSpan.parentSpanId = testSpanId;
+				networkSpan.traceId = traceId;
+			}
+			this.spans.push(networkSpan);
+		}
+
+		// Cleanup trace files for this test
+		await cleanupTestFiles(outputDir, testId);
+
+		// Cleanup test state
+		this.testStates.delete(testId);
 	}
 
 	private processTestStep(
@@ -156,6 +286,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		parentSpanId: string,
 		traceId: string,
 		parentTitlePath: string[],
+		state: TestTraceState,
 	) {
 		const attributes: Record<string, string | number | boolean> = {};
 
@@ -184,9 +315,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_CODE_LINE_NUMBER] = line;
 		}
 
+		// Use pre-generated span ID from state, or generate one if missing
+		// (can happen due to race conditions with async hooks)
+		const stepSpanId = state.stepSpanIds.get(step) ?? generateSpanId();
+
 		const stepSpan: Span = {
 			traceId,
-			spanId: generateSpanId(),
+			spanId: stepSpanId,
 			parentSpanId,
 			name: TEST_STEP_SPAN_NAME,
 			startTime: step.startTime,
@@ -205,6 +340,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					stepSpan.spanId,
 					traceId,
 					currentTitlePath,
+					state,
 				);
 			}
 		}
@@ -213,18 +349,20 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	printsToStdio(): boolean {
 		return this.options.debug ?? false;
 	}
-}
 
-function generateTraceId(): string {
-	return Array.from({ length: 32 }, () =>
-		Math.floor(Math.random() * 16).toString(16),
-	).join("");
-}
-
-function generateSpanId(): string {
-	return Array.from({ length: 16 }, () =>
-		Math.floor(Math.random() * 16).toString(16),
-	).join("");
+	/**
+	 * Get the output directory for a test ID.
+	 * Throws if the test ID was not registered in onBegin.
+	 */
+	private getOutputDir(testId: string): string {
+		const outputDir = this.testOutputDirs.get(testId);
+		if (!outputDir) {
+			throw new Error(
+				`No outputDir found for test "${testId}" - onBegin must be called first and test must exist in suite`,
+			);
+		}
+		return outputDir;
+	}
 }
 
 function parseOtlpHeaders(headersString: string): Record<string, string> {
