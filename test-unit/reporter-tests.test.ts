@@ -6,7 +6,6 @@ import type {
 	TestResult,
 } from "@playwright/test/reporter";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import PlaywrightOpentelemetryReporter from "../src";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -15,6 +14,7 @@ import {
 	ATTR_TEST_CASE_TITLE,
 } from "../src/otel-attributes";
 import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
+import PlaywrightOpentelemetryReporter from "../src/reporter-entry";
 
 // Mock the sender module
 vi.mock("../src/sender", () => ({
