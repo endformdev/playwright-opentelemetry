@@ -1,32 +1,29 @@
 import { test as base } from "@playwright/test";
+import { playwrightFixturePropagator } from "./network-propagator";
 
 type TestTraceInfo = {
-	workerIndex: number;
+	testId: string;
 	outputDir: string;
 };
-
-let testId: string;
 
 export const test = base.extend<{
 	testTraceInfo: TestTraceInfo;
 }>({
 	testTraceInfo: [
-		async ({ playwright }, use, testInfo) => {
-			testId = testInfo.testId;
+		async (_, use, testInfo) => {
 			await use({
-				workerIndex: testInfo.workerIndex,
+				testId: testInfo.testId,
 				outputDir: testInfo.outputDir,
 			});
 		},
 		{ auto: true },
 	],
-	context: async ({ context, testTraceInfo }, use) => {
-		context.route("**", (route) => {
-			console.log(
-				`Route: ${route.request().url()} (test ${testId}) (worker ${testTraceInfo.workerIndex})`,
-			);
-			return route.continue();
-		});
+	context: async ({ context, testTraceInfo: { testId, outputDir } }, use) => {
+		context.route(
+			"**",
+			async (route) =>
+				await playwrightFixturePropagator({ route, testId, outputDir }),
+		);
 		await use(context);
 	},
 });
