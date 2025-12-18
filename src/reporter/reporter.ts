@@ -94,6 +94,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	onTestBegin(_test: TestCase) {}
 
+	onStepBegin(_test: TestCase, _result: TestResult, _step: TestStep) {}
+
+	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
+
 	onTestEnd(test: TestCase, result: TestResult) {
 		const attributes: Record<string, string | number | boolean> = {};
 
