@@ -1,3 +1,4 @@
+import path from "node:path";
 import { test as base } from "@playwright/test";
 import { fixtureOtelHeaderPropagator } from "./network-propagator";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
@@ -13,9 +14,11 @@ export const test = base.extend<{
 	testTraceInfo: [
 		// biome-ignore lint/correctness/noUnusedFunctionParameters: playwright fails if object not used
 		async ({ playwright }, use, testInfo) => {
+			// Use the "global" / project output dir, not the test specific output dir
+			const outputDir = path.dirname(testInfo.outputDir);
 			await use({
 				testId: testInfo.testId,
-				outputDir: testInfo.outputDir,
+				outputDir,
 			});
 		},
 		{ auto: true },

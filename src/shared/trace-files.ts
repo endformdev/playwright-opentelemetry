@@ -35,35 +35,31 @@ export function getOrCreateTraceId(outputDir: string, testId: string): string {
 	return traceId;
 }
 
-export function pushSpanContext(
+/**
+ * Write the current span ID to the span context file.
+ * This is an append-only operation - the file maintains a log of all span context changes.
+ * The fixture reads the last line to get the current parent span ID.
+ */
+export function writeCurrentSpanId(
 	outputDir: string,
 	testId: string,
 	spanId: string,
 ): void {
 	const spanPath = getSpanPath(outputDir, testId);
-
-	// append the spanId to the span file
 	writeFileSync(spanPath, `${spanId}\n`, { flag: "a" });
-}
-
-export function popSpanContext(outputDir: string, testId: string) {
-	const spanPath = getSpanPath(outputDir, testId);
-	const lines = readFileSync(spanPath, "utf-8").split("\n");
-	if (lines.length === 0) {
-		return;
-	}
-
-	writeFileSync(spanPath, lines.slice(0, -1).join("\n"));
 }
 
 export function getCurrentSpanId(outputDir: string, testId: string): string {
 	const spanPath = getSpanPath(outputDir, testId);
-	const lines = readFileSync(spanPath, "utf-8").split("\n");
+	const content = readFileSync(spanPath, "utf-8").trim();
+	const lines = content.split("\n").filter((line) => line.length > 0);
 	if (lines.length === 0) {
 		throw new Error(`No span context found for test ${testId}`);
 	}
 	const lastLine = lines[lines.length - 1];
-
+	if (!lastLine) {
+		throw new Error(`No span context found for test ${testId}`);
+	}
 	return lastLine;
 }
 

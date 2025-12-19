@@ -10,14 +10,12 @@ import type {
 	TestStep,
 } from "@playwright/test/reporter";
 import {
-	cleanupTestFiles,
 	collectNetworkSpans,
 	createNetworkDirs,
 	generateSpanId,
 	getOrCreateTraceId,
 	OTEL_DIR,
-	popSpanContext,
-	pushSpanContext,
+	writeCurrentSpanId,
 } from "../shared/trace-files";
 import {
 	ATTR_CODE_FILE_PATH,
@@ -68,6 +66,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private testSpans: Map<string, string> = new Map();
 	private testTraceIds: Map<string, string> = new Map();
 	private stepSpanIds: Map<string, string> = new Map();
+
+	/** Tracks the span context stack per test for append-only file writes */
+	private spanContextStacks: Map<string, string[]> = new Map();
 
 	constructor(private options: PlaywrightOpentelemetryReporterOptions = {}) {
 		// Resolve configuration with environment variable precedence
@@ -120,7 +121,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		const testSpanId = generateSpanId();
 		this.testSpans.set(testId, testSpanId);
-		pushSpanContext(outputDir, testId, testSpanId);
+
+		// Initialize the span context stack with the test span ID
+		this.spanContextStacks.set(testId, [testSpanId]);
+		writeCurrentSpanId(outputDir, testId, testSpanId);
 
 		createNetworkDirs(outputDir, testId);
 	}
@@ -135,14 +139,25 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const stepSpanId = generateSpanId();
 		this.stepSpanIds.set(stepId, stepSpanId);
 
-		// Push step span context so fixture can read current parent span id
-		pushSpanContext(outputDir, testId, stepSpanId);
+		// Push step span ID onto internal stack and write to file
+		const stack = this.spanContextStacks.get(testId);
+		if (stack) {
+			stack.push(stepSpanId);
+			writeCurrentSpanId(outputDir, testId, stepSpanId);
+		}
 	}
 
 	onStepEnd(test: TestCase, _result: TestResult, _step: TestStep) {
 		const testId = test.id;
 		const outputDir = this.getOutputDir(testId);
-		popSpanContext(outputDir, testId);
+
+		// Pop from internal stack and write the new current parent to file
+		const stack = this.spanContextStacks.get(testId);
+		if (stack && stack.length > 1) {
+			stack.pop();
+			const currentParent = stack[stack.length - 1];
+			writeCurrentSpanId(outputDir, testId, currentParent);
+		}
 	}
 
 	async onTestEnd(test: TestCase, result: TestResult) {
@@ -213,7 +228,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 
 		// Cleanup trace files for this test
-		await cleanupTestFiles(outputDir, testId);
 	}
 
 	async onEnd(_result: FullResult) {
@@ -224,6 +238,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			playwrightVersion: this.playwrightVersion || "unknown",
 			debug: this.options.debug ?? false,
 		});
+		// for (const [testId, outputDir] of this.testOutputDirs.entries()) {
+		// 	await cleanupTestFiles(outputDir, testId);
+		// }
 	}
 
 	private processTestStep(
@@ -293,16 +310,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	onStdOut(chunk: string | Buffer, _test: TestCase, _result: TestResult): void {
-		// log without last new line
-		console.log(chunk.toString().slice(0, -1));
+		if (this.options.debug) {
+			console.log(chunk.toString().slice(0, -1));
+		}
 	}
 	onStdErr(chunk: string | Buffer, _test: TestCase, _result: TestResult): void {
-		console.log(chunk.toString().slice(0, -1));
+		if (this.options.debug) {
+			console.log(chunk.toString().slice(0, -1));
+		}
 	}
 
 	printsToStdio(): boolean {
-		return true;
-		// return this.options.debug ?? false;
+		return this.options.debug ?? false;
 	}
 
 	/**
