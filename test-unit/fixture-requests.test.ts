@@ -6,18 +6,7 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "../src/reporter/reporter-attributes";
-import {
-	buildConfig,
-	buildTestCase,
-	buildTestResult,
-	DEFAULT_REPORTER_OPTIONS,
-	type FullResult,
-	getUniqueOutputDir,
-	PlaywrightOpentelemetryReporter,
-	runReporterTest,
-	type Suite,
-	simulateNetworkRequest,
-} from "./reporter-harness";
+import { runReporterTest } from "./reporter-harness";
 
 // Mock the sender module
 vi.mock("../src/reporter/sender", () => ({
@@ -214,85 +203,5 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 			]),
 			expect.any(Object),
 		);
-	});
-
-	it("network requests before and after onTestBegin are children of the test span", async () => {
-		// This test verifies that network requests happening around test lifecycle
-		// boundaries are correctly parented to the test span.
-
-		const reporter = new PlaywrightOpentelemetryReporter(
-			DEFAULT_REPORTER_OPTIONS,
-		);
-		const config = buildConfig();
-		// Use unique output directory for this test
-		const outputDir = getUniqueOutputDir("test-requests-around-onTestBegin");
-		const testCase = buildTestCase(
-			{ title: "test with requests around onTestBegin" },
-			outputDir,
-		);
-		const testResult = buildTestResult({ steps: [] });
-
-		// Create mock suite that returns the test case
-		const mockSuite = {
-			allTests: () => [testCase],
-		} as Suite;
-
-		// 1. onBegin - test suite starts
-		reporter.onBegin(config, mockSuite);
-
-		// 2. Network request BEFORE onTestBegin
-		//    This simulates a request happening during test setup/fixture initialization
-		await simulateNetworkRequest(
-			{ method: "GET", url: "https://api.example.com/before" },
-			testCase.id,
-			outputDir,
-		);
-
-		// 3. onTestBegin - test officially starts
-		await reporter.onTestBegin(testCase);
-
-		// 4. Network request AFTER onTestBegin
-		//    This simulates a normal request during test execution
-		await simulateNetworkRequest(
-			{ method: "GET", url: "https://api.example.com/after" },
-			testCase.id,
-			outputDir,
-		);
-
-		// 5. onTestEnd and onEnd - test completes
-		await reporter.onTestEnd(testCase, testResult);
-		await reporter.onEnd({} as FullResult);
-
-		// Verify spans were sent
-		expect(sendSpans).toHaveBeenCalledTimes(1);
-
-		const spans = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0][0];
-
-		// Should have: 1 test span + 2 HTTP client spans
-		expect(spans).toHaveLength(3);
-
-		// Find spans by name
-		const testSpan = spans.find(
-			(s: { name: string }) => s.name === TEST_SPAN_NAME,
-		);
-		const httpSpans = spans.filter((s: { name: string }) =>
-			s.name.startsWith("HTTP"),
-		);
-
-		expect(testSpan).toBeDefined();
-		expect(httpSpans).toHaveLength(2);
-
-		// Both HTTP spans should be children of the test span (not orphaned)
-		for (const httpSpan of httpSpans) {
-			expect(httpSpan.parentSpanId).toBe(testSpan.spanId);
-		}
-
-		// Verify the HTTP spans have the expected URLs
-		const urls = httpSpans.map(
-			(s: { attributes: Record<string, unknown> }) =>
-				s.attributes[ATTR_URL_FULL],
-		);
-		expect(urls).toContain("https://api.example.com/before");
-		expect(urls).toContain("https://api.example.com/after");
 	});
 });

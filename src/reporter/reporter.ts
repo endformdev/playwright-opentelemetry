@@ -10,6 +10,7 @@ import type {
 	TestStep,
 } from "@playwright/test/reporter";
 import {
+	cleanupTestFiles,
 	collectNetworkSpans,
 	createNetworkDirs,
 	generateSpanId,
@@ -112,7 +113,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	onTestBegin(test: TestCase) {
-		console.log(`onTestBegin: ${Date.now()}`);
 		const testId = test.id;
 		const outputDir = this.getOutputDir(testId);
 
@@ -130,7 +130,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	async onStepBegin(test: TestCase, _result: TestResult, step: TestStep) {
-		console.log(`onStepBegin: ${step.title} ${step.category} ${Date.now()}`);
 		const testId = test.id;
 		const outputDir = this.getOutputDir(testId);
 		const stepId = getStepId(test, step);
@@ -161,7 +160,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	async onTestEnd(test: TestCase, result: TestResult) {
-		console.log(`onTestEnd: ${Date.now()}`);
 		const testId = test.id;
 		const outputDir = this.getOutputDir(testId);
 
@@ -217,7 +215,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Process test steps recursively
 		if (result.steps && result.steps.length > 0) {
 			for (const step of result.steps) {
-				this.processTestStep(step, testSpanId, traceId, []);
+				this.processTestStep(test, step, testSpanId, traceId, []);
 			}
 		}
 
@@ -238,20 +236,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			playwrightVersion: this.playwrightVersion || "unknown",
 			debug: this.options.debug ?? false,
 		});
-		// for (const [testId, outputDir] of this.testOutputDirs.entries()) {
-		// 	await cleanupTestFiles(outputDir, testId);
-		// }
+		for (const [testId, outputDir] of this.testOutputDirs.entries()) {
+			await cleanupTestFiles(outputDir, testId);
+		}
 	}
 
 	private processTestStep(
+		test: TestCase,
 		step: TestStep,
 		parentSpanId: string,
 		traceId: string,
 		parentTitlePath: string[],
 	) {
-		console.log(
-			`processTestStep: ${step.title} ${step.category} ${Date.now()}`,
-		);
 		const attributes: Record<string, string | number | boolean> = {};
 
 		// Build the full title path for this step
@@ -281,7 +277,8 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		// Use pre-generated span ID from state, or generate one if missing
 		// (can happen due to race conditions with async hooks)
-		const stepSpanId = generateSpanId();
+		const stepId = getStepId(test, step);
+		const stepSpanId = this.stepSpanIds.get(stepId) ?? generateSpanId();
 
 		const stepSpan: Span = {
 			traceId,
@@ -300,6 +297,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		if (step.steps && step.steps.length > 0) {
 			for (const childStep of step.steps) {
 				this.processTestStep(
+					test,
 					childStep,
 					stepSpan.spanId,
 					traceId,

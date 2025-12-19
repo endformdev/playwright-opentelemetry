@@ -216,6 +216,7 @@ export function createMockNetworkObjects(
 		method: () => method,
 		headers: () => ({}),
 		allHeaders: async () => capturedHeaders,
+		headerValue: async (name: string) => capturedHeaders[name] ?? null,
 	} as unknown as Request;
 
 	const response = {
@@ -319,6 +320,7 @@ function buildSteps(
 	defs: StepDefinition[],
 	parentStartTime: Date,
 	offsetMs = 100,
+	parentTitlePath: string[] = [],
 ): TestStep[] {
 	let currentOffset = offsetMs;
 	const steps: TestStep[] = [];
@@ -328,11 +330,20 @@ function buildSteps(
 			def.startTime ?? new Date(parentStartTime.getTime() + currentOffset);
 		const duration = def.duration ?? DEFAULT_STEP_DURATION;
 
+		// Build title path for this step (parent titles + current title)
+		const stepTitlePath = [...parentTitlePath, def.title];
+
 		// Build nested steps first (they occur during the parent step)
-		const nestedSteps = buildSteps(def.steps ?? [], stepStartTime, 50);
+		const nestedSteps = buildSteps(
+			def.steps ?? [],
+			stepStartTime,
+			50,
+			stepTitlePath,
+		);
 
 		const step: TestStep = {
 			title: def.title,
+			titlePath: () => stepTitlePath,
 			category: def.category ?? DEFAULT_STEP_CATEGORY,
 			startTime: stepStartTime,
 			duration,
