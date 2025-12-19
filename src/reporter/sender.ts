@@ -116,7 +116,8 @@ export async function sendSpans(
 
 	if (options.debug) {
 		console.log("Sending spans to", endpoint);
-		console.log("Body:", body);
+		// pretty print the body
+		console.log(JSON.stringify(JSON.parse(body), null, 2));
 	}
 
 	const response = await fetch(endpoint, {

@@ -1,3 +1,4 @@
+import type { Request, Response, Route } from "@playwright/test";
 import type {
 	FullConfig,
 	FullResult,
@@ -6,7 +7,8 @@ import type {
 	TestResult,
 	TestStep,
 } from "@playwright/test/reporter";
-import { playwrightFixturePropagator } from "../src/fixture/network-propagator";
+import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
+import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
 import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
 import PlaywrightOpentelemetryReporter from "../src/reporter";
 
@@ -98,7 +100,11 @@ export const DEFAULT_REPORTER_OPTIONS: PlaywrightOpentelemetryReporterOptions =
 	};
 
 // Re-export for convenience in tests
-export { PlaywrightOpentelemetryReporter, playwrightFixturePropagator };
+export {
+	PlaywrightOpentelemetryReporter,
+	fixtureOtelHeaderPropagator,
+	fixtureCaptureRequestResponse,
+};
 export type { FullConfig, FullResult, Suite, TestCase, TestResult };
 
 /**
@@ -181,27 +187,70 @@ export async function runReporterTest({
 	return { reporter };
 }
 
+export interface MockNetworkObjects {
+	route: Route;
+	request: Request;
+	response: Response;
+}
+
+/**
+ * Creates mock Playwright Route, Request, and Response objects for testing the fixture functions.
+ * The returned objects can be used with:
+ * - fixtureOtelHeaderPropagator (route + request) - for trace header propagation
+ * - fixtureCaptureRequestResponse (request + response) - for capturing request/response data
+ *
+ * The mock captures headers passed to route.fallback() and exposes them via request.allHeaders()
+ */
+export function createMockNetworkObjects(
+	method: string,
+	url: string,
+	options?: { statusCode?: number },
+): MockNetworkObjects {
+	const statusCode = options?.statusCode ?? 200;
+
+	// Mutable headers object that gets populated when route.fallback is called
+	let capturedHeaders: Record<string, string> = {};
+
+	const request = {
+		url: () => url,
+		method: () => method,
+		headers: () => ({}),
+		allHeaders: async () => capturedHeaders,
+	} as unknown as Request;
+
+	const response = {
+		url: () => url,
+		status: () => statusCode,
+		request: () => request,
+	} as Response;
+
+	const route = {
+		request: () => request,
+		fetch: async () => response,
+		fulfill: async () => {},
+		continue: async () => {},
+		fallback: async (options?: { headers?: Record<string, string> }) => {
+			// Capture headers passed to fallback
+			if (options?.headers) {
+				capturedHeaders = options.headers;
+			}
+		},
+		abort: async () => {},
+	} as unknown as Route;
+
+	return { route, request, response };
+}
+
 /**
  * Creates a mock Playwright Route object for testing the fixture propagator
+ * @deprecated Use createMockNetworkObjects instead for the new architecture
  */
 export function createMockRoute(
 	method: string,
 	url: string,
 	options?: { statusCode?: number },
 ) {
-	const statusCode = options?.statusCode ?? 200;
-	return {
-		request: () => ({
-			url: () => url,
-			method: () => method,
-			headers: () => ({}),
-		}),
-		fetch: async () => ({
-			status: () => statusCode,
-		}),
-		fulfill: async () => {},
-		continue: async () => {},
-	} as Parameters<typeof playwrightFixturePropagator>[0]["route"];
+	return createMockNetworkObjects(method, url, options).route;
 }
 
 export function buildConfig(def?: ConfigDefinition): FullConfig {
@@ -305,6 +354,41 @@ function buildSteps(
 	return steps;
 }
 
+/**
+ * Simulates a network request happening during a test, calling the fixture functions
+ * in the order they would be invoked in real Playwright execution:
+ * 1. fixtureOtelHeaderPropagator - called via context.route() handler, propagates trace headers
+ * 2. fixtureCaptureRequestResponse - called via page.on("response"), captures request and response data
+ */
+export async function simulateNetworkRequest(
+	networkAction: NetworkAction,
+	testId: string,
+	outputDir: string,
+): Promise<void> {
+	const { route, request, response } = createMockNetworkObjects(
+		networkAction.method,
+		networkAction.url,
+		{ statusCode: networkAction.statusCode },
+	);
+
+	// 1. Header propagation via context route handler
+	await fixtureOtelHeaderPropagator({
+		route,
+		request,
+		testId,
+		outputDir,
+	});
+
+	// 2. Request/Response capture via page "response" event
+	//    (response.request() gives us the request, so we capture both together)
+	await fixtureCaptureRequestResponse({
+		request,
+		response,
+		testId,
+		outputDir,
+	});
+}
+
 async function executeStepHooks(
 	reporter: PlaywrightOpentelemetryReporter,
 	test: TestCase,
@@ -323,17 +407,7 @@ async function executeStepHooks(
 		// Execute network actions if present (simulating fixture calls during step)
 		if (stepDef?.networkActions) {
 			for (const networkAction of stepDef.networkActions) {
-				const mockRoute = createMockRoute(
-					networkAction.method,
-					networkAction.url,
-					{ statusCode: networkAction.statusCode },
-				);
-
-				await playwrightFixturePropagator({
-					route: mockRoute,
-					testId: test.id,
-					outputDir,
-				});
+				await simulateNetworkRequest(networkAction, test.id, outputDir);
 			}
 		}
 

@@ -1,16 +1,8 @@
-import { constants, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-/**
- * File-based trace coordination between Playwright fixture and reporter.
- *
- * The fixture runs in worker processes while the reporter runs in the main process.
- * These utilities use atomic file operations to coordinate trace IDs, span context,
- * and network span collection across process boundaries.
- */
-
-const OTEL_DIR = "otel";
+export const OTEL_DIR = "otel";
 
 export interface SpanContext {
 	spanId: string;
@@ -29,126 +21,95 @@ export interface NetworkSpan {
 	attributes: Record<string, string | number | boolean>;
 }
 
-/**
- * Get or create a trace ID for a test.
- * Uses O_CREAT | O_EXCL for atomic first-writer-wins semantics.
- *
- * @param outputDir - The Playwright output directory
- * @param testId - The unique test identifier
- * @returns The trace ID (either newly created or existing)
- */
-export async function getOrCreateTraceId(
+export function getOrCreateTraceId(outputDir: string, testId: string): string {
+	const tracePath = getTracePath(outputDir, testId);
+
+	if (existsSync(tracePath)) {
+		// File exists, read the existing trace ID
+		return readFileSync(tracePath, "utf-8");
+	}
+
+	// File doesn't exist, create it with a newly generated trace ID
+	const traceId = generateTraceId();
+	writeFileSync(tracePath, traceId);
+	return traceId;
+}
+
+export function pushSpanContext(
 	outputDir: string,
 	testId: string,
-): Promise<string> {
-	const tracePath = getTracePath(outputDir, testId);
-	await fs.mkdir(path.dirname(tracePath), { recursive: true });
+	spanId: string,
+): void {
+	const spanPath = getSpanPath(outputDir, testId);
 
+	// append the spanId to the span file
+	writeFileSync(spanPath, `${spanId}\n`, { flag: "a" });
+}
+
+export function popSpanContext(outputDir: string, testId: string) {
+	const spanPath = getSpanPath(outputDir, testId);
+	const lines = readFileSync(spanPath, "utf-8").split("\n");
+	if (lines.length === 0) {
+		return;
+	}
+
+	writeFileSync(spanPath, lines.slice(0, -1).join("\n"));
+}
+
+export function getCurrentSpanId(outputDir: string, testId: string): string {
+	const spanPath = getSpanPath(outputDir, testId);
+	const lines = readFileSync(spanPath, "utf-8").split("\n");
+	if (lines.length === 0) {
+		throw new Error(`No span context found for test ${testId}`);
+	}
+	const lastLine = lines[lines.length - 1];
+
+	return lastLine;
+}
+
+export function createNetworkDirs(outputDir: string, testId: string): void {
+	mkdirSync(getNetworkParentDir(outputDir, testId), { recursive: true });
+	mkdirSync(getNetworkSpanDir(outputDir, testId), { recursive: true });
+}
+
+export function writeNetworkSpanParent({
+	outputDir,
+	testId,
+	parentSpanId,
+	traceHeader,
+}: {
+	outputDir: string;
+	testId: string;
+	parentSpanId: string;
+	traceHeader: string;
+}): void {
+	const parentPath = getNetworkParentPath(outputDir, testId, traceHeader);
+	writeFileSync(parentPath, parentSpanId);
+}
+
+export function readNetworkSpanParent(
+	outputDir: string,
+	testId: string,
+	traceHeader: string,
+): string | undefined {
+	const parentPath = getNetworkParentPath(outputDir, testId, traceHeader);
 	try {
-		// Attempt atomic exclusive creation
-		const fh = await fs.open(
-			tracePath,
-			constants.O_CREAT | constants.O_EXCL | constants.O_RDWR,
-		);
-		const traceId = generateTraceId();
-		await fh.writeFile(JSON.stringify({ traceId }));
-		await fh.close();
-		return traceId;
+		return readFileSync(parentPath, "utf-8");
 	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-			// File already exists, read the existing trace ID
-			const content = await fs.readFile(tracePath, "utf-8");
-			return JSON.parse(content).traceId;
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+			return undefined;
 		}
 		throw err;
 	}
 }
 
-/**
- * Push a span context onto the stack for a test.
- * Called by the reporter when entering a test or step.
- *
- * @param outputDir - The Playwright output directory
- * @param testId - The unique test identifier
- * @param spanId - The span ID being entered
- * @param name - The name of the span (test title or step title)
- */
-export function pushSpanContext(
+export function writeNetworkSpan(
 	outputDir: string,
 	testId: string,
-	spanId: string,
-	name: string,
-): void {
-	const spanPath = getSpanPath(outputDir, testId);
-	mkdirSync(path.dirname(spanPath), { recursive: true });
-
-	const stack = readSpanStackSync(spanPath);
-	stack.push({ spanId, name });
-	writeFileSync(spanPath, JSON.stringify({ stack }));
-}
-
-/**
- * Pop the current span context from the stack.
- * Called by the reporter when exiting a step.
- *
- * @param outputDir - The Playwright output directory
- * @param testId - The unique test identifier
- * @returns The popped span context, or undefined if stack was empty
- */
-export function popSpanContext(
-	outputDir: string,
-	testId: string,
-): SpanContext | undefined {
-	const spanPath = getSpanPath(outputDir, testId);
-
-	const stack = readSpanStackSync(spanPath);
-	const popped = stack.pop();
-	writeFileSync(spanPath, JSON.stringify({ stack }));
-	return popped;
-}
-
-/**
- * Get the current span ID from the top of the stack.
- * Called by the fixture to determine the parent span for HTTP requests.
- *
- * @param outputDir - The Playwright output directory
- * @param testId - The unique test identifier
- * @returns The current span ID, or undefined if no context exists
- */
-export function getCurrentSpanId(
-	outputDir: string,
-	testId: string,
-): string | undefined {
-	const spanPath = getSpanPath(outputDir, testId);
-
-	const stack = readSpanStackSync(spanPath);
-	if (stack.length === 0) {
-		return undefined;
-	}
-	return stack[stack.length - 1].spanId;
-}
-
-/**
- * Write a network span to the test's spans directory.
- * Called by the fixture after intercepting an HTTP request.
- *
- * @param outputDir - The Playwright output directory
- * @param testId - The unique test identifier
- * @param span - The network span to write
- */
-export async function writeNetworkSpan(
-	outputDir: string,
-	testId: string,
+	traceHeader: string,
 	span: NetworkSpan,
-): Promise<void> {
-	const spansDir = getSpansDir(outputDir, testId);
-	await fs.mkdir(spansDir, { recursive: true });
-
-	// Generate unique filename with timestamp and random suffix
-	const timestamp = Date.now();
-	const random = Math.random().toString(36).substring(2, 8);
-	const filename = `req-${timestamp}-${random}.json`;
-	const spanPath = path.join(spansDir, filename);
+) {
+	const networkSpanPath = getNetworkSpanPath(outputDir, testId, traceHeader);
 
 	// Serialize dates to ISO strings for JSON storage
 	const serialized = {
@@ -157,12 +118,13 @@ export async function writeNetworkSpan(
 		endTime: span.endTime.toISOString(),
 	};
 
-	await fs.writeFile(spanPath, JSON.stringify(serialized));
+	writeFileSync(networkSpanPath, JSON.stringify(serialized));
 }
 
 /**
  * Collect all network spans for a test.
  * Called by the reporter at onTestEnd to gather HTTP client spans.
+ * Reads all files from the network spans directory.
  *
  * @param outputDir - The Playwright output directory
  * @param testId - The unique test identifier
@@ -172,16 +134,17 @@ export async function collectNetworkSpans(
 	outputDir: string,
 	testId: string,
 ): Promise<NetworkSpan[]> {
-	const spansDir = getSpansDir(outputDir, testId);
+	const networkSpanDir = getNetworkSpanDir(outputDir, testId);
 
 	try {
-		const files = await fs.readdir(spansDir);
+		const files = await fs.readdir(networkSpanDir);
 		const spans: NetworkSpan[] = [];
 
 		for (const file of files) {
-			if (!file.endsWith(".json")) continue;
-
-			const content = await fs.readFile(path.join(spansDir, file), "utf-8");
+			const content = await fs.readFile(
+				path.join(networkSpanDir, file),
+				"utf-8",
+			);
 			const parsed = JSON.parse(content);
 
 			// Deserialize dates from ISO strings
@@ -227,9 +190,16 @@ export async function cleanupTestFiles(
 		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
 	}
 
-	// Remove spans directory
+	// Remove network parents directory
 	try {
-		await fs.rm(getSpansDir(outputDir, testId), { recursive: true });
+		await fs.rm(getNetworkParentDir(outputDir, testId), { recursive: true });
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+	}
+
+	// Remove network spans directory
+	try {
+		await fs.rm(getNetworkSpanDir(outputDir, testId), { recursive: true });
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
 	}
@@ -245,8 +215,36 @@ function getSpanPath(outputDir: string, testId: string): string {
 	return path.join(outputDir, OTEL_DIR, `${sanitizeTestId(testId)}.span`);
 }
 
-function getSpansDir(outputDir: string, testId: string): string {
-	return path.join(outputDir, OTEL_DIR, sanitizeTestId(testId));
+function getNetworkParentDir(outputDir: string, testId: string): string {
+	return path.join(
+		outputDir,
+		OTEL_DIR,
+		`${sanitizeTestId(testId)}-network-parents`,
+	);
+}
+
+function getNetworkSpanDir(outputDir: string, testId: string): string {
+	return path.join(
+		outputDir,
+		OTEL_DIR,
+		`${sanitizeTestId(testId)}-network-spans`,
+	);
+}
+
+function getNetworkParentPath(
+	outputDir: string,
+	testId: string,
+	traceHeader: string,
+): string {
+	return path.join(getNetworkParentDir(outputDir, testId), traceHeader);
+}
+
+function getNetworkSpanPath(
+	outputDir: string,
+	testId: string,
+	traceHeader: string,
+): string {
+	return path.join(getNetworkSpanDir(outputDir, testId), traceHeader);
 }
 
 /**
@@ -255,29 +253,6 @@ function getSpansDir(outputDir: string, testId: string): string {
  */
 function sanitizeTestId(testId: string): string {
 	return testId.replace(/[<>:"/\\|?*]/g, "_");
-}
-
-function readSpanStackSync(spanPath: string): SpanContext[] {
-	try {
-		const content = readFileSync(spanPath, "utf-8");
-		if (!content || content.trim() === "") {
-			return [];
-		}
-		const parsed = JSON.parse(content);
-		return parsed.stack ?? [];
-	} catch (err) {
-		const code = (err as NodeJS.ErrnoException).code;
-		const name = (err as Error).name;
-		// File doesn't exist - return empty stack
-		if (code === "ENOENT") {
-			return [];
-		}
-		// JSON parse error - return empty stack
-		if (name === "SyntaxError") {
-			return [];
-		}
-		throw err;
-	}
 }
 
 /**

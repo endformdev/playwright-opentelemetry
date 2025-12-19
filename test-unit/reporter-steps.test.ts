@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -26,7 +26,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		vi.clearAllMocks();
 	});
 
-	test("creates a span for a test with a single step", async () => {
+	it("creates a span for a test with a single step", async () => {
 		await runReporterTest({
 			test: {
 				title: "should login",
@@ -78,7 +78,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
-	test("creates nested spans for nested steps", async () => {
+	it("creates nested spans for nested steps", async () => {
 		await runReporterTest({
 			test: {
 				title: "should login",
@@ -141,7 +141,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
-	test("creates spans for multiple sibling steps", async () => {
+	it("creates spans for multiple sibling steps", async () => {
 		await runReporterTest({
 			test: {
 				title: "test with multiple steps",
@@ -204,7 +204,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
-	test("creates deeply nested spans (3 levels)", async () => {
+	it("creates deeply nested spans (3 levels)", async () => {
 		await runReporterTest({
 			test: {
 				title: "deeply nested test",
@@ -274,7 +274,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
-	test("handles step with error correctly", async () => {
+	it("handles step with error correctly", async () => {
 		await runReporterTest({
 			test: {
 				title: "test with failing step",
@@ -321,7 +321,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
-	test("handles steps without location information", async () => {
+	it("handles steps without location information", async () => {
 		await runReporterTest({
 			test: {
 				title: "test",
@@ -360,7 +360,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
-	test("handles test with no steps", async () => {
+	it("handles test with no steps", async () => {
 		await runReporterTest({
 			test: {
 				title: "test without steps",
@@ -387,7 +387,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
-	test("includes all step categories", async () => {
+	it("includes all step categories", async () => {
 		await runReporterTest({
 			test: {
 				title: "test with mixed step categories",
@@ -462,7 +462,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
-	test("handles complex nested structure with mixed step types", async () => {
+	it("handles complex nested structure with mixed step types", async () => {
 		// Nested structure:
 		// Step 1 (test.step)
 		//   -> SubStep 1.1 (test.step)
@@ -552,7 +552,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
-	test("adds category attribute to step spans", async () => {
+	it("adds category attribute to step spans", async () => {
 		await runReporterTest({
 			test: {
 				title: "test",
