@@ -51,7 +51,9 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 	it("creates an HTTP client span as child of step when fixture propagator is called", async () => {
 		const networkStartTime = new Date("2025-11-06T10:00:00.200Z");
 		const networkDuration = 150;
-		const networkEndTime = new Date(networkStartTime.getTime() + networkDuration);
+		const networkEndTime = new Date(
+			networkStartTime.getTime() + networkDuration,
+		);
 
 		await runReporterTest({
 			test: {
@@ -152,7 +154,9 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 	it("sets span status to Error for 4xx responses (CLIENT span kind)", async () => {
 		const networkStartTime = new Date("2025-11-06T10:00:00.200Z");
 		const networkDuration = 50;
-		const networkEndTime = new Date(networkStartTime.getTime() + networkDuration);
+		const networkEndTime = new Date(
+			networkStartTime.getTime() + networkDuration,
+		);
 
 		await runReporterTest({
 			test: {

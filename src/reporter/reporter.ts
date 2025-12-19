@@ -213,9 +213,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		this.spans.push(span);
 
 		// Process test steps recursively
+		// Track processed step IDs to merge duplicates (Playwright can report the same step twice,
+		// once with location info and once without - we want to merge them)
+		const processedSteps = new Map<string, Span>();
 		if (result.steps && result.steps.length > 0) {
 			for (const step of result.steps) {
-				this.processTestStep(test, step, testSpanId, traceId, []);
+				this.processTestStep(
+					test,
+					step,
+					testSpanId,
+					traceId,
+					[],
+					processedSteps,
+				);
 			}
 		}
 
@@ -224,8 +234,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		for (const networkSpan of networkSpans) {
 			this.spans.push(networkSpan);
 		}
-
-		// Cleanup trace files for this test
 	}
 
 	async onEnd(_result: FullResult) {
@@ -247,11 +255,102 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		parentSpanId: string,
 		traceId: string,
 		parentTitlePath: string[],
+		processedSteps: Map<string, Span>,
 	) {
-		const attributes: Record<string, string | number | boolean> = {};
+		// Skip fixture steps that come from our fixture file to avoid noise
+		// These are internal to playwright-opentelemetry and not useful to report
+		const isOurFixtureFile =
+			step.category === "fixture" &&
+			(step.location?.file.includes("playwright-opentelemetry") ||
+				step.location?.file.endsWith("fixture.mjs") ||
+				step.location?.file.endsWith("fixture/index.ts"));
+
+		const stepId = getStepId(test, step);
+
+		// If this step is from our fixture file, mark it and remove any already-created span
+		// (Playwright sometimes reports the same fixture twice, once without location first)
+		if (isOurFixtureFile) {
+			processedSteps.set(`__skip__${stepId}`, {} as Span);
+
+			// Remove any span we already created for this stepId (from a duplicate without location)
+			const existingSpan = processedSteps.get(stepId);
+			if (existingSpan) {
+				const spanIndex = this.spans.indexOf(existingSpan);
+				if (spanIndex !== -1) {
+					this.spans.splice(spanIndex, 1);
+				}
+				processedSteps.delete(stepId);
+			}
+
+			// Still process nested steps with the same parent (skip this fixture as a span)
+			if (step.steps && step.steps.length > 0) {
+				for (const childStep of step.steps) {
+					this.processTestStep(
+						test,
+						childStep,
+						parentSpanId,
+						traceId,
+						parentTitlePath,
+						processedSteps,
+					);
+				}
+			}
+			return;
+		}
+
+		// Skip if we've already identified this stepId as our fixture
+		if (processedSteps.has(`__skip__${stepId}`)) {
+			if (step.steps && step.steps.length > 0) {
+				for (const childStep of step.steps) {
+					this.processTestStep(
+						test,
+						childStep,
+						parentSpanId,
+						traceId,
+						parentTitlePath,
+						processedSteps,
+					);
+				}
+			}
+			return;
+		}
 
 		// Build the full title path for this step
 		const currentTitlePath = [...parentTitlePath, step.title];
+
+		// Use pre-generated span ID from state, or generate one if missing
+		// (can happen due to race conditions with async hooks)
+		const stepSpanId = this.stepSpanIds.get(stepId) ?? generateSpanId();
+
+		// Check if we've already processed this step (Playwright can report duplicates)
+		const existingSpan = processedSteps.get(stepId);
+		if (existingSpan) {
+			// Merge: if this step has location info and the existing one doesn't, add it
+			if (step.location && !existingSpan.attributes[ATTR_CODE_FILE_PATH]) {
+				const { file, line } = step.location;
+				const relativePath = this.rootDir
+					? path.relative(this.rootDir, file)
+					: file;
+				existingSpan.attributes[ATTR_CODE_FILE_PATH] = relativePath;
+				existingSpan.attributes[ATTR_CODE_LINE_NUMBER] = line;
+			}
+			// Still need to process nested steps
+			if (step.steps && step.steps.length > 0) {
+				for (const childStep of step.steps) {
+					this.processTestStep(
+						test,
+						childStep,
+						existingSpan.spanId,
+						traceId,
+						currentTitlePath,
+						processedSteps,
+					);
+				}
+			}
+			return;
+		}
+
+		const attributes: Record<string, string | number | boolean> = {};
 
 		// Add step name (full path from test case to this step)
 		attributes[ATTR_TEST_STEP_NAME] = currentTitlePath.join(" > ");
@@ -275,11 +374,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_CODE_LINE_NUMBER] = line;
 		}
 
-		// Use pre-generated span ID from state, or generate one if missing
-		// (can happen due to race conditions with async hooks)
-		const stepId = getStepId(test, step);
-		const stepSpanId = this.stepSpanIds.get(stepId) ?? generateSpanId();
-
 		const stepSpan: Span = {
 			traceId,
 			spanId: stepSpanId,
@@ -292,6 +386,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		};
 
 		this.spans.push(stepSpan);
+		processedSteps.set(stepId, stepSpan);
 
 		// Recursively process nested steps
 		if (step.steps && step.steps.length > 0) {
@@ -302,6 +397,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					stepSpan.spanId,
 					traceId,
 					currentTitlePath,
+					processedSteps,
 				);
 			}
 		}
@@ -379,6 +475,11 @@ function getConfigurationErrorMessage(): string {
 }
 
 function getStepId(test: TestCase, step: TestStep): string {
-	const id = [test.id, step.category, ...step.titlePath()].join(" > ");
+	// Include startTime to ensure uniqueness when steps have the same title
+	// Without this, repeated steps like test.step("Click button", ...) would collide
+	const startTimeMs = step.startTime.getTime();
+	const id = [test.id, step.category, startTimeMs, ...step.titlePath()].join(
+		" > ",
+	);
 	return id;
 }
