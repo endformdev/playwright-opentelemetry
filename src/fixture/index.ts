@@ -37,10 +37,14 @@ export const test = base.extend<{
 		await use(context);
 	},
 	page: async ({ page, testTraceInfo: { testId, outputDir } }, use) => {
-		page.on("response", async (response) => {
+		page.on("requestfinished", async (request) => {
+			const response = await request.response();
+			if (!response) {
+				return;
+			}
 			await fixtureCaptureRequestResponse({
+				request,
 				response,
-				request: response.request(),
 				testId,
 				outputDir,
 			});

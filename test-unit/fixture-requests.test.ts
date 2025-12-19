@@ -49,6 +49,10 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 	});
 
 	it("creates an HTTP client span as child of step when fixture propagator is called", async () => {
+		const networkStartTime = new Date("2025-11-06T10:00:00.200Z");
+		const networkDuration = 150;
+		const networkEndTime = new Date(networkStartTime.getTime() + networkDuration);
+
 		await runReporterTest({
 			test: {
 				title: "test with network request in step",
@@ -81,8 +85,8 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 								serverAddress: "api.example.com",
 								serverPort: 443,
 								statusCode: 200,
-								startTime: new Date("2025-11-06T10:00:00.200Z"),
-								duration: 150,
+								startTime: networkStartTime,
+								duration: networkDuration,
 							},
 						],
 					},
@@ -112,9 +116,9 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 				expect.objectContaining({
 					name: HTTP_CLIENT_SPAN_NAME,
 					kind: SPAN_KIND_CLIENT,
-					// Timing is captured at actual request time
-					startTime: expect.any(Date),
-					endTime: expect.any(Date),
+					// Timing comes directly from Playwright's timing() data
+					startTime: networkStartTime,
+					endTime: networkEndTime,
 					// Span status MUST be left unset for 2xx responses
 					status: { code: SPAN_STATUS_CODE_UNSET },
 					attributes: expect.objectContaining({
@@ -146,6 +150,10 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 	});
 
 	it("sets span status to Error for 4xx responses (CLIENT span kind)", async () => {
+		const networkStartTime = new Date("2025-11-06T10:00:00.200Z");
+		const networkDuration = 50;
+		const networkEndTime = new Date(networkStartTime.getTime() + networkDuration);
+
 		await runReporterTest({
 			test: {
 				title: "test with 404 response",
@@ -174,8 +182,8 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 								serverAddress: "api.example.com",
 								serverPort: 443,
 								statusCode: 404,
-								startTime: new Date("2025-11-06T10:00:00.200Z"),
-								duration: 50,
+								startTime: networkStartTime,
+								duration: networkDuration,
 							},
 						],
 					},
@@ -192,6 +200,9 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 				expect.objectContaining({
 					name: "HTTP GET",
 					kind: SPAN_KIND_CLIENT,
+					// Timing comes directly from Playwright's timing() data
+					startTime: networkStartTime,
+					endTime: networkEndTime,
 					status: { code: SPAN_STATUS_CODE_ERROR },
 					attributes: expect.objectContaining({
 						[ATTR_HTTP_REQUEST_METHOD]: "GET",

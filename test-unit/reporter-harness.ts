@@ -58,7 +58,9 @@ export interface NetworkAction {
 	statusCode?: number;
 	/** Error type if request failed - Conditionally Required if request ended with error */
 	errorType?: string;
+	/** When the request started (absolute time) */
 	startTime?: Date;
+	/** Duration of the request in milliseconds */
 	duration?: number;
 }
 
@@ -193,6 +195,14 @@ export interface MockNetworkObjects {
 	response: Response;
 }
 
+export interface MockNetworkOptions {
+	statusCode?: number;
+	/** Request start time (absolute) - used for timing calculation */
+	startTime?: Date;
+	/** Request duration in milliseconds */
+	duration?: number;
+}
+
 /**
  * Creates mock Playwright Route, Request, and Response objects for testing the fixture functions.
  * The returned objects can be used with:
@@ -204,9 +214,11 @@ export interface MockNetworkObjects {
 export function createMockNetworkObjects(
 	method: string,
 	url: string,
-	options?: { statusCode?: number },
+	options?: MockNetworkOptions,
 ): MockNetworkObjects {
 	const statusCode = options?.statusCode ?? 200;
+	const duration = options?.duration ?? 100;
+	const startTime = options?.startTime ?? new Date();
 
 	// Mutable headers object that gets populated when route.fallback is called
 	let capturedHeaders: Record<string, string> = {};
@@ -217,6 +229,20 @@ export function createMockNetworkObjects(
 		headers: () => ({}),
 		allHeaders: async () => capturedHeaders,
 		headerValue: async (name: string) => capturedHeaders[name] ?? null,
+		timing: () => ({
+			// Playwright timing() returns:
+			// - startTime: absolute timestamp in ms since epoch
+			// - other values: relative to startTime in ms (-1 if not available)
+			startTime: startTime.getTime(),
+			domainLookupStart: -1,
+			domainLookupEnd: -1,
+			connectStart: -1,
+			connectEnd: -1,
+			secureConnectionStart: -1,
+			requestStart: 0,
+			responseStart: duration * 0.2, // First byte received at 20% of duration
+			responseEnd: duration,
+		}),
 	} as unknown as Request;
 
 	const response = {
@@ -379,7 +405,11 @@ export async function simulateNetworkRequest(
 	const { route, request, response } = createMockNetworkObjects(
 		networkAction.method,
 		networkAction.url,
-		{ statusCode: networkAction.statusCode },
+		{
+			statusCode: networkAction.statusCode,
+			startTime: networkAction.startTime,
+			duration: networkAction.duration,
+		},
 	);
 
 	// 1. Header propagation via context route handler

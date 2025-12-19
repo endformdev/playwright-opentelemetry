@@ -69,8 +69,17 @@ export async function fixtureCaptureRequestResponse({
 	}
 	const [, traceId, spanId] = parts;
 
-	// Record end time
-	const endTime = new Date();
+	// Get timing information from the request
+	// Playwright's timing() provides:
+	// - startTime: absolute timestamp in ms since epoch
+	// - responseEnd: relative to startTime in ms, -1 if not available
+	const timing = request.timing();
+
+	const startTime = new Date(timing.startTime);
+	const endTime =
+		timing.responseEnd >= 0
+			? new Date(timing.startTime + timing.responseEnd)
+			: new Date(timing.startTime);
 
 	// Parse URL for attributes
 	const parsedUrl = new URL(url);
@@ -110,7 +119,7 @@ export async function fixtureCaptureRequestResponse({
 		parentSpanId,
 		name: `HTTP ${method}`,
 		kind: SPAN_KIND_CLIENT,
-		startTime: endTime, // TODO: We don't have start time here, using end time for now
+		startTime,
 		endTime,
 		status: { code: statusCodeValue },
 		attributes,
