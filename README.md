@@ -23,9 +23,9 @@ export default defineConfig({
 		[
 			"playwright-opentelemetry/reporter",
 			{
-                // Or OTEL_EXPORTER_OTLP_ENDPOINT
+                // Or use environment variable OTEL_EXPORTER_OTLP_ENDPOINT
                 otlpEndpoint: "https://api.eu1.honeycomb.io/v1/traces",
-                // Or OTEL_EXPORTER_OTLP_HEADERS
+                // Or use environment variable OTEL_EXPORTER_OTLP_HEADERS
 	            otlpHeaders: {
                     "x-honeycomb-team": "xxxabc",
                 }
