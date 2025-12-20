@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import type {
 	FullConfig,
@@ -8,6 +9,15 @@ import type {
 	TestResult,
 	TestStep,
 } from "@playwright/test/reporter";
+import {
+	cleanupTestFiles,
+	collectNetworkSpans,
+	createNetworkDirs,
+	generateSpanId,
+	getOrCreateTraceId,
+	OTEL_DIR,
+	writeCurrentSpanId,
+} from "../shared/trace-files";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -40,6 +50,7 @@ export type Span = {
 	endTime: Date;
 	attributes: Record<string, string | number | boolean>;
 	status: { code: number };
+	kind?: number;
 };
 
 export class PlaywrightOpentelemetryReporter implements Reporter {
@@ -49,6 +60,16 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private resolvedEndpoint: string;
 	private resolvedHeaders: Record<string, string>;
 	private resolvedServiceName: string;
+
+	/** Maps test.id to its project's outputDir */
+	private testOutputDirs: Map<string, string> = new Map();
+
+	private testSpans: Map<string, string> = new Map();
+	private testTraceIds: Map<string, string> = new Map();
+	private stepSpanIds: Map<string, string> = new Map();
+
+	/** Tracks the span context stack per test for append-only file writes */
+	private spanContextStacks: Map<string, string[]> = new Map();
 
 	constructor(private options: PlaywrightOpentelemetryReporterOptions = {}) {
 		// Resolve configuration with environment variable precedence
@@ -75,30 +96,79 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 	}
 
-	onBegin(config: FullConfig, _suite: Suite) {
+	onBegin(config: FullConfig, suite: Suite) {
 		// Store rootDir for calculating relative paths
 		this.rootDir = config.rootDir;
 		// Store Playwright version for service.version attribute
 		this.playwrightVersion = config.version;
+
+		// Build map of test IDs to their project's outputDir
+		for (const test of suite.allTests()) {
+			const project = test.parent.project();
+			if (project?.outputDir) {
+				mkdirSync(path.join(project.outputDir, OTEL_DIR), { recursive: true });
+				this.testOutputDirs.set(test.id, project.outputDir);
+			}
+		}
 	}
 
-	async onEnd(_result: FullResult) {
-		await sendSpans(this.spans, {
-			tracesEndpoint: this.resolvedEndpoint,
-			headers: this.resolvedHeaders,
-			serviceName: this.resolvedServiceName,
-			playwrightVersion: this.playwrightVersion || "unknown",
-			debug: this.options.debug ?? false,
-		});
+	onTestBegin(test: TestCase) {
+		const testId = test.id;
+		const outputDir = this.getOutputDir(testId);
+
+		const traceId = getOrCreateTraceId(outputDir, testId);
+		this.testTraceIds.set(testId, traceId);
+
+		const testSpanId = generateSpanId();
+		this.testSpans.set(testId, testSpanId);
+
+		// Initialize the span context stack with the test span ID
+		this.spanContextStacks.set(testId, [testSpanId]);
+		writeCurrentSpanId(outputDir, testId, testSpanId);
+
+		createNetworkDirs(outputDir, testId);
 	}
 
-	onTestBegin(_test: TestCase) {}
+	async onStepBegin(test: TestCase, _result: TestResult, step: TestStep) {
+		const testId = test.id;
+		const outputDir = this.getOutputDir(testId);
+		const stepId = getStepId(test, step);
 
-	onStepBegin(_test: TestCase, _result: TestResult, _step: TestStep) {}
+		// Generate and track span ID for this step
+		const stepSpanId = generateSpanId();
+		this.stepSpanIds.set(stepId, stepSpanId);
 
-	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
+		// Push step span ID onto internal stack and write to file
+		const stack = this.spanContextStacks.get(testId);
+		if (stack) {
+			stack.push(stepSpanId);
+			writeCurrentSpanId(outputDir, testId, stepSpanId);
+		}
+	}
 
-	onTestEnd(test: TestCase, result: TestResult) {
+	onStepEnd(test: TestCase, _result: TestResult, _step: TestStep) {
+		const testId = test.id;
+		const outputDir = this.getOutputDir(testId);
+
+		// Pop from internal stack and write the new current parent to file
+		const stack = this.spanContextStacks.get(testId);
+		if (stack && stack.length > 1) {
+			stack.pop();
+			const currentParent = stack[stack.length - 1];
+			writeCurrentSpanId(outputDir, testId, currentParent);
+		}
+	}
+
+	async onTestEnd(test: TestCase, result: TestResult) {
+		const testId = test.id;
+		const outputDir = this.getOutputDir(testId);
+
+		const traceId = this.testTraceIds.get(testId);
+		const testSpanId = this.testSpans.get(testId);
+		if (!traceId || !testSpanId) {
+			throw new Error(`Test ${testId} not found`);
+		}
+
 		const attributes: Record<string, string | number | boolean> = {};
 
 		// Add test case name from titlePath
@@ -130,10 +200,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_CODE_LINE_NUMBER] = line;
 		}
 
-		const traceId = generateTraceId();
 		const span: Span = {
 			traceId,
-			spanId: generateSpanId(),
+			spanId: testSpanId,
 			name: TEST_SPAN_NAME,
 			startTime: result.startTime,
 			endTime: new Date(result.startTime.getTime() + result.duration),
@@ -144,23 +213,143 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		this.spans.push(span);
 
 		// Process test steps recursively
+		// Track processed step IDs to merge duplicates (Playwright can report the same step twice,
+		// once with location info and once without - we want to merge them)
+		const processedSteps = new Map<string, Span>();
 		if (result.steps && result.steps.length > 0) {
 			for (const step of result.steps) {
-				this.processTestStep(step, span.spanId, traceId, []);
+				this.processTestStep(
+					test,
+					step,
+					testSpanId,
+					traceId,
+					[],
+					processedSteps,
+				);
 			}
+		}
+
+		// Collect network spans from fixture - no reparenting, use as-is
+		const networkSpans = await collectNetworkSpans(outputDir, testId);
+		for (const networkSpan of networkSpans) {
+			this.spans.push(networkSpan);
+		}
+	}
+
+	async onEnd(_result: FullResult) {
+		await sendSpans(this.spans, {
+			tracesEndpoint: this.resolvedEndpoint,
+			headers: this.resolvedHeaders,
+			serviceName: this.resolvedServiceName,
+			playwrightVersion: this.playwrightVersion || "unknown",
+			debug: this.options.debug ?? false,
+		});
+		for (const [testId, outputDir] of this.testOutputDirs.entries()) {
+			await cleanupTestFiles(outputDir, testId);
 		}
 	}
 
 	private processTestStep(
+		test: TestCase,
 		step: TestStep,
 		parentSpanId: string,
 		traceId: string,
 		parentTitlePath: string[],
+		processedSteps: Map<string, Span>,
 	) {
-		const attributes: Record<string, string | number | boolean> = {};
+		// Skip fixture steps that come from the playwright-opentelemetry fixture file to avoid noise
+		const isInternalFixture =
+			step.category === "fixture" &&
+			step.location?.file.includes("playwright-opentelemetry") &&
+			(step.location?.file.endsWith("fixture.mjs") ||
+				step.location?.file.endsWith("fixture/index.ts"));
+
+		const stepId = getStepId(test, step);
+
+		// If this step is from our fixture file, mark it and remove any already-created span
+		// (Playwright sometimes reports the same fixture twice, once without location first)
+		if (isInternalFixture) {
+			processedSteps.set(`__skip__${stepId}`, {} as Span);
+
+			// Remove any span we already created for this stepId (from a duplicate without location)
+			const existingSpan = processedSteps.get(stepId);
+			if (existingSpan) {
+				const spanIndex = this.spans.indexOf(existingSpan);
+				if (spanIndex !== -1) {
+					this.spans.splice(spanIndex, 1);
+				}
+				processedSteps.delete(stepId);
+			}
+
+			// Still process nested steps with the same parent (skip this fixture as a span)
+			if (step.steps && step.steps.length > 0) {
+				for (const childStep of step.steps) {
+					this.processTestStep(
+						test,
+						childStep,
+						parentSpanId,
+						traceId,
+						parentTitlePath,
+						processedSteps,
+					);
+				}
+			}
+			return;
+		}
+
+		// Skip if we've already identified this stepId as our fixture
+		if (processedSteps.has(`__skip__${stepId}`)) {
+			if (step.steps && step.steps.length > 0) {
+				for (const childStep of step.steps) {
+					this.processTestStep(
+						test,
+						childStep,
+						parentSpanId,
+						traceId,
+						parentTitlePath,
+						processedSteps,
+					);
+				}
+			}
+			return;
+		}
 
 		// Build the full title path for this step
 		const currentTitlePath = [...parentTitlePath, step.title];
+
+		// Use pre-generated span ID from state, or generate one if missing
+		// (can happen due to race conditions with async hooks)
+		const stepSpanId = this.stepSpanIds.get(stepId) ?? generateSpanId();
+
+		// Check if we've already processed this step (Playwright can report duplicates)
+		const existingSpan = processedSteps.get(stepId);
+		if (existingSpan) {
+			// Merge: if this step has location info and the existing one doesn't, add it
+			if (step.location && !existingSpan.attributes[ATTR_CODE_FILE_PATH]) {
+				const { file, line } = step.location;
+				const relativePath = this.rootDir
+					? path.relative(this.rootDir, file)
+					: file;
+				existingSpan.attributes[ATTR_CODE_FILE_PATH] = relativePath;
+				existingSpan.attributes[ATTR_CODE_LINE_NUMBER] = line;
+			}
+			// Still need to process nested steps
+			if (step.steps && step.steps.length > 0) {
+				for (const childStep of step.steps) {
+					this.processTestStep(
+						test,
+						childStep,
+						existingSpan.spanId,
+						traceId,
+						currentTitlePath,
+						processedSteps,
+					);
+				}
+			}
+			return;
+		}
+
+		const attributes: Record<string, string | number | boolean> = {};
 
 		// Add step name (full path from test case to this step)
 		attributes[ATTR_TEST_STEP_NAME] = currentTitlePath.join(" > ");
@@ -186,7 +375,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		const stepSpan: Span = {
 			traceId,
-			spanId: generateSpanId(),
+			spanId: stepSpanId,
 			parentSpanId,
 			name: TEST_STEP_SPAN_NAME,
 			startTime: step.startTime,
@@ -196,35 +385,51 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		};
 
 		this.spans.push(stepSpan);
+		processedSteps.set(stepId, stepSpan);
 
 		// Recursively process nested steps
 		if (step.steps && step.steps.length > 0) {
 			for (const childStep of step.steps) {
 				this.processTestStep(
+					test,
 					childStep,
 					stepSpan.spanId,
 					traceId,
 					currentTitlePath,
+					processedSteps,
 				);
 			}
+		}
+	}
+
+	onStdOut(chunk: string | Buffer, _test: TestCase, _result: TestResult): void {
+		if (this.options.debug) {
+			console.log(chunk.toString().slice(0, -1));
+		}
+	}
+	onStdErr(chunk: string | Buffer, _test: TestCase, _result: TestResult): void {
+		if (this.options.debug) {
+			console.log(chunk.toString().slice(0, -1));
 		}
 	}
 
 	printsToStdio(): boolean {
 		return this.options.debug ?? false;
 	}
-}
 
-function generateTraceId(): string {
-	return Array.from({ length: 32 }, () =>
-		Math.floor(Math.random() * 16).toString(16),
-	).join("");
-}
-
-function generateSpanId(): string {
-	return Array.from({ length: 16 }, () =>
-		Math.floor(Math.random() * 16).toString(16),
-	).join("");
+	/**
+	 * Get the output directory for a test ID.
+	 * Throws if the test ID was not registered in onBegin.
+	 */
+	private getOutputDir(testId: string): string {
+		const outputDir = this.testOutputDirs.get(testId);
+		if (!outputDir) {
+			throw new Error(
+				`No outputDir found for test "${testId}" - onBegin must be called first and test must exist in suite`,
+			);
+		}
+		return outputDir;
+	}
 }
 
 function parseOtlpHeaders(headersString: string): Record<string, string> {
@@ -266,4 +471,14 @@ function getConfigurationErrorMessage(): string {
 		`});\n\n` +
 		`Note: Environment variables take precedence over config file options.\n`
 	);
+}
+
+function getStepId(test: TestCase, step: TestStep): string {
+	// Include startTime to ensure uniqueness when steps have the same title
+	// Without this, repeated steps like test.step("Click button", ...) would collide
+	const startTimeMs = step.startTime.getTime();
+	const id = [test.id, step.category, startTimeMs, ...step.titlePath()].join(
+		" > ",
+	);
+	return id;
 }

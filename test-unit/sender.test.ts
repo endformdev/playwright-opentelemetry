@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Span } from "../src/reporter/reporter";
 import { type SendSpansOptions, sendSpans } from "../src/reporter/sender";
 
@@ -17,7 +17,7 @@ describe("sendSpans", () => {
 		global.fetch = mockFetch;
 	});
 
-	test("sends spans to default endpoint with correct OTLP format", async () => {
+	it("sends spans to default endpoint with correct OTLP format", async () => {
 		mockFetch.mockResolvedValue({
 			ok: true,
 			status: 200,
@@ -105,7 +105,7 @@ describe("sendSpans", () => {
 		});
 	});
 
-	test("sends spans to custom endpoint", async () => {
+	it("sends spans to custom endpoint", async () => {
 		mockFetch.mockResolvedValue({
 			ok: true,
 			status: 200,
@@ -137,7 +137,7 @@ describe("sendSpans", () => {
 		);
 	});
 
-	test("sends custom headers", async () => {
+	it("sends custom headers", async () => {
 		mockFetch.mockResolvedValue({
 			ok: true,
 			status: 200,
@@ -179,7 +179,7 @@ describe("sendSpans", () => {
 		);
 	});
 
-	test("handles span with parentSpanId", async () => {
+	it("handles span with parentSpanId", async () => {
 		mockFetch.mockResolvedValue({
 			ok: true,
 			status: 200,
@@ -208,7 +208,7 @@ describe("sendSpans", () => {
 		);
 	});
 
-	test("handles multiple spans", async () => {
+	it("handles multiple spans", async () => {
 		mockFetch.mockResolvedValue({
 			ok: true,
 			status: 200,
@@ -249,7 +249,7 @@ describe("sendSpans", () => {
 		);
 	});
 
-	test("handles empty spans array", async () => {
+	it("handles empty spans array", async () => {
 		mockFetch.mockResolvedValue({
 			ok: true,
 			status: 200,
@@ -260,7 +260,7 @@ describe("sendSpans", () => {
 		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
-	test("handles different attribute types", async () => {
+	it("handles different attribute types", async () => {
 		mockFetch.mockResolvedValue({
 			ok: true,
 			status: 200,
@@ -295,7 +295,7 @@ describe("sendSpans", () => {
 		]);
 	});
 
-	test("throws error when fetch fails", async () => {
+	it("throws error when fetch fails", async () => {
 		mockFetch.mockResolvedValue({
 			ok: false,
 			status: 500,
@@ -320,7 +320,7 @@ describe("sendSpans", () => {
 		);
 	});
 
-	test("throws error when fetch throws", async () => {
+	it("throws error when fetch throws", async () => {
 		mockFetch.mockRejectedValue(new Error("Network error"));
 
 		const spans: Span[] = [
@@ -340,7 +340,7 @@ describe("sendSpans", () => {
 		);
 	});
 
-	test("uses playwright version as service.version when provided", async () => {
+	it("uses playwright version as service.version when provided", async () => {
 		mockFetch.mockResolvedValue({
 			ok: true,
 			status: 200,

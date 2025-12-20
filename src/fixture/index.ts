@@ -1,5 +1,7 @@
+import path from "node:path";
 import { test as base } from "@playwright/test";
-import { playwrightFixturePropagator } from "./network-propagator";
+import { fixtureOtelHeaderPropagator } from "./network-propagator";
+import { fixtureCaptureRequestResponse } from "./request-response-capture";
 
 type TestTraceInfo = {
 	testId: string;
@@ -10,10 +12,13 @@ export const test = base.extend<{
 	testTraceInfo: TestTraceInfo;
 }>({
 	testTraceInfo: [
-		async (_, use, testInfo) => {
+		// biome-ignore lint/correctness/noUnusedFunctionParameters: playwright fails if object not used
+		async ({ playwright }, use, testInfo) => {
+			// Use the "global" / project output dir, not the test specific output dir
+			const outputDir = path.dirname(testInfo.outputDir);
 			await use({
 				testId: testInfo.testId,
-				outputDir: testInfo.outputDir,
+				outputDir,
 			});
 		},
 		{ auto: true },
@@ -21,9 +26,29 @@ export const test = base.extend<{
 	context: async ({ context, testTraceInfo: { testId, outputDir } }, use) => {
 		context.route(
 			"**",
-			async (route) =>
-				await playwrightFixturePropagator({ route, testId, outputDir }),
+			async (route, request) =>
+				await fixtureOtelHeaderPropagator({
+					route,
+					request,
+					testId,
+					outputDir,
+				}),
 		);
 		await use(context);
+	},
+	page: async ({ page, testTraceInfo: { testId, outputDir } }, use) => {
+		page.on("requestfinished", async (request) => {
+			const response = await request.response();
+			if (!response) {
+				return;
+			}
+			await fixtureCaptureRequestResponse({
+				request,
+				response,
+				testId,
+				outputDir,
+			});
+		});
+		await use(page);
 	},
 });

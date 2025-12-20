@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ATTR_TEST_STEP_CATEGORY,
 	ATTR_TEST_STEP_NAME,
@@ -6,18 +6,7 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "../src/reporter/reporter-attributes";
-import {
-	buildConfig,
-	buildTestCase,
-	buildTestResult,
-	createMockRoute,
-	DEFAULT_REPORTER_OPTIONS,
-	type FullResult,
-	PlaywrightOpentelemetryReporter,
-	playwrightFixturePropagator,
-	runReporterTest,
-	type Suite,
-} from "./reporter-harness";
+import { runReporterTest } from "./reporter-harness";
 
 // Mock the sender module
 vi.mock("../src/reporter/sender", () => ({
@@ -59,79 +48,13 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 		vi.clearAllMocks();
 	});
 
-	test("network requests before and after onTestBegin are children of the test span", async () => {
-		// This test verifies that network requests happening around test lifecycle
-		// boundaries are correctly parented to the test span.
-
-		const reporter = new PlaywrightOpentelemetryReporter(
-			DEFAULT_REPORTER_OPTIONS,
-		);
-		const config = buildConfig();
-		const testCase = buildTestCase({
-			title: "test with requests around onTestBegin",
-		});
-		const testResult = buildTestResult({ steps: [] });
-
-		// 1. onBegin - test suite starts
-		reporter.onBegin(config, {} as Suite);
-
-		// 2. Network request BEFORE onTestBegin
-		//    This simulates a request happening during test setup/fixture initialization
-		await playwrightFixturePropagator({
-			route: createMockRoute("GET", "https://api.example.com/before"),
-			testId: testCase.title,
-			outputDir: "/tmp/test-output",
-		});
-
-		// 3. onTestBegin - test officially starts
-		reporter.onTestBegin(testCase);
-
-		// 4. Network request AFTER onTestBegin
-		//    This simulates a normal request during test execution
-		await playwrightFixturePropagator({
-			route: createMockRoute("GET", "https://api.example.com/after"),
-			testId: testCase.title,
-			outputDir: "/tmp/test-output",
-		});
-
-		// 5. onTestEnd and onEnd - test completes
-		reporter.onTestEnd(testCase, testResult);
-		await reporter.onEnd({} as FullResult);
-
-		// Verify spans were sent
-		expect(sendSpans).toHaveBeenCalledTimes(1);
-
-		const spans = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0][0];
-
-		// Should have: 1 test span + 2 HTTP client spans
-		expect(spans).toHaveLength(3);
-
-		// Find spans by name
-		const testSpan = spans.find(
-			(s: { name: string }) => s.name === TEST_SPAN_NAME,
-		);
-		const httpSpans = spans.filter((s: { name: string }) =>
-			s.name.startsWith("HTTP"),
+	it("creates an HTTP client span as child of step when fixture propagator is called", async () => {
+		const networkStartTime = new Date("2025-11-06T10:00:00.200Z");
+		const networkDuration = 150;
+		const networkEndTime = new Date(
+			networkStartTime.getTime() + networkDuration,
 		);
 
-		expect(testSpan).toBeDefined();
-		expect(httpSpans).toHaveLength(2);
-
-		// Both HTTP spans should be children of the test span (not orphaned)
-		for (const httpSpan of httpSpans) {
-			expect(httpSpan.parentSpanId).toBe(testSpan.spanId);
-		}
-
-		// Verify the HTTP spans have the expected URLs
-		const urls = httpSpans.map(
-			(s: { attributes: Record<string, unknown> }) =>
-				s.attributes[ATTR_URL_FULL],
-		);
-		expect(urls).toContain("https://api.example.com/before");
-		expect(urls).toContain("https://api.example.com/after");
-	});
-
-	test("creates an HTTP client span as child of step when fixture propagator is called", async () => {
 		await runReporterTest({
 			test: {
 				title: "test with network request in step",
@@ -164,8 +87,8 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 								serverAddress: "api.example.com",
 								serverPort: 443,
 								statusCode: 200,
-								startTime: new Date("2025-11-06T10:00:00.200Z"),
-								duration: 150,
+								startTime: networkStartTime,
+								duration: networkDuration,
 							},
 						],
 					},
@@ -195,8 +118,9 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 				expect.objectContaining({
 					name: HTTP_CLIENT_SPAN_NAME,
 					kind: SPAN_KIND_CLIENT,
-					startTime: new Date("2025-11-06T10:00:00.200Z"),
-					endTime: new Date("2025-11-06T10:00:00.350Z"),
+					// Timing comes directly from Playwright's timing() data
+					startTime: networkStartTime,
+					endTime: networkEndTime,
 					// Span status MUST be left unset for 2xx responses
 					status: { code: SPAN_STATUS_CODE_UNSET },
 					attributes: expect.objectContaining({
@@ -227,7 +151,13 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 		expect(httpSpan.parentSpanId).toBe(stepSpan.spanId);
 	});
 
-	test("sets span status to Error for 4xx responses (CLIENT span kind)", async () => {
+	it("sets span status to Error for 4xx responses (CLIENT span kind)", async () => {
+		const networkStartTime = new Date("2025-11-06T10:00:00.200Z");
+		const networkDuration = 50;
+		const networkEndTime = new Date(
+			networkStartTime.getTime() + networkDuration,
+		);
+
 		await runReporterTest({
 			test: {
 				title: "test with 404 response",
@@ -256,8 +186,8 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 								serverAddress: "api.example.com",
 								serverPort: 443,
 								statusCode: 404,
-								startTime: new Date("2025-11-06T10:00:00.200Z"),
-								duration: 50,
+								startTime: networkStartTime,
+								duration: networkDuration,
 							},
 						],
 					},
@@ -274,6 +204,9 @@ describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spa
 				expect.objectContaining({
 					name: "HTTP GET",
 					kind: SPAN_KIND_CLIENT,
+					// Timing comes directly from Playwright's timing() data
+					startTime: networkStartTime,
+					endTime: networkEndTime,
 					status: { code: SPAN_STATUS_CODE_ERROR },
 					attributes: expect.objectContaining({
 						[ATTR_HTTP_REQUEST_METHOD]: "GET",

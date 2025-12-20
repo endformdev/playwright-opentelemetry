@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -22,7 +22,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 		vi.clearAllMocks();
 	});
 
-	test("sends a span for a test that ran", async () => {
+	it("sends a span for a test that ran", async () => {
 		await runReporterTest({
 			test: {
 				title: "example test",
@@ -62,7 +62,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 		);
 	});
 
-	test("handles test without location information", async () => {
+	it("handles test without location information", async () => {
 		await runReporterTest({
 			test: {
 				title: "test without location",
@@ -90,7 +90,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 		);
 	});
 
-	test("calculates relative path correctly for nested directories", async () => {
+	it("calculates relative path correctly for nested directories", async () => {
 		await runReporterTest({
 			test: {
 				title: "nested test",
@@ -124,7 +124,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 		);
 	});
 
-	test("includes describe blocks in test case name", async () => {
+	it("includes describe blocks in test case name", async () => {
 		await runReporterTest({
 			test: {
 				title: "get started link",
@@ -164,7 +164,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 		);
 	});
 
-	test("handles nested describe blocks in test case name", async () => {
+	it("handles nested describe blocks in test case name", async () => {
 		await runReporterTest({
 			test: {
 				title: "should work correctly",
@@ -208,7 +208,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 		);
 	});
 
-	test("handles failed test status when expected to pass", async () => {
+	it("handles failed test status when expected to pass", async () => {
 		await runReporterTest({
 			test: {
 				title: "failing test",
@@ -245,7 +245,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 		);
 	});
 
-	test("handles expected failure correctly", async () => {
+	it("handles expected failure correctly", async () => {
 		await runReporterTest({
 			test: {
 				title: "expected to fail",
