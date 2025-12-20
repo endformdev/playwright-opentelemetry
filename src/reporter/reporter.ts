@@ -15,7 +15,7 @@ import {
 	createNetworkDirs,
 	generateSpanId,
 	getOrCreateTraceId,
-	OTEL_DIR,
+	PW_OTEL_DIR,
 	writeCurrentSpanId,
 } from "../shared/trace-files";
 import {
@@ -106,7 +106,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		for (const test of suite.allTests()) {
 			const project = test.parent.project();
 			if (project?.outputDir) {
-				mkdirSync(path.join(project.outputDir, OTEL_DIR), { recursive: true });
+				mkdirSync(path.join(project.outputDir, PW_OTEL_DIR), {
+					recursive: true,
+				});
 				this.testOutputDirs.set(test.id, project.outputDir);
 			}
 		}

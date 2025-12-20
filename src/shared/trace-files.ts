@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-export const OTEL_DIR = "otel";
+export const PW_OTEL_DIR = "playwright-opentelemetry";
 
 export interface SpanContext {
 	spanId: string;
@@ -204,17 +204,17 @@ export async function cleanupTestFiles(
 // Helper functions
 
 function getTracePath(outputDir: string, testId: string): string {
-	return path.join(outputDir, OTEL_DIR, `${sanitizeTestId(testId)}.trace`);
+	return path.join(outputDir, PW_OTEL_DIR, `${sanitizeTestId(testId)}.trace`);
 }
 
 function getSpanPath(outputDir: string, testId: string): string {
-	return path.join(outputDir, OTEL_DIR, `${sanitizeTestId(testId)}.span`);
+	return path.join(outputDir, PW_OTEL_DIR, `${sanitizeTestId(testId)}.span`);
 }
 
 function getNetworkParentDir(outputDir: string, testId: string): string {
 	return path.join(
 		outputDir,
-		OTEL_DIR,
+		PW_OTEL_DIR,
 		`${sanitizeTestId(testId)}-network-parents`,
 	);
 }
@@ -222,7 +222,7 @@ function getNetworkParentDir(outputDir: string, testId: string): string {
 function getNetworkSpanDir(outputDir: string, testId: string): string {
 	return path.join(
 		outputDir,
-		OTEL_DIR,
+		PW_OTEL_DIR,
 		`${sanitizeTestId(testId)}-network-spans`,
 	);
 }
