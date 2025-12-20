@@ -257,19 +257,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		parentTitlePath: string[],
 		processedSteps: Map<string, Span>,
 	) {
-		// Skip fixture steps that come from our fixture file to avoid noise
-		// These are internal to playwright-opentelemetry and not useful to report
-		const isOurFixtureFile =
+		// Skip fixture steps that come from the playwright-opentelemetry fixture file to avoid noise
+		const isInternalFixture =
 			step.category === "fixture" &&
-			(step.location?.file.includes("playwright-opentelemetry") ||
-				step.location?.file.endsWith("fixture.mjs") ||
+			step.location?.file.includes("playwright-opentelemetry") &&
+			(step.location?.file.endsWith("fixture.mjs") ||
 				step.location?.file.endsWith("fixture/index.ts"));
 
 		const stepId = getStepId(test, step);
 
 		// If this step is from our fixture file, mark it and remove any already-created span
 		// (Playwright sometimes reports the same fixture twice, once without location first)
-		if (isOurFixtureFile) {
+		if (isInternalFixture) {
 			processedSteps.set(`__skip__${stepId}`, {} as Span);
 
 			// Remove any span we already created for this stepId (from a duplicate without location)
