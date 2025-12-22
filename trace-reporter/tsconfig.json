@@ -1,4 +1,6 @@
 {
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"extends": "../tsconfig.options.json",
 	"compilerOptions": {
 		"target": "esnext",
 		"lib": ["es2023"],
