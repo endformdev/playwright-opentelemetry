@@ -1,11 +1,13 @@
 {
-    "name": "playwright-opentelemetry",
-    "packageManager": "pnpm@10.10.0",
-    "scripts": {
-        "format": "biome format --write"
-    },
-    "devDependencies": {
-        "@biomejs/biome": "2.3.10",
-        "vitest": "^4.0.16"
-    }
+	"name": "playwright-opentelemetry",
+	"packageManager": "pnpm@10.10.0",
+	"scripts": {
+		"format": "biome format --write",
+		"tsc": "tsc --build"
+	},
+	"devDependencies": {
+		"typescript": "catalog:",
+		"@biomejs/biome": "2.3.10",
+		"vitest": "^4.0.16"
+	}
 }

@@ -38,9 +38,7 @@
 		"build": "tsdown",
 		"dev": "tsdown --watch",
 		"test:unit": "vitest",
-		"test:e2e": "playwright test",
-		"typecheck": "tsc --noEmit",
-		"format": "biome format --write"
+		"test:e2e": "playwright test"
 	},
 	"peerDependencies": {
 		"@playwright/test": "*"
@@ -50,7 +48,6 @@
 		"@playwright/test": "^1.57.0",
 		"@types/node": "^25.0.3",
 		"tsdown": "^0.18.1",
-		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}
 }

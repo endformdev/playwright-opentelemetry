@@ -12,3 +12,7 @@
 
 # Build
 **/dist/
+
+# TypeScript project references artifacts
+**/lib/
+*.tsbuildinfo
