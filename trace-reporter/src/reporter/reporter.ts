@@ -115,7 +115,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	onTestBegin(test: TestCase) {
-		console.log("onTestBegin", test.thing);
 		const testId = test.id;
 		const outputDir = this.getOutputDir(testId);
 

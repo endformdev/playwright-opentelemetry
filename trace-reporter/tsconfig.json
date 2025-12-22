@@ -2,21 +2,11 @@
 	"$schema": "https://json.schemastore.org/tsconfig",
 	"extends": "../tsconfig.options.json",
 	"compilerOptions": {
-		"target": "esnext",
-		"lib": ["es2023"],
-		"moduleDetection": "force",
-		"module": "preserve",
-		"moduleResolution": "bundler",
-		"resolveJsonModule": true,
+		"lib": ["ES2023"],
 		"types": ["node"],
-		"strict": true,
 		"noUnusedLocals": true,
-		"declaration": true,
 		"emitDeclarationOnly": true,
-		"esModuleInterop": true,
-		"isolatedModules": true,
-		"verbatimModuleSyntax": true,
-		"skipLibCheck": true
+		"outDir": "lib"
 	},
-	"include": ["src"]
+	"include": ["src/**/*", "test-unit/**/*", "test-e2e/**/*", "package.json"]
 }

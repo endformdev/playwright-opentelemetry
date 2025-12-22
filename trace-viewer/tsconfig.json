@@ -1,24 +1,16 @@
 {
 	"$schema": "https://json.schemastore.org/tsconfig",
-	"include": ["**/*.ts", "**/*.tsx"],
+	"extends": "../tsconfig.options.json",
 	"compilerOptions": {
-		"strict": true,
-		"esModuleInterop": true,
+		"lib": ["DOM", "DOM.Iterable", "ES2022"],
 		"jsx": "preserve",
 		"jsxImportSource": "solid-js",
-		"module": "ESNext",
-		"moduleResolution": "Bundler",
-		"lib": ["DOM", "DOM.Iterable", "ES2022"],
-		"isolatedModules": true,
-		"resolveJsonModule": true,
-		"skipLibCheck": true,
-		"target": "ES2022",
 		"allowJs": true,
-		"forceConsistentCasingInFileNames": true,
+		"noEmit": true,
 		"baseUrl": ".",
 		"paths": {
 			"~/*": ["./src/*"]
-		},
-		"noEmit": true
-	}
+		}
+	},
+	"include": ["src/**/*"]
 }

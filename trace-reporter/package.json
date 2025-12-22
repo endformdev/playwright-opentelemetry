@@ -38,8 +38,7 @@
 		"build": "tsdown",
 		"dev": "tsdown --watch",
 		"test:unit": "vitest",
-		"test:e2e": "playwright test",
-		"format": "biome format --write"
+		"test:e2e": "playwright test"
 	},
 	"peerDependencies": {
 		"@playwright/test": "*"

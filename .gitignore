@@ -13,5 +13,6 @@
 # Build
 **/dist/
 
-tsc
-tsconfig.tsbuildinfo
+# TypeScript project references artifacts
+**/lib/
+*.tsbuildinfo
