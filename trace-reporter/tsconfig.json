@@ -8,5 +8,11 @@
 		"emitDeclarationOnly": true,
 		"outDir": "lib"
 	},
-	"include": ["src/**/*", "test-unit/**/*", "test-e2e/**/*", "package.json"]
+	"include": [
+		"src/**/*",
+		"test-unit/**/*",
+		"test-e2e/**/*",
+		"*.ts",
+		"package.json"
+	]
 }
