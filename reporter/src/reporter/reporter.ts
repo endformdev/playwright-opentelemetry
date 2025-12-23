@@ -43,6 +43,7 @@ import { sendSpans } from "./sender";
 export interface PlaywrightOpentelemetryReporterOptions {
 	otlpEndpoint?: string;
 	otlpHeaders?: Record<string, string>;
+	storeTraceZip?: boolean;
 	serviceName?: string;
 	debug?: boolean;
 }

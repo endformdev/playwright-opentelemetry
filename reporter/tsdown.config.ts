@@ -5,6 +5,7 @@ export default defineConfig({
 		sourcemap: false,
 	},
 	entry: {
+		index: "./src/index",
 		reporter: "./src/reporter",
 		fixture: "./src/fixture",
 	},
