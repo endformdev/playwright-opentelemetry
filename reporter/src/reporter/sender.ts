@@ -44,7 +44,7 @@ function toOtlpAttributes(
 const SPAN_KIND_INTERNAL = 1;
 
 // Build the OTLP trace export request
-function buildOtlpRequest(
+export function buildOtlpRequest(
 	spans: Span[],
 	serviceName: string,
 	playwrightVersion: string,

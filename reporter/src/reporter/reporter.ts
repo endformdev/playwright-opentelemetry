@@ -1,10 +1,4 @@
-import {
-	copyFileSync,
-	existsSync,
-	type FSWatcher,
-	mkdirSync,
-	watch,
-} from "node:fs";
+import { existsSync, type FSWatcher, mkdirSync, watch } from "node:fs";
 import path from "node:path";
 import type {
 	FullConfig,
@@ -18,6 +12,7 @@ import type {
 import {
 	cleanupTestFiles,
 	collectNetworkSpans,
+	copyScreenshotForTest,
 	createNetworkDirs,
 	generateSpanId,
 	getOrCreateTraceId,
@@ -39,6 +34,7 @@ import {
 	TEST_STEP_SPAN_NAME,
 } from "./reporter-attributes";
 import { sendSpans } from "./sender";
+import { createTraceZip } from "./trace-zip-builder";
 
 export interface PlaywrightOpentelemetryReporterOptions {
 	otlpEndpoint?: string;
@@ -101,7 +97,8 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			options.serviceName ||
 			"playwright-tests";
 
-		if (!this.resolvedEndpoint) {
+		// Require either an OTLP endpoint or storeTraceZip to be enabled
+		if (!this.resolvedEndpoint && !this.options.storeTraceZip) {
 			throw new Error(getConfigurationErrorMessage());
 		}
 	}
@@ -121,44 +118,48 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			const project = test.parent.project();
 			if (project?.outputDir) {
 				const otelDir = path.join(project.outputDir, PW_OTEL_DIR);
-				mkdirSync(otelDir, {
-					recursive: true,
-				});
+				mkdirSync(otelDir, { recursive: true });
 				this.testOutputDirs.set(test.id, project.outputDir);
 
-				// Set up file watcher for this directory if not already watching
-				if (!watchedDirs.has(project.outputDir)) {
+				// Set up file watcher to copy screenshots to test-specific directories
+				if (this.options.storeTraceZip && !watchedDirs.has(project.outputDir)) {
 					watchedDirs.add(project.outputDir);
 					console.log(`[fs watch] setting up watcher for ${project.outputDir}`);
 					const watcher = watch(
 						project.outputDir,
 						{ recursive: true },
-						(eventType, filename) => {
-							// console.log(`[fs watch] ${eventType}: ${filename}`);
+						(_eventType, filename) => {
+							if (!filename) return;
+							if (!filename.endsWith(".jpg") && !filename.endsWith(".jpeg"))
+								return;
 
-							// Copy JPEG files to the OTEL folder
+							const sourcePath = path.join(project.outputDir, filename);
+							if (!existsSync(sourcePath)) return;
+
+							// Extract page GUID from filename: {page}@{pageGuid}-{timestamp}.jpeg
+							const basename = path.basename(filename);
+							const atIndex = basename.indexOf("@");
+							const lastDashIndex = basename.lastIndexOf("-");
+
 							if (
-								filename &&
-								(filename.endsWith(".jpg") || filename.endsWith(".jpeg"))
+								atIndex === -1 ||
+								lastDashIndex === -1 ||
+								lastDashIndex <= atIndex
 							) {
-								const sourcePath = path.join(project.outputDir, filename);
-								const destPath = path.join(
+								return;
+							}
+
+							const pageGuid = basename.slice(atIndex + 1, lastDashIndex);
+
+							try {
+								copyScreenshotForTest(
 									project.outputDir,
-									PW_OTEL_DIR,
-									path.basename(filename),
+									pageGuid,
+									sourcePath,
+									basename,
 								);
-								// Only copy if the source file exists (rename events fire for both create and delete)
-								if (existsSync(sourcePath)) {
-									try {
-										copyFileSync(sourcePath, destPath);
-										// console.log(`[fs watch] copied ${filename} to ${destPath}`);
-									} catch (err) {
-										console.error(
-											`[fs watch] failed to copy ${filename}:`,
-											err,
-										);
-									}
-								}
+							} catch (err) {
+								console.error(`[fs watch] failed to copy ${filename}:`, err);
 							}
 						},
 					);
@@ -266,7 +267,8 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			status: { code: result.status === test.expectedStatus ? 1 : 2 }, // 1=OK, 2=ERROR
 		};
 
-		this.spans.push(span);
+		// Collect spans for this test
+		const testSpans: Span[] = [span];
 
 		// Process test steps recursively
 		// Track processed step IDs to merge duplicates (Playwright can report the same step twice,
@@ -285,10 +287,30 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			}
 		}
 
+		// Add processed step spans to this test's spans
+		for (const stepSpan of processedSteps.values()) {
+			testSpans.push(stepSpan);
+		}
+
 		// Collect network spans from fixture - no reparenting, use as-is
 		const networkSpans = await collectNetworkSpans(outputDir, testId);
 		for (const networkSpan of networkSpans) {
-			this.spans.push(networkSpan);
+			testSpans.push(networkSpan);
+		}
+
+		// Add all test spans to the global spans array
+		this.spans.push(...testSpans);
+
+		// If storeTraceZip is enabled, create zip file for this test
+		if (this.options.storeTraceZip) {
+			await createTraceZip({
+				outputDir,
+				testId,
+				test,
+				spans: testSpans,
+				serviceName: this.resolvedServiceName,
+				playwrightVersion: this.playwrightVersion || "unknown",
+			});
 		}
 	}
 
@@ -299,13 +321,16 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 		this.directoryWatchers = [];
 
-		await sendSpans(this.spans, {
-			tracesEndpoint: this.resolvedEndpoint,
-			headers: this.resolvedHeaders,
-			serviceName: this.resolvedServiceName,
-			playwrightVersion: this.playwrightVersion || "unknown",
-			debug: this.options.debug ?? false,
-		});
+		// Only send spans if an endpoint is configured
+		if (this.resolvedEndpoint) {
+			await sendSpans(this.spans, {
+				tracesEndpoint: this.resolvedEndpoint,
+				headers: this.resolvedHeaders,
+				serviceName: this.resolvedServiceName,
+				playwrightVersion: this.playwrightVersion || "unknown",
+				debug: this.options.debug ?? false,
+			});
+		}
 		for (const [testId, outputDir] of this.testOutputDirs.entries()) {
 			await cleanupTestFiles(outputDir, testId);
 		}

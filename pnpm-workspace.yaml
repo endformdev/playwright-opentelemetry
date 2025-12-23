@@ -1,5 +1,5 @@
 packages:
-  - trace-reporter
+  - reporter
   - trace-viewer
 
 catalog:

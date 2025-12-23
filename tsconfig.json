@@ -1,5 +1,5 @@
 {
 	"extends": "./tsconfig.options.json",
 	"files": [],
-	"references": [{ "path": "trace-reporter" }, { "path": "trace-viewer" }]
+	"references": [{ "path": "reporter" }, { "path": "trace-viewer" }]
 }

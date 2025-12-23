@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "test": "vitest"
+    "preview": "vite preview"
   },
   "keywords": [
     "playwright",
@@ -25,7 +24,6 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
     "vite": "^7.3.0",
-    "vite-plugin-solid": "^2.11.10",
-    "vitest": "catalog:"
+    "vite-plugin-solid": "^2.11.10"
   }
 }

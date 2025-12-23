@@ -3,11 +3,12 @@
 	"packageManager": "pnpm@10.10.0",
 	"scripts": {
 		"format": "biome format --write",
+		"test": "vitest",
 		"tsc": "tsc --build"
 	},
 	"devDependencies": {
 		"typescript": "catalog:",
 		"@biomejs/biome": "2.3.10",
-		"vitest": "^4.0.16"
+		"vitest": "catalog:"
 	}
 }

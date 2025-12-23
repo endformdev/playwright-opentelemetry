@@ -21,6 +21,70 @@ export interface NetworkSpan {
 	attributes: Record<string, string | number | boolean>;
 }
 
+export interface PageTestMapping {
+	testId: string;
+	pageGuid: string;
+}
+
+/**
+ * Get the screenshots directory for a specific test.
+ */
+export function getScreenshotsDir(outputDir: string, testId: string): string {
+	return path.join(
+		outputDir,
+		PW_OTEL_DIR,
+		`${sanitizeTestId(testId)}-screenshots`,
+	);
+}
+
+/**
+ * Copy a screenshot to the appropriate test's screenshots directory.
+ * Uses the page-test mapping to determine which test owns this screenshot.
+ *
+ * @param outputDir - The Playwright output directory
+ * @param pageGuid - The page GUID extracted from the screenshot filename
+ * @param sourcePath - The source path of the screenshot file
+ * @param filename - The screenshot filename
+ * @returns true if the screenshot was copied, false if no matching test was found
+ */
+export function copyScreenshotForTest(
+	outputDir: string,
+	pageGuid: string,
+	sourcePath: string,
+	filename: string,
+): boolean {
+	const mappingPath = getPageMappingPath(outputDir);
+
+	// Read the page-test mappings to find which test owns this page
+	let mappings: PageTestMapping[] = [];
+	try {
+		const content = readFileSync(mappingPath, "utf-8");
+		mappings = JSON.parse(content);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+			throw err;
+		}
+		// No mappings file yet, screenshot can't be associated with a test
+		return false;
+	}
+
+	// Find the test that owns this page GUID
+	const mapping = mappings.find((m) => m.pageGuid === pageGuid);
+	if (!mapping) {
+		return false;
+	}
+
+	// Copy to the test's screenshots directory
+	const screenshotsDir = getScreenshotsDir(outputDir, mapping.testId);
+	mkdirSync(screenshotsDir, { recursive: true });
+
+	const destPath = path.join(screenshotsDir, filename);
+	const content = readFileSync(sourcePath);
+	writeFileSync(destPath, content);
+
+	return true;
+}
+
 export function getOrCreateTraceId(outputDir: string, testId: string): string {
 	const tracePath = getTracePath(outputDir, testId);
 
@@ -162,6 +226,63 @@ export async function collectNetworkSpans(
 }
 
 /**
+ * Store a page GUID to test ID mapping.
+ * This is used to filter screenshots when creating trace zip files.
+ *
+ * @param outputDir - The Playwright output directory
+ * @param testId - The unique test identifier
+ * @param pageGuid - The internal Playwright page GUID
+ */
+export function writePageTestMapping(
+	outputDir: string,
+	testId: string,
+	pageGuid: string,
+): void {
+	const mappingPath = getPageMappingPath(outputDir);
+
+	// Ensure the parent directory exists
+	mkdirSync(path.dirname(mappingPath), { recursive: true });
+
+	// Read existing mappings
+	let mappings: PageTestMapping[] = [];
+	if (existsSync(mappingPath)) {
+		const content = readFileSync(mappingPath, "utf-8");
+		mappings = JSON.parse(content);
+	}
+
+	// Append new mapping
+	mappings.push({ testId, pageGuid });
+
+	// Write back
+	writeFileSync(mappingPath, JSON.stringify(mappings, null, 2));
+}
+
+/**
+ * Get all page GUIDs associated with a specific test.
+ *
+ * @param outputDir - The Playwright output directory
+ * @param testId - The unique test identifier
+ * @returns Array of page GUIDs used by this test
+ */
+export function getPageGuidsForTest(
+	outputDir: string,
+	testId: string,
+): string[] {
+	const mappingPath = getPageMappingPath(outputDir);
+
+	try {
+		const content = readFileSync(mappingPath, "utf-8");
+		const mappings: PageTestMapping[] = JSON.parse(content);
+		return mappings.filter((m) => m.testId === testId).map((m) => m.pageGuid);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+			return [];
+		}
+		throw err;
+	}
+}
+
+/**
  * Cleanup all trace files for a test.
  * Called by the reporter after onTestEnd has processed the spans.
  *
@@ -199,9 +320,20 @@ export async function cleanupTestFiles(
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
 	}
+
+	// Remove screenshots directory
+	try {
+		await fs.rm(getScreenshotsDir(outputDir, testId), { recursive: true });
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+	}
 }
 
 // Helper functions
+
+function getPageMappingPath(outputDir: string): string {
+	return path.join(outputDir, PW_OTEL_DIR, "page-test-mappings.json");
+}
 
 function getTracePath(outputDir: string, testId: string): string {
 	return path.join(outputDir, PW_OTEL_DIR, `${sanitizeTestId(testId)}.trace`);

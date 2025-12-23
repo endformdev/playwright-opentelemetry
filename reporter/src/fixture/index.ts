@@ -1,5 +1,6 @@
 import path from "node:path";
 import { test as base } from "@playwright/test";
+import { writePageTestMapping } from "../shared/trace-files";
 import { fixtureOtelHeaderPropagator } from "./network-propagator";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
 
@@ -37,7 +38,9 @@ export const test = base.extend<{
 		await use(context);
 	},
 	page: async ({ page, testTraceInfo: { testId, outputDir } }, use) => {
-		console.log(`page: ${testId} ${page._guid}`);
+		// Access internal _guid property used for page identification
+		const pageGuid = (page as unknown as { _guid: string })._guid;
+		writePageTestMapping(outputDir, testId, pageGuid);
 		page.on("requestfinished", async (request) => {
 			const response = await request.response();
 			if (!response) {

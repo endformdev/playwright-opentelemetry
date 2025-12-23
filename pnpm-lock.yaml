@@ -24,10 +24,14 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
       vitest:
-        specifier: ^4.0.16
+        specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)
 
-  trace-reporter:
+  reporter:
+    dependencies:
+      '@zip.js/zip.js':
+        specifier: ^2.8.11
+        version: 2.8.11
     devDependencies:
       '@biomejs/biome':
         specifier: 2.3.10
@@ -41,9 +45,6 @@ importers:
       tsdown:
         specifier: ^0.18.1
         version: 0.18.1(typescript@5.9.3)
-      vitest:
-        specifier: 'catalog:'
-        version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)
 
   trace-viewer:
     dependencies:
@@ -63,9 +64,6 @@ importers:
       vite-plugin-solid:
         specifier: ^2.11.10
         version: 2.11.10(solid-js@1.9.10)(vite@7.3.0(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2))
-      vitest:
-        specifier: 'catalog:'
-        version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)
 
 packages:
 
@@ -736,6 +734,10 @@ packages:
 
   '@vitest/utils@4.0.16':
     resolution: {integrity: sha512-h8z9yYhV3e1LEfaQ3zdypIrnAg/9hguReGZoS7Gl0aBG5xgA410zBqECqmaF/+RkTggRsfnzc1XaAHA6bmUufA==}
+
+  '@zip.js/zip.js@2.8.11':
+    resolution: {integrity: sha512-0fztsk/0ryJ+2PPr9EyXS5/Co7OK8q3zY/xOoozEWaUsL5x+C0cyZ4YyMuUffOO2Dx/rAdq4JMPqW0VUtm+vzA==}
+    engines: {bun: '>=0.7.0', deno: '>=1.0.0', node: '>=18.0.0'}
 
   ansis@4.2.0:
     resolution: {integrity: sha512-HqZ5rWlFjGiV0tDm3UxxgNRqsOTniqoKZu0pIAfh7TZQMGuZK+hH0drySty0si0QXj1ieop4+SkSfPZBPPkHig==}
@@ -1822,6 +1824,8 @@ snapshots:
     dependencies:
       '@vitest/pretty-format': 4.0.16
       tinyrainbow: 3.0.3
+
+  '@zip.js/zip.js@2.8.11': {}
 
   ansis@4.2.0: {}
 
