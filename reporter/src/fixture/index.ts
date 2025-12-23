@@ -37,6 +37,7 @@ export const test = base.extend<{
 		await use(context);
 	},
 	page: async ({ page, testTraceInfo: { testId, outputDir } }, use) => {
+		console.log(`page: ${testId} ${page._guid}`);
 		page.on("requestfinished", async (request) => {
 			const response = await request.response();
 			if (!response) {

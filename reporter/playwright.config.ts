@@ -30,7 +30,7 @@ export default defineConfig({
 		[
 			"./dist/reporter.mjs",
 			{
-				debug: false,
+				debug: true,
 			} satisfies PlaywrightOpentelemetryReporterOptions,
 		],
 	],
@@ -38,9 +38,14 @@ export default defineConfig({
 	use: {
 		/* Base URL to use in actions like `await page.goto('')`. */
 		// baseURL: 'http://localhost:3000',
-
 		/* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-		trace: "on-first-retry",
+		trace: {
+			mode: "on",
+			screenshots: true,
+			snapshots: false,
+			sources: false,
+			attachments: false,
+		},
 	},
 
 	/* Configure projects for major browsers */

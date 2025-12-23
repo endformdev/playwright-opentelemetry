@@ -15,13 +15,13 @@ Two things need to be set up for complete opentelemetry tracing:
 
 ```ts
 import { defineConfig, devices } from "@playwright/test";
-import type { PlaywrightOpentelemetryReporterOptions } from "playwright-opentelemetry/reporter";
+import type { PlaywrightOpentelemetryReporterOptions } from "playwright-opentelemetry";
 
 export default defineConfig({
     // ... other Playwright config
 	reporter: [
 		[
-			"playwright-opentelemetry/reporter",
+			"playwright-opentelemetry",
 			{
                 // Or use environment variable OTEL_EXPORTER_OTLP_ENDPOINT
                 otlpEndpoint: "https://api.eu1.honeycomb.io/v1/traces",
@@ -49,6 +49,13 @@ test("has title", async ({ page }) => {
 });
 ```
 
+### Showing a trace
+
+
+```
+npx @playwright-opentelemetry/trace-viewer my-file.zip
+```
+
 ## Contributing
 
 ### Developing `playwright-opentelemetry`
@@ -63,5 +70,5 @@ test("has title", async ({ page }) => {
 ### Releasing
 
 ```
-npx bumpp
+pnpx bumpp
 ```

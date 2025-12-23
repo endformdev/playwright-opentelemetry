@@ -1,4 +1,10 @@
-import { mkdirSync } from "node:fs";
+import {
+	copyFileSync,
+	existsSync,
+	type FSWatcher,
+	mkdirSync,
+	watch,
+} from "node:fs";
 import path from "node:path";
 import type {
 	FullConfig,
@@ -64,6 +70,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	/** Maps test.id to its project's outputDir */
 	private testOutputDirs: Map<string, string> = new Map();
 
+	/** File system watchers for output directories */
+	private directoryWatchers: FSWatcher[] = [];
+
 	private testSpans: Map<string, string> = new Map();
 	private testTraceIds: Map<string, string> = new Map();
 	private stepSpanIds: Map<string, string> = new Map();
@@ -102,14 +111,58 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Store Playwright version for service.version attribute
 		this.playwrightVersion = config.version;
 
+		// Track unique directories to avoid duplicate watchers
+		const watchedDirs = new Set<string>();
+
 		// Build map of test IDs to their project's outputDir
 		for (const test of suite.allTests()) {
+			console.log(`test id: ${test.id}`);
 			const project = test.parent.project();
 			if (project?.outputDir) {
-				mkdirSync(path.join(project.outputDir, PW_OTEL_DIR), {
+				const otelDir = path.join(project.outputDir, PW_OTEL_DIR);
+				mkdirSync(otelDir, {
 					recursive: true,
 				});
 				this.testOutputDirs.set(test.id, project.outputDir);
+
+				// Set up file watcher for this directory if not already watching
+				if (!watchedDirs.has(project.outputDir)) {
+					watchedDirs.add(project.outputDir);
+					console.log(`[fs watch] setting up watcher for ${project.outputDir}`);
+					const watcher = watch(
+						project.outputDir,
+						{ recursive: true },
+						(eventType, filename) => {
+							// console.log(`[fs watch] ${eventType}: ${filename}`);
+
+							// Copy JPEG files to the OTEL folder
+							if (
+								filename &&
+								(filename.endsWith(".jpg") || filename.endsWith(".jpeg"))
+							) {
+								const sourcePath = path.join(project.outputDir, filename);
+								const destPath = path.join(
+									project.outputDir,
+									PW_OTEL_DIR,
+									path.basename(filename),
+								);
+								// Only copy if the source file exists (rename events fire for both create and delete)
+								if (existsSync(sourcePath)) {
+									try {
+										copyFileSync(sourcePath, destPath);
+										// console.log(`[fs watch] copied ${filename} to ${destPath}`);
+									} catch (err) {
+										console.error(
+											`[fs watch] failed to copy ${filename}:`,
+											err,
+										);
+									}
+								}
+							}
+						},
+					);
+					this.directoryWatchers.push(watcher);
+				}
 			}
 		}
 	}
@@ -239,6 +292,12 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	async onEnd(_result: FullResult) {
+		// Close all directory watchers
+		for (const watcher of this.directoryWatchers) {
+			watcher.close();
+		}
+		this.directoryWatchers = [];
+
 		await sendSpans(this.spans, {
 			tracesEndpoint: this.resolvedEndpoint,
 			headers: this.resolvedHeaders,

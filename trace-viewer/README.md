@@ -26,25 +26,25 @@ This trace viewer provides a rich, interactive visualization of Playwright test 
 ├───────────────────────────────────────────────────┬─────────────────────┤
 │                    Main Panel (70-80%)            │  Details Panel      │
 │  ┌─────────────────────────────────────────────┐  │  (20-30%)           │
-│  │              Screenshot Filmstrip            │  │                     │
+│  │              Screenshot Filmstrip           │  │                     │
 │  │  [img] [img] [img] [img] [img] [img] [img]  │  │  ┌───────────────┐  │
 │  └─────────────────────────────────────────────┘  │  │               │  │
 │  ┌─────────────────────────────────────────────┐  │  │  Contextual   │  │
-│  │              Steps Timeline                  │  │  │  Details      │  │
+│  │              Steps Timeline                 │  │  │  Details      │  │
 │  │  ┌─────────────────────────────────────┐    │  │  │               │  │
 │  │  │ Test: login flow                    │    │  │  │  - Step info  │  │
 │  │  │  ┌──────────────────────────────┐   │    │  │  │  - Screenshot │  │
 │  │  │  │ Step: navigate to login      │   │    │  │  │  - Request    │  │
 │  │  │  └──────────────────────────────┘   │    │  │  │    details    │  │
 │  │  │  ┌────────────────────────────────┐ │    │  │  │               │  │
-│  │  │  │ Step: fill credentials        │ │    │  │  │               │  │
+│  │  │  │ Step: fill credentials         │ │    │  │  │               │  │
 │  │  │  │  ┌─────────┐ ┌──────────────┐  │ │    │  │  │               │  │
 │  │  │  │  │ fill    │ │ fill         │  │ │    │  │  │               │  │
 │  │  │  └──┴─────────┴─┴──────────────┴──┘ │    │  │  │               │  │
 │  │  └─────────────────────────────────────┘    │  │  │               │  │
 │  └─────────────────────────────────────────────┘  │  │               │  │
 │  ┌─────────────────────────────────────────────┐  │  │               │  │
-│  │              Traces Panel                    │  │  │               │  │
+│  │              Traces Panel                   │  │  │               │  │
 │  │  GET /api/login        200  45ms            │  │  │               │  │
 │  │  POST /api/session     201  120ms           │  │  └───────────────┘  │
 │  │  console.log: "User logged in"              │  │                     │
