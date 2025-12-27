@@ -1,9 +1,27 @@
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
 import solidPlugin from "vite-plugin-solid";
 
 export default defineConfig({
-	plugins: [solidPlugin(), tailwindcss()],
+	plugins: [
+		solidPlugin(),
+		tailwindcss(),
+		VitePWA({
+			srcDir: "src/services/serviceWorker",
+			filename: "sw.ts",
+			strategies: "injectManifest",
+			injectRegister: false,
+			manifest: false,
+			injectManifest: {
+				injectionPoint: undefined,
+			},
+			devOptions: {
+				enabled: true,
+				type: "module",
+			},
+		}),
+	],
 	resolve: {
 		alias: {
 			"@": "/src",
@@ -14,20 +32,5 @@ export default defineConfig({
 	},
 	build: {
 		target: "esnext",
-		rollupOptions: {
-			input: {
-				main: "index.html",
-				sw: "src/services/serviceWorker/sw.ts",
-			},
-			output: {
-				entryFileNames: (chunkInfo) => {
-					// Service worker needs to be at root level
-					if (chunkInfo.name === "sw") {
-						return "sw.js";
-					}
-					return "assets/[name]-[hash].js";
-				},
-			},
-		},
 	},
 });

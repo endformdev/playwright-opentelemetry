@@ -31,19 +31,37 @@ export type ServiceWorkerResponse =
 	| { type: "PONG" };
 
 /**
+ * Get the service worker URL based on environment.
+ * Uses vite-plugin-pwa pattern for dev/prod service workers.
+ */
+function getServiceWorkerUrl(): string {
+	return import.meta.env.MODE === "production" ? "/sw.js" : "/dev-sw.js?dev-sw";
+}
+
+/**
+ * Get the service worker type based on environment.
+ * Dev mode uses ES modules, production uses classic scripts.
+ */
+function getServiceWorkerType(): "module" | "classic" {
+	return import.meta.env.MODE === "production" ? "classic" : "module";
+}
+
+/**
  * Register the service worker and wait for it to be ready.
  * Follows Playwright's pattern for ensuring the SW is active before use.
  */
-export async function registerServiceWorker(
-	swUrl: string = "/sw.js",
-): Promise<ServiceWorkerRegistration> {
+export async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
 	if (!("serviceWorker" in navigator)) {
 		throw new Error("Service Workers are not supported in this browser");
 	}
 
+	const swUrl = getServiceWorkerUrl();
+	const swType = getServiceWorkerType();
+
 	// Register the service worker
 	const registration = await navigator.serviceWorker.register(swUrl, {
 		scope: "/",
+		type: swType,
 	});
 
 	// Wait for the service worker to be ready

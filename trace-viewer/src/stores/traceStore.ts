@@ -52,7 +52,7 @@ const [serviceWorkerReady, setServiceWorkerReady] = createSignal(false);
  */
 export async function initializeServiceWorker(): Promise<void> {
 	try {
-		await registerServiceWorker("/sw.js");
+		await registerServiceWorker();
 		setServiceWorkerReady(true);
 	} catch (error) {
 		console.error("Failed to register service worker:", error);
