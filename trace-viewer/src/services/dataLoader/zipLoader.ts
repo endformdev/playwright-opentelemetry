@@ -1,24 +1,9 @@
-/**
- * ZIP file loader for trace data.
- * Uses @zip.js/zip.js for ZIP decompression in the browser.
- */
-
 import type { Entry, FileEntry } from "@zip.js/zip.js";
 import { BlobReader, BlobWriter, TextWriter, ZipReader } from "@zip.js/zip.js";
 import type { OtlpTraceExport } from "../../types/otel";
 import type { LoadProgress, TraceLoaderBackend } from "./types";
 import { TRACE_FILE_PATHS } from "./types";
 
-/**
- * Type guard to check if an entry is a file (not a directory)
- */
-function isFileEntry(entry: Entry): entry is FileEntry {
-	return !entry.directory;
-}
-
-/**
- * Result of loading a ZIP file
- */
 export interface ZipLoadResult {
 	/** The parsed OTLP trace data */
 	traceData: OtlpTraceExport;
@@ -28,17 +13,18 @@ export interface ZipLoadResult {
 	screenshotFilenames: string[];
 }
 
-/**
- * Entries extracted from a ZIP file
- */
 export interface ZipEntries {
 	entries: Map<string, Entry>;
 }
 
-/**
- * Extract entries from a ZIP blob using @zip.js/zip.js.
- * This is a pure function that can be used directly or within a service worker.
- */
+export async function loadZipFile(
+	zipBlob: Blob,
+	onProgress?: LoadProgress,
+): Promise<ZipLoadResult> {
+	const entries = await extractZipEntries(zipBlob, onProgress);
+	return parseZipEntries(entries);
+}
+
 export async function extractZipEntries(
 	zipBlob: Blob,
 	_onProgress?: LoadProgress,
@@ -55,9 +41,6 @@ export async function extractZipEntries(
 	return { entries };
 }
 
-/**
- * Read text content from a ZIP entry
- */
 async function readEntryAsText(entry: Entry): Promise<string> {
 	if (!isFileEntry(entry)) {
 		throw new Error(`Cannot read directory entry: ${entry.filename}`);
@@ -66,9 +49,6 @@ async function readEntryAsText(entry: Entry): Promise<string> {
 	return entry.getData(writer);
 }
 
-/**
- * Read blob content from a ZIP entry
- */
 async function readEntryAsBlob(entry: Entry, mimeType: string): Promise<Blob> {
 	if (!isFileEntry(entry)) {
 		throw new Error(`Cannot read directory entry: ${entry.filename}`);
@@ -77,9 +57,6 @@ async function readEntryAsBlob(entry: Entry, mimeType: string): Promise<Blob> {
 	return entry.getData(writer);
 }
 
-/**
- * Parse extracted ZIP entries into trace data
- */
 export async function parseZipEntries(
 	zipEntries: ZipEntries,
 ): Promise<ZipLoadResult> {
@@ -125,21 +102,6 @@ export async function parseZipEntries(
 	};
 }
 
-/**
- * Load and parse a ZIP file in one step
- */
-export async function loadZipFile(
-	zipBlob: Blob,
-	onProgress?: LoadProgress,
-): Promise<ZipLoadResult> {
-	const entries = await extractZipEntries(zipBlob, onProgress);
-	return parseZipEntries(entries);
-}
-
-/**
- * Backend implementation for loading from an in-memory ZIP file.
- * Used when a user drops/selects a ZIP file directly.
- */
 export class BlobZipLoaderBackend implements TraceLoaderBackend {
 	private entriesPromise: Promise<Map<string, Entry>>;
 
@@ -147,10 +109,6 @@ export class BlobZipLoaderBackend implements TraceLoaderBackend {
 		this.entriesPromise = extractZipEntries(zipBlob, onProgress).then(
 			(result) => result.entries,
 		);
-	}
-
-	isLive(): boolean {
-		return false;
 	}
 
 	async entryNames(): Promise<string[]> {
@@ -178,9 +136,6 @@ export class BlobZipLoaderBackend implements TraceLoaderBackend {
 	}
 }
 
-/**
- * Get MIME type for a file based on extension
- */
 function getMimeType(filename: string): string {
 	const ext = filename.split(".").pop()?.toLowerCase();
 	switch (ext) {
@@ -196,4 +151,8 @@ function getMimeType(filename: string): string {
 		default:
 			return "application/octet-stream";
 	}
+}
+
+function isFileEntry(entry: Entry): entry is FileEntry {
+	return !entry.directory;
 }

@@ -1,13 +1,13 @@
-import { type Component, Show, onMount, createSignal, For } from "solid-js";
+import { type Component, createSignal, For, onMount, Show } from "solid-js";
 import {
+	initializeServiceWorker,
 	loadingState,
 	loadTraceFromZip,
-	initializeServiceWorker,
+	networkSpans,
 	rawData,
-	testInfo,
 	rootSpan,
 	screenshots,
-	networkSpans,
+	testInfo,
 	timeRange,
 } from "./stores/traceStore";
 
