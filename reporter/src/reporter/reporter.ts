@@ -78,12 +78,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private spanContextStacks: Map<string, string[]> = new Map();
 
 	constructor(private options: PlaywrightOpentelemetryReporterOptions = {}) {
-		// Resolve configuration with environment variable precedence
 		// Environment variables take priority over config options
 		this.resolvedEndpoint =
 			process.env.OTEL_EXPORTER_OTLP_ENDPOINT || options.otlpEndpoint || "";
 
-		// Parse headers from environment variable if present
 		const envHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS
 			? parseOtlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
 			: {};
@@ -104,22 +102,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	onBegin(config: FullConfig, suite: Suite) {
-		// Store rootDir for calculating relative paths
 		this.rootDir = config.rootDir;
-		// Store Playwright version for service.version attribute
 		this.playwrightVersion = config.version;
 
 		// Track unique directories to avoid duplicate watchers
 		const watchedDirs = new Set<string>();
 
-		// Build map of test IDs to their project's outputDir
 		for (const test of suite.allTests()) {
-			console.log(`test id: ${test.id}`);
 			const project = test.parent.project();
 			if (project?.outputDir) {
+				this.testOutputDirs.set(test.id, project.outputDir);
+
 				const otelDir = path.join(project.outputDir, PW_OTEL_DIR);
 				mkdirSync(otelDir, { recursive: true });
-				this.testOutputDirs.set(test.id, project.outputDir);
 
 				// Set up file watcher to copy screenshots to test-specific directories
 				if (this.options.storeTraceZip && !watchedDirs.has(project.outputDir)) {
@@ -129,12 +124,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 						project.outputDir,
 						{ recursive: true },
 						(_eventType, filename) => {
-							if (!filename) return;
-							if (!filename.endsWith(".jpg") && !filename.endsWith(".jpeg"))
+							if (
+								!filename ||
+								!filename.endsWith(".jpg") ||
+								!filename.endsWith(".jpeg")
+							) {
 								return;
+							}
 
 							const sourcePath = path.join(project.outputDir, filename);
-							if (!existsSync(sourcePath)) return;
+							if (!existsSync(sourcePath)) {
+								return;
+							}
 
 							// Extract page GUID from filename: {page}@{pageGuid}-{timestamp}.jpeg
 							const basename = path.basename(filename);
@@ -228,7 +229,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		const attributes: Record<string, string | number | boolean> = {};
 
-		// Add test case name from titlePath
 		// titlePath format: ['', 'project', 'filename', ...describes, 'testname']
 		// We want: [...describes, 'testname'] joined with ' > '
 		const titlePath = test.titlePath();
@@ -238,17 +238,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_TEST_CASE_NAME] = caseName;
 		}
 
-		// Add test case title (just the test name)
 		attributes[ATTR_TEST_CASE_TITLE] = test.title;
-
-		// Add test case result status
 		attributes[ATTR_TEST_CASE_RESULT_STATUS] = result.status;
 
-		// Add code location attributes if available
 		if (test.location) {
 			const { file, line } = test.location;
-
-			// Calculate relative path from rootDir
 			const relativePath = this.rootDir
 				? path.relative(this.rootDir, file)
 				: file;
@@ -267,9 +261,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			status: { code: result.status === test.expectedStatus ? 1 : 2 }, // 1=OK, 2=ERROR
 		};
 
-		// Collect spans for this test
 		const testSpans: Span[] = [span];
-
 		// Process test steps recursively
 		// Track processed step IDs to merge duplicates (Playwright can report the same step twice,
 		// once with location info and once without - we want to merge them)
@@ -288,11 +280,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 
 		// Add processed step spans to this test's spans
-		for (const stepSpan of processedSteps.values()) {
-			testSpans.push(stepSpan);
+		// Filter out marker objects used to track skipped steps (they have keys starting with __skip__)
+		for (const [key, stepSpan] of processedSteps.entries()) {
+			if (!key.startsWith("__skip__")) {
+				testSpans.push(stepSpan);
+			}
 		}
 
-		// Collect network spans from fixture - no reparenting, use as-is
 		const networkSpans = await collectNetworkSpans(outputDir, testId);
 		for (const networkSpan of networkSpans) {
 			testSpans.push(networkSpan);

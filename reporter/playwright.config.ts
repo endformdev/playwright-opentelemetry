@@ -31,6 +31,7 @@ export default defineConfig({
 			"./dist/reporter.mjs",
 			{
 				debug: true,
+				storeTraceZip: true,
 			} satisfies PlaywrightOpentelemetryReporterOptions,
 		],
 	],

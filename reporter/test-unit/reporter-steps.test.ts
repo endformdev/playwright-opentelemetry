@@ -590,4 +590,82 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 			expect.any(Object),
 		);
 	});
+
+	it("skips internal fixture steps from playwright-opentelemetry without causing errors", async () => {
+		// This test reproduces a bug where internal fixture steps were being marked
+		// with empty marker objects that later caused "Cannot read properties of undefined"
+		// errors when trying to serialize spans (specifically accessing startTime.getTime())
+		await runReporterTest({
+			test: {
+				title: "test with internal fixture",
+				titlePath: [
+					"",
+					"chromium",
+					"test.spec.ts",
+					"test with internal fixture",
+				],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+			result: {
+				duration: 500,
+				steps: [
+					{
+						// This is the internal fixture step that should be skipped
+						title: "fixture: page",
+						category: "fixture",
+						startTime: new Date("2025-11-06T10:00:00.050Z"),
+						duration: 50,
+						location: {
+							file: "/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture.mjs",
+							line: 10,
+						},
+					},
+					{
+						title: "User step",
+						category: "test.step",
+						startTime: new Date("2025-11-06T10:00:00.100Z"),
+						duration: 200,
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+
+		// Verify that the spans array contains valid spans with proper startTime/endTime
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		for (const span of spans) {
+			// Every span must have a valid startTime and endTime (Date objects)
+			expect(span.startTime).toBeInstanceOf(Date);
+			expect(span.endTime).toBeInstanceOf(Date);
+		}
+
+		// The internal fixture step should NOT appear in the spans
+		expect(sendSpans).toHaveBeenCalledWith(
+			expect.not.arrayContaining([
+				expect.objectContaining({
+					attributes: expect.objectContaining({
+						[ATTR_TEST_STEP_TITLE]: "fixture: page",
+					}),
+				}),
+			]),
+			expect.any(Object),
+		);
+
+		// The user step should still be present
+		expect(sendSpans).toHaveBeenCalledWith(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: TEST_STEP_SPAN_NAME,
+					attributes: expect.objectContaining({
+						[ATTR_TEST_STEP_NAME]: "User step",
+					}),
+				}),
+			]),
+			expect.any(Object),
+		);
+	});
 });
