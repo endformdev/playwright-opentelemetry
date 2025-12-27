@@ -225,7 +225,7 @@ trace.zip/
 ```
 
 A **Service Worker** intercepts fetch requests to serve files from the ZIP:
-- ZIP is loaded into memory and parsed using `fflate`
+- ZIP is loaded into memory and parsed using `@zip.js/zip.js`
 - Service Worker intercepts requests matching a virtual path pattern
 - Screenshots are served on-demand from the ZIP without extracting everything
 
@@ -234,9 +234,10 @@ A **Service Worker** intercepts fetch requests to serve files from the ZIP:
 Pass a URL via query parameter: `?url=https://example.com/traces/abc123`
 
 The application will fetch:
-- `{baseUrl}/trace.json` - OpenTelemetry data
-- `{baseUrl}/screenshots.json` - Screenshot references  
-- `{baseUrl}/screenshots/{filename}` - Individual screenshots
+- `GET {baseUrl}/oltp-traces` - list OpenTelemetry traces
+- `GET {baseUrl}/oltp-traces/pw-reporter-trace.json` - Traces captured by playwright opentelemetry reporter
+- `GET {baseUrl}/screenshots` - List screenshots
+- `GET {baseUrl}/screenshots/{filename}` - Individual screenshots
 
 ### Core Types
 
@@ -289,7 +290,7 @@ interface TimeRange {
 - [x] Project setup (TypeScript, SolidJS, Tailwind, Vitest)
 - [ ] Type definitions for OTEL and trace data
 - [ ] URL data loader implementation
-- [ ] ZIP data loader with fflate
+- [ ] ZIP data loader with @zip.js/zip.js
 - [ ] Service Worker for ZIP file serving
 - [ ] OTEL JSON parser (spans to tree)
 - [ ] Screenshot reference mapper
@@ -353,7 +354,7 @@ pnpm build
 - **Styling**: Tailwind CSS v4
 - **Build Tool**: Vite
 - **Testing**: Vitest
-- **ZIP Handling**: fflate
+- **ZIP Handling**: @zip.js/zip.js
 - **Language**: TypeScript
 
 ## Design Principles

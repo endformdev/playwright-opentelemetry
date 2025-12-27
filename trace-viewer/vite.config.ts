@@ -14,5 +14,20 @@ export default defineConfig({
 	},
 	build: {
 		target: "esnext",
+		rollupOptions: {
+			input: {
+				main: "index.html",
+				sw: "src/services/serviceWorker/sw.ts",
+			},
+			output: {
+				entryFileNames: (chunkInfo) => {
+					// Service worker needs to be at root level
+					if (chunkInfo.name === "sw") {
+						return "sw.js";
+					}
+					return "assets/[name]-[hash].js";
+				},
+			},
+		},
 	},
 });

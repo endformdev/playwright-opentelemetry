@@ -1,29 +1,34 @@
 {
-  "name": "@playwright-opentelemetry/trace-viewer",
-  "version": "0.1.1",
-  "type": "module",
-  "description": "Playwright OpenTelemetry Trace Viewer - A SolidJS application for viewing Playwright Opentelemetry test traces",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
-  },
-  "keywords": [
-    "playwright",
-    "opentelemetry",
-    "trace-viewer",
-    "solidjs"
-  ],
-  "author": "Oliver Stenbom <oliver@endform.dev>",
-  "license": "Apache-2.0",
-  "packageManager": "pnpm@10.10.0",
-  "dependencies": {
-    "solid-js": "^1.9.10",
-    "tailwindcss": "^4.1.18"
-  },
-  "devDependencies": {
-    "@tailwindcss/vite": "^4.1.18",
-    "vite": "^7.3.0",
-    "vite-plugin-solid": "^2.11.10"
-  }
+	"name": "@playwright-opentelemetry/trace-viewer",
+	"version": "0.1.1",
+	"type": "module",
+	"description": "Playwright OpenTelemetry Trace Viewer - A SolidJS application for viewing Playwright Opentelemetry test traces",
+	"scripts": {
+		"dev": "vite",
+		"build": "tsc && vite build",
+		"preview": "vite preview",
+		"test": "vitest",
+		"test:run": "vitest run",
+		"typecheck": "tsc --noEmit"
+	},
+	"keywords": [
+		"playwright",
+		"opentelemetry",
+		"trace-viewer",
+		"solidjs"
+	],
+	"author": "Oliver Stenbom <oliver@endform.dev>",
+	"license": "Apache-2.0",
+	"packageManager": "pnpm@10.10.0",
+	"dependencies": {
+		"@zip.js/zip.js": "^2.8.11",
+		"solid-js": "^1.9.10",
+		"tailwindcss": "^4.1.18"
+	},
+	"devDependencies": {
+		"@tailwindcss/vite": "^4.1.18",
+		"vite": "^7.3.0",
+		"vite-plugin-solid": "^2.11.10",
+		"vitest": "^3.2.4"
+	}
 }
