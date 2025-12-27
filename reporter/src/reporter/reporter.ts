@@ -119,15 +119,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				// Set up file watcher to copy screenshots to test-specific directories
 				if (this.options.storeTraceZip && !watchedDirs.has(project.outputDir)) {
 					watchedDirs.add(project.outputDir);
-					console.log(`[fs watch] setting up watcher for ${project.outputDir}`);
 					const watcher = watch(
 						project.outputDir,
 						{ recursive: true },
 						(_eventType, filename) => {
 							if (
 								!filename ||
-								!filename.endsWith(".jpg") ||
-								!filename.endsWith(".jpeg")
+								(!filename.endsWith(".jpg") && !filename.endsWith(".jpeg"))
 							) {
 								return;
 							}
@@ -137,20 +135,16 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 								return;
 							}
 
-							// Extract page GUID from filename: {page}@{pageGuid}-{timestamp}.jpeg
+							// Extract pageGuid from filename: {pageGuid}-{timestamp}.jpeg
+							// e.g., page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg
 							const basename = path.basename(filename);
-							const atIndex = basename.indexOf("@");
 							const lastDashIndex = basename.lastIndexOf("-");
 
-							if (
-								atIndex === -1 ||
-								lastDashIndex === -1 ||
-								lastDashIndex <= atIndex
-							) {
+							if (lastDashIndex === -1) {
 								return;
 							}
 
-							const pageGuid = basename.slice(atIndex + 1, lastDashIndex);
+							const pageGuid = basename.slice(0, lastDashIndex);
 
 							try {
 								copyScreenshotForTest(
@@ -159,8 +153,8 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 									sourcePath,
 									basename,
 								);
-							} catch (err) {
-								console.error(`[fs watch] failed to copy ${filename}:`, err);
+							} catch (_err) {
+								// Ignore copy errors - screenshot may have been deleted
 							}
 						},
 					);

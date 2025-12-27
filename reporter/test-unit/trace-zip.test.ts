@@ -15,7 +15,11 @@ import {
 	TextWriter,
 	Uint8ArrayWriter,
 } from "@zip.js/zip.js";
-import { getScreenshotsDir, PW_OTEL_DIR } from "../src/shared/trace-files";
+import {
+	copyScreenshotForTest,
+	getScreenshotsDir,
+	PW_OTEL_DIR,
+} from "../src/shared/trace-files";
 import {
 	PlaywrightOpentelemetryReporter,
 	buildConfig,
@@ -53,23 +57,24 @@ function createTestOutputDir(testName: string): string {
  * and the reporter's file watcher copies them to the test-specific screenshots directory.
  *
  * This simulates the final state after the file watcher has processed the screenshot.
+ *
+ * Playwright screenshot naming convention: {pageGuid}-{timestamp}.jpeg
+ * where pageGuid is the full page._guid like "page@f06f11f7c14d6ce1060d47d79f05c154"
  */
 function simulateScreenshotCapture(
 	outputDir: string,
 	testId: string,
 	pageGuid: string,
 	timestamp: number,
-	pageName = "page",
 ): string {
 	const screenshotsDir = getScreenshotsDir(outputDir, testId);
 	mkdirSync(screenshotsDir, { recursive: true });
 
-	// Screenshot naming convention: {page}@{pageGuid}-{timestamp}.jpeg
-	const screenshotName = `${pageName}@${pageGuid}-${timestamp}.jpeg`;
+	// Screenshot naming convention: {pageGuid}-{timestamp}.jpeg
+	const screenshotName = `${pageGuid}-${timestamp}.jpeg`;
 	const screenshotPath = path.join(screenshotsDir, screenshotName);
 
 	// Write a minimal valid JPEG (just enough to be recognized as an image)
-	// Real screenshots would be actual JPEG data from Playwright
 	const minimalJpeg = Buffer.from([
 		0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
 		0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xd9,
@@ -146,6 +151,158 @@ async function readZipEntries(
 	return results;
 }
 
+describe("copyScreenshotForTest", () => {
+	let outputDir: string;
+
+	afterEach(async () => {
+		if (outputDir && existsSync(outputDir)) {
+			rmSync(outputDir, { recursive: true, force: true });
+		}
+	});
+
+	it("copies screenshot when pageGuid matches mapping with page@ prefix", () => {
+		outputDir = createTestOutputDir("copy-screenshot-test");
+
+		const testId = "test-abc-123";
+		// Realistic pageGuid format from Playwright's page._guid property
+		const pageGuid = "page@f06f11f7c14d6ce1060d47d79f05c154";
+		const timestamp = Date.now();
+		const filename = `page@f06f11f7c14d6ce1060d47d79f05c154-${timestamp}.jpeg`;
+
+		// Create the page-test mapping (as the fixture would do)
+		recordPageTestMapping(outputDir, { testId, pageGuid });
+
+		// Create a source screenshot file (simulating what Playwright writes)
+		const sourceDir = path.join(
+			outputDir,
+			".playwright-artifacts",
+			"traces",
+			"resources",
+		);
+		mkdirSync(sourceDir, { recursive: true });
+		const sourcePath = path.join(sourceDir, filename);
+		const minimalJpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]); // Minimal JPEG
+		writeFileSync(sourcePath, minimalJpeg);
+
+		// Call copyScreenshotForTest with the full pageGuid (including page@ prefix)
+		// This is what the file watcher should extract from the filename
+		const result = copyScreenshotForTest(
+			outputDir,
+			pageGuid,
+			sourcePath,
+			filename,
+		);
+
+		expect(result).toBe(true);
+
+		// Verify the screenshot was copied to the test's screenshots directory
+		const screenshotsDir = getScreenshotsDir(outputDir, testId);
+		const copiedPath = path.join(screenshotsDir, filename);
+		expect(existsSync(copiedPath)).toBe(true);
+	});
+
+	it("returns false when pageGuid does not match any mapping", () => {
+		outputDir = createTestOutputDir("copy-screenshot-no-match");
+
+		const testId = "test-abc-123";
+		const mappedPageGuid = "page@f06f11f7c14d6ce1060d47d79f05c154";
+		const differentPageGuid = "page@0000000000000000000000000000000";
+		const timestamp = Date.now();
+		const filename = `page@0000000000000000000000000000000-${timestamp}.jpeg`;
+
+		// Create mapping for a different page
+		recordPageTestMapping(outputDir, { testId, pageGuid: mappedPageGuid });
+
+		// Create source file
+		const sourceDir = path.join(outputDir, ".playwright-artifacts");
+		mkdirSync(sourceDir, { recursive: true });
+		const sourcePath = path.join(sourceDir, filename);
+		writeFileSync(sourcePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+		// Try to copy with non-matching pageGuid
+		const result = copyScreenshotForTest(
+			outputDir,
+			differentPageGuid,
+			sourcePath,
+			filename,
+		);
+
+		expect(result).toBe(false);
+	});
+
+	it("returns false when pageGuid is missing the page@ prefix", () => {
+		outputDir = createTestOutputDir("copy-screenshot-no-prefix");
+
+		const testId = "test-abc-123";
+		// Mapping stores the full pageGuid with prefix
+		const fullPageGuid = "page@f06f11f7c14d6ce1060d47d79f05c154";
+		// But if we only extract the hex part (bug scenario), it won't match
+		const hexOnlyGuid = "f06f11f7c14d6ce1060d47d79f05c154";
+		const timestamp = Date.now();
+		const filename = `page@f06f11f7c14d6ce1060d47d79f05c154-${timestamp}.jpeg`;
+
+		// Create mapping with full pageGuid
+		recordPageTestMapping(outputDir, { testId, pageGuid: fullPageGuid });
+
+		// Create source file
+		const sourceDir = path.join(outputDir, ".playwright-artifacts");
+		mkdirSync(sourceDir, { recursive: true });
+		const sourcePath = path.join(sourceDir, filename);
+		writeFileSync(sourcePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+		// Try to copy with hex-only pageGuid (simulating the bug)
+		const result = copyScreenshotForTest(
+			outputDir,
+			hexOnlyGuid,
+			sourcePath,
+			filename,
+		);
+
+		// This should return false because the pageGuid doesn't match
+		expect(result).toBe(false);
+	});
+});
+
+/**
+ * Extracts pageGuid from a screenshot filename.
+ *
+ * Playwright screenshot filename format: {pageGuid}-{timestamp}.jpeg
+ * Example: page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg
+ *
+ * The pageGuid is everything before the last dash.
+ */
+function extractPageGuidFromFilename(filename: string): string | null {
+	const basename = path.basename(filename);
+	const lastDashIndex = basename.lastIndexOf("-");
+
+	if (lastDashIndex === -1) {
+		return null;
+	}
+
+	return basename.slice(0, lastDashIndex);
+}
+
+describe("extractPageGuidFromFilename", () => {
+	it("extracts pageGuid from screenshot filename", () => {
+		const filename = "page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg";
+		const pageGuid = extractPageGuidFromFilename(filename);
+		expect(pageGuid).toBe("page@f06f11f7c14d6ce1060d47d79f05c154");
+	});
+
+	it("handles nested paths correctly", () => {
+		const filename =
+			".playwright-artifacts-0/traces/resources/page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg";
+		const pageGuid = extractPageGuidFromFilename(filename);
+		expect(pageGuid).toBe("page@f06f11f7c14d6ce1060d47d79f05c154");
+	});
+
+	it("returns null for filename without timestamp dash", () => {
+		const filename = "page@f06f11f7c14d6ce1060d47d79f05c154.jpeg";
+		const pageGuid = extractPageGuidFromFilename(filename);
+		expect(pageGuid).toBeNull();
+	});
+});
+
 describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 	let outputDir: string;
 
@@ -165,7 +322,9 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			outputDir = createTestOutputDir("single-test");
 
 			const testId = "abc123def";
-			const pageGuid = "page-guid-001";
+			// Use realistic pageGuid format matching Playwright's internal _guid property
+			// Format: page@{32-char-hex}
+			const pageGuid = "page@f06f11f7c14d6ce1060d47d79f05c154";
 			const testLocation = {
 				file: "/Users/test/project/test-e2e/example.spec.ts",
 				line: 10,
@@ -298,10 +457,10 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			);
 			expect(screenshotFiles).toHaveLength(2);
 
-			// Verify screenshot naming convention: {page}@{pageGuid}-{timestamp}.jpeg
+			// Verify screenshot naming convention: {pageGuid}-{timestamp}.jpeg
 			for (const filepath of screenshotFiles) {
 				const filename = path.basename(filepath);
-				expect(filename).toMatch(new RegExp(`^page@${pageGuid}-\\d+\\.jpeg$`));
+				expect(filename).toMatch(new RegExp(`^${pageGuid}-\\d+\\.jpeg$`));
 			}
 		});
 	});
@@ -310,10 +469,10 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 		it("creates separate zip files for each test with correct screenshots", async () => {
 			outputDir = createTestOutputDir("multiple-tests");
 
-			// Define two tests
+			// Define two tests with realistic pageGuid format matching Playwright's internal _guid
 			const test1 = {
 				id: "test-id-001",
-				pageGuid: "page-guid-aaa",
+				pageGuid: "page@a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
 				title: "first test",
 				location: {
 					file: "/Users/test/project/test-e2e/multi.spec.ts",
@@ -323,7 +482,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			const test2 = {
 				id: "test-id-002",
-				pageGuid: "page-guid-bbb",
+				pageGuid: "page@1234567890abcdef1234567890abcdef",
 				title: "second test",
 				location: {
 					file: "/Users/test/project/test-e2e/multi.spec.ts",
@@ -487,7 +646,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			expect(screenshots1).toHaveLength(1);
 			expect(screenshots1[0]).toMatch(
-				new RegExp(`screenshots/page@${test1.pageGuid}-\\d+\\.jpeg$`),
+				new RegExp(`screenshots/${test1.pageGuid}-\\d+\\.jpeg$`),
 			);
 			// Ensure no screenshots from test 2 leaked into test 1's zip
 			expect(screenshots1.some((f) => f.includes(test2.pageGuid))).toBe(false);
@@ -526,9 +685,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(screenshots2).toHaveLength(3);
 			for (const filepath of screenshots2) {
 				const filename = path.basename(filepath);
-				expect(filename).toMatch(
-					new RegExp(`^page@${test2.pageGuid}-\\d+\\.jpeg$`),
-				);
+				expect(filename).toMatch(new RegExp(`^${test2.pageGuid}-\\d+\\.jpeg$`));
 			}
 			// Ensure no screenshots from test 1 leaked into test 2's zip
 			expect(screenshots2.some((f) => f.includes(test1.pageGuid))).toBe(false);
@@ -538,8 +695,9 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			outputDir = createTestOutputDir("multi-page-test");
 
 			const testId = "test-multi-page";
-			const page1Guid = "page-guid-main";
-			const page2Guid = "page-guid-popup";
+			// Use realistic pageGuid format matching Playwright's internal _guid
+			const page1Guid = "page@aabbccdd11223344aabbccdd11223344";
+			const page2Guid = "page@55667788aabbccdd55667788aabbccdd";
 			const testLocation = {
 				file: "/Users/test/project/test-e2e/popup.spec.ts",
 				line: 15,
@@ -604,22 +762,9 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				testId,
 				page1Guid,
 				mainPageScreenshot,
-				"main-page",
 			);
-			simulateScreenshotCapture(
-				outputDir,
-				testId,
-				page2Guid,
-				popupScreenshot1,
-				"popup",
-			);
-			simulateScreenshotCapture(
-				outputDir,
-				testId,
-				page2Guid,
-				popupScreenshot2,
-				"popup",
-			);
+			simulateScreenshotCapture(outputDir, testId, page2Guid, popupScreenshot1);
+			simulateScreenshotCapture(outputDir, testId, page2Guid, popupScreenshot2);
 
 			for (const step of testResult.steps) {
 				reporter.onStepBegin(testCase, testResult, step);
@@ -645,17 +790,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(screenshots).toHaveLength(3);
 
 			// Verify we have screenshots from both pages
-			const mainPageScreenshots = screenshots.filter((f) =>
-				f.includes(page1Guid),
-			);
-			const popupScreenshots = screenshots.filter((f) => f.includes(page2Guid));
+			const page1Screenshots = screenshots.filter((f) => f.includes(page1Guid));
+			const page2Screenshots = screenshots.filter((f) => f.includes(page2Guid));
 
-			expect(mainPageScreenshots).toHaveLength(1);
-			expect(popupScreenshots).toHaveLength(2);
-
-			// Verify page name prefix is preserved
-			expect(mainPageScreenshots[0]).toMatch(/main-page@/);
-			expect(popupScreenshots.every((f) => f.includes("popup@"))).toBe(true);
+			expect(page1Screenshots).toHaveLength(1);
+			expect(page2Screenshots).toHaveLength(2);
 		});
 	});
 });
