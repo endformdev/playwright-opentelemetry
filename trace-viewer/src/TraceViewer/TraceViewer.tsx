@@ -1,30 +1,16 @@
-import { For, type JSX } from "solid-js";
+import { createSignal, For, type JSX, Show } from "solid-js";
 import type { TraceInfo } from "../traceInfoLoader";
 import {
-	type PackedSpan,
-	type SpanConnector,
 	flattenSpanTree,
 	generateConnectors,
+	type PackedSpan,
 	packSpans,
+	type SpanConnector,
 } from "./packSpans";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
-
-/**
- * Calculates the test duration in milliseconds from nanosecond timestamps.
- */
-function calculateDurationMs(
-	startTimeUnixNano: string,
-	endTimeUnixNano: string,
-): number {
-	const startNano = BigInt(startTimeUnixNano);
-	const endNano = BigInt(endTimeUnixNano);
-	const durationNano = endNano - startNano;
-	// Convert nanoseconds to milliseconds
-	return Number(durationNano / BigInt(1_000_000));
-}
 
 export interface TraceViewerProps {
 	traceInfo: TraceInfo;
@@ -38,9 +24,48 @@ export function TraceViewer(props: TraceViewerProps) {
 			props.traceInfo.testInfo.endTimeUnixNano,
 		);
 
+	// Shared hover position state (0-1 percentage, or null when not hovering)
+	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
+
+	let mainPanelRef: HTMLDivElement | undefined;
+
+	const handleMouseMove = (e: MouseEvent) => {
+		if (!mainPanelRef) return;
+
+		// Check if hovering over a resize handle (they have cursor-*-resize)
+		const target = e.target as HTMLElement;
+		const computedStyle = window.getComputedStyle(target);
+		if (
+			computedStyle.cursor === "col-resize" ||
+			computedStyle.cursor === "row-resize"
+		) {
+			setHoverPosition(null);
+			return;
+		}
+
+		const rect = mainPanelRef.getBoundingClientRect();
+		const position = (e.clientX - rect.left) / rect.width;
+		// Clamp to valid range
+		if (position >= 0 && position <= 1) {
+			setHoverPosition(position);
+		} else {
+			setHoverPosition(null);
+		}
+	};
+
+	const handleMouseLeave = () => {
+		setHoverPosition(null);
+	};
+
 	// Main Panel content (with fixed timeline ruler + vertical splits for Screenshot, Steps, Traces)
 	const mainPanelContent = (
-		<div class="flex flex-col h-full">
+		// biome-ignore lint/a11y/noStaticElementInteractions: container needs mouse tracking for hover line
+		<div
+			ref={mainPanelRef}
+			class="flex flex-col h-full relative"
+			onMouseMove={handleMouseMove}
+			onMouseLeave={handleMouseLeave}
+		>
 			{/* Fixed height timeline ruler at the top - no title */}
 			<TimelineRuler durationMs={durationMs()} />
 
@@ -66,12 +91,32 @@ export function TraceViewer(props: TraceViewerProps) {
 					}
 				/>
 			</div>
+
+			{/* Global hover line overlay - renders on top of everything */}
+			<Show when={hoverPosition()} keyed>
+				{(pos) => (
+					<div
+						class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
+						style={{ left: `${pos * 100}%` }}
+					/>
+				)}
+			</Show>
 		</div>
 	);
 
+	// Convert hover position (0-1) to time in milliseconds
+	const hoverTimeMs = () => {
+		const pos = hoverPosition();
+		if (pos === null) return null;
+		return pos * durationMs();
+	};
+
 	return (
 		<div class="flex flex-col h-full w-full bg-white text-gray-900">
-			<TraceViewerHeader testInfo={props.traceInfo.testInfo} />
+			<TraceViewerHeader
+				testInfo={props.traceInfo.testInfo}
+				hoverTimeMs={hoverTimeMs}
+			/>
 
 			{/* Resizable Main Content Area */}
 			<div class="flex-1 min-h-0">
@@ -511,4 +556,18 @@ function DetailsPanel(_props: { traceInfo: TraceInfo }) {
 			</div>
 		</div>
 	);
+}
+
+/**
+ * Calculates the test duration in milliseconds from nanosecond timestamps.
+ */
+function calculateDurationMs(
+	startTimeUnixNano: string,
+	endTimeUnixNano: string,
+): number {
+	const startNano = BigInt(startTimeUnixNano);
+	const endNano = BigInt(endTimeUnixNano);
+	const durationNano = endNano - startNano;
+	// Convert nanoseconds to milliseconds
+	return Number(durationNano / BigInt(1_000_000));
 }

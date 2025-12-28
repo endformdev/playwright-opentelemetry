@@ -52,35 +52,30 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	});
 
 	return (
-		<div class="h-full flex flex-col bg-gray-50">
-			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-				Screenshots ({selectedScreenshots().length} of {screenshots.length})
-			</div>
-			<div ref={contentRef} class="flex-1 overflow-hidden p-2">
-				<div class="flex gap-2 h-full">
-					{selectedScreenshots().length > 0 ? (
-						<For each={selectedScreenshots()}>
-							{(screenshot) => (
-								<div class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm">
-									<img
-										src={screenshot.url}
-										alt={`Screenshot at ${screenshot.timestamp}`}
-										class="w-full h-full object-contain"
-										loading="lazy"
-									/>
-								</div>
-							)}
-						</For>
-					) : screenshots.length === 0 ? (
-						<div class="flex items-center justify-center w-full text-gray-400 text-sm">
-							No screenshots available
-						</div>
-					) : (
-						<div class="flex items-center justify-center w-full text-gray-400 text-sm">
-							Resize panel to view screenshots
-						</div>
-					)}
-				</div>
+		<div ref={contentRef} class="h-full bg-gray-50 overflow-hidden p-2">
+			<div class="flex gap-2 h-full">
+				{selectedScreenshots().length > 0 ? (
+					<For each={selectedScreenshots()}>
+						{(screenshot) => (
+							<div class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm">
+								<img
+									src={screenshot.url}
+									alt={`Screenshot at ${screenshot.timestamp}`}
+									class="w-full h-full object-contain"
+									loading="lazy"
+								/>
+							</div>
+						)}
+					</For>
+				) : screenshots.length === 0 ? (
+					<div class="flex items-center justify-center w-full text-gray-400 text-sm">
+						No screenshots available
+					</div>
+				) : (
+					<div class="flex items-center justify-center w-full text-gray-400 text-sm">
+						Resize panel to view screenshots
+					</div>
+				)}
 			</div>
 		</div>
 	);

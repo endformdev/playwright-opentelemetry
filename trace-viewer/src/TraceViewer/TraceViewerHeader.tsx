@@ -1,7 +1,9 @@
+import { Show, type Accessor } from "solid-js";
 import type { TestInfo } from "../traceInfoLoader";
 
 export interface TraceViewerHeaderProps {
 	testInfo: TestInfo;
+	hoverTimeMs: Accessor<number | null>;
 }
 
 export function TraceViewerHeader(props: TraceViewerHeaderProps) {
@@ -48,13 +50,37 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 		}
 	};
 
+	// Get test start time as a Date
+	const testStartTime = () => {
+		const startNano = BigInt(testInfo.startTimeUnixNano);
+		const startMs = Number(startNano / BigInt(1_000_000));
+		return new Date(startMs);
+	};
+
+	// Format the absolute timestamp for hover position
+	const formatAbsoluteTime = (offsetMs: number) => {
+		const absoluteTime = new Date(testStartTime().getTime() + offsetMs);
+		const date = absoluteTime.toLocaleDateString(undefined, {
+			month: "short",
+			day: "numeric",
+		});
+		const time = absoluteTime.toLocaleTimeString(undefined, {
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+			hour12: false,
+		});
+		const ms = absoluteTime.getMilliseconds().toString().padStart(3, "0");
+		return `${date}, ${time}.${ms}`;
+	};
+
 	return (
 		<div class="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-3">
 			<div class="flex items-center gap-4">
 				{/* Status Icon */}
 				<span class={`text-xl ${statusColor()}`}>{statusIcon()}</span>
 
-				{/* Test Name */}
+				{/* Test Name and Info */}
 				<div class="flex-1 min-w-0">
 					<div class="flex items-baseline gap-2">
 						{testInfo.describes.length > 0 && (
@@ -67,15 +93,38 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 							{testInfo.name}
 						</span>
 					</div>
-					<div class="text-xs text-gray-500 font-mono truncate">
-						{testInfo.file}:{testInfo.line}
+					<div class="flex items-center gap-3 text-xs text-gray-500">
+						<span class="font-mono truncate">
+							{testInfo.file}:{testInfo.line}
+						</span>
+						<span class="text-gray-300">|</span>
+						<span class="font-mono">{duration()}ms</span>
+						<span class={statusColor()}>{testInfo.status}</span>
 					</div>
 				</div>
 
-				{/* Duration */}
-				<div class="flex-shrink-0 text-right">
-					<div class="text-sm font-mono text-gray-700">{duration()}ms</div>
-					<div class={`text-xs ${statusColor()}`}>{testInfo.status}</div>
+				{/* Hover Time Display */}
+				<div class="flex-shrink-0 text-right min-w-[140px]">
+					<Show
+						when={props.hoverTimeMs()}
+						fallback={
+							<div>
+								<div class="text-sm font-mono text-gray-300">--</div>
+								<div class="text-xs font-mono text-gray-200">--</div>
+							</div>
+						}
+					>
+						{(time) => (
+							<div>
+								<div class="text-sm font-mono text-blue-600">
+									{Math.round(time())}ms
+								</div>
+								<div class="text-xs font-mono text-gray-400">
+									{formatAbsoluteTime(time())}
+								</div>
+							</div>
+						)}
+					</Show>
 				</div>
 			</div>
 		</div>
