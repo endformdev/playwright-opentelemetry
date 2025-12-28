@@ -8,7 +8,7 @@ export default defineConfig({
 		solidPlugin(),
 		tailwindcss(),
 		VitePWA({
-			srcDir: "src/services/serviceWorker",
+			srcDir: "src/serviceWorker",
 			filename: "sw.ts",
 			strategies: "injectManifest",
 			injectRegister: false,

@@ -83,7 +83,7 @@ export async function createTraceZip(
 
 	// Add trace JSON
 	await zipWriter.add(
-		"oltp-traces/pw-reporter-trace.json",
+		"otlp-traces/pw-reporter-trace.json",
 		new TextReader(traceJson),
 	);
 

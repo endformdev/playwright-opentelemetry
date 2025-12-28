@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+
 /**
  * E2E Verification Script for Trace Zip Creation
  *
@@ -6,10 +7,10 @@
  * creates zip files containing OTLP traces and screenshots.
  */
 
-import { $ } from "bun";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { $ } from "bun";
 
 const TEST_RESULTS_DIR = path.join(import.meta.dirname, "..", "test-results");
 
@@ -138,7 +139,7 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 		// Check for OTLP trace file
 		const tracePath = path.join(
 			tempDir,
-			"oltp-traces",
+			"otlp-traces",
 			"pw-reporter-trace.json",
 		);
 
@@ -166,7 +167,7 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 			}
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-				errors.push("Missing oltp-traces/pw-reporter-trace.json");
+				errors.push("Missing otlp-traces/pw-reporter-trace.json");
 			} else {
 				errors.push(`Failed to parse trace JSON: ${err}`);
 			}

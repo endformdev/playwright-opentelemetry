@@ -1,16 +1,9 @@
-/**
- * Service Worker registration and communication utilities.
- */
-
 export interface ServiceWorkerState {
 	registration: ServiceWorkerRegistration | null;
 	ready: boolean;
 	error: Error | null;
 }
 
-/**
- * Messages that can be sent to the service worker
- */
 export type ServiceWorkerMessage =
 	| {
 			type: "LOAD_TRACE";
@@ -23,33 +16,10 @@ export type ServiceWorkerMessage =
 	| { type: "UNLOAD_TRACE"; traceId: string }
 	| { type: "PING" };
 
-/**
- * Messages received from the service worker
- */
 export type ServiceWorkerResponse =
 	| { type: "TRACE_LOADED"; traceId: string }
 	| { type: "PONG" };
 
-/**
- * Get the service worker URL based on environment.
- * Uses vite-plugin-pwa pattern for dev/prod service workers.
- */
-function getServiceWorkerUrl(): string {
-	return import.meta.env.MODE === "production" ? "/sw.js" : "/dev-sw.js?dev-sw";
-}
-
-/**
- * Get the service worker type based on environment.
- * Dev mode uses ES modules, production uses classic scripts.
- */
-function getServiceWorkerType(): "module" | "classic" {
-	return import.meta.env.MODE === "production" ? "classic" : "module";
-}
-
-/**
- * Register the service worker and wait for it to be ready.
- * Follows Playwright's pattern for ensuring the SW is active before use.
- */
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
 	if (!("serviceWorker" in navigator)) {
 		throw new Error("Service Workers are not supported in this browser");
@@ -81,9 +51,6 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 	return registration;
 }
 
-/**
- * Wait for an active service worker
- */
 async function waitForActiveWorker(
 	registration: ServiceWorkerRegistration,
 ): Promise<ServiceWorker> {
@@ -220,4 +187,12 @@ export function getScreenshotUrl(traceId: string, filename: string): string {
  */
 export function generateTraceId(): string {
 	return `trace-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+}
+
+function getServiceWorkerUrl(): string {
+	return import.meta.env.MODE === "production" ? "/sw.js" : "/dev-sw.js?dev-sw";
+}
+
+function getServiceWorkerType(): "module" | "classic" {
+	return import.meta.env.MODE === "production" ? "classic" : "module";
 }

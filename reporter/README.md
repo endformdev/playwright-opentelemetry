@@ -10,8 +10,8 @@ When running the reporter with `storeTraceZip: true`, a local copy of trace data
 
 ```
 {file.spec}:{linenumber}-{testId}-pw-otel.zip
-- oltp-traces/
-  - pw-reporter-trace.json <-- the oltp request body of all trace data collected by the reporter related to this test.
+- otlp-traces/
+  - pw-reporter-trace.json <-- the otlp request body of all trace data collected by the reporter related to this test.
 - screenshots/ <-- any screenshots collected during the test run
   - {page}@{pageId}-{timestamp}.jpeg
 ```

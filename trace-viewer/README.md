@@ -234,8 +234,8 @@ A **Service Worker** intercepts fetch requests to serve files from the ZIP:
 Pass a URL via query parameter: `?url=https://example.com/traces/abc123`
 
 The application will fetch:
-- `GET {baseUrl}/oltp-traces` - list OpenTelemetry traces
-- `GET {baseUrl}/oltp-traces/pw-reporter-trace.json` - Traces captured by playwright opentelemetry reporter
+- `GET {baseUrl}/otlp-traces` - list OpenTelemetry traces
+- `GET {baseUrl}/otlp-traces/pw-reporter-trace.json` - Traces captured by playwright opentelemetry reporter
 - `GET {baseUrl}/screenshots` - List screenshots
 - `GET {baseUrl}/screenshots/{filename}` - Individual screenshots
 
