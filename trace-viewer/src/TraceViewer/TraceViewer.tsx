@@ -2,34 +2,64 @@ import { For, type JSX } from "solid-js";
 import type { TraceInfo } from "../traceInfoLoader";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
+import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
+
+/**
+ * Calculates the test duration in milliseconds from nanosecond timestamps.
+ */
+function calculateDurationMs(
+	startTimeUnixNano: string,
+	endTimeUnixNano: string,
+): number {
+	const startNano = BigInt(startTimeUnixNano);
+	const endNano = BigInt(endTimeUnixNano);
+	const durationNano = endNano - startNano;
+	// Convert nanoseconds to milliseconds
+	return Number(durationNano / BigInt(1_000_000));
+}
 
 export interface TraceViewerProps {
 	traceInfo: TraceInfo;
 }
 
 export function TraceViewer(props: TraceViewerProps) {
-	// Main Panel content (with vertical splits for Screenshot, Steps, Traces)
+	// Calculate duration from test info timestamps
+	const durationMs = () =>
+		calculateDurationMs(
+			props.traceInfo.testInfo.startTimeUnixNano,
+			props.traceInfo.testInfo.endTimeUnixNano,
+		);
+
+	// Main Panel content (with fixed timeline ruler + vertical splits for Screenshot, Steps, Traces)
 	const mainPanelContent = (
-		<ResizablePanel
-			direction="vertical"
-			initialFirstPanelSize={20}
-			minFirstPanelSize={10}
-			maxFirstPanelSize={40}
-			firstPanel={
-				<ScreenshotFilmstrip screenshots={props.traceInfo.screenshots} />
-			}
-			secondPanel={
+		<div class="flex flex-col h-full">
+			{/* Fixed height timeline ruler at the top - no title */}
+			<TimelineRuler durationMs={durationMs()} />
+
+			{/* Remaining space for resizable panels */}
+			<div class="flex-1 min-h-0">
 				<ResizablePanel
 					direction="vertical"
-					initialFirstPanelSize={60}
-					minFirstPanelSize={20}
-					maxFirstPanelSize={80}
-					firstPanel={<StepsTimeline traceInfo={props.traceInfo} />}
-					secondPanel={<TracesPanel traceInfo={props.traceInfo} />}
+					initialFirstPanelSize={20}
+					minFirstPanelSize={10}
+					maxFirstPanelSize={40}
+					firstPanel={
+						<ScreenshotFilmstrip screenshots={props.traceInfo.screenshots} />
+					}
+					secondPanel={
+						<ResizablePanel
+							direction="vertical"
+							initialFirstPanelSize={60}
+							minFirstPanelSize={20}
+							maxFirstPanelSize={80}
+							firstPanel={<StepsTimeline traceInfo={props.traceInfo} />}
+							secondPanel={<TracesPanel traceInfo={props.traceInfo} />}
+						/>
+					}
 				/>
-			}
-		/>
+			</div>
+		</div>
 	);
 
 	return (
