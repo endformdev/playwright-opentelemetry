@@ -56,6 +56,51 @@ test("has title", async ({ page }) => {
 npx @playwright-opentelemetry/trace-viewer my-file.zip
 ```
 
+## Output Formats
+
+### `opentelemetry-trace.zip` format
+
+When running the reporter with `storeTraceZip: true`, a local copy of trace data will be stored to your results folder with the format:
+
+```
+{file.spec}:{linenumber}-{testId}-pw-otel.zip
+- test.json <-- Base test information
+- opentelemetry-protocol/
+  - playwright-opentelemetry.json <-- the otlp request body of all trace data collected by the reporter related to this test.
+- screenshots/ <-- any screenshots collected during the test run
+  - {page}@{pageId}-{timestamp}.jpeg
+```
+
+### Trace API
+
+The trace viewer can also load traces from APIs that respond to the following endpoints
+
+- `GET {baseUrl}/test.json` - Base test information
+- `GET {baseUrl}/opentelemetry-protocol` - list OpenTelemetry traces
+	- Response format `{ "jsonFiles": ["playwright-opentelemetry.json", "other-file.json"] }`
+- `GET {baseUrl}/opentelemetry-protocol/playwright-opentelemetry.json` - Traces captured by playwright opentelemetry reporter
+- `GET {baseUrl}/opentelemetry-protocol/{traceFile}` - Other traces captured during the test run
+- `GET {baseUrl}/screenshots` - List screenshots
+	- Response format `{ "screenshots": [ { "timestamp": 1766929201038, "file": "page@xxxbbb-1766929201038.jpeg" }] }`
+- `GET {baseUrl}/screenshots/{filename}` - Individual screenshots
+
+
+
+### `test.json`
+
+```json
+{
+	"name": "User can log in to the homepage",
+	"describes": ["When a user is logged out"],
+	"file": "homepage/login.spec.ts",
+	"line": 9,
+	"status": "passed",
+	"traceId": "7709187832dca84f02f413a312421586",
+	"startTimeUnixNano": "1766927492260000000",
+	"endTimeUnixNano": "1766927493119000000",
+}
+```
+
 ## Contributing
 
 ### Developing `playwright-opentelemetry`
