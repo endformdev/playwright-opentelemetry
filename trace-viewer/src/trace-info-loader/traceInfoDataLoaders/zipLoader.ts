@@ -1,5 +1,6 @@
 import {
 	getScreenshotUrl,
+	getTraceFileUrl,
 	loadTraceInServiceWorker,
 	registerServiceWorker,
 	unloadTraceFromServiceWorker,
@@ -26,24 +27,28 @@ export async function loadLocalZip(file: File): Promise<TraceInfo> {
 
 	const zipResult = await loadZipFile(file);
 
-	await loadTraceInServiceWorker(zipResult.screenshots, zipResult.traceData);
+	// Send all data to service worker
+	await loadTraceInServiceWorker({
+		testInfo: zipResult.testInfo,
+		traceFiles: zipResult.traceFiles,
+		screenshots: Array.from(zipResult.screenshots.entries()).map(
+			([name, blob]) => ({ name, blob }),
+		),
+		screenshotMetas: zipResult.screenshotMetas,
+	});
 
-	// Build screenshot infos with URLs from service worker
-	const screenshots: ScreenshotInfo[] = [];
-	const sortedFilenames = Array.from(zipResult.screenshots.keys()).sort();
+	// Build trace data URLs from trace file names
+	const traceDataUrls = zipResult.traceFiles.map((tf) =>
+		getTraceFileUrl(tf.name),
+	);
 
-	for (const filename of sortedFilenames) {
-		const timestamp = extractTimestampFromFilename(filename);
-		screenshots.push({
-			timestamp,
-			url: getScreenshotUrl(filename),
-		});
-	}
-
-	// Sort by timestamp
-	screenshots.sort((a, b) => a.timestamp - b.timestamp);
-
-	const traceDataUrls: string[] = [];
+	// Build screenshot infos with URLs
+	const screenshots: ScreenshotInfo[] = zipResult.screenshotMetas.map(
+		(meta) => ({
+			timestamp: meta.timestamp,
+			url: getScreenshotUrl(meta.file),
+		}),
+	);
 
 	return {
 		testInfo: zipResult.testInfo,
@@ -65,47 +70,32 @@ export async function loadRemoteZip(url: string): Promise<TraceInfo> {
 
 	const zipResult = await loadZipFile(blob);
 
-	await loadTraceInServiceWorker(zipResult.screenshots, zipResult.traceData);
+	// Send all data to service worker
+	await loadTraceInServiceWorker({
+		testInfo: zipResult.testInfo,
+		traceFiles: zipResult.traceFiles,
+		screenshots: Array.from(zipResult.screenshots.entries()).map(
+			([name, blob]) => ({ name, blob }),
+		),
+		screenshotMetas: zipResult.screenshotMetas,
+	});
 
-	// Build screenshot infos with URLs from service worker
-	const screenshots: ScreenshotInfo[] = [];
-	const sortedFilenames = Array.from(zipResult.screenshots.keys()).sort();
+	// Build trace data URLs from trace file names
+	const traceDataUrls = zipResult.traceFiles.map((tf) =>
+		getTraceFileUrl(tf.name),
+	);
 
-	for (const filename of sortedFilenames) {
-		const timestamp = extractTimestampFromFilename(filename);
-		screenshots.push({
-			timestamp,
-			url: getScreenshotUrl(filename),
-		});
-	}
-
-	// Sort by timestamp
-	screenshots.sort((a, b) => a.timestamp - b.timestamp);
-
-	const traceDataUrls: string[] = [];
+	// Build screenshot infos with URLs
+	const screenshots: ScreenshotInfo[] = zipResult.screenshotMetas.map(
+		(meta) => ({
+			timestamp: meta.timestamp,
+			url: getScreenshotUrl(meta.file),
+		}),
+	);
 
 	return {
 		testInfo: zipResult.testInfo,
 		traceDataUrls,
 		screenshots,
 	};
-}
-
-/**
- * Extract timestamp from screenshot filename.
- * Format: {pageGuid}-{timestamp}.jpeg (e.g., page@abc123-1766929201038.jpeg)
- */
-function extractTimestampFromFilename(filename: string): number {
-	// Find the last dash before the extension
-	const lastDashIndex = filename.lastIndexOf("-");
-	if (lastDashIndex === -1) {
-		return 0;
-	}
-
-	const afterDash = filename.slice(lastDashIndex + 1);
-	// Remove extension
-	const timestampStr = afterDash.replace(/\.[^.]+$/, "");
-	const timestamp = parseInt(timestampStr, 10);
-
-	return Number.isNaN(timestamp) ? 0 : timestamp;
 }

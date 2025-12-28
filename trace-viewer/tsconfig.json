@@ -5,6 +5,7 @@
 		"lib": ["DOM", "DOM.Iterable", "ES2022", "WebWorker"],
 		"jsx": "preserve",
 		"jsxImportSource": "solid-js",
+		"types": ["solid-js"],
 		"allowJs": true,
 		"noEmit": true,
 		"baseUrl": ".",

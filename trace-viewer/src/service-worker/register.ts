@@ -1,16 +1,37 @@
+import type { TestInfo } from "../trace-info-loader/TraceInfoLoader";
+
 export interface ServiceWorkerState {
 	registration: ServiceWorkerRegistration | null;
 	ready: boolean;
 	error: Error | null;
 }
 
+/**
+ * Screenshot metadata for the /screenshots list endpoint
+ */
+export interface ScreenshotMeta {
+	timestamp: number;
+	file: string;
+}
+
+/**
+ * Data to send to the service worker when loading a trace
+ */
+export interface TraceLoadData {
+	/** Base test information from test.json */
+	testInfo: TestInfo;
+	/** Trace files with name and JSON content */
+	traceFiles: Array<{ name: string; content: unknown }>;
+	/** Screenshots with name and blob */
+	screenshots: Array<{ name: string; blob: Blob }>;
+	/** Screenshot metadata for list endpoint */
+	screenshotMetas: ScreenshotMeta[];
+}
+
 export type ServiceWorkerMessage =
 	| {
 			type: "LOAD_TRACE";
-			data: {
-				screenshots: Array<{ name: string; blob: Blob }>;
-				traceData: unknown;
-			};
+			data: TraceLoadData;
 	  }
 	| { type: "UNLOAD_TRACE" }
 	| { type: "PING" };
@@ -112,8 +133,7 @@ async function pingServiceWorker(worker: ServiceWorker): Promise<void> {
  * Send trace data to the service worker
  */
 export async function loadTraceInServiceWorker(
-	screenshots: Map<string, Blob>,
-	traceData: unknown,
+	data: TraceLoadData,
 ): Promise<void> {
 	const registration = await navigator.serviceWorker.ready;
 	const worker = registration.active;
@@ -121,11 +141,6 @@ export async function loadTraceInServiceWorker(
 	if (!worker) {
 		throw new Error("No active service worker");
 	}
-
-	// Convert screenshots map to array for transfer
-	const screenshotArray = Array.from(screenshots.entries()).map(
-		([name, blob]) => ({ name, blob }),
-	);
 
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => {
@@ -144,10 +159,7 @@ export async function loadTraceInServiceWorker(
 
 		worker.postMessage({
 			type: "LOAD_TRACE",
-			data: {
-				screenshots: screenshotArray,
-				traceData,
-			},
+			data,
 		});
 	});
 }
@@ -165,11 +177,19 @@ export async function unloadTraceFromServiceWorker(): Promise<void> {
 }
 
 /**
- * Generate the screenshot URL for a given filename.
- * This URL will be intercepted by the service worker.
+ * Generate URLs for trace API endpoints.
+ * These URLs will be intercepted by the service worker.
  */
+export function getTraceApiUrl(path: string): string {
+	return `/${path}`;
+}
+
 export function getScreenshotUrl(filename: string): string {
 	return `/screenshots/${filename}`;
+}
+
+export function getTraceFileUrl(filename: string): string {
+	return `/opentelemetry-protocol/${filename}`;
 }
 
 function getServiceWorkerUrl(): string {
