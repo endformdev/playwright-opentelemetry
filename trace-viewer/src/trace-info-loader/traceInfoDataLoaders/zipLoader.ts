@@ -4,7 +4,7 @@ import {
 	loadTraceInServiceWorker,
 	registerServiceWorker,
 	unloadTraceFromServiceWorker,
-} from "../../serviceWorker/register";
+} from "../../service-worker/register";
 import type { ScreenshotInfo, TraceInfo } from "../TraceInfoLoader";
 import { loadZipFile } from "./zips";
 

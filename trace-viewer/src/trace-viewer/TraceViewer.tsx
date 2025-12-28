@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import type { TraceInfo } from "../traceInfoLoader";
+import type { TraceInfo } from "../trace-info-loader";
 import {
 	flattenSpanTree,
 	generateConnectors,

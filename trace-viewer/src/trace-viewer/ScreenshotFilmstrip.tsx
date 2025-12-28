@@ -6,11 +6,11 @@ import {
 	onCleanup,
 } from "solid-js";
 
-import type { ScreenshotInfo } from "~/traceInfoLoader";
+import type { ScreenshotInfo } from "~/trace-info-loader";
 
 import {
-	selectScreenshots,
 	type Screenshot,
+	selectScreenshots,
 	viewportToTimeRange,
 } from "./selectScreenshots";
 import type { TimelineViewport } from "./viewport";

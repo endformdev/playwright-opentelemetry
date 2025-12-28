@@ -6,7 +6,7 @@ import {
 	type Resource,
 	Switch,
 } from "solid-js";
-import type { TraceSource } from "../traceSource";
+import type { TraceSource } from "../trace-source";
 import { loadRemoteApi } from "./traceInfoDataLoaders/apiLoader";
 import {
 	loadLocalZip,

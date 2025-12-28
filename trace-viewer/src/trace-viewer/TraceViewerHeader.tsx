@@ -1,5 +1,5 @@
-import { Show, type Accessor } from "solid-js";
-import type { TestInfo } from "../traceInfoLoader";
+import { type Accessor, Show } from "solid-js";
+import type { TestInfo } from "../trace-info-loader";
 
 export interface TraceViewerHeaderProps {
 	testInfo: TestInfo;
