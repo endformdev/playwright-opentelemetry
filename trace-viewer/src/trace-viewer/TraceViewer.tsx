@@ -14,6 +14,7 @@ import { TraceViewerHeader } from "./TraceViewerHeader";
 import {
 	createViewport,
 	isTimeRangeVisible,
+	panViewport,
 	resetViewport,
 	type TimelineViewport,
 	timeToViewportPosition,
@@ -27,6 +28,9 @@ export interface TraceViewerProps {
 
 /** Zoom sensitivity for scroll wheel (higher = faster zoom) */
 const ZOOM_SENSITIVITY = 0.002;
+
+/** Pan sensitivity for horizontal scroll (higher = faster pan) */
+const PAN_SENSITIVITY = 0.2;
 
 // TODO: This is hardcoded to match dummy data. When real data is integrated,
 // this should come from actual span/step data or test info timestamps.
@@ -81,23 +85,36 @@ export function TraceViewer(props: TraceViewerProps) {
 		setHoverPosition(null);
 	};
 
-	// Handle scroll wheel for zooming
+	// Handle scroll wheel for zooming and horizontal panning
 	const handleWheel = (e: WheelEvent) => {
 		if (!mainPanelRef) return;
 
-		// Prevent default scroll behavior when zooming
+		// Prevent default scroll behavior
 		e.preventDefault();
 
-		const rect = mainPanelRef.getBoundingClientRect();
-		const focalPosition = (e.clientX - rect.left) / rect.width;
+		// Check if this is a horizontal scroll (shift+wheel or trackpad horizontal gesture)
+		const isHorizontalScroll = Math.abs(e.deltaX) > Math.abs(e.deltaY);
 
-		// Clamp focal position to valid range
-		const clampedFocalPosition = Math.max(0, Math.min(1, focalPosition));
+		if (isHorizontalScroll) {
+			// Horizontal scroll = pan left/right
+			const visibleDuration =
+				viewport().visibleEndMs - viewport().visibleStartMs;
+			// deltaX > 0 = scroll right = pan right (move viewport forward in time)
+			const panDeltaMs = (e.deltaX * PAN_SENSITIVITY * visibleDuration) / 100;
+			setViewport((v) => panViewport(v, panDeltaMs));
+		} else {
+			// Vertical scroll = zoom in/out
+			const rect = mainPanelRef.getBoundingClientRect();
+			const focalPosition = (e.clientX - rect.left) / rect.width;
 
-		// deltaY > 0 = scroll down = zoom out, deltaY < 0 = scroll up = zoom in
-		const zoomDelta = -e.deltaY * ZOOM_SENSITIVITY;
+			// Clamp focal position to valid range
+			const clampedFocalPosition = Math.max(0, Math.min(1, focalPosition));
 
-		setViewport((v) => zoomViewport(v, clampedFocalPosition, zoomDelta));
+			// deltaY > 0 = scroll down = zoom out, deltaY < 0 = scroll up = zoom in
+			const zoomDelta = -e.deltaY * ZOOM_SENSITIVITY;
+
+			setViewport((v) => zoomViewport(v, clampedFocalPosition, zoomDelta));
+		}
 	};
 
 	// Handle double-click to reset zoom
