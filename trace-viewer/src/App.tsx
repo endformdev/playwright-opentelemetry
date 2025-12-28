@@ -97,9 +97,6 @@ function DropZone(props: { setTraceSource: TraceSourceSetter }) {
 						onChange={handleFileSelect}
 					/>
 				</label>
-				<div class="text-sm text-gray-500 mt-8">
-					Trace files are processed locally in your browser
-				</div>
 			</div>
 		</div>
 	);
