@@ -1,4 +1,4 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import type { TraceInfo } from "../traceInfoLoader";
 import {
 	flattenSpanTree,
@@ -11,20 +11,44 @@ import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
+import {
+	createViewport,
+	isTimeRangeVisible,
+	resetViewport,
+	type TimelineViewport,
+	timeToViewportPosition,
+	viewportPositionToTime,
+	zoomViewport,
+} from "./viewport";
 
 export interface TraceViewerProps {
 	traceInfo: TraceInfo;
 }
 
+/** Zoom sensitivity for scroll wheel (higher = faster zoom) */
+const ZOOM_SENSITIVITY = 0.002;
+
+// TODO: This is hardcoded to match dummy data. When real data is integrated,
+// this should come from actual span/step data or test info timestamps.
+const DUMMY_TOTAL_DURATION_MS = 2500;
+
 export function TraceViewer(props: TraceViewerProps) {
 	// Calculate duration from test info timestamps
-	const durationMs = () =>
-		calculateDurationMs(
-			props.traceInfo.testInfo.startTimeUnixNano,
-			props.traceInfo.testInfo.endTimeUnixNano,
-		);
+	// Note: Currently using dummy duration to match dummy step/trace data
+	const durationMs = () => DUMMY_TOTAL_DURATION_MS;
 
-	// Shared hover position state (0-1 percentage, or null when not hovering)
+	// Calculate test start time in milliseconds (for converting absolute timestamps to relative)
+	const testStartTimeMs = () => {
+		const startNano = BigInt(props.traceInfo.testInfo.startTimeUnixNano);
+		return Number(startNano / BigInt(1_000_000));
+	};
+
+	// Viewport state for zoom/pan
+	const [viewport, setViewport] = createSignal<TimelineViewport>(
+		createViewport(durationMs()),
+	);
+
+	// Shared hover position state (0-1 percentage in viewport space, or null when not hovering)
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
 
 	let mainPanelRef: HTMLDivElement | undefined;
@@ -57,27 +81,62 @@ export function TraceViewer(props: TraceViewerProps) {
 		setHoverPosition(null);
 	};
 
+	// Handle scroll wheel for zooming
+	const handleWheel = (e: WheelEvent) => {
+		if (!mainPanelRef) return;
+
+		// Prevent default scroll behavior when zooming
+		e.preventDefault();
+
+		const rect = mainPanelRef.getBoundingClientRect();
+		const focalPosition = (e.clientX - rect.left) / rect.width;
+
+		// Clamp focal position to valid range
+		const clampedFocalPosition = Math.max(0, Math.min(1, focalPosition));
+
+		// deltaY > 0 = scroll down = zoom out, deltaY < 0 = scroll up = zoom in
+		const zoomDelta = -e.deltaY * ZOOM_SENSITIVITY;
+
+		setViewport((v) => zoomViewport(v, clampedFocalPosition, zoomDelta));
+	};
+
+	// Handle double-click to reset zoom
+	const handleDoubleClick = () => {
+		setViewport((v) => resetViewport(v));
+	};
+
 	// Main Panel content (with fixed timeline ruler + vertical splits for Screenshot, Steps, Traces)
 	const mainPanelContent = (
 		// biome-ignore lint/a11y/noStaticElementInteractions: container needs mouse tracking for hover line
 		<div
 			ref={mainPanelRef}
-			class="flex flex-col h-full relative"
+			class="flex flex-col h-full"
 			onMouseMove={handleMouseMove}
 			onMouseLeave={handleMouseLeave}
+			onWheel={handleWheel}
+			onDblClick={handleDoubleClick}
 		>
-			{/* Fixed height timeline ruler at the top - no title */}
-			<TimelineRuler durationMs={durationMs()} />
+			{/* Fixed height timeline ruler at the top - always shows full duration */}
+			{/* Ruler has its own hover indicator showing position on total timeline */}
+			<TimelineRuler
+				durationMs={durationMs()}
+				viewport={viewport()}
+				hoverPosition={hoverPosition()}
+			/>
 
-			{/* Remaining space for resizable panels */}
-			<div class="flex-1 min-h-0">
+			{/* Remaining space for resizable panels - with hover line overlay */}
+			<div class="flex-1 min-h-0 relative">
 				<ResizablePanel
 					direction="vertical"
 					initialFirstPanelSize={20}
 					minFirstPanelSize={10}
 					maxFirstPanelSize={40}
 					firstPanel={
-						<ScreenshotFilmstrip screenshots={props.traceInfo.screenshots} />
+						<ScreenshotFilmstrip
+							screenshots={props.traceInfo.screenshots}
+							viewport={viewport()}
+							testStartTimeMs={testStartTimeMs()}
+						/>
 					}
 					secondPanel={
 						<ResizablePanel
@@ -85,30 +144,40 @@ export function TraceViewer(props: TraceViewerProps) {
 							initialFirstPanelSize={60}
 							minFirstPanelSize={20}
 							maxFirstPanelSize={80}
-							firstPanel={<StepsTimeline traceInfo={props.traceInfo} />}
-							secondPanel={<TracesPanel traceInfo={props.traceInfo} />}
+							firstPanel={
+								<StepsTimeline
+									traceInfo={props.traceInfo}
+									viewport={viewport()}
+								/>
+							}
+							secondPanel={
+								<TracesPanel
+									traceInfo={props.traceInfo}
+									viewport={viewport()}
+								/>
+							}
 						/>
 					}
 				/>
-			</div>
 
-			{/* Global hover line overlay - renders on top of everything */}
-			<Show when={hoverPosition()} keyed>
-				{(pos) => (
-					<div
-						class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
-						style={{ left: `${pos * 100}%` }}
-					/>
-				)}
-			</Show>
+				{/* Hover line overlay for content area (excludes ruler) */}
+				<Show when={hoverPosition()} keyed>
+					{(pos) => (
+						<div
+							class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
+							style={{ left: `${pos * 100}%` }}
+						/>
+					)}
+				</Show>
+			</div>
 		</div>
 	);
 
-	// Convert hover position (0-1) to time in milliseconds
+	// Convert hover position (0-1 in viewport space) to time in milliseconds
 	const hoverTimeMs = () => {
 		const pos = hoverPosition();
 		if (pos === null) return null;
-		return pos * durationMs();
+		return viewportPositionToTime(pos, viewport());
 	};
 
 	return (
@@ -213,17 +282,41 @@ const stepDepthMap = buildDepthMap(dummyStepTree);
 // Row height for steps timeline (same as traces for consistency)
 const STEP_ROW_HEIGHT = 28;
 
-function StepsTimeline(_props: { traceInfo: TraceInfo }) {
+interface StepsTimelineProps {
+	traceInfo: TraceInfo;
+	viewport: TimelineViewport;
+}
+
+function StepsTimeline(props: StepsTimelineProps) {
 	const totalDuration = 2500; // Use dummy total for now
 
-	const stepsConnectors = generateConnectors(
-		packedStepsResult.spans,
-		totalDuration,
-	);
+	// Filter and position steps based on viewport
+	const visibleSteps = createMemo(() => {
+		return packedStepsResult.spans.filter((step) =>
+			isTimeRangeVisible(
+				step.startOffset,
+				step.startOffset + step.duration,
+				props.viewport,
+			),
+		);
+	});
+
+	// Generate connectors only for visible spans
+	const visibleConnectors = createMemo(() => {
+		const visibleIds = new Set(visibleSteps().map((s) => s.id));
+		return generateConnectors(packedStepsResult.spans, totalDuration).filter(
+			(c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId),
+		);
+	});
 
 	const renderStep = (step: PackedSpan): JSX.Element => {
-		const leftPercent = (step.startOffset / totalDuration) * 100;
-		const widthPercent = (step.duration / totalDuration) * 100;
+		// Calculate position relative to viewport
+		const leftPercent =
+			timeToViewportPosition(step.startOffset, props.viewport) * 100;
+		const rightPercent =
+			timeToViewportPosition(step.startOffset + step.duration, props.viewport) *
+			100;
+		const widthPercent = rightPercent - leftPercent;
 		const depth = stepDepthMap.get(step.id) ?? 0;
 
 		return (
@@ -247,11 +340,15 @@ function StepsTimeline(_props: { traceInfo: TraceInfo }) {
 		const topPx = connector.parentRow * STEP_ROW_HEIGHT + 24;
 		const heightPx = (rowDiff - 1) * STEP_ROW_HEIGHT + 4;
 
+		// Convert connector position from total timeline to viewport
+		const xPositionMs = (connector.xPercent / 100) * totalDuration;
+		const xPercent = timeToViewportPosition(xPositionMs, props.viewport) * 100;
+
 		return (
 			<div
 				class="absolute w-px bg-gray-400"
 				style={{
-					left: `${connector.xPercent}%`,
+					left: `${xPercent}%`,
 					top: `${topPx}px`,
 					height: `${heightPx}px`,
 				}}
@@ -262,18 +359,18 @@ function StepsTimeline(_props: { traceInfo: TraceInfo }) {
 	const containerHeight = packedStepsResult.totalRows * STEP_ROW_HEIGHT;
 
 	return (
-		<div class="h-full flex flex-col bg-gray-50">
+		<div class="h-full flex flex-col bg-gray-50 overflow-hidden">
 			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
 				Steps Timeline
 			</div>
-			<div class="flex-1 overflow-auto p-3">
+			<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
 				<div class="relative" style={{ height: `${containerHeight}px` }}>
 					{/* Render connector lines first (behind spans) */}
-					<For each={stepsConnectors}>
+					<For each={visibleConnectors()}>
 						{(connector) => renderConnector(connector)}
 					</For>
 					{/* Render steps on top */}
-					<For each={packedStepsResult.spans}>{(step) => renderStep(step)}</For>
+					<For each={visibleSteps()}>{(step) => renderStep(step)}</For>
 				</div>
 			</div>
 		</div>
@@ -445,7 +542,12 @@ const packedResult = packSpans(flatSpans);
 // Row height in pixels for the packed layout
 const ROW_HEIGHT = 28;
 
-function TracesPanel(_props: { traceInfo: TraceInfo }) {
+interface TracesPanelProps {
+	traceInfo: TraceInfo;
+	viewport: TimelineViewport;
+}
+
+function TracesPanel(props: TracesPanelProps) {
 	const totalDuration = 2500; // Use same dummy total as StepsTimeline for alignment
 
 	// Color scheme for different span kinds
@@ -460,11 +562,33 @@ function TracesPanel(_props: { traceInfo: TraceInfo }) {
 		return `hsl(${base.h}, ${base.s}%, ${base.l}%)`;
 	};
 
-	const connectors = generateConnectors(packedResult.spans, totalDuration);
+	// Filter spans to those within the visible viewport
+	const visibleSpans = createMemo(() => {
+		return packedResult.spans.filter((span) =>
+			isTimeRangeVisible(
+				span.startOffset,
+				span.startOffset + span.duration,
+				props.viewport,
+			),
+		);
+	});
+
+	// Generate connectors only for visible spans
+	const visibleConnectors = createMemo(() => {
+		const visibleIds = new Set(visibleSpans().map((s) => s.id));
+		return generateConnectors(packedResult.spans, totalDuration).filter(
+			(c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId),
+		);
+	});
 
 	const renderSpan = (span: PackedSpan): JSX.Element => {
-		const leftPercent = (span.startOffset / totalDuration) * 100;
-		const widthPercent = (span.duration / totalDuration) * 100;
+		// Calculate position relative to viewport
+		const leftPercent =
+			timeToViewportPosition(span.startOffset, props.viewport) * 100;
+		const rightPercent =
+			timeToViewportPosition(span.startOffset + span.duration, props.viewport) *
+			100;
+		const widthPercent = rightPercent - leftPercent;
 		const kind = spanKindMap.get(span.id) ?? "internal";
 
 		return (
@@ -489,11 +613,15 @@ function TracesPanel(_props: { traceInfo: TraceInfo }) {
 		const topPx = connector.parentRow * ROW_HEIGHT + 24; // Start just below parent span (24px = 6 row height)
 		const heightPx = (rowDiff - 1) * ROW_HEIGHT + 4; // Connect to child span
 
+		// Convert connector position from total timeline to viewport
+		const xPositionMs = (connector.xPercent / 100) * totalDuration;
+		const xPercent = timeToViewportPosition(xPositionMs, props.viewport) * 100;
+
 		return (
 			<div
 				class="absolute w-px bg-gray-400"
 				style={{
-					left: `${connector.xPercent}%`,
+					left: `${xPercent}%`,
 					top: `${topPx}px`,
 					height: `${heightPx}px`,
 				}}
@@ -504,18 +632,18 @@ function TracesPanel(_props: { traceInfo: TraceInfo }) {
 	const containerHeight = packedResult.totalRows * ROW_HEIGHT;
 
 	return (
-		<div class="h-full flex flex-col bg-gray-50">
+		<div class="h-full flex flex-col bg-gray-50 overflow-hidden">
 			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
 				Traces
 			</div>
-			<div class="flex-1 overflow-auto p-3">
+			<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
 				<div class="relative" style={{ height: `${containerHeight}px` }}>
 					{/* Render connector lines first (behind spans) */}
-					<For each={connectors}>
+					<For each={visibleConnectors()}>
 						{(connector) => renderConnector(connector)}
 					</For>
 					{/* Render spans on top */}
-					<For each={packedResult.spans}>{(span) => renderSpan(span)}</For>
+					<For each={visibleSpans()}>{(span) => renderSpan(span)}</For>
 				</div>
 			</div>
 		</div>

@@ -1,22 +1,45 @@
-import { createEffect, createSignal, For, onCleanup } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	onCleanup,
+} from "solid-js";
 
 import type { ScreenshotInfo } from "~/traceInfoLoader";
 
-import { selectScreenshots } from "./selectScreenshots";
+import {
+	selectScreenshots,
+	type Screenshot,
+	viewportToTimeRange,
+} from "./selectScreenshots";
+import type { TimelineViewport } from "./viewport";
 
 export interface ScreenshotFilmstripProps {
 	screenshots: ScreenshotInfo[];
+	/** Current viewport state for selecting screenshots */
+	viewport: TimelineViewport;
+	/** Test start time in milliseconds (Unix timestamp) for converting absolute to relative timestamps */
+	testStartTimeMs: number;
+}
+
+/** Screenshot with relative timestamp for selection, keeping original data */
+interface RelativeScreenshot extends Screenshot {
+	original: ScreenshotInfo;
 }
 
 export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
-	const { screenshots } = props;
-
 	let contentRef: HTMLDivElement | undefined;
 
-	// Selected screenshots based on available space
-	const [selectedScreenshots, setSelectedScreenshots] = createSignal<
-		ScreenshotInfo[]
-	>([]);
+	const [slotCount, setSlotCount] = createSignal(0);
+
+	// Convert screenshots to relative timestamps (offset from test start)
+	const screenshotsWithRelativeTime = createMemo((): RelativeScreenshot[] => {
+		return props.screenshots.map((screenshot) => ({
+			timestamp: screenshot.timestamp - props.testStartTimeMs,
+			original: screenshot,
+		}));
+	});
 
 	// Set up ResizeObserver to track content area size
 	createEffect(() => {
@@ -35,11 +58,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 					const gap = 8;
 
 					const count = Math.floor((width + gap) / (screenshotWidth + gap));
-					const fitCount = Math.max(0, count);
-
-					// Select evenly distributed screenshots
-					const selected = selectScreenshots(screenshots, fitCount);
-					setSelectedScreenshots(selected);
+					setSlotCount(Math.max(0, count));
 				}
 			}
 		});
@@ -49,6 +68,20 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		onCleanup(() => {
 			resizeObserver.disconnect();
 		});
+	});
+
+	// Select screenshots based on viewport - this handles:
+	// 1. Showing screenshots within the visible range
+	// 2. When zoomed into an empty region, showing closest screenshots
+	const selectedScreenshots = createMemo(() => {
+		const timeRange = viewportToTimeRange(props.viewport);
+		const selected = selectScreenshots(
+			screenshotsWithRelativeTime(),
+			slotCount(),
+			timeRange,
+		);
+		// Return the original ScreenshotInfo objects
+		return selected.map((s) => s.original);
 	});
 
 	return (
@@ -67,7 +100,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 							</div>
 						)}
 					</For>
-				) : screenshots.length === 0 ? (
+				) : props.screenshots.length === 0 ? (
 					<div class="flex items-center justify-center w-full text-gray-400 text-sm">
 						No screenshots available
 					</div>
