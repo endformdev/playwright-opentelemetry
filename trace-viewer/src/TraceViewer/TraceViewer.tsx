@@ -310,21 +310,21 @@ function StepsTimeline(props: StepsTimelineProps) {
 	});
 
 	const renderStep = (step: PackedSpan): JSX.Element => {
-		// Calculate position relative to viewport
-		const leftPercent =
+		// Use reactive getters so positions update when viewport changes
+		const leftPercent = () =>
 			timeToViewportPosition(step.startOffset, props.viewport) * 100;
-		const rightPercent =
+		const rightPercent = () =>
 			timeToViewportPosition(step.startOffset + step.duration, props.viewport) *
 			100;
-		const widthPercent = rightPercent - leftPercent;
+		const widthPercent = () => rightPercent() - leftPercent();
 		const depth = stepDepthMap.get(step.id) ?? 0;
 
 		return (
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-95"
 				style={{
-					left: `${leftPercent}%`,
-					width: `${Math.max(widthPercent, 3)}%`,
+					left: `${leftPercent()}%`,
+					width: `${Math.max(widthPercent(), 3)}%`,
 					top: `${step.row * STEP_ROW_HEIGHT}px`,
 					"background-color": `hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`,
 				}}
@@ -340,15 +340,17 @@ function StepsTimeline(props: StepsTimelineProps) {
 		const topPx = connector.parentRow * STEP_ROW_HEIGHT + 24;
 		const heightPx = (rowDiff - 1) * STEP_ROW_HEIGHT + 4;
 
-		// Convert connector position from total timeline to viewport
-		const xPositionMs = (connector.xPercent / 100) * totalDuration;
-		const xPercent = timeToViewportPosition(xPositionMs, props.viewport) * 100;
+		// Use reactive getter so position updates when viewport changes
+		const xPercent = () => {
+			const xPositionMs = (connector.xPercent / 100) * totalDuration;
+			return timeToViewportPosition(xPositionMs, props.viewport) * 100;
+		};
 
 		return (
 			<div
 				class="absolute w-px bg-gray-400"
 				style={{
-					left: `${xPercent}%`,
+					left: `${xPercent()}%`,
 					top: `${topPx}px`,
 					height: `${heightPx}px`,
 				}}
@@ -582,21 +584,21 @@ function TracesPanel(props: TracesPanelProps) {
 	});
 
 	const renderSpan = (span: PackedSpan): JSX.Element => {
-		// Calculate position relative to viewport
-		const leftPercent =
+		// Use reactive getters so positions update when viewport changes
+		const leftPercent = () =>
 			timeToViewportPosition(span.startOffset, props.viewport) * 100;
-		const rightPercent =
+		const rightPercent = () =>
 			timeToViewportPosition(span.startOffset + span.duration, props.viewport) *
 			100;
-		const widthPercent = rightPercent - leftPercent;
+		const widthPercent = () => rightPercent() - leftPercent();
 		const kind = spanKindMap.get(span.id) ?? "internal";
 
 		return (
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-110"
 				style={{
-					left: `${leftPercent}%`,
-					width: `${Math.max(widthPercent, 2)}%`,
+					left: `${leftPercent()}%`,
+					width: `${Math.max(widthPercent(), 2)}%`,
 					top: `${span.row * ROW_HEIGHT}px`,
 					"background-color": getSpanColor(kind),
 				}}
@@ -613,15 +615,17 @@ function TracesPanel(props: TracesPanelProps) {
 		const topPx = connector.parentRow * ROW_HEIGHT + 24; // Start just below parent span (24px = 6 row height)
 		const heightPx = (rowDiff - 1) * ROW_HEIGHT + 4; // Connect to child span
 
-		// Convert connector position from total timeline to viewport
-		const xPositionMs = (connector.xPercent / 100) * totalDuration;
-		const xPercent = timeToViewportPosition(xPositionMs, props.viewport) * 100;
+		// Use reactive getter so position updates when viewport changes
+		const xPercent = () => {
+			const xPositionMs = (connector.xPercent / 100) * totalDuration;
+			return timeToViewportPosition(xPositionMs, props.viewport) * 100;
+		};
 
 		return (
 			<div
 				class="absolute w-px bg-gray-400"
 				style={{
-					left: `${xPercent}%`,
+					left: `${xPercent()}%`,
 					top: `${topPx}px`,
 					height: `${heightPx}px`,
 				}}
