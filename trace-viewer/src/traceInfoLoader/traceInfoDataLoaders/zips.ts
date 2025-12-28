@@ -1,14 +1,17 @@
 import type { Entry, FileEntry } from "@zip.js/zip.js";
 import { BlobReader, BlobWriter, TextWriter, ZipReader } from "@zip.js/zip.js";
 import type { OtlpTraceExport } from "../../types/otel";
+import type { ScreenshotInfo, TestInfo } from "../TraceInfoLoader";
 
+const TEST_JSON_PATH = "test.json";
 const TRACE_JSON_PATH = "opentelemetry-protocol/playwright-opentelemetry.json";
 const SCREENSHOTS_DIR = "screenshots";
 
 export interface ZipLoadResult {
+	testInfo: TestInfo;
 	traceData: OtlpTraceExport;
 	screenshots: Map<string, Blob>;
-	screenshotFilenames: string[];
+	screenshotInfos: ScreenshotInfo[];
 }
 
 export interface ZipEntries {
@@ -54,6 +57,18 @@ export async function parseZipEntries(
 ): Promise<ZipLoadResult> {
 	const { entries } = zipEntries;
 
+	// Find and parse test.json
+	const testJsonEntry = entries.get(TEST_JSON_PATH);
+	if (!testJsonEntry) {
+		throw new Error(
+			`Test info not found at ${TEST_JSON_PATH}. ` +
+				"Make sure you're loading a valid Playwright OpenTelemetry trace ZIP.",
+		);
+	}
+
+	const testJsonText = await readEntryAsText(testJsonEntry);
+	const testInfo: TestInfo = JSON.parse(testJsonText);
+
 	// Find and parse trace JSON
 	const traceJsonEntry = entries.get(TRACE_JSON_PATH);
 	if (!traceJsonEntry) {
@@ -66,30 +81,64 @@ export async function parseZipEntries(
 	const traceJsonText = await readEntryAsText(traceJsonEntry);
 	const traceData: OtlpTraceExport = JSON.parse(traceJsonText);
 
-	// Collect screenshots
+	// Collect screenshots with their timestamps
 	const screenshots = new Map<string, Blob>();
-	const screenshotFilenames: string[] = [];
+	const screenshotInfos: ScreenshotInfo[] = [];
 
 	for (const [filename, entry] of entries) {
 		if (filename.startsWith(SCREENSHOTS_DIR)) {
+			// Remove the "screenshots/" prefix, keeping the leading slash for now
 			const screenshotName = filename.slice(SCREENSHOTS_DIR.length);
 			if (screenshotName && isFileEntry(entry)) {
-				const mimeType = getMimeType(screenshotName);
+				// Remove leading slash if present
+				const cleanName = screenshotName.startsWith("/")
+					? screenshotName.slice(1)
+					: screenshotName;
+
+				const mimeType = getMimeType(cleanName);
 				const blob = await readEntryAsBlob(entry, mimeType);
-				screenshots.set(screenshotName, blob);
-				screenshotFilenames.push(screenshotName);
+				screenshots.set(cleanName, blob);
+
+				// Extract timestamp from filename
+				// Format: {pageGuid}-{timestamp}.jpeg (e.g., page@abc123-1766929201038.jpeg)
+				const timestamp = extractTimestampFromFilename(cleanName);
+
+				screenshotInfos.push({
+					timestamp,
+					url: "", // URL will be set by the loader after service worker registration
+				});
 			}
 		}
 	}
 
-	// Sort screenshots by filename (they typically have timestamp-based names)
-	screenshotFilenames.sort();
+	// Sort screenshots by timestamp
+	screenshotInfos.sort((a, b) => a.timestamp - b.timestamp);
 
 	return {
+		testInfo,
 		traceData,
 		screenshots,
-		screenshotFilenames,
+		screenshotInfos,
 	};
+}
+
+/**
+ * Extract timestamp from screenshot filename.
+ * Format: {pageGuid}-{timestamp}.jpeg (e.g., page@abc123-1766929201038.jpeg)
+ */
+function extractTimestampFromFilename(filename: string): number {
+	// Find the last dash before the extension
+	const lastDashIndex = filename.lastIndexOf("-");
+	if (lastDashIndex === -1) {
+		return 0;
+	}
+
+	const afterDash = filename.slice(lastDashIndex + 1);
+	// Remove extension
+	const timestampStr = afterDash.replace(/\.[^.]+$/, "");
+	const timestamp = parseInt(timestampStr, 10);
+
+	return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function getMimeType(filename: string): string {
