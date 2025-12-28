@@ -706,17 +706,3 @@ function DetailsPanel(_props: { traceInfo: TraceInfo }) {
 		</div>
 	);
 }
-
-/**
- * Calculates the test duration in milliseconds from nanosecond timestamps.
- */
-function calculateDurationMs(
-	startTimeUnixNano: string,
-	endTimeUnixNano: string,
-): number {
-	const startNano = BigInt(startTimeUnixNano);
-	const endNano = BigInt(endTimeUnixNano);
-	const durationNano = endNano - startNano;
-	// Convert nanoseconds to milliseconds
-	return Number(durationNano / BigInt(1_000_000));
-}
