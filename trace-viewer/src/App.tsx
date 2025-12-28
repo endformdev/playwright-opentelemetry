@@ -114,7 +114,7 @@ function TraceViewer(props: { traceInfo: TraceInfo }) {
 			<h1 class="text-xl font-bold mb-4">Trace Loaded</h1>
 
 			{/* Test Info Section */}
-			<div class="mb-4 p-3 bg-gray-800 rounded">
+			<div class="mb-4">
 				<h2 class="font-semibold mb-2">Test Info:</h2>
 				<div class="text-sm space-y-1">
 					<div>
