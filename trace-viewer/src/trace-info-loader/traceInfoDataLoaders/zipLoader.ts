@@ -1,5 +1,4 @@
 import {
-	generateTraceId,
 	getScreenshotUrl,
 	loadTraceInServiceWorker,
 	registerServiceWorker,
@@ -7,8 +6,6 @@ import {
 } from "../../service-worker/register";
 import type { ScreenshotInfo, TraceInfo } from "../TraceInfoLoader";
 import { loadZipFile } from "./zips";
-
-let currentTraceId: string | null = null;
 
 let swRegistrationPromise: Promise<ServiceWorkerRegistration> | null = null;
 
@@ -20,10 +17,7 @@ async function ensureServiceWorker(): Promise<ServiceWorkerRegistration> {
 }
 
 export async function unloadCurrentTrace(): Promise<void> {
-	if (currentTraceId) {
-		await unloadTraceFromServiceWorker(currentTraceId);
-		currentTraceId = null;
-	}
+	await unloadTraceFromServiceWorker();
 }
 
 export async function loadLocalZip(file: File): Promise<TraceInfo> {
@@ -32,14 +26,7 @@ export async function loadLocalZip(file: File): Promise<TraceInfo> {
 
 	const zipResult = await loadZipFile(file);
 
-	const traceId = generateTraceId();
-
-	await loadTraceInServiceWorker(
-		traceId,
-		zipResult.screenshots,
-		zipResult.traceData,
-	);
-	currentTraceId = traceId;
+	await loadTraceInServiceWorker(zipResult.screenshots, zipResult.traceData);
 
 	// Build screenshot infos with URLs from service worker
 	const screenshots: ScreenshotInfo[] = [];
@@ -49,14 +36,14 @@ export async function loadLocalZip(file: File): Promise<TraceInfo> {
 		const timestamp = extractTimestampFromFilename(filename);
 		screenshots.push({
 			timestamp,
-			url: getScreenshotUrl(traceId, filename),
+			url: getScreenshotUrl(filename),
 		});
 	}
 
 	// Sort by timestamp
 	screenshots.sort((a, b) => a.timestamp - b.timestamp);
 
-	const traceDataUrls = [`/traces/${traceId}/pw-reporter-trace.json`];
+	const traceDataUrls: string[] = [];
 
 	return {
 		testInfo: zipResult.testInfo,
@@ -78,14 +65,7 @@ export async function loadRemoteZip(url: string): Promise<TraceInfo> {
 
 	const zipResult = await loadZipFile(blob);
 
-	const traceId = generateTraceId();
-
-	await loadTraceInServiceWorker(
-		traceId,
-		zipResult.screenshots,
-		zipResult.traceData,
-	);
-	currentTraceId = traceId;
+	await loadTraceInServiceWorker(zipResult.screenshots, zipResult.traceData);
 
 	// Build screenshot infos with URLs from service worker
 	const screenshots: ScreenshotInfo[] = [];
@@ -95,14 +75,14 @@ export async function loadRemoteZip(url: string): Promise<TraceInfo> {
 		const timestamp = extractTimestampFromFilename(filename);
 		screenshots.push({
 			timestamp,
-			url: getScreenshotUrl(traceId, filename),
+			url: getScreenshotUrl(filename),
 		});
 	}
 
 	// Sort by timestamp
 	screenshots.sort((a, b) => a.timestamp - b.timestamp);
 
-	const traceDataUrls = [`/traces/${traceId}/pw-reporter-trace.json`];
+	const traceDataUrls: string[] = [];
 
 	return {
 		testInfo: zipResult.testInfo,

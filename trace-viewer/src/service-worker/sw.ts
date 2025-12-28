@@ -11,14 +11,13 @@
 // Cast self to ServiceWorkerGlobalScope for proper typing
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
-// Store loaded trace data per trace ID
+// Store currently loaded trace data (only one trace at a time)
 interface LoadedTrace {
 	screenshots: Map<string, Blob>;
 	traceData: unknown;
 }
 
-const loadedTraces = new Map<string, LoadedTrace>();
-const clientToTrace = new Map<string, string>();
+let currentTrace: LoadedTrace | null = null;
 
 // Install event - skip waiting to activate immediately
 sw.addEventListener("install", () => {
@@ -32,32 +31,25 @@ sw.addEventListener("activate", (event: ExtendableEvent) => {
 
 // Message handler for loading trace data
 sw.addEventListener("message", (event: ExtendableMessageEvent) => {
-	const { type, traceId, data } = event.data;
+	const { type, data } = event.data;
 
 	switch (type) {
 		case "LOAD_TRACE": {
-			// Store trace data keyed by trace ID
-			loadedTraces.set(traceId, {
+			// Store trace data (replacing any previously loaded trace)
+			currentTrace = {
 				screenshots: deserializeScreenshots(data.screenshots),
 				traceData: data.traceData,
-			});
-
-			// Associate this client with the trace
-			const clientId = (event.source as Client | null)?.id;
-			if (clientId) {
-				clientToTrace.set(clientId, traceId);
-			}
+			};
 
 			// Notify the client that loading is complete
 			(event.source as Client | null)?.postMessage({
 				type: "TRACE_LOADED",
-				traceId,
 			});
 			break;
 		}
 
 		case "UNLOAD_TRACE": {
-			loadedTraces.delete(traceId);
+			currentTrace = null;
 			break;
 		}
 
@@ -73,22 +65,21 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
 	const url = new URL(event.request.url);
 
 	// Check if this is a screenshot request
-	// Pattern: /screenshots/{traceId}/{filename}
-	const match = url.pathname.match(/^\/screenshots\/([^/]+)\/(.+)$/);
+	// Pattern: /screenshots/{filename}
+	const match = url.pathname.match(/^\/screenshots\/(.+)$/);
 	if (!match) {
 		return; // Let the request pass through
 	}
 
-	const [, traceId, filename] = match;
+	const [, filename] = match;
 
 	event.respondWith(
 		(async () => {
-			const trace = loadedTraces.get(traceId);
-			if (!trace) {
+			if (!currentTrace) {
 				return new Response("Trace not loaded", { status: 404 });
 			}
 
-			const screenshot = trace.screenshots.get(filename);
+			const screenshot = currentTrace.screenshots.get(filename);
 			if (!screenshot) {
 				return new Response("Screenshot not found", { status: 404 });
 			}
@@ -116,32 +107,3 @@ function deserializeScreenshots(
 	}
 	return map;
 }
-
-// Cleanup old traces when clients disconnect
-async function cleanupOrphanedTraces(): Promise<void> {
-	const clients = await sw.clients.matchAll();
-	const activeClientIds = new Set(clients.map((c: Client) => c.id));
-
-	// Remove traces for disconnected clients
-	for (const [clientId, traceId] of clientToTrace) {
-		if (!activeClientIds.has(clientId)) {
-			clientToTrace.delete(clientId);
-
-			// Check if any other client is using this trace
-			let traceInUse = false;
-			for (const id of clientToTrace.values()) {
-				if (id === traceId) {
-					traceInUse = true;
-					break;
-				}
-			}
-
-			if (!traceInUse) {
-				loadedTraces.delete(traceId);
-			}
-		}
-	}
-}
-
-// Run cleanup periodically
-setInterval(cleanupOrphanedTraces, 30000);

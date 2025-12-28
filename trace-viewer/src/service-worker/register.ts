@@ -7,18 +7,15 @@ export interface ServiceWorkerState {
 export type ServiceWorkerMessage =
 	| {
 			type: "LOAD_TRACE";
-			traceId: string;
 			data: {
 				screenshots: Array<{ name: string; blob: Blob }>;
 				traceData: unknown;
 			};
 	  }
-	| { type: "UNLOAD_TRACE"; traceId: string }
+	| { type: "UNLOAD_TRACE" }
 	| { type: "PING" };
 
-export type ServiceWorkerResponse =
-	| { type: "TRACE_LOADED"; traceId: string }
-	| { type: "PONG" };
+export type ServiceWorkerResponse = { type: "TRACE_LOADED" } | { type: "PONG" };
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
 	if (!("serviceWorker" in navigator)) {
@@ -115,7 +112,6 @@ async function pingServiceWorker(worker: ServiceWorker): Promise<void> {
  * Send trace data to the service worker
  */
 export async function loadTraceInServiceWorker(
-	traceId: string,
 	screenshots: Map<string, Blob>,
 	traceData: unknown,
 ): Promise<void> {
@@ -137,10 +133,7 @@ export async function loadTraceInServiceWorker(
 		}, 30000);
 
 		const handleMessage = (event: MessageEvent) => {
-			if (
-				event.data?.type === "TRACE_LOADED" &&
-				event.data.traceId === traceId
-			) {
+			if (event.data?.type === "TRACE_LOADED") {
 				clearTimeout(timeout);
 				navigator.serviceWorker.removeEventListener("message", handleMessage);
 				resolve();
@@ -151,7 +144,6 @@ export async function loadTraceInServiceWorker(
 
 		worker.postMessage({
 			type: "LOAD_TRACE",
-			traceId,
 			data: {
 				screenshots: screenshotArray,
 				traceData,
@@ -163,30 +155,21 @@ export async function loadTraceInServiceWorker(
 /**
  * Unload trace data from the service worker
  */
-export async function unloadTraceFromServiceWorker(
-	traceId: string,
-): Promise<void> {
+export async function unloadTraceFromServiceWorker(): Promise<void> {
 	const registration = await navigator.serviceWorker.ready;
 	const worker = registration.active;
 
 	if (worker) {
-		worker.postMessage({ type: "UNLOAD_TRACE", traceId });
+		worker.postMessage({ type: "UNLOAD_TRACE" });
 	}
 }
 
 /**
- * Generate the screenshot URL for a given trace and filename.
+ * Generate the screenshot URL for a given filename.
  * This URL will be intercepted by the service worker.
  */
-export function getScreenshotUrl(traceId: string, filename: string): string {
-	return `/screenshots/${traceId}/${filename}`;
-}
-
-/**
- * Generate a unique trace ID for this session
- */
-export function generateTraceId(): string {
-	return `trace-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+export function getScreenshotUrl(filename: string): string {
+	return `/screenshots/${filename}`;
 }
 
 function getServiceWorkerUrl(): string {
