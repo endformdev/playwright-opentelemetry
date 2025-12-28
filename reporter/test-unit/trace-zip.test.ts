@@ -7,27 +7,27 @@ import {
 } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FullResult, Suite } from "@playwright/test/reporter";
 import {
-	ZipReader,
 	BlobReader,
 	TextWriter,
 	Uint8ArrayWriter,
+	ZipReader,
 } from "@zip.js/zip.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	copyScreenshotForTest,
 	getScreenshotsDir,
 	PW_OTEL_DIR,
 } from "../src/shared/trace-files";
 import {
-	PlaywrightOpentelemetryReporter,
 	buildConfig,
 	buildTestCase,
 	buildTestResult,
 	DEFAULT_REPORTER_OPTIONS,
 	DEFAULT_ROOT_DIR,
 	DEFAULT_START_TIME,
+	PlaywrightOpentelemetryReporter,
 } from "./reporter-harness";
 
 // Mock the sender module to prevent actual HTTP calls but keep buildOtlpRequest
@@ -426,9 +426,29 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			// Read and verify zip contents
 			const zipEntries = await readZipEntries(expectedZipPath);
 
-			// Verify oltp-traces/pw-reporter-trace.json exists
+			// Verify test.json exists at root
+			const testInfoContent = zipEntries.get("test.json") as string;
+			expect(testInfoContent).toBeDefined();
+
+			// Verify test.json structure
+			const testInfo = JSON.parse(testInfoContent);
+			expect(testInfo.name).toBe("example test with screenshot");
+			expect(testInfo.describes).toEqual([]);
+			expect(testInfo.file).toBe("example.spec.ts");
+			expect(testInfo.line).toBe(10);
+			expect(testInfo.status).toBe("passed");
+			expect(testInfo.traceId).toMatch(/^[0-9a-f]{32}$/);
+			expect(testInfo.startTimeUnixNano).toMatch(/^\d+$/);
+			expect(testInfo.endTimeUnixNano).toMatch(/^\d+$/);
+
+			// Verify timing - endTime should be startTime + duration (2000ms = 2000000000ns)
+			const startNano = BigInt(testInfo.startTimeUnixNano);
+			const endNano = BigInt(testInfo.endTimeUnixNano);
+			expect(endNano - startNano).toBe(BigInt(2000 * 1_000_000));
+
+			// Verify opentelemetry-protocol/playwright-opentelemetry.json exists
 			const traceContent = zipEntries.get(
-				"oltp-traces/pw-reporter-trace.json",
+				"opentelemetry-protocol/playwright-opentelemetry.json",
 			) as string;
 			expect(traceContent).toBeDefined();
 
@@ -451,6 +471,9 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(testSpan).toBeDefined();
 			expect(testSpan.traceId).toMatch(/^[0-9a-f]{32}$/);
 
+			// Verify test.json traceId matches the test span's traceId
+			expect(testInfo.traceId).toBe(testSpan.traceId);
+
 			// Verify screenshots folder exists with correct files
 			const screenshotFiles = Array.from(zipEntries.keys()).filter((f) =>
 				f.startsWith("screenshots/"),
@@ -462,6 +485,145 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				const filename = path.basename(filepath);
 				expect(filename).toMatch(new RegExp(`^${pageGuid}-\\d+\\.jpeg$`));
 			}
+		});
+
+		it("creates test.json with describes array from titlePath", async () => {
+			outputDir = createTestOutputDir("test-with-describes");
+
+			const testId = "describe-test-123";
+			const testLocation = {
+				file: "/Users/test/project/test-e2e/homepage/login.spec.ts",
+				line: 9,
+			};
+
+			// Set up reporter with storeTraceZip enabled
+			const reporter = new PlaywrightOpentelemetryReporter({
+				...DEFAULT_REPORTER_OPTIONS,
+				storeTraceZip: true,
+			});
+
+			// Build test with describe blocks in titlePath
+			// titlePath format: ['', 'project', 'filename', ...describes, 'testname']
+			const config = buildConfig({ rootDir: DEFAULT_ROOT_DIR });
+			const testCase = buildTestCase(
+				{
+					id: testId,
+					title: "User can log in to the homepage",
+					titlePath: [
+						"",
+						"chromium",
+						"login.spec.ts",
+						"Authentication",
+						"When a user is logged out",
+						"User can log in to the homepage",
+					],
+					location: testLocation,
+				},
+				outputDir,
+			);
+			const testResult = buildTestResult(
+				{
+					status: "passed",
+					duration: 1500,
+					steps: [],
+				},
+				DEFAULT_START_TIME,
+			);
+
+			// Create mock suite
+			const mockSuite = {
+				allTests: () => [testCase],
+			} as Suite;
+
+			// Execute reporter lifecycle
+			reporter.onBegin(config, mockSuite);
+			reporter.onTestBegin(testCase);
+			await reporter.onTestEnd(testCase, testResult);
+			await reporter.onEnd({} as FullResult);
+
+			// Find and read the zip file
+			const expectedZipName = `login.spec.ts:9-${testId}-pw-otel.zip`;
+			const expectedZipPath = path.join(outputDir, expectedZipName);
+			expect(existsSync(expectedZipPath)).toBe(true);
+
+			const zipEntries = await readZipEntries(expectedZipPath);
+
+			// Verify test.json
+			const testInfoContent = zipEntries.get("test.json") as string;
+			expect(testInfoContent).toBeDefined();
+
+			const testInfo = JSON.parse(testInfoContent);
+			expect(testInfo.name).toBe("User can log in to the homepage");
+			expect(testInfo.describes).toEqual([
+				"Authentication",
+				"When a user is logged out",
+			]);
+			expect(testInfo.file).toBe("homepage/login.spec.ts");
+			expect(testInfo.line).toBe(9);
+			expect(testInfo.status).toBe("passed");
+		});
+
+		it("creates test.json with failed status for failed tests", async () => {
+			outputDir = createTestOutputDir("test-failed");
+
+			const testId = "failed-test-123";
+			const testLocation = {
+				file: "/Users/test/project/test-e2e/failing.spec.ts",
+				line: 15,
+			};
+
+			// Set up reporter with storeTraceZip enabled
+			const reporter = new PlaywrightOpentelemetryReporter({
+				...DEFAULT_REPORTER_OPTIONS,
+				storeTraceZip: true,
+			});
+
+			const config = buildConfig({ rootDir: DEFAULT_ROOT_DIR });
+			const testCase = buildTestCase(
+				{
+					id: testId,
+					title: "should fail gracefully",
+					titlePath: [
+						"",
+						"chromium",
+						"failing.spec.ts",
+						"should fail gracefully",
+					],
+					location: testLocation,
+				},
+				outputDir,
+			);
+			const testResult = buildTestResult(
+				{
+					status: "failed",
+					duration: 500,
+					steps: [],
+				},
+				DEFAULT_START_TIME,
+			);
+
+			// Create mock suite
+			const mockSuite = {
+				allTests: () => [testCase],
+			} as Suite;
+
+			// Execute reporter lifecycle
+			reporter.onBegin(config, mockSuite);
+			reporter.onTestBegin(testCase);
+			await reporter.onTestEnd(testCase, testResult);
+			await reporter.onEnd({} as FullResult);
+
+			// Find and read the zip file
+			const expectedZipName = `failing.spec.ts:15-${testId}-pw-otel.zip`;
+			const expectedZipPath = path.join(outputDir, expectedZipName);
+			expect(existsSync(expectedZipPath)).toBe(true);
+
+			const zipEntries = await readZipEntries(expectedZipPath);
+
+			// Verify test.json has failed status
+			const testInfoContent = zipEntries.get("test.json") as string;
+			const testInfo = JSON.parse(testInfoContent);
+			expect(testInfo.status).toBe("failed");
 		});
 	});
 
@@ -626,7 +788,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Verify trace file for test 1
 			const trace1Content = zip1Entries.get(
-				"oltp-traces/pw-reporter-trace.json",
+				"opentelemetry-protocol/playwright-opentelemetry.json",
 			) as string;
 			expect(trace1Content).toBeDefined();
 
@@ -661,7 +823,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Verify trace file for test 2
 			const trace2Content = zip2Entries.get(
-				"oltp-traces/pw-reporter-trace.json",
+				"opentelemetry-protocol/playwright-opentelemetry.json",
 			) as string;
 			expect(trace2Content).toBeDefined();
 

@@ -291,6 +291,12 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		// If storeTraceZip is enabled, create zip file for this test
 		if (this.options.storeTraceZip) {
+			// Calculate relative file path
+			const relativeFilePath =
+				test.location && this.rootDir
+					? path.relative(this.rootDir, test.location.file)
+					: (test.location?.file ?? "");
+
 			await createTraceZip({
 				outputDir,
 				testId,
@@ -298,6 +304,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				spans: testSpans,
 				serviceName: this.resolvedServiceName,
 				playwrightVersion: this.playwrightVersion || "unknown",
+				relativeFilePath,
+				status: result.status,
+				startTime: result.startTime,
+				duration: result.duration,
 			});
 		}
 	}

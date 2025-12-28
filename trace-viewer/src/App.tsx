@@ -1,19 +1,107 @@
-import { type Component, createSignal } from 'solid-js';
+import { createSignal, ErrorBoundary, Show } from "solid-js";
+import { TraceInfoLoader } from "./trace-info-loader";
+import {
+	createTraceSourceSignal,
+	type TraceSourceSetter,
+} from "./trace-source";
+import { TraceViewer } from "./trace-viewer";
 
-const App: Component = () => {
-  const [count, setCount] = createSignal(0);
+export default function App() {
+	const [traceSource, setTraceSource] = createTraceSourceSignal();
 
-  return (
-    <div class="min-h-screen flex items-center justify-center bg-gray-100">
-      <button
-        type="button"
-        onClick={() => setCount(count() + 1)}
-        class="text-6xl font-bold text-blue-600 hover:text-blue-800 transition-colors cursor-pointer bg-white px-16 py-12 rounded-lg shadow-lg hover:shadow-xl"
-      >
-        {count()}
-      </button>
-    </div>
-  );
-};
+	return (
+		<ErrorBoundary
+			fallback={(error, reset) => (
+				<div>
+					<p>{error.message}</p>
+					<button type="button" onClick={reset}>
+						Try Again
+					</button>
+				</div>
+			)}
+		>
+			<div class="flex h-screen w-screen">
+				<Show
+					when={traceSource()}
+					fallback={<DropZone setTraceSource={setTraceSource} />}
+				>
+					{(source) => (
+						<TraceInfoLoader source={source()}>
+							{(traceInfo) => <TraceViewer traceInfo={traceInfo} />}
+						</TraceInfoLoader>
+					)}
+				</Show>
+			</div>
+		</ErrorBoundary>
+	);
+}
 
-export default App;
+function DropZone(props: { setTraceSource: TraceSourceSetter }) {
+	const [dragOver, setDragOver] = createSignal(false);
+
+	const handleDrop = (event: DragEvent) => {
+		event.preventDefault();
+		setDragOver(false);
+
+		const files = event.dataTransfer?.files;
+		if (!files?.length) return;
+
+		const file = files[0];
+		if (file.type === "application/zip" || file.name.endsWith(".zip")) {
+			props.setTraceSource({ kind: "local-zip", file });
+		}
+	};
+
+	const handleDragOver = (event: DragEvent) => {
+		event.preventDefault();
+		if (event.dataTransfer?.types.includes("Files")) {
+			setDragOver(true);
+		}
+	};
+
+	const handleDragLeave = () => {
+		setDragOver(false);
+	};
+
+	const handleFileSelect = (
+		event: Event & { currentTarget: HTMLInputElement },
+	) => {
+		const files = event.currentTarget.files;
+		if (!files?.length) return;
+
+		const file = files[0];
+		if (file.type === "application/zip" || file.name.endsWith(".zip")) {
+			props.setTraceSource({ kind: "local-zip", file });
+		}
+	};
+
+	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: Drop zone needs drag events
+		<div
+			class={`flex-1 flex items-center justify-center ${dragOver() ? "bg-blue-900/20" : ""}`}
+			onDrop={handleDrop}
+			onDragOver={handleDragOver}
+			onDragLeave={handleDragLeave}
+		>
+			<div class="text-center space-y-4">
+				<div class="text-2xl font-light text-gray-400">
+					{dragOver()
+						? "Drop trace ZIP file here"
+						: "Drop Playwright OpenTelemetry trace to load"}
+				</div>
+				<div class="text-gray-500">or</div>
+				<label class="inline-block">
+					<span class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded cursor-pointer transition-colors text-white">
+						Select file
+					</span>
+					<input
+						type="file"
+						accept=".zip,application/zip"
+						class="hidden"
+						onChange={handleFileSelect}
+					/>
+				</label>
+			</div>
+		</div>
+	);
+}

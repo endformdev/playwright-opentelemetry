@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+
 /**
  * E2E Verification Script for Trace Zip Creation
  *
@@ -6,10 +7,10 @@
  * creates zip files containing OTLP traces and screenshots.
  */
 
-import { $ } from "bun";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { $ } from "bun";
 
 const TEST_RESULTS_DIR = path.join(import.meta.dirname, "..", "test-results");
 
@@ -18,7 +19,19 @@ interface VerificationResult {
 	passed: boolean;
 	spanCount?: number;
 	screenshotCount?: number;
+	testInfo?: TestInfo;
 	errors: string[];
+}
+
+interface TestInfo {
+	name: string;
+	describes: string[];
+	file: string;
+	line: number;
+	status: string;
+	traceId: string;
+	startTimeUnixNano: string;
+	endTimeUnixNano: string;
 }
 
 interface OtlpTrace {
@@ -76,6 +89,19 @@ async function main() {
 			console.log(
 				`     Spans: ${result.spanCount}, Screenshots: ${result.screenshotCount}`,
 			);
+			if (result.testInfo) {
+				console.log(
+					`     Test: "${result.testInfo.name}" (${result.testInfo.status})`,
+				);
+				console.log(
+					`     File: ${result.testInfo.file}:${result.testInfo.line}`,
+				);
+				if (result.testInfo.describes.length > 0) {
+					console.log(
+						`     Describes: ${result.testInfo.describes.join(" > ")}`,
+					);
+				}
+			}
 		} else {
 			for (const error of result.errors) {
 				console.log(`     Error: ${error}`);
@@ -127,6 +153,7 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 	const errors: string[] = [];
 	let spanCount = 0;
 	let screenshotCount = 0;
+	let testInfo: TestInfo | undefined;
 
 	// Create a temporary directory to extract the zip
 	const tempDir = await mkdtemp(path.join(tmpdir(), "verify-trace-"));
@@ -135,11 +162,69 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 		// Extract the zip file using native unzip command
 		await $`unzip -q ${zipPath} -d ${tempDir}`;
 
+		// Check for test.json at root
+		const testJsonPath = path.join(tempDir, "test.json");
+		try {
+			const testJsonContent = await readFile(testJsonPath, "utf-8");
+			testInfo = JSON.parse(testJsonContent) as TestInfo;
+
+			// Validate required fields
+			if (typeof testInfo.name !== "string" || !testInfo.name) {
+				errors.push("test.json: missing or invalid 'name' field");
+			}
+			if (!Array.isArray(testInfo.describes)) {
+				errors.push(
+					"test.json: missing or invalid 'describes' field (should be array)",
+				);
+			}
+			if (typeof testInfo.file !== "string" || !testInfo.file) {
+				errors.push("test.json: missing or invalid 'file' field");
+			}
+			if (typeof testInfo.line !== "number") {
+				errors.push(
+					"test.json: missing or invalid 'line' field (should be number)",
+				);
+			}
+			if (typeof testInfo.status !== "string" || !testInfo.status) {
+				errors.push("test.json: missing or invalid 'status' field");
+			}
+			if (
+				typeof testInfo.traceId !== "string" ||
+				!/^[0-9a-f]{32}$/.test(testInfo.traceId)
+			) {
+				errors.push(
+					"test.json: missing or invalid 'traceId' field (should be 32-char hex)",
+				);
+			}
+			if (
+				typeof testInfo.startTimeUnixNano !== "string" ||
+				!/^\d+$/.test(testInfo.startTimeUnixNano)
+			) {
+				errors.push(
+					"test.json: missing or invalid 'startTimeUnixNano' field (should be numeric string)",
+				);
+			}
+			if (
+				typeof testInfo.endTimeUnixNano !== "string" ||
+				!/^\d+$/.test(testInfo.endTimeUnixNano)
+			) {
+				errors.push(
+					"test.json: missing or invalid 'endTimeUnixNano' field (should be numeric string)",
+				);
+			}
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+				errors.push("Missing test.json at root of zip");
+			} else {
+				errors.push(`Failed to parse test.json: ${err}`);
+			}
+		}
+
 		// Check for OTLP trace file
 		const tracePath = path.join(
 			tempDir,
-			"oltp-traces",
-			"pw-reporter-trace.json",
+			"opentelemetry-protocol",
+			"playwright-opentelemetry.json",
 		);
 
 		try {
@@ -166,7 +251,9 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 			}
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-				errors.push("Missing oltp-traces/pw-reporter-trace.json");
+				errors.push(
+					"Missing opentelemetry-protocol/playwright-opentelemetry.json",
+				);
 			} else {
 				errors.push(`Failed to parse trace JSON: ${err}`);
 			}
@@ -211,6 +298,7 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 		passed: errors.length === 0,
 		spanCount,
 		screenshotCount,
+		testInfo,
 		errors,
 	};
 }
