@@ -1,236 +1,51 @@
-import { createSignal, For, type JSX } from "solid-js";
+import { For, type JSX } from "solid-js";
 import type { TraceInfo } from "../traceInfoLoader";
+import { ResizablePanel } from "./ResizablePanel";
+import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
+import { TraceViewerHeader } from "./TraceViewerHeader";
 
-// ============================================================================
-// Resizable Panel Primitives
-// ============================================================================
-
-interface ResizablePanelProps {
-	/** Direction of the split: 'horizontal' (left/right) or 'vertical' (top/bottom) */
-	direction: "horizontal" | "vertical";
-	/** Initial size of the first panel as a percentage (0-100) */
-	initialFirstPanelSize?: number;
-	/** Minimum size of the first panel as a percentage */
-	minFirstPanelSize?: number;
-	/** Maximum size of the first panel as a percentage */
-	maxFirstPanelSize?: number;
-	/** Content for the first panel */
-	firstPanel: JSX.Element;
-	/** Content for the second panel */
-	secondPanel: JSX.Element;
-	/** Additional class for the container */
-	class?: string;
+export interface TraceViewerProps {
+	traceInfo: TraceInfo;
 }
 
-function ResizablePanel(props: ResizablePanelProps) {
-	const initialSize = props.initialFirstPanelSize ?? 50;
-	const minSize = props.minFirstPanelSize ?? 10;
-	const maxSize = props.maxFirstPanelSize ?? 90;
-
-	const [firstPanelSize, setFirstPanelSize] = createSignal(initialSize);
-	const [isDragging, setIsDragging] = createSignal(false);
-
-	let containerRef: HTMLDivElement | undefined;
-
-	const handleMouseDown = (e: MouseEvent) => {
-		e.preventDefault();
-		setIsDragging(true);
-
-		const handleMouseMove = (e: MouseEvent) => {
-			if (!containerRef) return;
-
-			const rect = containerRef.getBoundingClientRect();
-			let newSize: number;
-
-			if (props.direction === "horizontal") {
-				newSize = ((e.clientX - rect.left) / rect.width) * 100;
-			} else {
-				newSize = ((e.clientY - rect.top) / rect.height) * 100;
+export function TraceViewer(props: TraceViewerProps) {
+	// Main Panel content (with vertical splits for Screenshot, Steps, Traces)
+	const mainPanelContent = (
+		<ResizablePanel
+			direction="vertical"
+			initialFirstPanelSize={20}
+			minFirstPanelSize={10}
+			maxFirstPanelSize={40}
+			firstPanel={
+				<ScreenshotFilmstrip screenshots={props.traceInfo.screenshots} />
 			}
-
-			// Clamp to min/max
-			newSize = Math.max(minSize, Math.min(maxSize, newSize));
-			setFirstPanelSize(newSize);
-		};
-
-		const handleMouseUp = () => {
-			setIsDragging(false);
-			document.removeEventListener("mousemove", handleMouseMove);
-			document.removeEventListener("mouseup", handleMouseUp);
-		};
-
-		document.addEventListener("mousemove", handleMouseMove);
-		document.addEventListener("mouseup", handleMouseUp);
-	};
-
-	const isHorizontal = () => props.direction === "horizontal";
-
-	return (
-		<div
-			ref={containerRef}
-			class={`flex ${isHorizontal() ? "flex-row" : "flex-col"} ${props.class ?? ""}`}
-			style={{ height: "100%", width: "100%" }}
-		>
-			{/* First Panel */}
-			<div
-				style={{
-					[isHorizontal() ? "width" : "height"]: `${firstPanelSize()}%`,
-					"flex-shrink": 0,
-					overflow: "hidden",
-				}}
-			>
-				{props.firstPanel}
-			</div>
-
-			{/* Resize Handle */}
-			{/* biome-ignore lint/a11y/useSemanticElements: resize handle requires custom drag interaction */}
-			<div
-				role="separator"
-				aria-orientation={isHorizontal() ? "vertical" : "horizontal"}
-				aria-valuenow={Math.round(firstPanelSize())}
-				aria-valuemin={minSize}
-				aria-valuemax={maxSize}
-				tabIndex={0}
-				class={`
-					${isHorizontal() ? "w-1 cursor-col-resize hover:bg-blue-400/50" : "h-1 cursor-row-resize hover:bg-blue-400/50"}
-					${isDragging() ? "bg-blue-500" : "bg-gray-300"}
-					flex-shrink-0 transition-colors
-				`}
-				onMouseDown={handleMouseDown}
-			/>
-
-			{/* Second Panel */}
-			<div
-				style={{
-					[isHorizontal() ? "width" : "height"]: `${100 - firstPanelSize()}%`,
-					"flex-shrink": 0,
-					overflow: "hidden",
-				}}
-			>
-				{props.secondPanel}
-			</div>
-		</div>
+			secondPanel={
+				<ResizablePanel
+					direction="vertical"
+					initialFirstPanelSize={60}
+					minFirstPanelSize={20}
+					maxFirstPanelSize={80}
+					firstPanel={<StepsTimeline traceInfo={props.traceInfo} />}
+					secondPanel={<TracesPanel traceInfo={props.traceInfo} />}
+				/>
+			}
+		/>
 	);
-}
-
-// ============================================================================
-// Panel Components
-// ============================================================================
-
-interface TestHeaderProps {
-	traceInfo: TraceInfo;
-}
-
-function TestHeader(props: TestHeaderProps) {
-	const { testInfo } = props.traceInfo;
-
-	const duration = () => {
-		const startNano = BigInt(testInfo.startTimeUnixNano);
-		const endNano = BigInt(testInfo.endTimeUnixNano);
-		const durationMs = Number((endNano - startNano) / BigInt(1_000_000));
-		return durationMs;
-	};
-
-	const statusColor = () => {
-		switch (testInfo.status) {
-			case "passed":
-				return "text-green-600";
-			case "failed":
-				return "text-red-600";
-			case "skipped":
-				return "text-yellow-600";
-			case "timedOut":
-				return "text-orange-600";
-			case "interrupted":
-				return "text-orange-600";
-			default:
-				return "text-gray-500";
-		}
-	};
-
-	const statusIcon = () => {
-		switch (testInfo.status) {
-			case "passed":
-				return "✓";
-			case "failed":
-				return "✗";
-			case "skipped":
-				return "○";
-			case "timedOut":
-				return "⏱";
-			case "interrupted":
-				return "⚠";
-			default:
-				return "?";
-		}
-	};
 
 	return (
-		<div class="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-3">
-			<div class="flex items-center gap-4">
-				{/* Status Icon */}
-				<span class={`text-xl ${statusColor()}`}>{statusIcon()}</span>
+		<div class="flex flex-col h-full w-full bg-white text-gray-900">
+			<TraceViewerHeader testInfo={props.traceInfo.testInfo} />
 
-				{/* Test Name */}
-				<div class="flex-1 min-w-0">
-					<div class="flex items-baseline gap-2">
-						{testInfo.describes.length > 0 && (
-							<span class="text-gray-500 text-sm truncate">
-								{testInfo.describes.join(" › ")}{" "}
-								<span class="text-gray-400">›</span>
-							</span>
-						)}
-						<span class="font-semibold text-gray-900 truncate">
-							{testInfo.name}
-						</span>
-					</div>
-					<div class="text-xs text-gray-500 font-mono truncate">
-						{testInfo.file}:{testInfo.line}
-					</div>
-				</div>
-
-				{/* Duration */}
-				<div class="flex-shrink-0 text-right">
-					<div class="text-sm font-mono text-gray-700">{duration()}ms</div>
-					<div class={`text-xs ${statusColor()}`}>{testInfo.status}</div>
-				</div>
-			</div>
-		</div>
-	);
-}
-
-interface ScreenshotFilmstripProps {
-	traceInfo: TraceInfo;
-}
-
-function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
-	const { screenshots } = props.traceInfo;
-
-	return (
-		<div class="h-full flex flex-col bg-gray-50">
-			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-				Screenshots ({screenshots.length})
-			</div>
-			<div class="flex-1 overflow-x-auto overflow-y-hidden p-2">
-				<div class="flex gap-2 h-full">
-					{screenshots.length > 0 ? (
-						<For each={screenshots}>
-							{(screenshot) => (
-								<div class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm">
-									<img
-										src={screenshot.url}
-										alt={`Screenshot at ${screenshot.timestamp}`}
-										class="w-full h-full object-contain"
-									/>
-								</div>
-							)}
-						</For>
-					) : (
-						<div class="flex items-center justify-center w-full text-gray-400 text-sm">
-							No screenshots available
-						</div>
-					)}
-				</div>
+			{/* Resizable Main Content Area */}
+			<div class="flex-1 min-h-0">
+				<ResizablePanel
+					direction="horizontal"
+					initialFirstPanelSize={75}
+					minFirstPanelSize={50}
+					maxFirstPanelSize={90}
+					firstPanel={mainPanelContent}
+					secondPanel={<DetailsPanel traceInfo={props.traceInfo} />}
+				/>
 			</div>
 		</div>
 	);
@@ -471,56 +286,6 @@ function DetailsPanel(_props: { traceInfo: TraceInfo }) {
 						</div>
 					</div>
 				</div>
-			</div>
-		</div>
-	);
-}
-
-// ============================================================================
-// Main TraceViewer Component
-// ============================================================================
-
-export interface TraceViewerProps {
-	traceInfo: TraceInfo;
-}
-
-export function TraceViewer(props: TraceViewerProps) {
-	// Main Panel content (with vertical splits for Screenshot, Steps, Traces)
-	const mainPanelContent = (
-		<ResizablePanel
-			direction="vertical"
-			initialFirstPanelSize={20}
-			minFirstPanelSize={10}
-			maxFirstPanelSize={40}
-			firstPanel={<ScreenshotFilmstrip traceInfo={props.traceInfo} />}
-			secondPanel={
-				<ResizablePanel
-					direction="vertical"
-					initialFirstPanelSize={60}
-					minFirstPanelSize={20}
-					maxFirstPanelSize={80}
-					firstPanel={<StepsTimeline traceInfo={props.traceInfo} />}
-					secondPanel={<TracesPanel traceInfo={props.traceInfo} />}
-				/>
-			}
-		/>
-	);
-
-	return (
-		<div class="flex flex-col h-full w-full bg-white text-gray-900">
-			{/* Fixed Test Header */}
-			<TestHeader traceInfo={props.traceInfo} />
-
-			{/* Resizable Main Content Area */}
-			<div class="flex-1 min-h-0">
-				<ResizablePanel
-					direction="horizontal"
-					initialFirstPanelSize={75}
-					minFirstPanelSize={50}
-					maxFirstPanelSize={90}
-					firstPanel={mainPanelContent}
-					secondPanel={<DetailsPanel traceInfo={props.traceInfo} />}
-				/>
 			</div>
 		</div>
 	);

@@ -1,7 +1,7 @@
 import { createSignal, ErrorBoundary, Show } from "solid-js";
-import { TraceViewer } from "./TraceViewer";
 import { TraceInfoLoader } from "./traceInfoLoader";
 import { createTraceSourceSignal, type TraceSourceSetter } from "./traceSource";
+import { TraceViewer } from "./traceViewer";
 
 export default function App() {
 	const [traceSource, setTraceSource] = createTraceSourceSignal();
