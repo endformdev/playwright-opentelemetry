@@ -1,11 +1,16 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import type {
+	NormalizedSpan,
+	SpanKind,
+} from "../trace-data-loader/normalizeSpans";
+import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import type { TraceInfo } from "../trace-info-loader";
 import {
-	flattenSpanTree,
 	generateConnectors,
 	type PackedSpan,
 	packSpans,
 	type SpanConnector,
+	type SpanInput,
 } from "./packSpans";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
@@ -32,14 +37,15 @@ const ZOOM_SENSITIVITY = 0.002;
 /** Pan sensitivity for horizontal scroll (higher = faster pan) */
 const PAN_SENSITIVITY = 0.2;
 
-// TODO: This is hardcoded to match dummy data. When real data is integrated,
-// this should come from actual span/step data or test info timestamps.
-const DUMMY_TOTAL_DURATION_MS = 2500;
+/** Row height in pixels for the packed layout */
+const ROW_HEIGHT = 28;
 
 export function TraceViewer(props: TraceViewerProps) {
-	// Calculate duration from test info timestamps
-	// Note: Currently using dummy duration to match dummy step/trace data
-	const durationMs = () => DUMMY_TOTAL_DURATION_MS;
+	// Load trace data using the hook
+	const traceData = useTraceDataLoader(() => props.traceInfo);
+
+	// Use duration from trace data loader
+	const durationMs = () => traceData.totalDurationMs();
 
 	// Calculate test start time in milliseconds (for converting absolute timestamps to relative)
 	const testStartTimeMs = () => {
@@ -47,10 +53,18 @@ export function TraceViewer(props: TraceViewerProps) {
 		return Number(startNano / BigInt(1_000_000));
 	};
 
-	// Viewport state for zoom/pan
+	// Viewport state for zoom/pan - recreate when duration changes
 	const [viewport, setViewport] = createSignal<TimelineViewport>(
-		createViewport(durationMs()),
+		createViewport(durationMs() || 1000),
 	);
+
+	// Update viewport when duration changes (after loading completes)
+	createMemo(() => {
+		const duration = durationMs();
+		if (duration > 0) {
+			setViewport(createViewport(duration));
+		}
+	});
 
 	// Shared hover position state (0-1 percentage in viewport space, or null when not hovering)
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
@@ -122,17 +136,49 @@ export function TraceViewer(props: TraceViewerProps) {
 		setViewport((v) => resetViewport(v));
 	};
 
-	// Main Panel content (with fixed timeline ruler + vertical splits for Screenshot, Steps, Traces)
+	// Convert hover position (0-1 in viewport space) to time in milliseconds
+	const hoverTimeMs = () => {
+		const pos = hoverPosition();
+		if (pos === null) return null;
+		return viewportPositionToTime(pos, viewport());
+	};
+
+	// Loading state UI
+	const loadingOverlay = () => {
+		if (!traceData.isLoading()) return null;
+		const { loaded, total } = traceData.progress();
+		return (
+			<div class="absolute inset-0 bg-white/80 flex items-center justify-center z-50">
+				<div class="text-center">
+					<div class="text-gray-600 mb-2">Loading trace data...</div>
+					<div class="text-sm text-gray-400">
+						{loaded} / {total} files
+					</div>
+					<div class="w-48 h-2 bg-gray-200 rounded-full mt-2 overflow-hidden">
+						<div
+							class="h-full bg-blue-500 transition-all duration-200"
+							style={{ width: `${total > 0 ? (loaded / total) * 100 : 0}%` }}
+						/>
+					</div>
+				</div>
+			</div>
+		);
+	};
+
+	// Main Panel content (with fixed timeline ruler + vertical splits for Screenshot, Steps, Spans)
 	const mainPanelContent = (
 		// biome-ignore lint/a11y/noStaticElementInteractions: container needs mouse tracking for hover line
 		<div
 			ref={mainPanelRef}
-			class="flex flex-col h-full"
+			class="flex flex-col h-full relative"
 			onMouseMove={handleMouseMove}
 			onMouseLeave={handleMouseLeave}
 			onWheel={handleWheel}
 			onDblClick={handleDoubleClick}
 		>
+			{/* Loading overlay */}
+			{loadingOverlay()}
+
 			{/* Fixed height timeline ruler at the top - always shows full duration */}
 			{/* Ruler has its own hover indicator showing position on total timeline */}
 			<TimelineRuler
@@ -163,13 +209,15 @@ export function TraceViewer(props: TraceViewerProps) {
 							maxFirstPanelSize={80}
 							firstPanel={
 								<StepsTimeline
-									traceInfo={props.traceInfo}
+									steps={traceData.steps()}
+									totalDurationMs={durationMs()}
 									viewport={viewport()}
 								/>
 							}
 							secondPanel={
-								<TracesPanel
-									traceInfo={props.traceInfo}
+								<SpansPanel
+									spans={traceData.spans()}
+									totalDurationMs={durationMs()}
 									viewport={viewport()}
 								/>
 							}
@@ -189,13 +237,6 @@ export function TraceViewer(props: TraceViewerProps) {
 			</div>
 		</div>
 	);
-
-	// Convert hover position (0-1 in viewport space) to time in milliseconds
-	const hoverTimeMs = () => {
-		const pos = hoverPosition();
-		if (pos === null) return null;
-		return viewportPositionToTime(pos, viewport());
-	};
 
 	return (
 		<div class="flex flex-col h-full w-full bg-white text-gray-900">
@@ -219,97 +260,80 @@ export function TraceViewer(props: TraceViewerProps) {
 	);
 }
 
-// Dummy step data for demonstration
-interface StepTreeItem {
-	id: string;
-	name: string;
-	startOffset: number;
-	duration: number;
-	children: StepTreeItem[];
+/**
+ * Converts NormalizedSpan[] to SpanInput[] for packSpans.
+ */
+function normalizedSpansToSpanInput(spans: NormalizedSpan[]): SpanInput[] {
+	return spans.map((span) => ({
+		id: span.id,
+		name: span.title,
+		startOffset: span.startOffsetMs,
+		duration: span.durationMs,
+		parentId: span.parentId,
+	}));
 }
 
-const dummyStepTree: StepTreeItem[] = [
-	{
-		id: "1",
-		name: "Test: login flow",
-		startOffset: 0,
-		duration: 2500,
-		children: [
-			{
-				id: "1.1",
-				name: "navigate to login",
-				startOffset: 50,
-				duration: 800,
-				children: [],
-			},
-			{
-				id: "1.2",
-				name: "fill credentials",
-				startOffset: 900,
-				duration: 1200,
-				children: [
-					{
-						id: "1.2.1",
-						name: "fill username",
-						startOffset: 920,
-						duration: 400,
-						children: [],
-					},
-					{
-						id: "1.2.2",
-						name: "fill password",
-						startOffset: 1350,
-						duration: 350,
-						children: [],
-					},
-				],
-			},
-			{
-				id: "1.3",
-				name: "click submit",
-				startOffset: 2150,
-				duration: 300,
-				children: [],
-			},
-		],
-	},
-];
+/**
+ * Builds a depth map for hierarchical coloring of steps.
+ * Depth is determined by following parentId chains.
+ */
+function buildDepthMap(spans: NormalizedSpan[]): Map<string, number> {
+	const depthMap = new Map<string, number>();
+	const spanMap = new Map<string, NormalizedSpan>();
 
-// Pre-compute packed steps for rendering
-const flatSteps = flattenSpanTree(dummyStepTree);
-const packedStepsResult = packSpans(flatSteps);
-
-// Build a depth map to determine color based on nesting level
-function buildDepthMap(
-	spans: StepTreeItem[],
-	depth = 0,
-	map: Map<string, number> = new Map(),
-): Map<string, number> {
+	// Build lookup map
 	for (const span of spans) {
-		map.set(span.id, depth);
-		if (span.children.length > 0) {
-			buildDepthMap(span.children, depth + 1, map);
-		}
+		spanMap.set(span.id, span);
 	}
-	return map;
+
+	// Calculate depth for each span
+	const getDepth = (span: NormalizedSpan): number => {
+		if (depthMap.has(span.id)) {
+			return depthMap.get(span.id)!;
+		}
+
+		if (span.parentId === null) {
+			depthMap.set(span.id, 0);
+			return 0;
+		}
+
+		const parent = spanMap.get(span.parentId);
+		if (!parent) {
+			depthMap.set(span.id, 0);
+			return 0;
+		}
+
+		const depth = getDepth(parent) + 1;
+		depthMap.set(span.id, depth);
+		return depth;
+	};
+
+	for (const span of spans) {
+		getDepth(span);
+	}
+
+	return depthMap;
 }
-
-const stepDepthMap = buildDepthMap(dummyStepTree);
-
-// Row height for steps timeline (same as traces for consistency)
-const STEP_ROW_HEIGHT = 28;
 
 interface StepsTimelineProps {
-	traceInfo: TraceInfo;
+	steps: NormalizedSpan[];
+	totalDurationMs: number;
 	viewport: TimelineViewport;
 }
 
 function StepsTimeline(props: StepsTimelineProps) {
-	const totalDuration = 2500; // Use dummy total for now
+	// Convert and pack steps
+	const packedStepsResult = createMemo(() => {
+		const spanInputs = normalizedSpansToSpanInput(props.steps);
+		return packSpans(spanInputs);
+	});
+
+	// Build depth map for coloring
+	const depthMap = createMemo(() => buildDepthMap(props.steps));
 
 	// Filter and position steps based on viewport
 	const visibleSteps = createMemo(() => {
-		return packedStepsResult.spans.filter((step) =>
+		return packedStepsResult().spans.filter((step) =>
 			isTimeRangeVisible(
 				step.startOffset,
 				step.startOffset + step.duration,
@@ -321,9 +345,10 @@ function StepsTimeline(props: StepsTimelineProps) {
 	// Generate connectors only for visible spans
 	const visibleConnectors = createMemo(() => {
 		const visibleIds = new Set(visibleSteps().map((s) => s.id));
-		return generateConnectors(packedStepsResult.spans, totalDuration).filter(
-			(c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId),
-		);
+		return generateConnectors(
+			packedStepsResult().spans,
+			props.totalDurationMs,
+		).filter((c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId));
 	});
 
 	const renderStep = (step: PackedSpan): JSX.Element => {
@@ -334,7 +359,7 @@ function StepsTimeline(props: StepsTimelineProps) {
 			timeToViewportPosition(step.startOffset + step.duration, props.viewport) *
 			100;
 		const widthPercent = () => rightPercent() - leftPercent();
-		const depth = stepDepthMap.get(step.id) ?? 0;
+		const depth = depthMap().get(step.id) ?? 0;
 
 		return (
 			<div
@@ -342,7 +367,7 @@ function StepsTimeline(props: StepsTimelineProps) {
 				style={{
 					left: `${leftPercent()}%`,
 					width: `${Math.max(widthPercent(), 3)}%`,
-					top: `${step.row * STEP_ROW_HEIGHT}px`,
+					top: `${step.row * ROW_HEIGHT}px`,
 					"background-color": `hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`,
 				}}
 				title={`${step.name} (${step.duration}ms)`}
@@ -354,12 +379,12 @@ function StepsTimeline(props: StepsTimelineProps) {
 
 	const renderConnector = (connector: SpanConnector): JSX.Element => {
 		const rowDiff = connector.childRow - connector.parentRow;
-		const topPx = connector.parentRow * STEP_ROW_HEIGHT + 24;
-		const heightPx = (rowDiff - 1) * STEP_ROW_HEIGHT + 4;
+		const topPx = connector.parentRow * ROW_HEIGHT + 24;
+		const heightPx = (rowDiff - 1) * ROW_HEIGHT + 4;
 
 		// Use reactive getter so position updates when viewport changes
 		const xPercent = () => {
-			const xPositionMs = (connector.xPercent / 100) * totalDuration;
+			const xPositionMs = (connector.xPercent / 100) * props.totalDurationMs;
 			return timeToViewportPosition(xPositionMs, props.viewport) * 100;
 		};
 
@@ -375,7 +400,7 @@ function StepsTimeline(props: StepsTimelineProps) {
 		);
 	};
 
-	const containerHeight = packedStepsResult.totalRows * STEP_ROW_HEIGHT;
+	const containerHeight = () => packedStepsResult().totalRows * ROW_HEIGHT;
 
 	return (
 		<div class="h-full flex flex-col bg-gray-50 overflow-hidden">
@@ -383,7 +408,7 @@ function StepsTimeline(props: StepsTimelineProps) {
 				Steps Timeline
 			</div>
 			<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
-				<div class="relative" style={{ height: `${containerHeight}px` }}>
+				<div class="relative" style={{ height: `${containerHeight()}px` }}>
 					{/* Render connector lines first (behind spans) */}
 					<For each={visibleConnectors()}>
 						{(connector) => renderConnector(connector)}
@@ -396,194 +421,46 @@ function StepsTimeline(props: StepsTimelineProps) {
 	);
 }
 
-// Dummy span data for OpenTelemetry traces timeline
-// These represent spans that are NOT part of the main test steps
-// (e.g., HTTP requests, database queries, external service calls)
-type SpanKind = "http" | "db" | "rpc" | "internal";
-
-interface SpanTreeItem {
-	id: string;
-	name: string;
-	startOffset: number; // ms from test start
-	duration: number; // ms
-	kind: SpanKind;
-	children: SpanTreeItem[];
+/**
+ * Color scheme for different span kinds based on OpenTelemetry semantics.
+ */
+function getSpanColor(kind: SpanKind): string {
+	const baseColors: Record<SpanKind, { h: number; s: number; l: number }> = {
+		server: { h: 200, s: 70, l: 50 }, // Blue for server
+		client: { h: 280, s: 60, l: 55 }, // Purple for client
+		producer: { h: 160, s: 60, l: 45 }, // Teal for producer
+		consumer: { h: 35, s: 70, l: 50 }, // Orange for consumer
+		internal: { h: 100, s: 50, l: 45 }, // Green for internal
+	};
+	const base = baseColors[kind];
+	return `hsl(${base.h}, ${base.s}%, ${base.l}%)`;
 }
 
-const dummySpanTree: SpanTreeItem[] = [
-	{
-		id: "s1",
-		name: "HTTP GET /api/login",
-		startOffset: 100,
-		duration: 150,
-		kind: "http",
-		children: [
-			{
-				id: "s1.1",
-				name: "DB SELECT users",
-				startOffset: 110,
-				duration: 45,
-				kind: "db",
-				children: [],
-			},
-			{
-				id: "s1.2",
-				name: "JWT sign",
-				startOffset: 160,
-				duration: 25,
-				kind: "internal",
-				children: [],
-			},
-		],
-	},
-	{
-		id: "s2",
-		name: "HTTP POST /api/session",
-		startOffset: 950,
-		duration: 200,
-		kind: "http",
-		children: [
-			{
-				id: "s2.1",
-				name: "Redis SET session",
-				startOffset: 970,
-				duration: 30,
-				kind: "db",
-				children: [],
-			},
-			{
-				id: "s2.2",
-				name: "DB INSERT audit_log",
-				startOffset: 1010,
-				duration: 55,
-				kind: "db",
-				children: [],
-			},
-		],
-	},
-	{
-		id: "s3",
-		name: "HTTP GET /api/user/profile",
-		startOffset: 1400,
-		duration: 180,
-		kind: "http",
-		children: [
-			{
-				id: "s3.1",
-				name: "DB SELECT user_profile",
-				startOffset: 1420,
-				duration: 60,
-				kind: "db",
-				children: [],
-			},
-			{
-				id: "s3.2",
-				name: "gRPC ProfileService.GetAvatar",
-				startOffset: 1490,
-				duration: 70,
-				kind: "rpc",
-				children: [
-					{
-						id: "s3.2.1",
-						name: "S3 GetObject",
-						startOffset: 1500,
-						duration: 45,
-						kind: "internal",
-						children: [],
-					},
-				],
-			},
-		],
-	},
-	{
-		id: "s4",
-		name: "HTTP GET /api/dashboard",
-		startOffset: 2000,
-		duration: 350,
-		kind: "http",
-		children: [
-			{
-				id: "s4.1",
-				name: "DB SELECT dashboard_config",
-				startOffset: 2020,
-				duration: 40,
-				kind: "db",
-				children: [],
-			},
-			{
-				id: "s4.2",
-				name: "gRPC AnalyticsService.GetMetrics",
-				startOffset: 2080,
-				duration: 180,
-				kind: "rpc",
-				children: [
-					{
-						id: "s4.2.1",
-						name: "ClickHouse query",
-						startOffset: 2100,
-						duration: 120,
-						kind: "db",
-						children: [],
-					},
-				],
-			},
-			{
-				id: "s4.3",
-				name: "Redis GET cache:widgets",
-				startOffset: 2280,
-				duration: 25,
-				kind: "db",
-				children: [],
-			},
-		],
-	},
-];
-
-// Build a lookup map for span kinds from the tree structure
-function buildSpanKindMap(
-	spans: SpanTreeItem[],
-	map: Map<string, SpanKind> = new Map(),
-): Map<string, SpanKind> {
-	for (const span of spans) {
-		map.set(span.id, span.kind);
-		if (span.children.length > 0) {
-			buildSpanKindMap(span.children, map);
-		}
-	}
-	return map;
-}
-
-// Pre-compute packed spans and kind map for rendering
-const spanKindMap = buildSpanKindMap(dummySpanTree);
-const flatSpans = flattenSpanTree(dummySpanTree);
-const packedResult = packSpans(flatSpans);
-
-// Row height in pixels for the packed layout
-const ROW_HEIGHT = 28;
-
-interface TracesPanelProps {
-	traceInfo: TraceInfo;
+interface SpansPanelProps {
+	spans: NormalizedSpan[];
+	totalDurationMs: number;
 	viewport: TimelineViewport;
 }
 
-function TracesPanel(props: TracesPanelProps) {
-	const totalDuration = 2500; // Use same dummy total as StepsTimeline for alignment
+function SpansPanel(props: SpansPanelProps) {
+	// Convert and pack spans
+	const packedSpansResult = createMemo(() => {
+		const spanInputs = normalizedSpansToSpanInput(props.spans);
+		return packSpans(spanInputs);
+	});
 
-	// Color scheme for different span kinds
-	const getSpanColor = (kind: SpanKind): string => {
-		const baseColors = {
-			http: { h: 200, s: 70, l: 50 }, // Blue for HTTP
-			db: { h: 280, s: 60, l: 55 }, // Purple for DB
-			rpc: { h: 160, s: 60, l: 45 }, // Teal for RPC
-			internal: { h: 35, s: 70, l: 50 }, // Orange for internal
-		};
-		const base = baseColors[kind];
-		return `hsl(${base.h}, ${base.s}%, ${base.l}%)`;
-	};
+	// Build a kind map for coloring
+	const kindMap = createMemo(() => {
+		const map = new Map<string, SpanKind>();
+		for (const span of props.spans) {
+			map.set(span.id, span.kind);
+		}
+		return map;
+	});
 
 	// Filter spans to those within the visible viewport
 	const visibleSpans = createMemo(() => {
-		return packedResult.spans.filter((span) =>
+		return packedSpansResult().spans.filter((span) =>
 			isTimeRangeVisible(
 				span.startOffset,
 				span.startOffset + span.duration,
@@ -595,9 +472,10 @@ function TracesPanel(props: TracesPanelProps) {
 	// Generate connectors only for visible spans
 	const visibleConnectors = createMemo(() => {
 		const visibleIds = new Set(visibleSpans().map((s) => s.id));
-		return generateConnectors(packedResult.spans, totalDuration).filter(
-			(c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId),
-		);
+		return generateConnectors(
+			packedSpansResult().spans,
+			props.totalDurationMs,
+		).filter((c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId));
 	});
 
 	const renderSpan = (span: PackedSpan): JSX.Element => {
@@ -608,7 +486,7 @@ function TracesPanel(props: TracesPanelProps) {
 			timeToViewportPosition(span.startOffset + span.duration, props.viewport) *
 			100;
 		const widthPercent = () => rightPercent() - leftPercent();
-		const kind = spanKindMap.get(span.id) ?? "internal";
+		const kind = kindMap().get(span.id) ?? "internal";
 
 		return (
 			<div
@@ -634,7 +512,7 @@ function TracesPanel(props: TracesPanelProps) {
 
 		// Use reactive getter so position updates when viewport changes
 		const xPercent = () => {
-			const xPositionMs = (connector.xPercent / 100) * totalDuration;
+			const xPositionMs = (connector.xPercent / 100) * props.totalDurationMs;
 			return timeToViewportPosition(xPositionMs, props.viewport) * 100;
 		};
 
@@ -650,15 +528,15 @@ function TracesPanel(props: TracesPanelProps) {
 		);
 	};
 
-	const containerHeight = packedResult.totalRows * ROW_HEIGHT;
+	const containerHeight = () => packedSpansResult().totalRows * ROW_HEIGHT;
 
 	return (
 		<div class="h-full flex flex-col bg-gray-50 overflow-hidden">
 			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-				Traces
+				Spans
 			</div>
 			<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
-				<div class="relative" style={{ height: `${containerHeight}px` }}>
+				<div class="relative" style={{ height: `${containerHeight()}px` }}>
 					{/* Render connector lines first (behind spans) */}
 					<For each={visibleConnectors()}>
 						{(connector) => renderConnector(connector)}
@@ -689,15 +567,15 @@ function DetailsPanel(_props: { traceInfo: TraceInfo }) {
 						<div class="space-y-2 text-xs">
 							<div class="flex justify-between">
 								<span class="text-gray-500">Type:</span>
-								<span class="text-gray-700">—</span>
+								<span class="text-gray-700">-</span>
 							</div>
 							<div class="flex justify-between">
 								<span class="text-gray-500">Duration:</span>
-								<span class="text-gray-700">—</span>
+								<span class="text-gray-700">-</span>
 							</div>
 							<div class="flex justify-between">
 								<span class="text-gray-500">Start Time:</span>
-								<span class="text-gray-700">—</span>
+								<span class="text-gray-700">-</span>
 							</div>
 						</div>
 					</div>
