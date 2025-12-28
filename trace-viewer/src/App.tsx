@@ -1,5 +1,6 @@
 import { createSignal, ErrorBoundary, Show } from "solid-js";
-import { type TraceInfo, TraceInfoLoader } from "./traceInfoLoader";
+import { TraceViewer } from "./TraceViewer";
+import { TraceInfoLoader } from "./traceInfoLoader";
 import { createTraceSourceSignal, type TraceSourceSetter } from "./traceSource";
 
 export default function App() {
@@ -97,87 +98,6 @@ function DropZone(props: { setTraceSource: TraceSourceSetter }) {
 						onChange={handleFileSelect}
 					/>
 				</label>
-			</div>
-		</div>
-	);
-}
-
-/**
- * Placeholder TraceViewer component.
- * This will be implemented later to display the actual trace data.
- */
-function TraceViewer(props: { traceInfo: TraceInfo }) {
-	const { testInfo, traceDataUrls, screenshots } = props.traceInfo;
-
-	return (
-		<div class="flex-1 p-4 overflow-auto">
-			<h1 class="text-xl font-bold mb-4">Trace Loaded</h1>
-
-			{/* Test Info Section */}
-			<div class="mb-4">
-				<h2 class="font-semibold mb-2">Test Info:</h2>
-				<div class="text-sm space-y-1">
-					<div>
-						<span class="text-gray-400">Name: </span>
-						<span class="font-mono">{testInfo.name}</span>
-					</div>
-					<div>
-						<span class="text-gray-400">File: </span>
-						<span class="font-mono">
-							{testInfo.file}:{testInfo.line}
-						</span>
-					</div>
-					<div>
-						<span class="text-gray-400">Status: </span>
-						<span
-							class={
-								testInfo.status === "passed"
-									? "text-green-400"
-									: testInfo.status === "failed"
-										? "text-red-400"
-										: "text-yellow-400"
-							}
-						>
-							{testInfo.status}
-						</span>
-					</div>
-					<div>
-						<span class="text-gray-400">Trace ID: </span>
-						<span class="font-mono text-xs">{testInfo.traceId}</span>
-					</div>
-					{testInfo.describes.length > 0 && (
-						<div>
-							<span class="text-gray-400">Describes: </span>
-							<span class="font-mono">{testInfo.describes.join(" > ")}</span>
-						</div>
-					)}
-				</div>
-			</div>
-
-			{/* Trace Data URLs Section */}
-			<div class="mb-4">
-				<h2 class="font-semibold">Trace Data URLs:</h2>
-				<ul class="list-disc list-inside">
-					{traceDataUrls.map((url) => (
-						<li class="text-sm font-mono">{url}</li>
-					))}
-				</ul>
-			</div>
-
-			{/* Screenshots Section */}
-			<div>
-				<h2 class="font-semibold">Screenshots ({screenshots.length}):</h2>
-				<ul class="list-disc list-inside max-h-64 overflow-auto">
-					{screenshots.map((screenshot) => (
-						<li class="text-sm">
-							<span class="text-gray-400">
-								{new Date(screenshot.timestamp).toISOString()}
-							</span>
-							<span class="text-gray-500"> → </span>
-							<span class="font-mono text-xs">{screenshot.url}</span>
-						</li>
-					))}
-				</ul>
 			</div>
 		</div>
 	);

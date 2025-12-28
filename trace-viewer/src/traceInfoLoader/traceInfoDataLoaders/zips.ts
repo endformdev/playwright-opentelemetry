@@ -1,6 +1,6 @@
 import type { Entry, FileEntry } from "@zip.js/zip.js";
 import { BlobReader, BlobWriter, TextWriter, ZipReader } from "@zip.js/zip.js";
-import type { OtlpTraceExport } from "../../types/otel";
+import type { OtlpTraceExport } from "../otel";
 import type { ScreenshotInfo, TestInfo } from "../TraceInfoLoader";
 
 const TEST_JSON_PATH = "test.json";
