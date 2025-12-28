@@ -1,17 +1,30 @@
 import type { Entry, FileEntry } from "@zip.js/zip.js";
 import { BlobReader, BlobWriter, TextWriter, ZipReader } from "@zip.js/zip.js";
-import type { OtlpTraceExport } from "../otel";
-import type { ScreenshotInfo, TestInfo } from "../TraceInfoLoader";
+import type { ScreenshotMeta } from "../../service-worker/register";
+import type { TestInfo } from "../TraceInfoLoader";
 
 const TEST_JSON_PATH = "test.json";
-const TRACE_JSON_PATH = "opentelemetry-protocol/playwright-opentelemetry.json";
-const SCREENSHOTS_DIR = "screenshots";
+const OTEL_PROTOCOL_DIR = "opentelemetry-protocol/";
+const SCREENSHOTS_DIR = "screenshots/";
+
+/**
+ * Trace file with name and parsed JSON content
+ */
+export interface TraceFile {
+	/** Filename (e.g., "playwright-opentelemetry.json") */
+	name: string;
+	/** Parsed JSON content */
+	content: unknown;
+}
 
 export interface ZipLoadResult {
 	testInfo: TestInfo;
-	traceData: OtlpTraceExport;
+	/** All trace files from opentelemetry-protocol directory */
+	traceFiles: TraceFile[];
+	/** Screenshots map: filename -> blob */
 	screenshots: Map<string, Blob>;
-	screenshotInfos: ScreenshotInfo[];
+	/** Screenshot metadata for list endpoint */
+	screenshotMetas: ScreenshotMeta[];
 }
 
 export interface ZipEntries {
@@ -69,56 +82,62 @@ export async function parseZipEntries(
 	const testJsonText = await readEntryAsText(testJsonEntry);
 	const testInfo: TestInfo = JSON.parse(testJsonText);
 
-	// Find and parse trace JSON
-	const traceJsonEntry = entries.get(TRACE_JSON_PATH);
-	if (!traceJsonEntry) {
+	// Find all JSON files in opentelemetry-protocol directory
+	const traceFiles: TraceFile[] = [];
+	for (const [filename, entry] of entries) {
+		if (
+			filename.startsWith(OTEL_PROTOCOL_DIR) &&
+			filename.endsWith(".json") &&
+			isFileEntry(entry)
+		) {
+			// Extract just the filename without the directory prefix
+			const name = filename.slice(OTEL_PROTOCOL_DIR.length);
+			if (name) {
+				const text = await readEntryAsText(entry);
+				const content = JSON.parse(text);
+				traceFiles.push({ name, content });
+			}
+		}
+	}
+
+	if (traceFiles.length === 0) {
 		throw new Error(
-			`Trace JSON not found at ${TRACE_JSON_PATH}. ` +
+			`No trace files found in ${OTEL_PROTOCOL_DIR}. ` +
 				"Make sure you're loading a valid Playwright OpenTelemetry trace ZIP.",
 		);
 	}
 
-	const traceJsonText = await readEntryAsText(traceJsonEntry);
-	const traceData: OtlpTraceExport = JSON.parse(traceJsonText);
-
-	// Collect screenshots with their timestamps
+	// Collect screenshots with their metadata
 	const screenshots = new Map<string, Blob>();
-	const screenshotInfos: ScreenshotInfo[] = [];
+	const screenshotMetas: ScreenshotMeta[] = [];
 
 	for (const [filename, entry] of entries) {
-		if (filename.startsWith(SCREENSHOTS_DIR)) {
-			// Remove the "screenshots/" prefix, keeping the leading slash for now
-			const screenshotName = filename.slice(SCREENSHOTS_DIR.length);
-			if (screenshotName && isFileEntry(entry)) {
-				// Remove leading slash if present
-				const cleanName = screenshotName.startsWith("/")
-					? screenshotName.slice(1)
-					: screenshotName;
-
-				const mimeType = getMimeType(cleanName);
+		if (filename.startsWith(SCREENSHOTS_DIR) && isFileEntry(entry)) {
+			// Extract just the filename without the directory prefix
+			const name = filename.slice(SCREENSHOTS_DIR.length);
+			if (name) {
+				const mimeType = getMimeType(name);
 				const blob = await readEntryAsBlob(entry, mimeType);
-				screenshots.set(cleanName, blob);
+				screenshots.set(name, blob);
 
 				// Extract timestamp from filename
-				// Format: {pageGuid}-{timestamp}.jpeg (e.g., page@abc123-1766929201038.jpeg)
-				const timestamp = extractTimestampFromFilename(cleanName);
-
-				screenshotInfos.push({
+				const timestamp = extractTimestampFromFilename(name);
+				screenshotMetas.push({
 					timestamp,
-					url: "", // URL will be set by the loader after service worker registration
+					file: name,
 				});
 			}
 		}
 	}
 
 	// Sort screenshots by timestamp
-	screenshotInfos.sort((a, b) => a.timestamp - b.timestamp);
+	screenshotMetas.sort((a, b) => a.timestamp - b.timestamp);
 
 	return {
 		testInfo,
-		traceData,
+		traceFiles,
 		screenshots,
-		screenshotInfos,
+		screenshotMetas,
 	};
 }
 
