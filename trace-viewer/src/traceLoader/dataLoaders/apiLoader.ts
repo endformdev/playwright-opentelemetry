@@ -1,6 +1,6 @@
 import type { ResolvedTraceUrls } from "../TraceLoader";
 
-const TRACE_PATH = "otlp-traces/pw-reporter-trace.json";
+const TRACE_PATH = "opentelemetry-protocol/playwright-opentelemetry.json";
 const SCREENSHOTS_PATH = "screenshots";
 
 export async function loadRemoteApi(

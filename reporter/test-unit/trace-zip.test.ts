@@ -426,9 +426,9 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			// Read and verify zip contents
 			const zipEntries = await readZipEntries(expectedZipPath);
 
-			// Verify otlp-traces/pw-reporter-trace.json exists
+			// Verify opentelemetry-protocol/playwright-opentelemetry.json exists
 			const traceContent = zipEntries.get(
-				"otlp-traces/pw-reporter-trace.json",
+				"opentelemetry-protocol/playwright-opentelemetry.json",
 			) as string;
 			expect(traceContent).toBeDefined();
 
@@ -626,7 +626,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Verify trace file for test 1
 			const trace1Content = zip1Entries.get(
-				"otlp-traces/pw-reporter-trace.json",
+				"opentelemetry-protocol/playwright-opentelemetry.json",
 			) as string;
 			expect(trace1Content).toBeDefined();
 
@@ -661,7 +661,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Verify trace file for test 2
 			const trace2Content = zip2Entries.get(
-				"otlp-traces/pw-reporter-trace.json",
+				"opentelemetry-protocol/playwright-opentelemetry.json",
 			) as string;
 			expect(trace2Content).toBeDefined();
 

@@ -2,7 +2,7 @@ import type { Entry, FileEntry } from "@zip.js/zip.js";
 import { BlobReader, BlobWriter, TextWriter, ZipReader } from "@zip.js/zip.js";
 import type { OtlpTraceExport } from "../../types/otel";
 
-const TRACE_JSON_PATH = "otlp-traces/pw-reporter-trace.json";
+const TRACE_JSON_PATH = "opentelemetry-protocol/playwright-opentelemetry.json";
 const SCREENSHOTS_DIR = "screenshots";
 
 export interface ZipLoadResult {

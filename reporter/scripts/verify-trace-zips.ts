@@ -139,8 +139,8 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 		// Check for OTLP trace file
 		const tracePath = path.join(
 			tempDir,
-			"otlp-traces",
-			"pw-reporter-trace.json",
+			"opentelemetry-protocol",
+			"playwright-opentelemetry.json",
 		);
 
 		try {
@@ -167,7 +167,9 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 			}
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-				errors.push("Missing otlp-traces/pw-reporter-trace.json");
+				errors.push(
+					"Missing opentelemetry-protocol/playwright-opentelemetry.json",
+				);
 			} else {
 				errors.push(`Failed to parse trace JSON: ${err}`);
 			}
