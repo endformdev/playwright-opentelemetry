@@ -11,6 +11,12 @@ import type { Span, SpanKind } from "../trace-data-loader/exportToSpans";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import type { TraceInfo } from "../trace-info-loader";
 import {
+	flattenHoveredSpans,
+	getElementsAtTime,
+	type HoveredElements,
+	type HoveredSpan,
+} from "./getElementsAtTime";
+import {
 	generateConnectors,
 	type PackedSpan,
 	packSpans,
@@ -216,6 +222,19 @@ export function TraceViewer(props: TraceViewerProps) {
 		return viewportPositionToTime(pos, viewport());
 	};
 
+	// Compute hovered elements for the details panel
+	const hoveredElements = createMemo((): HoveredElements | null => {
+		const timeMs = hoverTimeMs();
+		if (timeMs === null) return null;
+		return getElementsAtTime(
+			timeMs,
+			traceData.steps(),
+			traceData.spans(),
+			props.traceInfo.screenshots,
+			testStartTimeMs(),
+		);
+	});
+
 	// Loading state UI
 	const loadingOverlay = () => {
 		if (!traceData.isLoading()) return null;
@@ -353,7 +372,13 @@ export function TraceViewer(props: TraceViewerProps) {
 					minFirstPanelSize={50}
 					maxFirstPanelSize={90}
 					firstPanel={mainPanelContent}
-					secondPanel={<DetailsPanel traceInfo={props.traceInfo} />}
+					secondPanel={
+						<DetailsPanel
+							traceInfo={props.traceInfo}
+							hoveredElements={hoveredElements()}
+							testStartTimeMs={testStartTimeMs()}
+						/>
+					}
 				/>
 			</div>
 		</div>
@@ -649,38 +674,247 @@ function SpansPanel(props: SpansPanelProps) {
 	);
 }
 
-function DetailsPanel(_props: { traceInfo: TraceInfo }) {
+interface DetailsPanelProps {
+	traceInfo: TraceInfo;
+	hoveredElements: HoveredElements | null;
+	testStartTimeMs: number;
+}
+
+function DetailsPanel(props: DetailsPanelProps) {
+	// Flatten the hierarchical spans for rendering
+	const flatSteps = () =>
+		props.hoveredElements
+			? flattenHoveredSpans(props.hoveredElements.steps)
+			: [];
+	const flatSpans = () =>
+		props.hoveredElements
+			? flattenHoveredSpans(props.hoveredElements.spans)
+			: [];
+
 	return (
-		<div class="h-full flex flex-col bg-white">
-			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-				Details
+		<div class="h-full overflow-auto bg-white">
+			<Show
+				when={props.hoveredElements}
+				fallback={
+					<div class="h-full flex items-center justify-center text-gray-400 text-sm">
+						Hover over the timeline to see details
+					</div>
+				}
+			>
+				{(elements) => (
+					<div class="p-4 space-y-6">
+						{/* Screenshot at the top */}
+						<Show when={elements().screenshot}>
+							{(screenshot) => (
+								<div class="bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+									<img
+										src={screenshot().url}
+										alt="Screenshot at hover time"
+										class="w-full h-auto"
+									/>
+								</div>
+							)}
+						</Show>
+
+						{/* Steps section */}
+						<Show when={flatSteps().length > 0}>
+							<div>
+								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+									Steps ({flatSteps().length})
+								</div>
+								<div class="space-y-2">
+									<For each={flatSteps()}>
+										{(hoveredSpan) => (
+											<SpanDetails
+												hoveredSpan={hoveredSpan}
+												testStartTimeMs={props.testStartTimeMs}
+												colorFn={(depth) =>
+													`hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`
+												}
+											/>
+										)}
+									</For>
+								</div>
+							</div>
+						</Show>
+
+						{/* Spans section */}
+						<Show when={flatSpans().length > 0}>
+							<div>
+								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+									Spans ({flatSpans().length})
+								</div>
+								<div class="space-y-2">
+									<For each={flatSpans()}>
+										{(hoveredSpan) => (
+											<SpanDetails
+												hoveredSpan={hoveredSpan}
+												testStartTimeMs={props.testStartTimeMs}
+												colorFn={(_, span) => getSpanColor(span.kind)}
+											/>
+										)}
+									</For>
+								</div>
+							</div>
+						</Show>
+
+						{/* Empty state when no steps or spans */}
+						<Show when={flatSteps().length === 0 && flatSpans().length === 0}>
+							<div class="text-gray-400 text-sm text-center py-4">
+								No active steps or spans at this time
+							</div>
+						</Show>
+					</div>
+				)}
+			</Show>
+		</div>
+	);
+}
+
+interface SpanDetailsProps {
+	hoveredSpan: HoveredSpan;
+	testStartTimeMs: number;
+	colorFn: (depth: number, span: Span) => string;
+}
+
+function SpanDetails(props: SpanDetailsProps) {
+	const { span, depth } = props.hoveredSpan;
+	const color = () => props.colorFn(depth, span);
+
+	// Format timing info
+	const startTimeDisplay = () => {
+		const absoluteMs = props.testStartTimeMs + span.startOffsetMs;
+		const absoluteDate = new Date(absoluteMs);
+		const timeStr = absoluteDate.toLocaleTimeString("en-US", {
+			hour12: false,
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		});
+		const msStr = String(absoluteMs % 1000).padStart(3, "0");
+		return `${timeStr}.${msStr} (${formatDuration(span.startOffsetMs)} from start)`;
+	};
+
+	const endTimeDisplay = () => {
+		const endOffsetMs = span.startOffsetMs + span.durationMs;
+		const absoluteMs = props.testStartTimeMs + endOffsetMs;
+		const absoluteDate = new Date(absoluteMs);
+		const timeStr = absoluteDate.toLocaleTimeString("en-US", {
+			hour12: false,
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		});
+		const msStr = String(absoluteMs % 1000).padStart(3, "0");
+		return `${timeStr}.${msStr} (${formatDuration(endOffsetMs)} from start)`;
+	};
+
+	// Get attributes as entries, filtering out title attributes since we show title separately
+	const attributeEntries = () => {
+		return Object.entries(span.attributes).filter(
+			([key]) => key !== "test.step.title" && key !== "test.case.title",
+		);
+	};
+
+	return (
+		<div
+			class="rounded-lg border overflow-hidden"
+			style={{
+				"margin-left": `${depth * 12}px`,
+				"border-color": color(),
+			}}
+		>
+			{/* Header with span name and color indicator */}
+			<div
+				class="px-3 py-2 text-white text-sm font-medium"
+				style={{ "background-color": color() }}
+			>
+				{span.title}
 			</div>
-			<div class="flex-1 overflow-auto p-3">
-				<div class="text-gray-500 text-sm">
-					<p class="mb-4">
-						Select a step, screenshot, or trace to view details.
-					</p>
-					<div class="border border-gray-200 rounded p-3 bg-gray-50">
-						<div class="text-xs text-gray-400 uppercase tracking-wide mb-2">
-							Placeholder Content
-						</div>
-						<div class="space-y-2 text-xs">
-							<div class="flex justify-between">
-								<span class="text-gray-500">Type:</span>
-								<span class="text-gray-700">-</span>
-							</div>
-							<div class="flex justify-between">
-								<span class="text-gray-500">Duration:</span>
-								<span class="text-gray-700">-</span>
-							</div>
-							<div class="flex justify-between">
-								<span class="text-gray-500">Start Time:</span>
-								<span class="text-gray-700">-</span>
-							</div>
+
+			{/* Details */}
+			<div class="bg-gray-50 px-3 py-2 space-y-2 text-xs">
+				{/* Timing info */}
+				<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+					<span class="text-gray-500">Duration:</span>
+					<span class="font-mono text-gray-900">
+						{formatDuration(span.durationMs)}
+					</span>
+
+					<span class="text-gray-500">Start:</span>
+					<span class="font-mono text-gray-900">{startTimeDisplay()}</span>
+
+					<span class="text-gray-500">End:</span>
+					<span class="font-mono text-gray-900">{endTimeDisplay()}</span>
+
+					<span class="text-gray-500">Kind:</span>
+					<span class="text-gray-900 capitalize">{span.kind}</span>
+
+					<Show when={span.name !== span.title}>
+						<span class="text-gray-500">Span Name:</span>
+						<span class="font-mono text-gray-900">{span.name}</span>
+					</Show>
+				</div>
+
+				{/* Attributes */}
+				<Show when={attributeEntries().length > 0}>
+					<div class="border-t border-gray-200 pt-2 mt-2">
+						<div class="text-gray-500 mb-1">Attributes:</div>
+						<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 pl-2">
+							<For each={attributeEntries()}>
+								{([key, value]) => (
+									<>
+										<span class="text-gray-500 truncate" title={key}>
+											{key}:
+										</span>
+										<span
+											class="font-mono text-gray-900 break-all"
+											title={String(value)}
+										>
+											{formatAttributeValue(value)}
+										</span>
+									</>
+								)}
+							</For>
 						</div>
 					</div>
-				</div>
+				</Show>
 			</div>
 		</div>
 	);
+}
+
+/**
+ * Formats a duration in milliseconds to a human-readable string.
+ */
+function formatDuration(ms: number): string {
+	if (ms < 1) {
+		return `${(ms * 1000).toFixed(0)}µs`;
+	}
+	if (ms < 1000) {
+		return `${ms.toFixed(1)}ms`;
+	}
+	if (ms < 60000) {
+		return `${(ms / 1000).toFixed(2)}s`;
+	}
+	const minutes = Math.floor(ms / 60000);
+	const seconds = ((ms % 60000) / 1000).toFixed(1);
+	return `${minutes}m ${seconds}s`;
+}
+
+/**
+ * Formats an attribute value for display.
+ */
+function formatAttributeValue(value: string | number | boolean): string {
+	if (typeof value === "boolean") {
+		return value ? "true" : "false";
+	}
+	if (typeof value === "number") {
+		return String(value);
+	}
+	// Truncate very long strings
+	if (value.length > 200) {
+		return `${value.slice(0, 200)}...`;
+	}
+	return value;
 }
