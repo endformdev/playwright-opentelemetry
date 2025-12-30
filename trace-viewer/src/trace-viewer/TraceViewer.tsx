@@ -1,4 +1,5 @@
 import {
+	createEffect,
 	createMemo,
 	createSignal,
 	For,
@@ -42,6 +43,15 @@ export interface TraceViewerProps {
 	traceInfo: TraceInfo;
 }
 
+/** Type of element that can be focused for scroll-to functionality */
+type FocusedElementType = "screenshot" | "step" | "span";
+
+/** Element to scroll to in the details panel */
+interface FocusedElement {
+	type: FocusedElementType;
+	id: string; // span ID for steps/spans, or screenshot URL for screenshots
+}
+
 /** Pan sensitivity for horizontal scroll (higher = faster pan) */
 const PAN_SENSITIVITY = 0.2;
 
@@ -83,6 +93,15 @@ export function TraceViewer(props: TraceViewerProps) {
 	// Locked position state - when set, details panel shows data at this time until unlocked
 	// Position is stored in viewport space (0-1)
 	const [lockedPosition, setLockedPosition] = createSignal<number | null>(null);
+
+	// The element currently being hovered in the left-hand timeline
+	const [hoveredElement, setHoveredElement] =
+		createSignal<FocusedElement | null>(null);
+
+	// The element that was locked on click - persists until unlock
+	const [lockedElement, setLockedElement] = createSignal<FocusedElement | null>(
+		null,
+	);
 
 	// Selection state for click-drag on content area (0-1 in viewport space)
 	const [selectionState, setSelectionState] = createSignal<{
@@ -174,6 +193,8 @@ export function TraceViewer(props: TraceViewerProps) {
 			} else {
 				// This was a click (not a meaningful drag) - lock to this position
 				setLockedPosition(selection.startPosition);
+				// Also lock the currently hovered element for scroll-to functionality
+				setLockedElement(hoveredElement());
 			}
 
 			setSelectionState(null);
@@ -224,7 +245,33 @@ export function TraceViewer(props: TraceViewerProps) {
 	// Handle double-click to reset zoom and unlock
 	const handleDoubleClick = () => {
 		setLockedPosition(null);
+		setLockedElement(null);
 		setViewport((v) => resetViewport(v));
+	};
+
+	// Handlers for element hover tracking (for scroll-to-span functionality)
+	const handleScreenshotHover = (screenshotUrl: string | null) => {
+		if (screenshotUrl) {
+			setHoveredElement({ type: "screenshot", id: screenshotUrl });
+		} else {
+			setHoveredElement(null);
+		}
+	};
+
+	const handleStepHover = (stepId: string | null) => {
+		if (stepId) {
+			setHoveredElement({ type: "step", id: stepId });
+		} else {
+			setHoveredElement(null);
+		}
+	};
+
+	const handleSpanHover = (spanId: string | null) => {
+		if (spanId) {
+			setHoveredElement({ type: "span", id: spanId });
+		} else {
+			setHoveredElement(null);
+		}
 	};
 
 	// Convert hover position (0-1 in viewport space) to time in milliseconds
@@ -307,6 +354,24 @@ export function TraceViewer(props: TraceViewerProps) {
 		return hoverTimeMs();
 	};
 
+	// Determine which element to scroll to in the details panel.
+	// The key behavior: when locked, if hovering over a specific element, scroll to it;
+	// otherwise (no hover or generic hover), scroll to the locked element.
+	const displayFocusedElement = (): FocusedElement | null => {
+		if (lockedPosition() !== null) {
+			// We have a lock
+			if (hoverPosition() === null || isWithinLockWindow()) {
+				// Mouse left the panel or is within lock window - scroll to locked element
+				return lockedElement();
+			}
+			// Mouse is outside lock window - scroll to hovered element if any,
+			// otherwise stay on locked element
+			return hoveredElement() ?? lockedElement();
+		}
+		// No lock - scroll to hovered element
+		return hoveredElement();
+	};
+
 	// Loading state UI
 	const loadingOverlay = () => {
 		if (!traceData.isLoading()) return null;
@@ -379,6 +444,7 @@ export function TraceViewer(props: TraceViewerProps) {
 							screenshots={props.traceInfo.screenshots}
 							viewport={viewport()}
 							testStartTimeMs={testStartTimeMs()}
+							onScreenshotHover={handleScreenshotHover}
 						/>
 					}
 					secondPanel={
@@ -392,6 +458,7 @@ export function TraceViewer(props: TraceViewerProps) {
 									steps={traceData.steps()}
 									totalDurationMs={durationMs()}
 									viewport={viewport()}
+									onStepHover={handleStepHover}
 								/>
 							}
 							secondPanel={
@@ -399,6 +466,7 @@ export function TraceViewer(props: TraceViewerProps) {
 									spans={traceData.spans()}
 									totalDurationMs={durationMs()}
 									viewport={viewport()}
+									onSpanHover={handleSpanHover}
 								/>
 							}
 						/>
@@ -479,6 +547,7 @@ export function TraceViewer(props: TraceViewerProps) {
 							traceInfo={props.traceInfo}
 							hoveredElements={displayElements()}
 							testStartTimeMs={testStartTimeMs()}
+							focusedElement={displayFocusedElement()}
 						/>
 					}
 				/>
@@ -546,6 +615,7 @@ interface StepsTimelineProps {
 	steps: Span[];
 	totalDurationMs: number;
 	viewport: TimelineViewport;
+	onStepHover?: (stepId: string | null) => void;
 }
 
 function StepsTimeline(props: StepsTimelineProps) {
@@ -589,6 +659,7 @@ function StepsTimeline(props: StepsTimelineProps) {
 		const depth = depthMap().get(step.id) ?? 0;
 
 		return (
+			// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-span feature
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-95"
 				style={{
@@ -598,6 +669,8 @@ function StepsTimeline(props: StepsTimelineProps) {
 					"background-color": `hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`,
 				}}
 				title={`${step.name} (${step.duration}ms)`}
+				onMouseEnter={() => props.onStepHover?.(step.id)}
+				onMouseLeave={() => props.onStepHover?.(null)}
 			>
 				{step.name}
 			</div>
@@ -667,6 +740,7 @@ interface SpansPanelProps {
 	spans: Span[];
 	totalDurationMs: number;
 	viewport: TimelineViewport;
+	onSpanHover?: (spanId: string | null) => void;
 }
 
 function SpansPanel(props: SpansPanelProps) {
@@ -705,28 +779,33 @@ function SpansPanel(props: SpansPanelProps) {
 		).filter((c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId));
 	});
 
-	const renderSpan = (span: PackedSpan): JSX.Element => {
+	const renderSpan = (packedSpan: PackedSpan): JSX.Element => {
 		// Use reactive getters so positions update when viewport changes
 		const leftPercent = () =>
-			timeToViewportPosition(span.startOffset, props.viewport) * 100;
+			timeToViewportPosition(packedSpan.startOffset, props.viewport) * 100;
 		const rightPercent = () =>
-			timeToViewportPosition(span.startOffset + span.duration, props.viewport) *
-			100;
+			timeToViewportPosition(
+				packedSpan.startOffset + packedSpan.duration,
+				props.viewport,
+			) * 100;
 		const widthPercent = () => rightPercent() - leftPercent();
-		const kind = kindMap().get(span.id) ?? "internal";
+		const kind = kindMap().get(packedSpan.id) ?? "internal";
 
 		return (
+			// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-span feature
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-110"
 				style={{
 					left: `${leftPercent()}%`,
 					width: `${Math.max(widthPercent(), 2)}%`,
-					top: `${span.row * ROW_HEIGHT}px`,
+					top: `${packedSpan.row * ROW_HEIGHT}px`,
 					"background-color": getSpanColor(kind),
 				}}
-				title={`${span.name} (${span.duration}ms)`}
+				title={`${packedSpan.name} (${packedSpan.duration}ms)`}
+				onMouseEnter={() => props.onSpanHover?.(packedSpan.id)}
+				onMouseLeave={() => props.onSpanHover?.(null)}
 			>
-				{span.name}
+				{packedSpan.name}
 			</div>
 		);
 	};
@@ -769,7 +848,9 @@ function SpansPanel(props: SpansPanelProps) {
 						{(connector) => renderConnector(connector)}
 					</For>
 					{/* Render spans on top */}
-					<For each={visibleSpans()}>{(span) => renderSpan(span)}</For>
+					<For each={visibleSpans()}>
+						{(packedSpan) => renderSpan(packedSpan)}
+					</For>
 				</div>
 			</div>
 		</div>
@@ -780,9 +861,13 @@ interface DetailsPanelProps {
 	traceInfo: TraceInfo;
 	hoveredElements: HoveredElements | null;
 	testStartTimeMs: number;
+	/** Element to scroll into view (from hover/lock tracking) */
+	focusedElement: FocusedElement | null;
 }
 
 function DetailsPanel(props: DetailsPanelProps) {
+	let containerRef: HTMLDivElement | undefined;
+
 	// Flatten the hierarchical spans for rendering
 	const flatSteps = () =>
 		props.hoveredElements
@@ -793,8 +878,27 @@ function DetailsPanel(props: DetailsPanelProps) {
 			? flattenHoveredSpans(props.hoveredElements.spans)
 			: [];
 
+	// Scroll to focused element when it changes
+	createEffect(() => {
+		const focused = props.focusedElement;
+		if (!focused || !containerRef) return;
+
+		let selector: string;
+		if (focused.type === "screenshot") {
+			selector = "[data-screenshot]";
+		} else {
+			// For steps and spans, use the span ID
+			selector = `[data-span-id="${focused.id}"]`;
+		}
+
+		const element = containerRef.querySelector(selector);
+		if (element) {
+			element.scrollIntoView({ behavior: "instant", block: "start" });
+		}
+	});
+
 	return (
-		<div class="h-full overflow-auto bg-white">
+		<div ref={containerRef} class="h-full overflow-auto bg-white">
 			<Show
 				when={props.hoveredElements}
 				fallback={
@@ -808,7 +912,10 @@ function DetailsPanel(props: DetailsPanelProps) {
 						{/* Screenshot at the top */}
 						<Show when={elements().screenshot}>
 							{(screenshot) => (
-								<div class="bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+								<div
+									data-screenshot
+									class="bg-gray-100 rounded-lg overflow-hidden border border-gray-200"
+								>
 									<img
 										src={screenshot().url}
 										alt="Screenshot at hover time"
@@ -920,6 +1027,7 @@ function SpanDetails(props: SpanDetailsProps) {
 
 	return (
 		<div
+			data-span-id={span.id}
 			class="rounded-lg border overflow-hidden"
 			style={{
 				"margin-left": `${depth * 12}px`,
