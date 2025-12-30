@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { categorizeSpan, categorizeSpans, mergeSpans } from "./categorizeSpans";
-import type { NormalizedSpan } from "./normalizeSpans";
+import type { Span } from "./exportToSpans";
 
 describe("categorizeSpan", () => {
 	it("categorizes playwright.test as step", () => {
@@ -198,7 +198,7 @@ describe("mergeSpans", () => {
 	});
 });
 
-function createSpan(overrides: Partial<NormalizedSpan> = {}): NormalizedSpan {
+function createSpan(overrides: Partial<Span> = {}): Span {
 	return {
 		id: "span1",
 		parentId: null,

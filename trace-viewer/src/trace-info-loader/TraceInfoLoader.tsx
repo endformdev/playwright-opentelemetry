@@ -14,9 +14,24 @@ import {
 	unloadCurrentTrace,
 } from "./traceInfoDataLoaders/zipLoader";
 
-/**
- * Test result status from the trace
- */
+export interface TraceInfo {
+	testInfo: TestInfo;
+	traceDataUrls: string[];
+	screenshots: ScreenshotInfo[];
+}
+
+export interface TestInfo {
+	name: string;
+	describes: string[];
+	file: string;
+	line: number;
+	status: TestStatus;
+	/** OpenTelemetry trace ID for this test */
+	traceId: string;
+	startTimeUnixNano: string;
+	endTimeUnixNano: string;
+}
+
 export type TestStatus =
 	| "passed"
 	| "failed"
@@ -24,54 +39,13 @@ export type TestStatus =
 	| "timedOut"
 	| "interrupted";
 
-/**
- * Base test information from test.json
- */
-export interface TestInfo {
-	/** Test name (from test.title) */
-	name: string;
-	/** Describe blocks containing this test */
-	describes: string[];
-	/** Relative file path to the test file */
-	file: string;
-	/** Line number where the test is defined */
-	line: number;
-	/** Test result status */
-	status: TestStatus;
-	/** OpenTelemetry trace ID for this test */
-	traceId: string;
-	/** Start time in nanoseconds since Unix epoch (as string to preserve precision) */
-	startTimeUnixNano: string;
-	/** End time in nanoseconds since Unix epoch (as string to preserve precision) */
-	endTimeUnixNano: string;
-}
-
-/**
- * Screenshot information with timestamp and URL
- */
 export interface ScreenshotInfo {
-	/** Unix timestamp in milliseconds when the screenshot was taken */
 	timestamp: number;
-	/** Complete URL to fetch the screenshot */
 	url: string;
 }
 
-/**
- * Loaded trace data including test info, trace URLs, and screenshots
- */
-export interface TraceInfo {
-	/** Base test information from test.json */
-	testInfo: TestInfo;
-	/** Complete URLs to fetch OTLP trace JSON files */
-	traceDataUrls: string[];
-	/** Screenshots with timestamp and URL */
-	screenshots: ScreenshotInfo[];
-}
-
 export interface TraceInfoLoaderProps {
-	/** The trace source to load from */
 	source: TraceSource;
-	/** Render function for the loaded state */
 	children: (traceInfo: TraceInfo) => JSX.Element;
 }
 

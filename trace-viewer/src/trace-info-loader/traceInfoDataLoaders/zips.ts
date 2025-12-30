@@ -7,24 +7,16 @@ const TEST_JSON_PATH = "test.json";
 const OTEL_PROTOCOL_DIR = "opentelemetry-protocol/";
 const SCREENSHOTS_DIR = "screenshots/";
 
-/**
- * Trace file with name and parsed JSON content
- */
-export interface TraceFile {
-	/** Filename (e.g., "playwright-opentelemetry.json") */
-	name: string;
-	/** Parsed JSON content */
-	content: unknown;
-}
-
 export interface ZipLoadResult {
 	testInfo: TestInfo;
-	/** All trace files from opentelemetry-protocol directory */
-	traceFiles: TraceFile[];
-	/** Screenshots map: filename -> blob */
+	traceFiles: OpentelemetryProtocolJsonFile[];
 	screenshots: Map<string, Blob>;
-	/** Screenshot metadata for list endpoint */
 	screenshotMetas: ScreenshotMeta[];
+}
+
+export interface OpentelemetryProtocolJsonFile {
+	name: string;
+	content: unknown;
 }
 
 export interface ZipEntries {
@@ -83,7 +75,7 @@ export async function parseZipEntries(
 	const testInfo: TestInfo = JSON.parse(testJsonText);
 
 	// Find all JSON files in opentelemetry-protocol directory
-	const traceFiles: TraceFile[] = [];
+	const traceFiles: OpentelemetryProtocolJsonFile[] = [];
 	for (const [filename, entry] of entries) {
 		if (
 			filename.startsWith(OTEL_PROTOCOL_DIR) &&

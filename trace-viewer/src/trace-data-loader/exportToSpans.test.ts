@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { OtlpSpan, OtlpTraceExport } from "../trace-info-loader/otel";
-import { normalizeOtlpExport, normalizeSpan } from "./normalizeSpans";
+import { otlpExportToSpans, otlpSpanToSpan } from "./exportToSpans";
+import type { OtlpExport, OtlpSpan } from "./fetchTraceData";
 
-describe("normalizeSpan", () => {
+describe("otlpSpanToSpan", () => {
 	it("extracts basic span properties", () => {
 		const span = createOtlpSpan({
 			traceId: "abc123",
@@ -10,7 +10,7 @@ describe("normalizeSpan", () => {
 			name: "HTTP GET",
 		});
 
-		const result = normalizeSpan(span, 500); // test started at 500ms
+		const result = otlpSpanToSpan(span, 500); // test started at 500ms
 
 		expect(result.id).toBe("def456");
 		expect(result.traceId).toBe("abc123");
@@ -27,7 +27,7 @@ describe("normalizeSpan", () => {
 
 		// Test started at 1000ms (in milliseconds, matching what TestInfo provides)
 		const testStartTimeMs = 1000;
-		const result = normalizeSpan(span, testStartTimeMs);
+		const result = otlpSpanToSpan(span, testStartTimeMs);
 
 		// startOffsetMs = 2000ms - 1000ms = 1000ms
 		expect(result.startOffsetMs).toBe(1000);
@@ -43,8 +43,8 @@ describe("normalizeSpan", () => {
 			parentSpanId: undefined,
 		});
 
-		expect(normalizeSpan(spanWithParent, 0).parentId).toBe("parent123");
-		expect(normalizeSpan(spanWithoutParent, 0).parentId).toBe(null);
+		expect(otlpSpanToSpan(spanWithParent, 0).parentId).toBe("parent123");
+		expect(otlpSpanToSpan(spanWithoutParent, 0).parentId).toBe(null);
 	});
 
 	it("maps OTLP span kinds correctly", () => {
@@ -55,12 +55,12 @@ describe("normalizeSpan", () => {
 		const consumerSpan = createOtlpSpan({ kind: 5 });
 		const unspecifiedSpan = createOtlpSpan({ kind: 0 });
 
-		expect(normalizeSpan(internalSpan, 0).kind).toBe("internal");
-		expect(normalizeSpan(serverSpan, 0).kind).toBe("server");
-		expect(normalizeSpan(clientSpan, 0).kind).toBe("client");
-		expect(normalizeSpan(producerSpan, 0).kind).toBe("producer");
-		expect(normalizeSpan(consumerSpan, 0).kind).toBe("consumer");
-		expect(normalizeSpan(unspecifiedSpan, 0).kind).toBe("internal"); // defaults to internal
+		expect(otlpSpanToSpan(internalSpan, 0).kind).toBe("internal");
+		expect(otlpSpanToSpan(serverSpan, 0).kind).toBe("server");
+		expect(otlpSpanToSpan(clientSpan, 0).kind).toBe("client");
+		expect(otlpSpanToSpan(producerSpan, 0).kind).toBe("producer");
+		expect(otlpSpanToSpan(consumerSpan, 0).kind).toBe("consumer");
+		expect(otlpSpanToSpan(unspecifiedSpan, 0).kind).toBe("internal"); // defaults to internal
 	});
 
 	it("extracts title from test.step.title attribute", () => {
@@ -71,7 +71,7 @@ describe("normalizeSpan", () => {
 			],
 		});
 
-		const result = normalizeSpan(span, 0);
+		const result = otlpSpanToSpan(span, 0);
 
 		expect(result.title).toBe("Click button");
 		expect(result.name).toBe("playwright.test.step");
@@ -85,7 +85,7 @@ describe("normalizeSpan", () => {
 			],
 		});
 
-		const result = normalizeSpan(span, 0);
+		const result = otlpSpanToSpan(span, 0);
 
 		expect(result.title).toBe("should login");
 	});
@@ -96,7 +96,7 @@ describe("normalizeSpan", () => {
 			attributes: [{ key: "http.method", value: { stringValue: "GET" } }],
 		});
 
-		const result = normalizeSpan(span, 0);
+		const result = otlpSpanToSpan(span, 0);
 
 		expect(result.title).toBe("HTTP GET /api/users");
 	});
@@ -111,7 +111,7 @@ describe("normalizeSpan", () => {
 			],
 		});
 
-		const result = normalizeSpan(span, 0);
+		const result = otlpSpanToSpan(span, 0);
 
 		expect(result.attributes["string.attr"]).toBe("hello");
 		expect(result.attributes["int.attr"]).toBe(42);
@@ -120,17 +120,17 @@ describe("normalizeSpan", () => {
 	});
 });
 
-describe("normalizeOtlpExport", () => {
+describe("otlpExportToSpans", () => {
 	it("returns empty array for empty export", () => {
-		const otlp: OtlpTraceExport = { resourceSpans: [] };
+		const otlp: OtlpExport = { resourceSpans: [] };
 
-		const result = normalizeOtlpExport(otlp, 0);
+		const result = otlpExportToSpans(otlp, 0);
 
 		expect(result).toEqual([]);
 	});
 
 	it("extracts spans from nested structure", () => {
-		const otlp: OtlpTraceExport = {
+		const otlp: OtlpExport = {
 			resourceSpans: [
 				{
 					resource: { attributes: [] },
@@ -147,7 +147,7 @@ describe("normalizeOtlpExport", () => {
 			],
 		};
 
-		const result = normalizeOtlpExport(otlp, 0);
+		const result = otlpExportToSpans(otlp, 0);
 
 		expect(result).toHaveLength(2);
 		expect(result[0].id).toBe("span1");
@@ -155,7 +155,7 @@ describe("normalizeOtlpExport", () => {
 	});
 
 	it("extracts spans from multiple resourceSpans and scopeSpans", () => {
-		const otlp: OtlpTraceExport = {
+		const otlp: OtlpExport = {
 			resourceSpans: [
 				{
 					resource: { attributes: [] },
@@ -182,7 +182,7 @@ describe("normalizeOtlpExport", () => {
 			],
 		};
 
-		const result = normalizeOtlpExport(otlp, 0);
+		const result = otlpExportToSpans(otlp, 0);
 
 		expect(result).toHaveLength(3);
 		expect(result.map((s) => s.id)).toContain("s1");
@@ -191,7 +191,7 @@ describe("normalizeOtlpExport", () => {
 	});
 
 	it("sorts spans by startOffsetMs", () => {
-		const otlp: OtlpTraceExport = {
+		const otlp: OtlpExport = {
 			resourceSpans: [
 				{
 					resource: { attributes: [] },
@@ -221,7 +221,7 @@ describe("normalizeOtlpExport", () => {
 			],
 		};
 
-		const result = normalizeOtlpExport(otlp, 0);
+		const result = otlpExportToSpans(otlp, 0);
 
 		expect(result[0].id).toBe("early");
 		expect(result[1].id).toBe("middle");
