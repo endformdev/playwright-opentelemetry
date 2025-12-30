@@ -1,4 +1,12 @@
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import {
+	createMemo,
+	createSignal,
+	For,
+	type JSX,
+	onCleanup,
+	onMount,
+	Show,
+} from "solid-js";
 import type { Span, SpanKind } from "../trace-data-loader/exportToSpans";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import type { TraceInfo } from "../trace-info-loader";
@@ -21,15 +29,12 @@ import {
 	type TimelineViewport,
 	timeToViewportPosition,
 	viewportPositionToTime,
-	zoomViewport,
+	zoomToRange,
 } from "./viewport";
 
 export interface TraceViewerProps {
 	traceInfo: TraceInfo;
 }
-
-/** Zoom sensitivity for scroll wheel (higher = faster zoom) */
-const ZOOM_SENSITIVITY = 0.002;
 
 /** Pan sensitivity for horizontal scroll (higher = faster pan) */
 const PAN_SENSITIVITY = 0.2;
@@ -66,10 +71,52 @@ export function TraceViewer(props: TraceViewerProps) {
 	// Shared hover position state (0-1 percentage in viewport space, or null when not hovering)
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
 
+	// Selection state for click-drag on content area (0-1 in viewport space)
+	const [selectionState, setSelectionState] = createSignal<{
+		startPosition: number;
+		currentPosition: number;
+	} | null>(null);
+
 	let mainPanelRef: HTMLDivElement | undefined;
+
+	const handleMouseDown = (e: MouseEvent) => {
+		// Only start selection on primary button
+		if (e.button !== 0) return;
+		if (!mainPanelRef) return;
+
+		// Don't start selection if clicking on resize handles
+		const target = e.target as HTMLElement;
+		const computedStyle = window.getComputedStyle(target);
+		if (
+			computedStyle.cursor === "col-resize" ||
+			computedStyle.cursor === "row-resize"
+		) {
+			return;
+		}
+
+		const rect = mainPanelRef.getBoundingClientRect();
+		const position = (e.clientX - rect.left) / rect.width;
+
+		if (position >= 0 && position <= 1) {
+			setSelectionState({ startPosition: position, currentPosition: position });
+		}
+	};
 
 	const handleMouseMove = (e: MouseEvent) => {
 		if (!mainPanelRef) return;
+
+		const rect = mainPanelRef.getBoundingClientRect();
+		const position = (e.clientX - rect.left) / rect.width;
+
+		// Update selection if dragging
+		const selection = selectionState();
+		if (selection) {
+			const clampedPosition = Math.max(0, Math.min(1, position));
+			setSelectionState({
+				startPosition: selection.startPosition,
+				currentPosition: clampedPosition,
+			});
+		}
 
 		// Check if hovering over a resize handle (they have cursor-*-resize)
 		const target = e.target as HTMLElement;
@@ -82,8 +129,6 @@ export function TraceViewer(props: TraceViewerProps) {
 			return;
 		}
 
-		const rect = mainPanelRef.getBoundingClientRect();
-		const position = (e.clientX - rect.left) / rect.width;
 		// Clamp to valid range
 		if (position >= 0 && position <= 1) {
 			setHoverPosition(position);
@@ -92,40 +137,71 @@ export function TraceViewer(props: TraceViewerProps) {
 		}
 	};
 
-	const handleMouseLeave = () => {
-		setHoverPosition(null);
+	const handleMouseUp = () => {
+		const selection = selectionState();
+		if (selection) {
+			const startMs = viewportPositionToTime(
+				Math.min(selection.startPosition, selection.currentPosition),
+				viewport(),
+			);
+			const endMs = viewportPositionToTime(
+				Math.max(selection.startPosition, selection.currentPosition),
+				viewport(),
+			);
+
+			// Only zoom if selection is meaningful (not just a click)
+			// Minimum 2% of current visible duration
+			const visibleDuration =
+				viewport().visibleEndMs - viewport().visibleStartMs;
+			const minSelectionMs = visibleDuration * 0.02;
+
+			if (endMs - startMs > minSelectionMs) {
+				setViewport((v) => zoomToRange(v, startMs, endMs));
+			}
+
+			setSelectionState(null);
+		}
 	};
 
-	// Handle scroll wheel for zooming and horizontal panning
+	const handleMouseLeave = () => {
+		setHoverPosition(null);
+		// Don't clear selection on mouse leave - user might drag outside temporarily
+	};
+
+	// Set up global mouseup listener to handle drag end outside component
+	onMount(() => {
+		const onGlobalMouseUp = () => handleMouseUp();
+		document.addEventListener("mouseup", onGlobalMouseUp);
+
+		onCleanup(() => {
+			document.removeEventListener("mouseup", onGlobalMouseUp);
+		});
+	});
+
+	// Handle viewport changes from the timeline ruler (handle drags)
+	const handleViewportChange = (newViewport: TimelineViewport) => {
+		setViewport(newViewport);
+	};
+
+	// Handle scroll wheel for horizontal panning only (vertical scroll passes through for span scrolling)
 	const handleWheel = (e: WheelEvent) => {
 		if (!mainPanelRef) return;
-
-		// Prevent default scroll behavior
-		e.preventDefault();
 
 		// Check if this is a horizontal scroll (shift+wheel or trackpad horizontal gesture)
 		const isHorizontalScroll = Math.abs(e.deltaX) > Math.abs(e.deltaY);
 
 		if (isHorizontalScroll) {
+			// Prevent default only for horizontal scroll (we handle panning)
+			e.preventDefault();
+
 			// Horizontal scroll = pan left/right
 			const visibleDuration =
 				viewport().visibleEndMs - viewport().visibleStartMs;
 			// deltaX > 0 = scroll right = pan right (move viewport forward in time)
 			const panDeltaMs = (e.deltaX * PAN_SENSITIVITY * visibleDuration) / 100;
 			setViewport((v) => panViewport(v, panDeltaMs));
-		} else {
-			// Vertical scroll = zoom in/out
-			const rect = mainPanelRef.getBoundingClientRect();
-			const focalPosition = (e.clientX - rect.left) / rect.width;
-
-			// Clamp focal position to valid range
-			const clampedFocalPosition = Math.max(0, Math.min(1, focalPosition));
-
-			// deltaY > 0 = scroll down = zoom out, deltaY < 0 = scroll up = zoom in
-			const zoomDelta = -e.deltaY * ZOOM_SENSITIVITY;
-
-			setViewport((v) => zoomViewport(v, clampedFocalPosition, zoomDelta));
 		}
+		// Let vertical scroll propagate naturally for scrolling through spans
 	};
 
 	// Handle double-click to reset zoom
@@ -162,12 +238,27 @@ export function TraceViewer(props: TraceViewerProps) {
 		);
 	};
 
+	// Calculate selection overlay position (in viewport space, as percentages)
+	const selectionLeft = () => {
+		const selection = selectionState();
+		if (!selection) return 0;
+		return Math.min(selection.startPosition, selection.currentPosition) * 100;
+	};
+
+	const selectionWidth = () => {
+		const selection = selectionState();
+		if (!selection) return 0;
+		return Math.abs(selection.currentPosition - selection.startPosition) * 100;
+	};
+
 	// Main Panel content (with fixed timeline ruler + vertical splits for Screenshot, Steps, Spans)
 	const mainPanelContent = (
-		// biome-ignore lint/a11y/noStaticElementInteractions: container needs mouse tracking for hover line
+		// biome-ignore lint/a11y/noStaticElementInteractions: container needs mouse tracking for hover line and drag selection
 		<div
 			ref={mainPanelRef}
 			class="flex flex-col h-full relative"
+			style={{ cursor: selectionState() ? "crosshair" : undefined }}
+			onMouseDown={handleMouseDown}
 			onMouseMove={handleMouseMove}
 			onMouseLeave={handleMouseLeave}
 			onWheel={handleWheel}
@@ -177,11 +268,12 @@ export function TraceViewer(props: TraceViewerProps) {
 			{loadingOverlay()}
 
 			{/* Fixed height timeline ruler at the top - always shows full duration */}
-			{/* Ruler has its own hover indicator showing position on total timeline */}
+			{/* Ruler has draggable handles for adjusting the viewport */}
 			<TimelineRuler
 				durationMs={durationMs()}
 				viewport={viewport()}
 				hoverPosition={hoverPosition()}
+				onViewportChange={handleViewportChange}
 			/>
 
 			{/* Remaining space for resizable panels - with hover line overlay */}
@@ -221,6 +313,17 @@ export function TraceViewer(props: TraceViewerProps) {
 						/>
 					}
 				/>
+
+				{/* Selection overlay while dragging */}
+				<Show when={selectionState()}>
+					<div
+						class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
+						style={{
+							left: `${selectionLeft()}%`,
+							width: `${selectionWidth()}%`,
+						}}
+					/>
+				</Show>
 
 				{/* Hover line overlay for content area (excludes ruler) */}
 				<Show when={hoverPosition()} keyed>
