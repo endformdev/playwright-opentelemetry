@@ -2,69 +2,31 @@ import { type Accessor, createEffect, on, onCleanup } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import type { TraceInfo } from "../trace-info-loader";
 import { mergeSpans } from "./categorizeSpans";
+import type { Span } from "./exportToSpans";
 import { fetchTraceData } from "./fetchTraceData";
-import type { NormalizedSpan } from "./normalizeSpans";
 
 export type LoadStatus = "idle" | "loading" | "loaded" | "error";
 
 interface TraceDataStore {
-	/** Current loading status */
 	status: LoadStatus;
-	/** Number of trace data URLs that have been loaded */
 	loadedUrls: number;
-	/** Total number of trace data URLs to load */
 	totalUrls: number;
-	/** Spans categorized as "steps" (playwright.test and playwright.test.step) */
-	steps: NormalizedSpan[];
-	/** Spans categorized as "spans" (HTTP, DB, RPC, etc. - everything else) */
-	spans: NormalizedSpan[];
-	/** Total duration in milliseconds (from TestInfo timestamps) */
+	steps: Span[];
+	spans: Span[];
 	totalDurationMs: number;
-	/** Error if loading failed */
 	error?: Error;
 }
 
 export interface TraceDataLoaderResult {
-	/** Current loading status */
 	status: Accessor<LoadStatus>;
-	/** Loading progress */
 	progress: Accessor<{ loaded: number; total: number }>;
-	/** Whether currently loading */
 	isLoading: Accessor<boolean>;
-	/** Playwright test/step spans for the Steps Timeline */
-	steps: Accessor<NormalizedSpan[]>;
-	/** Other spans (HTTP, DB, etc.) for the Spans panel */
-	spans: Accessor<NormalizedSpan[]>;
-	/** Total test duration in milliseconds */
+	steps: Accessor<Span[]>;
+	spans: Accessor<Span[]>;
 	totalDurationMs: Accessor<number>;
-	/** Error if loading failed */
 	error: Accessor<Error | undefined>;
 }
 
-/**
- * Hook for loading and managing trace data from multiple URLs.
- *
- * Features:
- * - Fetches all trace data URLs in parallel
- * - Updates store incrementally as each URL completes
- * - Provides reactive accessors for UI binding
- * - Throws on any fetch error (as requested)
- *
- * @param traceInfo - Accessor for TraceInfo (reactive, may be undefined initially)
- * @returns Object with reactive accessors for loading state and span data
- *
- * @example
- * ```tsx
- * const traceData = useTraceDataLoader(() => props.traceInfo);
- *
- * return (
- *   <Show when={!traceData.isLoading()} fallback={<Loading />}>
- *     <StepsTimeline steps={traceData.steps()} />
- *     <SpansPanel spans={traceData.spans()} />
- *   </Show>
- * );
- * ```
- */
 export function useTraceDataLoader(
 	traceInfo: Accessor<TraceInfo | undefined>,
 ): TraceDataLoaderResult {

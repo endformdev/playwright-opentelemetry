@@ -10,17 +10,6 @@ import { loadZipFile } from "./zips";
 
 let swRegistrationPromise: Promise<ServiceWorkerRegistration> | null = null;
 
-async function ensureServiceWorker(): Promise<ServiceWorkerRegistration> {
-	if (!swRegistrationPromise) {
-		swRegistrationPromise = registerServiceWorker();
-	}
-	return swRegistrationPromise;
-}
-
-export async function unloadCurrentTrace(): Promise<void> {
-	await unloadTraceFromServiceWorker();
-}
-
 export async function loadLocalZip(file: File): Promise<TraceInfo> {
 	await unloadCurrentTrace();
 	await ensureServiceWorker();
@@ -98,4 +87,15 @@ export async function loadRemoteZip(url: string): Promise<TraceInfo> {
 		traceDataUrls,
 		screenshots,
 	};
+}
+
+export async function unloadCurrentTrace(): Promise<void> {
+	await unloadTraceFromServiceWorker();
+}
+
+async function ensureServiceWorker(): Promise<ServiceWorkerRegistration> {
+	if (!swRegistrationPromise) {
+		swRegistrationPromise = registerServiceWorker();
+	}
+	return swRegistrationPromise;
 }

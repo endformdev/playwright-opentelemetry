@@ -1,19 +1,19 @@
-import type { NormalizedSpan } from "./normalizeSpans";
+import type { Span } from "./exportToSpans";
 
 const STEP_SPAN_NAMES = new Set(["playwright.test", "playwright.test.step"]);
 
-export function categorizeSpan(span: NormalizedSpan): "step" | "span" {
+export function categorizeSpan(span: Span): "step" | "span" {
 	return STEP_SPAN_NAMES.has(span.name) ? "step" : "span";
 }
 
 export interface CategorizedSpans {
-	steps: NormalizedSpan[];
-	spans: NormalizedSpan[];
+	steps: Span[];
+	spans: Span[];
 }
 
-export function categorizeSpans(allSpans: NormalizedSpan[]): CategorizedSpans {
-	const steps: NormalizedSpan[] = [];
-	const spans: NormalizedSpan[] = [];
+export function categorizeSpans(allSpans: Span[]): CategorizedSpans {
+	const steps: Span[] = [];
+	const spans: Span[] = [];
 
 	for (const span of allSpans) {
 		if (categorizeSpan(span) === "step") {

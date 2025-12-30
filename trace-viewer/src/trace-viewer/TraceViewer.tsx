@@ -1,8 +1,5 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import type {
-	NormalizedSpan,
-	SpanKind,
-} from "../trace-data-loader/normalizeSpans";
+import type { Span, SpanKind } from "../trace-data-loader/exportToSpans";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import type { TraceInfo } from "../trace-info-loader";
 import {
@@ -261,9 +258,9 @@ export function TraceViewer(props: TraceViewerProps) {
 }
 
 /**
- * Converts NormalizedSpan[] to SpanInput[] for packSpans.
+ * Converts Span[] to SpanInput[] for packSpans.
  */
-function normalizedSpansToSpanInput(spans: NormalizedSpan[]): SpanInput[] {
+function spansToSpanInput(spans: Span[]): SpanInput[] {
 	return spans.map((span) => ({
 		id: span.id,
 		name: span.title,
@@ -277,9 +274,9 @@ function normalizedSpansToSpanInput(spans: NormalizedSpan[]): SpanInput[] {
  * Builds a depth map for hierarchical coloring of steps.
  * Depth is determined by following parentId chains.
  */
-function buildDepthMap(spans: NormalizedSpan[]): Map<string, number> {
+function buildDepthMap(spans: Span[]): Map<string, number> {
 	const depthMap = new Map<string, number>();
-	const spanMap = new Map<string, NormalizedSpan>();
+	const spanMap = new Map<string, Span>();
 
 	// Build lookup map
 	for (const span of spans) {
@@ -287,7 +284,7 @@ function buildDepthMap(spans: NormalizedSpan[]): Map<string, number> {
 	}
 
 	// Calculate depth for each span
-	const getDepth = (span: NormalizedSpan): number => {
+	const getDepth = (span: Span): number => {
 		if (depthMap.has(span.id)) {
 			return depthMap.get(span.id)!;
 		}
@@ -316,7 +313,7 @@ function buildDepthMap(spans: NormalizedSpan[]): Map<string, number> {
 }
 
 interface StepsTimelineProps {
-	steps: NormalizedSpan[];
+	steps: Span[];
 	totalDurationMs: number;
 	viewport: TimelineViewport;
 }
@@ -324,7 +321,7 @@ interface StepsTimelineProps {
 function StepsTimeline(props: StepsTimelineProps) {
 	// Convert and pack steps
 	const packedStepsResult = createMemo(() => {
-		const spanInputs = normalizedSpansToSpanInput(props.steps);
+		const spanInputs = spansToSpanInput(props.steps);
 		return packSpans(spanInputs);
 	});
 
@@ -437,7 +434,7 @@ function getSpanColor(kind: SpanKind): string {
 }
 
 interface SpansPanelProps {
-	spans: NormalizedSpan[];
+	spans: Span[];
 	totalDurationMs: number;
 	viewport: TimelineViewport;
 }
@@ -445,7 +442,7 @@ interface SpansPanelProps {
 function SpansPanel(props: SpansPanelProps) {
 	// Convert and pack spans
 	const packedSpansResult = createMemo(() => {
-		const spanInputs = normalizedSpansToSpanInput(props.spans);
+		const spanInputs = spansToSpanInput(props.spans);
 		return packSpans(spanInputs);
 	});
 
