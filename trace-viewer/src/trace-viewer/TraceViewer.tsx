@@ -48,6 +48,9 @@ const PAN_SENSITIVITY = 0.2;
 /** Row height in pixels for the packed layout */
 const ROW_HEIGHT = 28;
 
+/** Lock window size in pixels - hovering within this distance of locked position keeps data locked */
+const LOCK_WINDOW_PX = 50;
+
 export function TraceViewer(props: TraceViewerProps) {
 	// Load trace data using the hook
 	const traceData = useTraceDataLoader(() => props.traceInfo);
@@ -76,6 +79,10 @@ export function TraceViewer(props: TraceViewerProps) {
 
 	// Shared hover position state (0-1 percentage in viewport space, or null when not hovering)
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
+
+	// Locked position state - when set, details panel shows data at this time until unlocked
+	// Position is stored in viewport space (0-1)
+	const [lockedPosition, setLockedPosition] = createSignal<number | null>(null);
 
 	// Selection state for click-drag on content area (0-1 in viewport space)
 	const [selectionState, setSelectionState] = createSignal<{
@@ -162,7 +169,11 @@ export function TraceViewer(props: TraceViewerProps) {
 			const minSelectionMs = visibleDuration * 0.02;
 
 			if (endMs - startMs > minSelectionMs) {
+				// This was a drag - zoom to selection
 				setViewport((v) => zoomToRange(v, startMs, endMs));
+			} else {
+				// This was a click (not a meaningful drag) - lock to this position
+				setLockedPosition(selection.startPosition);
 			}
 
 			setSelectionState(null);
@@ -210,8 +221,9 @@ export function TraceViewer(props: TraceViewerProps) {
 		// Let vertical scroll propagate naturally for scrolling through spans
 	};
 
-	// Handle double-click to reset zoom
+	// Handle double-click to reset zoom and unlock
 	const handleDoubleClick = () => {
+		setLockedPosition(null);
 		setViewport((v) => resetViewport(v));
 	};
 
@@ -222,7 +234,26 @@ export function TraceViewer(props: TraceViewerProps) {
 		return viewportPositionToTime(pos, viewport());
 	};
 
-	// Compute hovered elements for the details panel
+	// Convert locked position to time in milliseconds
+	const lockedTimeMs = () => {
+		const pos = lockedPosition();
+		if (pos === null) return null;
+		return viewportPositionToTime(pos, viewport());
+	};
+
+	// Check if hover position is within the lock window (in pixels)
+	const isWithinLockWindow = () => {
+		const locked = lockedPosition();
+		const hover = hoverPosition();
+		if (locked === null || hover === null || !mainPanelRef) return false;
+
+		const panelWidth = mainPanelRef.getBoundingClientRect().width;
+		const lockedPx = locked * panelWidth;
+		const hoverPx = hover * panelWidth;
+		return Math.abs(hoverPx - lockedPx) <= LOCK_WINDOW_PX;
+	};
+
+	// Compute hovered elements (at hover time)
 	const hoveredElements = createMemo((): HoveredElements | null => {
 		const timeMs = hoverTimeMs();
 		if (timeMs === null) return null;
@@ -234,6 +265,47 @@ export function TraceViewer(props: TraceViewerProps) {
 			testStartTimeMs(),
 		);
 	});
+
+	// Compute locked elements (at locked time)
+	const lockedElements = createMemo((): HoveredElements | null => {
+		const timeMs = lockedTimeMs();
+		if (timeMs === null) return null;
+		return getElementsAtTime(
+			timeMs,
+			traceData.steps(),
+			traceData.spans(),
+			props.traceInfo.screenshots,
+			testStartTimeMs(),
+		);
+	});
+
+	// Determine what to display in details panel and header:
+	// - If locked and (no hover OR within lock window): show locked data
+	// - If locked and outside lock window: show hover data
+	// - If not locked: show hover data
+	const displayElements = (): HoveredElements | null => {
+		if (lockedPosition() !== null) {
+			// We have a lock
+			if (hoverPosition() === null || isWithinLockWindow()) {
+				// Mouse left the panel or is within lock window - show locked data
+				return lockedElements();
+			}
+			// Mouse is outside lock window - show hover data
+			return hoveredElements();
+		}
+		// No lock - show hover data
+		return hoveredElements();
+	};
+
+	const displayTimeMs = (): number | null => {
+		if (lockedPosition() !== null) {
+			if (hoverPosition() === null || isWithinLockWindow()) {
+				return lockedTimeMs();
+			}
+			return hoverTimeMs();
+		}
+		return hoverTimeMs();
+	};
 
 	// Loading state UI
 	const loadingOverlay = () => {
@@ -344,14 +416,44 @@ export function TraceViewer(props: TraceViewerProps) {
 					/>
 				</Show>
 
-				{/* Hover line overlay for content area (excludes ruler) */}
-				<Show when={hoverPosition()} keyed>
+				{/* Locked position indicator - thick bold line */}
+				<Show when={lockedPosition()} keyed>
 					{(pos) => (
 						<div
-							class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
-							style={{ left: `${pos * 100}%` }}
+							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
+							style={{
+								left: `${pos * 100}%`,
+								width: "3px",
+								"margin-left": "-1px",
+							}}
 						/>
 					)}
+				</Show>
+
+				{/* Hover line overlay - thin line when exploring outside lock window */}
+				<Show
+					when={
+						hoverPosition() !== null &&
+						lockedPosition() !== null &&
+						!isWithinLockWindow()
+					}
+					keyed
+				>
+					<div
+						class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
+						style={{ left: `${hoverPosition()! * 100}%` }}
+					/>
+				</Show>
+
+				{/* Hover line overlay when not locked - standard thin line */}
+				<Show
+					when={hoverPosition() !== null && lockedPosition() === null}
+					keyed
+				>
+					<div
+						class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
+						style={{ left: `${hoverPosition()! * 100}%` }}
+					/>
 				</Show>
 			</div>
 		</div>
@@ -361,7 +463,7 @@ export function TraceViewer(props: TraceViewerProps) {
 		<div class="flex flex-col h-full w-full bg-white text-gray-900">
 			<TraceViewerHeader
 				testInfo={props.traceInfo.testInfo}
-				hoverTimeMs={hoverTimeMs}
+				hoverTimeMs={displayTimeMs}
 			/>
 
 			{/* Resizable Main Content Area */}
@@ -375,7 +477,7 @@ export function TraceViewer(props: TraceViewerProps) {
 					secondPanel={
 						<DetailsPanel
 							traceInfo={props.traceInfo}
-							hoveredElements={hoveredElements()}
+							hoveredElements={displayElements()}
 							testStartTimeMs={testStartTimeMs()}
 						/>
 					}
