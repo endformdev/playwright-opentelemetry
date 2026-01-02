@@ -43,43 +43,31 @@ export interface TraceViewerProps {
 	traceInfo: TraceInfo;
 }
 
-/** Type of element that can be focused for scroll-to functionality */
 type FocusedElementType = "screenshot" | "step" | "span";
 
-/** Element to scroll to in the details panel */
 interface FocusedElement {
 	type: FocusedElementType;
 	id: string; // span ID for steps/spans, or screenshot URL for screenshots
 }
 
-/** Pan sensitivity for horizontal scroll (higher = faster pan) */
 const PAN_SENSITIVITY = 0.2;
-
-/** Row height in pixels for the packed layout */
 const ROW_HEIGHT = 28;
 
 /** Lock window size in pixels - hovering within this distance of locked position keeps data locked */
 const LOCK_WINDOW_PX = 50;
 
 export function TraceViewer(props: TraceViewerProps) {
-	// Load trace data using the hook
 	const traceData = useTraceDataLoader(() => props.traceInfo);
-
-	// Use duration from trace data loader
 	const durationMs = () => traceData.totalDurationMs();
 
-	// Calculate test start time in milliseconds (for converting absolute timestamps to relative)
+	const [viewport, setViewport] = createSignal<TimelineViewport>(
+		createViewport(durationMs() || 1000),
+	);
 	const testStartTimeMs = () => {
 		const startNano = BigInt(props.traceInfo.testInfo.startTimeUnixNano);
 		return Number(startNano / BigInt(1_000_000));
 	};
 
-	// Viewport state for zoom/pan - recreate when duration changes
-	const [viewport, setViewport] = createSignal<TimelineViewport>(
-		createViewport(durationMs() || 1000),
-	);
-
-	// Update viewport when duration changes (after loading completes)
 	createMemo(() => {
 		const duration = durationMs();
 		if (duration > 0) {
@@ -87,23 +75,13 @@ export function TraceViewer(props: TraceViewerProps) {
 		}
 	});
 
-	// Shared hover position state (0-1 percentage in viewport space, or null when not hovering)
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
-
-	// Locked position state - when set, details panel shows data at this time until unlocked
-	// Position is stored in viewport space (0-1)
 	const [lockedPosition, setLockedPosition] = createSignal<number | null>(null);
-
-	// The element currently being hovered in the left-hand timeline
 	const [hoveredElement, setHoveredElement] =
 		createSignal<FocusedElement | null>(null);
-
-	// The element that was locked on click - persists until unlock
 	const [lockedElement, setLockedElement] = createSignal<FocusedElement | null>(
 		null,
 	);
-
-	// Selection state for click-drag on content area (0-1 in viewport space)
 	const [selectionState, setSelectionState] = createSignal<{
 		startPosition: number;
 		currentPosition: number;
@@ -437,8 +415,8 @@ export function TraceViewer(props: TraceViewerProps) {
 			<div class="flex-1 min-h-0 relative">
 				<ResizablePanel
 					direction="vertical"
-					initialFirstPanelSize={20}
-					minFirstPanelSize={10}
+					initialFirstPanelSize={12}
+					minFirstPanelSize={7}
 					maxFirstPanelSize={40}
 					firstPanel={
 						<ScreenshotFilmstrip

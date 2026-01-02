@@ -1,6 +1,9 @@
 /**
  * Screenshot selection utilities for the filmstrip component.
  * Extracted for better testability.
+ *
+ * The core principle is causality: each slot in the filmstrip represents a time range,
+ * and we only show screenshots that existed at that time (never future screenshots).
  */
 
 import type { TimelineViewport } from "./viewport";
@@ -19,47 +22,56 @@ export interface TimeRange {
 }
 
 /**
- * Selects screenshots to fill N slots, prioritizing those within the given time range.
- * When no screenshots are within the range, selects the closest ones to the range.
- * Distributes selection points evenly across the range and finds the closest screenshot to each point.
+ * Result of screenshot selection for a single slot.
+ * null means no screenshot is available for this slot (show empty).
+ */
+export type SlotScreenshot<T> = T | null;
+
+/**
+ * Selects screenshots to fill N slots based on time boundaries.
  *
- * When there are fewer screenshots than slots, screenshots will be repeated to fill all slots evenly.
+ * Each slot represents a specific time range within the overall timeRange.
+ * For each slot, we select:
+ * 1. If there are screenshots within the slot's time bounds: the one closest to center
+ * 2. If no screenshots in bounds: the most recent screenshot BEFORE this slot
+ * 3. If no earlier screenshots exist: null (empty slot)
+ *
+ * This respects causality - we never show a screenshot before its timestamp.
  *
  * @param screenshots - Array of screenshots with timestamp property
  * @param slotCount - Number of slots to fill
- * @param timeRange - Optional time range to prioritize (e.g., visible viewport). If not provided, uses full screenshot range.
- * @returns Array of selected screenshots (may contain duplicates when fewer than slots)
+ * @param timeRange - Time range to distribute slots across (e.g., visible viewport)
+ * @returns Array of selected screenshots (may contain nulls for empty slots)
  */
 export function selectScreenshots<T extends Screenshot>(
 	screenshots: T[],
 	slotCount: number,
 	timeRange?: TimeRange,
-): T[] {
-	if (screenshots.length === 0 || slotCount <= 0) return [];
+): SlotScreenshot<T>[] {
+	if (slotCount <= 0) return [];
+	if (screenshots.length === 0) return Array(slotCount).fill(null);
 
 	// Sort screenshots by timestamp
 	const sorted = [...screenshots].sort((a, b) => a.timestamp - b.timestamp);
 
 	// If no time range specified, use the full range of screenshots
-	if (!timeRange) {
-		return selectFromRange(sorted, slotCount, {
-			startMs: sorted[0].timestamp,
-			endMs: sorted[sorted.length - 1].timestamp,
-		});
-	}
+	const range = timeRange ?? {
+		startMs: sorted[0].timestamp,
+		endMs: sorted[sorted.length - 1].timestamp,
+	};
 
-	// Find screenshots within the time range
-	const inRange = sorted.filter(
-		(s) => s.timestamp >= timeRange.startMs && s.timestamp <= timeRange.endMs,
+	// Check if we're zoomed into an empty region (no screenshots in range)
+	const screenshotsInRange = sorted.filter(
+		(s) => s.timestamp >= range.startMs && s.timestamp <= range.endMs,
 	);
 
-	if (inRange.length > 0) {
-		// We have screenshots in range - select from them
-		return selectFromRange(inRange, slotCount, timeRange);
+	if (screenshotsInRange.length === 0) {
+		// No screenshots in the visible range - find the closest earlier one
+		return selectForEmptyRange(sorted, slotCount, range);
 	}
 
-	// No screenshots in range - find closest ones to the range
-	return selectClosestToRange(sorted, slotCount, timeRange);
+	// Normal case: distribute slots across the range and select for each
+	return selectWithSlotBoundaries(sorted, slotCount, range);
 }
 
 /**
@@ -73,173 +85,112 @@ export function viewportToTimeRange(viewport: TimelineViewport): TimeRange {
 }
 
 /**
- * Selects screenshots from within a range, distributing evenly across the range.
- *
- * @param sortedScreenshots - Screenshots sorted by timestamp (all within or relevant to the range)
- * @param slotCount - Number of slots to fill
- * @param range - The time range to distribute selection points across
- * @returns Array of selected screenshots
+ * Handles the case when zoomed into a region with no screenshots.
+ * Finds the closest screenshot before the range and repeats it for all slots.
  */
-function selectFromRange<T extends Screenshot>(
+function selectForEmptyRange<T extends Screenshot>(
 	sortedScreenshots: T[],
 	slotCount: number,
 	range: TimeRange,
-): T[] {
-	if (sortedScreenshots.length === 0) return [];
-
-	// When we have fewer or equal screenshots than slots, fill with repeats
-	if (sortedScreenshots.length <= slotCount) {
-		return fillSlotsWithRepeats(sortedScreenshots, slotCount);
-	}
-
-	// More screenshots than slots - select evenly distributed ones across the range
-	return selectEvenlyDistributed(sortedScreenshots, slotCount, range);
-}
-
-/**
- * Selects the closest screenshots to a range when none are within it.
- * This handles the case of zooming into a time period with no screenshots -
- * we show the closest screenshots (before and/or after the visible range).
- *
- * @param sortedScreenshots - All screenshots sorted by timestamp
- * @param slotCount - Number of slots to fill
- * @param range - The time range (which has no screenshots in it)
- * @returns Array of closest screenshots, repeated to fill slots
- */
-function selectClosestToRange<T extends Screenshot>(
-	sortedScreenshots: T[],
-	slotCount: number,
-	range: TimeRange,
-): T[] {
-	// Find the closest screenshots before and after the range
+): SlotScreenshot<T>[] {
+	// Find the most recent screenshot before the range
 	let closestBefore: T | null = null;
-	let closestAfter: T | null = null;
 
 	for (const screenshot of sortedScreenshots) {
 		if (screenshot.timestamp < range.startMs) {
-			// Before range - keep the closest one
 			if (!closestBefore || screenshot.timestamp > closestBefore.timestamp) {
 				closestBefore = screenshot;
 			}
-		} else if (screenshot.timestamp > range.endMs) {
-			// After range - keep the closest one
-			if (!closestAfter || screenshot.timestamp < closestAfter.timestamp) {
-				closestAfter = screenshot;
-			}
 		}
 	}
 
-	// Determine which screenshots to use based on what we found
-	const candidates: T[] = [];
-
-	if (closestBefore && closestAfter) {
-		// We have screenshots on both sides - use both
-		const distBefore = range.startMs - closestBefore.timestamp;
-		const distAfter = closestAfter.timestamp - range.endMs;
-
-		// Add them in order, with the closer one potentially appearing more
-		if (distBefore <= distAfter) {
-			candidates.push(closestBefore, closestAfter);
-		} else {
-			candidates.push(closestAfter, closestBefore);
-		}
-	} else if (closestBefore) {
-		candidates.push(closestBefore);
-	} else if (closestAfter) {
-		candidates.push(closestAfter);
+	// If no earlier screenshot exists, all slots are empty
+	if (!closestBefore) {
+		return Array(slotCount).fill(null);
 	}
 
-	if (candidates.length === 0) {
-		// Fallback: shouldn't happen if sortedScreenshots is non-empty
-		return [];
-	}
-
-	// Fill slots with the candidates
-	return fillSlotsWithRepeats(candidates, slotCount);
+	// Repeat the closest earlier screenshot for all slots
+	return Array(slotCount).fill(closestBefore);
 }
 
 /**
- * Fills N slots with screenshots, repeating them evenly when needed.
- * Each screenshot gets roughly equal representation.
- *
- * @param sortedScreenshots - Screenshots sorted by timestamp
- * @param slotCount - Number of slots to fill
- * @returns Array of screenshots filling all slots
+ * Selects screenshots using slot boundaries.
+ * Each slot covers a time range, and we pick the best screenshot for each.
  */
-function fillSlotsWithRepeats<T extends Screenshot>(
+function selectWithSlotBoundaries<T extends Screenshot>(
 	sortedScreenshots: T[],
 	slotCount: number,
-): T[] {
-	if (sortedScreenshots.length === 0) return [];
-	if (sortedScreenshots.length === 1) {
-		// Single screenshot fills all slots
-		return Array(slotCount).fill(sortedScreenshots[0]);
+	range: TimeRange,
+): SlotScreenshot<T>[] {
+	const timeSpan = range.endMs - range.startMs;
+
+	// Handle zero-width range (edge case)
+	if (timeSpan <= 0) {
+		// All slots cover the same instant - find screenshot at or before that time
+		const screenshot = findScreenshotAtOrBefore(
+			sortedScreenshots,
+			range.startMs,
+		);
+		return Array(slotCount).fill(screenshot);
 	}
 
-	const result: T[] = [];
-	const screenshotCount = sortedScreenshots.length;
+	const slotWidth = timeSpan / slotCount;
+	const result: SlotScreenshot<T>[] = [];
 
-	// Map each slot to a screenshot index
-	// Distribute slots evenly across the available screenshots
-	for (let slot = 0; slot < slotCount; slot++) {
-		// Calculate which screenshot this slot should show
-		// Map slot position [0, slotCount-1] to screenshot index [0, screenshotCount-1]
-		const progress = slot / (slotCount - 1);
-		const screenshotIndex = Math.round(progress * (screenshotCount - 1));
-		result.push(sortedScreenshots[screenshotIndex]);
+	for (let i = 0; i < slotCount; i++) {
+		const slotStartMs = range.startMs + i * slotWidth;
+		const slotEndMs = range.startMs + (i + 1) * slotWidth;
+		const slotCenterMs = (slotStartMs + slotEndMs) / 2;
+
+		// Find screenshots within this slot's bounds
+		// A screenshot belongs to a slot if: slotStart <= timestamp < slotEnd
+		// (exclusive end to avoid double-counting at boundaries)
+		// Exception: the last slot uses inclusive end
+		const isLastSlot = i === slotCount - 1;
+		const screenshotsInSlot = sortedScreenshots.filter((s) =>
+			isLastSlot
+				? s.timestamp >= slotStartMs && s.timestamp <= slotEndMs
+				: s.timestamp >= slotStartMs && s.timestamp < slotEndMs,
+		);
+
+		if (screenshotsInSlot.length > 0) {
+			// Pick the one closest to the center
+			const selected = screenshotsInSlot.reduce((best, current) => {
+				const bestDist = Math.abs(best.timestamp - slotCenterMs);
+				const currentDist = Math.abs(current.timestamp - slotCenterMs);
+				return currentDist < bestDist ? current : best;
+			});
+			result.push(selected);
+		} else {
+			// No screenshots in this slot - find the most recent one before this slot
+			const screenshot = findScreenshotAtOrBefore(
+				sortedScreenshots,
+				slotStartMs,
+			);
+			result.push(screenshot);
+		}
 	}
 
 	return result;
 }
 
 /**
- * Selects N evenly distributed screenshots from a larger set.
- * Distribution is based on the given time range, not just the screenshot timestamps.
- *
- * @param sortedScreenshots - Screenshots sorted by timestamp
- * @param count - Number of screenshots to select
- * @param range - Time range to distribute selection points across
- * @returns Array of selected screenshots
+ * Finds the most recent screenshot at or before the given time.
+ * Returns null if no such screenshot exists.
  */
-function selectEvenlyDistributed<T extends Screenshot>(
+function findScreenshotAtOrBefore<T extends Screenshot>(
 	sortedScreenshots: T[],
-	count: number,
-	range: TimeRange,
-): T[] {
-	const timeSpan = range.endMs - range.startMs;
+	timeMs: number,
+): T | null {
+	let best: T | null = null;
 
-	// If range has no width, just take first N
-	if (timeSpan <= 0) return sortedScreenshots.slice(0, count);
-
-	// Calculate evenly distributed target timestamps across the range
-	const targetTimestamps: number[] = [];
-	for (let i = 0; i < count; i++) {
-		// Distribute points evenly from start to end of range
-		const progress = count === 1 ? 0.5 : i / (count - 1);
-		targetTimestamps.push(range.startMs + timeSpan * progress);
-	}
-
-	// For each target timestamp, find the closest unused screenshot
-	const selectedScreenshots: T[] = [];
-	const usedIndices = new Set<number>();
-
-	for (const targetTime of targetTimestamps) {
-		let closestIndex = 0;
-		let closestDistance = Number.POSITIVE_INFINITY;
-
-		for (let i = 0; i < sortedScreenshots.length; i++) {
-			if (usedIndices.has(i)) continue;
-
-			const distance = Math.abs(sortedScreenshots[i].timestamp - targetTime);
-			if (distance < closestDistance) {
-				closestDistance = distance;
-				closestIndex = i;
+	for (const screenshot of sortedScreenshots) {
+		if (screenshot.timestamp <= timeMs) {
+			if (!best || screenshot.timestamp > best.timestamp) {
+				best = screenshot;
 			}
 		}
-
-		usedIndices.add(closestIndex);
-		selectedScreenshots.push(sortedScreenshots[closestIndex]);
 	}
 
-	return selectedScreenshots;
+	return best;
 }

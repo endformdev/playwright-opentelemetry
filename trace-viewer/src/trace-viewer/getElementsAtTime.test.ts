@@ -51,7 +51,7 @@ describe("getElementsAtTime", () => {
 			expect(result.screenshot?.url).toBe("b.png");
 		});
 
-		it("returns first screenshot when hover time is before all screenshots", () => {
+		it("returns null when hover time is before all screenshots (respects causality)", () => {
 			const screenshots: ScreenshotInfo[] = [
 				{ timestamp: testStartTimeMs + 100, url: "a.png" },
 				{ timestamp: testStartTimeMs + 200, url: "b.png" },
@@ -64,7 +64,8 @@ describe("getElementsAtTime", () => {
 				screenshots,
 				testStartTimeMs,
 			);
-			expect(result.screenshot?.url).toBe("a.png");
+			// No screenshot should show before any exist - respects causality
+			expect(result.screenshot).toBeNull();
 		});
 
 		it("returns exact match screenshot", () => {

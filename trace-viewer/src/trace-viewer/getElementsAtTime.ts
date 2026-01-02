@@ -48,6 +48,7 @@ export function getElementsAtTime(
 
 /**
  * Finds the most recent screenshot at or before the given time.
+ * Returns null if no screenshot exists at or before the time (respects causality).
  */
 function findScreenshotAtTime(
 	timeMs: number,
@@ -70,11 +71,8 @@ function findScreenshotAtTime(
 		}
 	}
 
-	// If no screenshot is before the time, return the first one
-	if (!bestScreenshot && screenshots.length > 0) {
-		bestScreenshot = screenshots[0];
-	}
-
+	// Return null if no screenshot exists at or before this time
+	// (we don't show future screenshots - respects causality)
 	return bestScreenshot;
 }
 

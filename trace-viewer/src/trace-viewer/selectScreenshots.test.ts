@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type Screenshot,
 	selectScreenshots,
+	type SlotScreenshot,
 	type TimeRange,
 	viewportToTimeRange,
 } from "./selectScreenshots";
@@ -12,26 +13,39 @@ function makeScreenshots(...timestamps: number[]): Screenshot[] {
 	return timestamps.map((timestamp) => ({ timestamp }));
 }
 
-function getTimestamps(screenshots: Screenshot[]): number[] {
-	return screenshots.map((s) => s.timestamp);
+function getTimestamps(
+	screenshots: SlotScreenshot<Screenshot>[],
+): (number | null)[] {
+	return screenshots.map((s) => (s ? s.timestamp : null));
 }
 
 describe("selectScreenshots", () => {
-	describe("without time range (legacy behavior)", () => {
-		it("returns empty array when no screenshots or zero slots", () => {
-			expect(selectScreenshots([], 5)).toEqual([]);
+	describe("basic edge cases", () => {
+		it("returns empty array when zero slots requested", () => {
 			expect(selectScreenshots(makeScreenshots(1000), 0)).toEqual([]);
 			expect(selectScreenshots(makeScreenshots(1000), -1)).toEqual([]);
 		});
 
+		it("returns all nulls when no screenshots available", () => {
+			const result = selectScreenshots([], 5);
+			expect(result).toEqual([null, null, null, null, null]);
+		});
+	});
+
+	describe("slot-boundary selection (without explicit time range)", () => {
 		it("fills all slots with single screenshot", () => {
 			const result = selectScreenshots(makeScreenshots(1000), 5);
 			expect(getTimestamps(result)).toEqual([1000, 1000, 1000, 1000, 1000]);
 		});
 
-		it("distributes fewer screenshots across more slots evenly", () => {
+		it("distributes two screenshots across four slots based on time boundaries", () => {
+			// Screenshots at 1000 and 2000, range is [1000, 2000]
+			// Slot 0: [1000, 1250) - contains 1000
+			// Slot 1: [1250, 1500) - no screenshot, use earlier (1000)
+			// Slot 2: [1500, 1750) - no screenshot, use earlier (1000)
+			// Slot 3: [1750, 2000] - contains 2000
 			const result = selectScreenshots(makeScreenshots(1000, 2000), 4);
-			expect(getTimestamps(result)).toEqual([1000, 1000, 2000, 2000]);
+			expect(getTimestamps(result)).toEqual([1000, 1000, 1000, 2000]);
 		});
 
 		it("returns all screenshots sorted when count equals slots", () => {
@@ -39,7 +53,7 @@ describe("selectScreenshots", () => {
 			expect(getTimestamps(result)).toEqual([1000, 2000, 3000]);
 		});
 
-		it("selects evenly distributed screenshots from larger set", () => {
+		it("selects screenshots respecting slot boundaries from larger set", () => {
 			const screenshots = makeScreenshots(
 				0,
 				1000,
@@ -52,28 +66,13 @@ describe("selectScreenshots", () => {
 				8000,
 				9000,
 			);
+			// Range [0, 9000], 4 slots:
+			// Slot 0: [0, 2250) - contains 0, 1000, 2000 -> closest to center (1125) is 1000
+			// Slot 1: [2250, 4500) - contains 3000, 4000 -> closest to center (3375) is 3000
+			// Slot 2: [4500, 6750) - contains 5000, 6000 -> closest to center (5625) is 6000
+			// Slot 3: [6750, 9000] - contains 7000, 8000, 9000 -> closest to center (7875) is 8000
 			const result = selectScreenshots(screenshots, 4);
-			expect(getTimestamps(result)).toEqual([0, 3000, 6000, 9000]);
-		});
-
-		it("selects closest screenshots when exact timestamps dont exist", () => {
-			const screenshots = makeScreenshots(100, 250, 800, 900, 1000);
-			const result = selectScreenshots(screenshots, 3);
-			expect(getTimestamps(result)).toEqual([100, 800, 1000]);
-		});
-
-		it("selects middle screenshot when requesting 1 from many", () => {
-			const result = selectScreenshots(
-				makeScreenshots(1000, 2000, 3000, 4000, 5000),
-				1,
-			);
-			expect(getTimestamps(result)).toEqual([3000]);
-		});
-
-		it("handles all screenshots with same timestamp", () => {
-			const screenshots = makeScreenshots(1000, 1000, 1000, 1000);
-			expect(selectScreenshots(screenshots, 2)).toHaveLength(2);
-			expect(selectScreenshots(screenshots, 6)).toHaveLength(6);
+			expect(getTimestamps(result)).toEqual([1000, 3000, 6000, 8000]);
 		});
 
 		it("preserves additional properties on screenshots", () => {
@@ -82,85 +81,35 @@ describe("selectScreenshots", () => {
 				{ timestamp: 2000, url: "b.png" },
 			];
 			const result = selectScreenshots(screenshots, 4);
-			expect(result[0].url).toBe("a.png");
-			expect(result[3].url).toBe("b.png");
+			expect(result[0]?.url).toBe("a.png");
+			expect(result[3]?.url).toBe("b.png");
 		});
 	});
 
 	describe("with time range (viewport-aware)", () => {
-		it("returns empty array when no screenshots", () => {
+		it("returns all nulls when no screenshots and slots requested", () => {
 			const range: TimeRange = { startMs: 0, endMs: 1000 };
-			expect(selectScreenshots([], 5, range)).toEqual([]);
+			expect(selectScreenshots([], 5, range)).toEqual([
+				null,
+				null,
+				null,
+				null,
+				null,
+			]);
 		});
 
-		it("selects screenshots within the time range", () => {
+		it("selects screenshots within slot boundaries", () => {
 			const screenshots = makeScreenshots(100, 500, 1000, 1500, 2000);
+			// Range [400, 1100], 3 slots:
+			// Slot 0: [400, 633.33) - contains 500 -> 500
+			// Slot 1: [633.33, 866.67) - no screenshot, earlier is 500
+			// Slot 2: [866.67, 1100] - contains 1000 -> 1000
 			const range: TimeRange = { startMs: 400, endMs: 1100 };
 			const result = selectScreenshots(screenshots, 3, range);
-			// Should select from screenshots in range [500, 1000]
-			expect(getTimestamps(result)).toEqual([500, 1000, 1000]);
+			expect(getTimestamps(result)).toEqual([500, 500, 1000]);
 		});
 
-		it("distributes across the range when multiple screenshots exist", () => {
-			const screenshots = makeScreenshots(0, 250, 500, 750, 1000);
-			const range: TimeRange = { startMs: 0, endMs: 1000 };
-			const result = selectScreenshots(screenshots, 3, range);
-			// Should pick from start, middle, and end of range
-			expect(getTimestamps(result)).toEqual([0, 500, 1000]);
-		});
-
-		it("finds closest screenshots when none are in range", () => {
-			const screenshots = makeScreenshots(100, 200, 800, 900);
-			// Range is between the two groups of screenshots
-			const range: TimeRange = { startMs: 400, endMs: 600 };
-			const result = selectScreenshots(screenshots, 3, range);
-			// Should find 200 (closest before) and 800 (closest after)
-			expect(getTimestamps(result)).toContain(200);
-			expect(getTimestamps(result)).toContain(800);
-		});
-
-		it("finds closest before when range is after all screenshots", () => {
-			const screenshots = makeScreenshots(100, 200, 300);
-			const range: TimeRange = { startMs: 500, endMs: 1000 };
-			const result = selectScreenshots(screenshots, 3, range);
-			// Should use the closest screenshot (300) and repeat it
-			expect(getTimestamps(result)).toEqual([300, 300, 300]);
-		});
-
-		it("finds closest after when range is before all screenshots", () => {
-			const screenshots = makeScreenshots(500, 600, 700);
-			const range: TimeRange = { startMs: 0, endMs: 200 };
-			const result = selectScreenshots(screenshots, 3, range);
-			// Should use the closest screenshot (500) and repeat it
-			expect(getTimestamps(result)).toEqual([500, 500, 500]);
-		});
-
-		it("handles single screenshot in range", () => {
-			const screenshots = makeScreenshots(100, 500, 900);
-			const range: TimeRange = { startMs: 400, endMs: 600 };
-			const result = selectScreenshots(screenshots, 4, range);
-			// Only 500 is in range, should repeat it
-			expect(getTimestamps(result)).toEqual([500, 500, 500, 500]);
-		});
-
-		it("handles range with only one boundary screenshot", () => {
-			const screenshots = makeScreenshots(100, 500, 900);
-			// Range starts exactly at a screenshot
-			const range: TimeRange = { startMs: 500, endMs: 700 };
-			const result = selectScreenshots(screenshots, 3, range);
-			expect(getTimestamps(result)).toEqual([500, 500, 500]);
-		});
-
-		it("prioritizes closer screenshot when between groups", () => {
-			const screenshots = makeScreenshots(100, 900);
-			// Range is closer to 100
-			const range: TimeRange = { startMs: 200, endMs: 300 };
-			const result = selectScreenshots(screenshots, 2, range);
-			// 100 is closer (distance 100) than 900 (distance 600)
-			expect(result[0].timestamp).toBe(100);
-		});
-
-		it("selects evenly from range when many screenshots available", () => {
+		it("picks closest to center when multiple screenshots in slot", () => {
 			const screenshots = makeScreenshots(
 				0,
 				100,
@@ -174,11 +123,82 @@ describe("selectScreenshots", () => {
 				900,
 				1000,
 			);
-			// Zoom into middle portion
-			const range: TimeRange = { startMs: 300, endMs: 700 };
+			// Range [0, 1000], 2 slots:
+			// Slot 0: [0, 500) - contains 0,100,200,300,400 -> closest to center (250) is 200 or 300
+			// Slot 1: [500, 1000] - contains 500,600,700,800,900,1000 -> closest to center (750) is 700 or 800
+			const range: TimeRange = { startMs: 0, endMs: 1000 };
+			const result = selectScreenshots(screenshots, 2, range);
+			// Center of slot 0 is 250, closest is 200 or 300 (both equal distance, first wins)
+			// Center of slot 1 is 750, closest is 700 or 800 (both equal distance, first wins)
+			expect(result[0]?.timestamp).toBeGreaterThanOrEqual(200);
+			expect(result[0]?.timestamp).toBeLessThanOrEqual(300);
+			expect(result[1]?.timestamp).toBeGreaterThanOrEqual(700);
+			expect(result[1]?.timestamp).toBeLessThanOrEqual(800);
+		});
+
+		it("uses earlier screenshot when slot has no screenshots", () => {
+			const screenshots = makeScreenshots(100, 200, 800, 900);
+			// Range [0, 1000], 4 slots:
+			// Slot 0: [0, 250) - contains 100, 200 -> closest to center (125) is 100
+			// Slot 1: [250, 500) - no screenshots, earlier is 200
+			// Slot 2: [500, 750) - no screenshots, earlier is 200
+			// Slot 3: [750, 1000] - contains 800, 900 -> closest to center (875) is 900
+			const range: TimeRange = { startMs: 0, endMs: 1000 };
+			const result = selectScreenshots(screenshots, 4, range);
+			expect(getTimestamps(result)).toEqual([100, 200, 200, 900]);
+		});
+
+		it("returns null for slots before any screenshot exists", () => {
+			const screenshots = makeScreenshots(500, 600, 700);
+			// Range [0, 1000], 4 slots:
+			// Slot 0: [0, 250) - no screenshots, no earlier -> null
+			// Slot 1: [250, 500) - no screenshots, no earlier -> null
+			// Slot 2: [500, 750) - contains 500, 600, 700 -> closest to center (625) is 600
+			// Slot 3: [750, 1000] - no screenshots, earlier is 700
+			const range: TimeRange = { startMs: 0, endMs: 1000 };
+			const result = selectScreenshots(screenshots, 4, range);
+			expect(getTimestamps(result)).toEqual([null, null, 600, 700]);
+		});
+
+		it("respects causality - never shows future screenshots", () => {
+			const screenshots = makeScreenshots(800, 900);
+			// Range [0, 1000], 4 slots:
+			// Slots 0, 1, 2 should be null (no earlier screenshots)
+			// Slot 3 contains 800, 900
+			const range: TimeRange = { startMs: 0, endMs: 1000 };
+			const result = selectScreenshots(screenshots, 4, range);
+			expect(result[0]).toBeNull();
+			expect(result[1]).toBeNull();
+			expect(result[2]).toBeNull();
+			expect(result[3]).not.toBeNull();
+		});
+	});
+
+	describe("zoomed into empty region", () => {
+		it("shows closest earlier screenshot when zoomed into gap", () => {
+			const screenshots = makeScreenshots(100, 200, 800, 900);
+			// Range [400, 600] - no screenshots in range
+			// Closest before range is 200
+			const range: TimeRange = { startMs: 400, endMs: 600 };
 			const result = selectScreenshots(screenshots, 3, range);
-			// Should select from 300-700 range: start, middle, end
-			expect(getTimestamps(result)).toEqual([300, 500, 700]);
+			expect(getTimestamps(result)).toEqual([200, 200, 200]);
+		});
+
+		it("returns all nulls when zoomed before all screenshots", () => {
+			const screenshots = makeScreenshots(500, 600, 700);
+			// Range [0, 200] - before all screenshots
+			const range: TimeRange = { startMs: 0, endMs: 200 };
+			const result = selectScreenshots(screenshots, 3, range);
+			expect(getTimestamps(result)).toEqual([null, null, null]);
+		});
+
+		it("shows closest earlier when zoomed after all screenshots", () => {
+			const screenshots = makeScreenshots(100, 200, 300);
+			// Range [500, 1000] - after all screenshots
+			// Closest before is 300
+			const range: TimeRange = { startMs: 500, endMs: 1000 };
+			const result = selectScreenshots(screenshots, 3, range);
+			expect(getTimestamps(result)).toEqual([300, 300, 300]);
 		});
 	});
 
@@ -200,35 +220,40 @@ describe("selectScreenshots", () => {
 	});
 
 	describe("integration with viewport zooming", () => {
-		it("shows all screenshots when fully zoomed out", () => {
+		it("shows screenshots respecting time boundaries when fully zoomed out", () => {
 			const screenshots = makeScreenshots(0, 250, 500, 750, 1000);
 			const viewport = createViewport(1000);
 			const range = viewportToTimeRange(viewport);
+			// 3 slots over [0, 1000]:
+			// Slot 0: [0, 333.33) - contains 0, 250 -> closest to center (166.67) is 250
+			// Slot 1: [333.33, 666.67) - contains 500 -> 500
+			// Slot 2: [666.67, 1000] - contains 750, 1000 -> closest to center (833.33) is 750
 			const result = selectScreenshots(screenshots, 3, range);
-			// Should pick from full range
-			expect(getTimestamps(result)).toEqual([0, 500, 1000]);
+			expect(getTimestamps(result)).toEqual([250, 500, 750]);
 		});
 
-		it("shows subset when zoomed into a region", () => {
+		it("shows subset and earlier fallbacks when zoomed into a region", () => {
 			const screenshots = makeScreenshots(0, 250, 500, 750, 1000);
 			const viewport = createViewport(1000);
 			const zoomed = zoomToRange(viewport, 200, 600, 0);
 			const range = viewportToTimeRange(zoomed);
+			// Range [200, 600], 3 slots:
+			// Slot 0: [200, 333.33) - contains 250 -> 250
+			// Slot 1: [333.33, 466.67) - no screenshots, earlier is 250
+			// Slot 2: [466.67, 600] - contains 500 -> 500
 			const result = selectScreenshots(screenshots, 3, range);
-			// Range is 200-600, contains 250 and 500
-			expect(getTimestamps(result)).toEqual([250, 500, 500]);
+			expect(getTimestamps(result)).toEqual([250, 250, 500]);
 		});
 
-		it("shows closest screenshots when zoomed into empty region", () => {
+		it("shows closest earlier screenshot when zoomed into empty region", () => {
 			const screenshots = makeScreenshots(100, 200, 800, 900);
 			const viewport = createViewport(1000);
 			// Zoom into region with no screenshots
 			const zoomed = zoomToRange(viewport, 400, 600, 0);
 			const range = viewportToTimeRange(zoomed);
 			const result = selectScreenshots(screenshots, 4, range);
-			// Should show the closest: 200 (before) and 800 (after)
-			expect(getTimestamps(result)).toContain(200);
-			expect(getTimestamps(result)).toContain(800);
+			// All slots should show 200 (closest before range)
+			expect(getTimestamps(result)).toEqual([200, 200, 200, 200]);
 		});
 	});
 });
