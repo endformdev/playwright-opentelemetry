@@ -1,13 +1,12 @@
-import {
-	Braces,
-	Brush,
-	Code,
-	File,
-	FileText,
-	Film,
-	Image,
-	Type,
-} from "lucide-solid";
+import Braces from "lucide-solid/icons/braces";
+import Brush from "lucide-solid/icons/brush";
+import Code from "lucide-solid/icons/code";
+import File from "lucide-solid/icons/file";
+import FileText from "lucide-solid/icons/file-text";
+import Film from "lucide-solid/icons/film";
+import Image from "lucide-solid/icons/image";
+import Type from "lucide-solid/icons/type";
+
 import type { JSX } from "solid-js";
 import type { Span } from "../../trace-data-loader/exportToSpans";
 
@@ -21,9 +20,6 @@ export type ResourceType =
 	| "media"
 	| "other";
 
-/**
- * Extract display name from browser span (last segment of URL path).
- */
 export function getResourceDisplayName(span: Span): string {
 	const urlPath = span.attributes["url.path"];
 	if (typeof urlPath === "string") {
@@ -33,9 +29,6 @@ export function getResourceDisplayName(span: Span): string {
 	return span.title;
 }
 
-/**
- * Determine resource type from span attributes.
- */
 export function getResourceType(span: Span): ResourceType {
 	const resourceType = span.attributes["http.resource.type"];
 	if (typeof resourceType === "string") {
@@ -62,10 +55,8 @@ export function getResourceType(span: Span): ResourceType {
 	return "other";
 }
 
-/**
- * Get Chrome DevTools-style color for resource type.
- */
 export function getResourceColor(resourceType: ResourceType): string {
+	// chrome devtools style colors
 	const colors: Record<ResourceType, string> = {
 		document: "#4285f4", // Blue
 		stylesheet: "#34a853", // Green
@@ -79,9 +70,6 @@ export function getResourceColor(resourceType: ResourceType): string {
 	return colors[resourceType];
 }
 
-/**
- * Get Lucide icon for resource type.
- */
 export function getResourceIcon(
 	resourceType: ResourceType,
 	size = 14,

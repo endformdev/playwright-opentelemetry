@@ -18,7 +18,7 @@ import { HoverProvider } from "./contexts/HoverContext";
 import { SearchProvider, useSearch } from "./contexts/SearchContext";
 import { ViewportProvider } from "./contexts/ViewportContext";
 import { getElementsAtTime, type HoveredElements } from "./getElementsAtTime";
-import { MultiResizablePanel, type PanelConfig } from "./MultiResizablePanel";
+import { MultiResizablePanel } from "./MultiResizablePanel";
 import { packSpans, type SpanInput } from "./packSpans";
 import { calculateDepthBasedSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";

@@ -1,4 +1,5 @@
-import { Search, X } from "lucide-solid";
+import Search from "lucide-solid/icons/search";
+import X from "lucide-solid/icons/x";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 
 export interface SearchInputProps {
