@@ -147,6 +147,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 												alt={`Screenshot at ${s().timestamp}`}
 												class="w-full h-full object-contain"
 												loading="lazy"
+												draggable={false}
 											/>
 										</div>
 									)}
