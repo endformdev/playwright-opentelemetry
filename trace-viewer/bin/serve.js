@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
+import { access, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { readFile, access } from "node:fs/promises";
-import { join, extname } from "node:path";
+import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -32,7 +32,7 @@ function parseArgs() {
 	for (let i = 0; i < args.length; i++) {
 		if (args[i] === "--port" && args[i + 1]) {
 			const parsed = parseInt(args[i + 1], 10);
-			if (!isNaN(parsed) && parsed > 0 && parsed < 65536) {
+			if (!Number.isNaN(parsed) && parsed > 0 && parsed < 65536) {
 				port = parsed;
 			} else {
 				console.error(`Invalid port: ${args[i + 1]}`);
@@ -84,6 +84,7 @@ async function serveFile(filePath, res) {
 		res.writeHead(200, headers);
 		res.end(content);
 	} catch (err) {
+		console.error("Error serving file:", err);
 		res.writeHead(500, { "Content-Type": "text/plain" });
 		res.end("Internal Server Error");
 	}
@@ -91,7 +92,7 @@ async function serveFile(filePath, res) {
 
 async function handleRequest(req, res) {
 	const url = new URL(req.url, `http://${req.headers.host}`);
-	let pathname = url.pathname;
+	const pathname = url.pathname;
 
 	// Security: prevent directory traversal
 	if (pathname.includes("..")) {
@@ -157,15 +158,19 @@ async function openBrowser(url) {
 async function main() {
 	const { port } = parseArgs();
 
-	// Check if dist directory exists
-	if (!(await fileExists(DIST_DIR))) {
-		console.error("Error: dist/ directory not found. Run 'pnpm build' first.");
-		process.exit(1);
-	}
-
 	const server = createServer(handleRequest);
 
-	server.listen(port, () => {
+	server.on("error", (err) => {
+		if (err.code === "EADDRINUSE") {
+			console.error(`\n  ❌ Error: Port ${port} is already in use\n`);
+			console.error(`  Try using a different port: --port <number>\n`);
+		} else {
+			console.error("Server error:", err.message);
+		}
+		process.exit(1);
+	});
+
+	server.listen(port, "localhost", () => {
 		const url = `http://localhost:${port}`;
 		console.log(`
   Playwright OpenTelemetry Trace Viewer
@@ -175,16 +180,6 @@ async function main() {
   Press Ctrl+C to stop
 `);
 		openBrowser(url);
-	});
-
-	server.on("error", (err) => {
-		if (err.code === "EADDRINUSE") {
-			console.error(`Error: Port ${port} is already in use.`);
-			console.error(`Try using a different port: --port <number>`);
-		} else {
-			console.error("Server error:", err.message);
-		}
-		process.exit(1);
 	});
 }
 
