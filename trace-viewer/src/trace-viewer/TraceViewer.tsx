@@ -250,28 +250,29 @@ export function TraceViewer(props: TraceViewerProps) {
 	};
 
 	// Handlers for element hover tracking (for scroll-to-span functionality)
+	// NOTE: We intentionally do NOT clear hoveredElement on mouseLeave (null).
+	// The last hovered element persists until a new element is hovered or
+	// the mouse leaves the main panel entirely. This prevents flickering
+	// when moving between elements or crossing boundaries between sections.
 	const handleScreenshotHover = (screenshotUrl: string | null) => {
 		if (screenshotUrl) {
 			setHoveredElement({ type: "screenshot", id: screenshotUrl });
-		} else {
-			setHoveredElement(null);
 		}
+		// Don't clear on null - last hovered element persists
 	};
 
 	const handleStepHover = (stepId: string | null) => {
 		if (stepId) {
 			setHoveredElement({ type: "step", id: stepId });
-		} else {
-			setHoveredElement(null);
 		}
+		// Don't clear on null - last hovered element persists
 	};
 
 	const handleSpanHover = (spanId: string | null) => {
 		if (spanId) {
 			setHoveredElement({ type: "span", id: spanId });
-		} else {
-			setHoveredElement(null);
 		}
+		// Don't clear on null - last hovered element persists
 	};
 
 	// Convert hover position (0-1 in viewport space) to time in milliseconds
@@ -865,6 +866,9 @@ interface DetailsPanelProps {
 	focusedElement: FocusedElement | null;
 }
 
+/** Debounce delay for scroll-to-element (prevents jitter during rapid hover changes) */
+const SCROLL_DEBOUNCE_MS = 50;
+
 function DetailsPanel(props: DetailsPanelProps) {
 	let containerRef: HTMLDivElement | undefined;
 
@@ -878,7 +882,23 @@ function DetailsPanel(props: DetailsPanelProps) {
 			? flattenHoveredSpans(props.hoveredElements.spans)
 			: [];
 
-	// Scroll to focused element when it changes
+	// Check if a span is the currently focused element
+	const isSpanFocused = (spanId: string): boolean => {
+		const focused = props.focusedElement;
+		return !!(
+			focused &&
+			(focused.type === "step" || focused.type === "span") &&
+			focused.id === spanId
+		);
+	};
+
+	// Check if screenshot is focused
+	const isScreenshotFocused = () => {
+		const focused = props.focusedElement;
+		return focused?.type === "screenshot";
+	};
+
+	// Scroll to focused element when it changes (with debounce to prevent jitter)
 	createEffect(() => {
 		const focused = props.focusedElement;
 		if (!focused || !containerRef) return;
@@ -891,10 +911,15 @@ function DetailsPanel(props: DetailsPanelProps) {
 			selector = `[data-span-id="${focused.id}"]`;
 		}
 
-		const element = containerRef.querySelector(selector);
-		if (element) {
-			element.scrollIntoView({ behavior: "instant", block: "start" });
-		}
+		// Debounce scroll to avoid jitter during rapid hover transitions
+		const timeout = setTimeout(() => {
+			const element = containerRef?.querySelector(selector);
+			if (element) {
+				element.scrollIntoView({ behavior: "instant", block: "nearest" });
+			}
+		}, SCROLL_DEBOUNCE_MS);
+
+		onCleanup(() => clearTimeout(timeout));
 	});
 
 	return (
@@ -914,7 +939,12 @@ function DetailsPanel(props: DetailsPanelProps) {
 							{(screenshot) => (
 								<div
 									data-screenshot
-									class="bg-gray-100 rounded-lg overflow-hidden border border-gray-200"
+									class="bg-gray-100 rounded-lg overflow-hidden border-2 transition-colors duration-150"
+									classList={{
+										"border-blue-500 ring-2 ring-blue-200":
+											isScreenshotFocused(),
+										"border-gray-200": !isScreenshotFocused(),
+									}}
 								>
 									<img
 										src={screenshot().url}
@@ -940,6 +970,7 @@ function DetailsPanel(props: DetailsPanelProps) {
 												colorFn={(depth) =>
 													`hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`
 												}
+												isFocused={isSpanFocused(hoveredSpan.span.id)}
 											/>
 										)}
 									</For>
@@ -960,6 +991,7 @@ function DetailsPanel(props: DetailsPanelProps) {
 												hoveredSpan={hoveredSpan}
 												testStartTimeMs={props.testStartTimeMs}
 												colorFn={(_, span) => getSpanColor(span.kind)}
+												isFocused={isSpanFocused(hoveredSpan.span.id)}
 											/>
 										)}
 									</For>
@@ -984,6 +1016,8 @@ interface SpanDetailsProps {
 	hoveredSpan: HoveredSpan;
 	testStartTimeMs: number;
 	colorFn: (depth: number, span: Span) => string;
+	/** Whether this span is the currently focused element (for visual highlighting) */
+	isFocused: boolean;
 }
 
 function SpanDetails(props: SpanDetailsProps) {
@@ -1028,10 +1062,13 @@ function SpanDetails(props: SpanDetailsProps) {
 	return (
 		<div
 			data-span-id={span.id}
-			class="rounded-lg border overflow-hidden"
+			class="rounded-lg border-2 overflow-hidden transition-all duration-150"
+			classList={{
+				"ring-2 ring-blue-200": props.isFocused,
+			}}
 			style={{
 				"margin-left": `${depth * 12}px`,
-				"border-color": color(),
+				"border-color": props.isFocused ? "#3b82f6" : color(),
 			}}
 		>
 			{/* Header with span name and color indicator */}
