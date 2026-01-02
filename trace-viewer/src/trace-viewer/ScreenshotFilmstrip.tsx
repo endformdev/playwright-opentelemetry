@@ -21,6 +21,8 @@ export interface ScreenshotFilmstripProps {
 	viewport: TimelineViewport;
 	/** Test start time in milliseconds (Unix timestamp) for converting absolute to relative timestamps */
 	testStartTimeMs: number;
+	/** Callback when hovering over a screenshot (url) or null when leaving */
+	onScreenshotHover?: (screenshotUrl: string | null) => void;
 }
 
 /** Screenshot with relative timestamp for selection, keeping original data */
@@ -90,7 +92,12 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 				{selectedScreenshots().length > 0 ? (
 					<For each={selectedScreenshots()}>
 						{(screenshot) => (
-							<div class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm">
+							// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-screenshot feature
+							<div
+								class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm"
+								onMouseEnter={() => props.onScreenshotHover?.(screenshot.url)}
+								onMouseLeave={() => props.onScreenshotHover?.(null)}
+							>
 								<img
 									src={screenshot.url}
 									alt={`Screenshot at ${screenshot.timestamp}`}

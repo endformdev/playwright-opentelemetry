@@ -1,4 +1,5 @@
 import {
+	createEffect,
 	createMemo,
 	createSignal,
 	For,
@@ -10,6 +11,12 @@ import {
 import type { Span, SpanKind } from "../trace-data-loader/exportToSpans";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import type { TraceInfo } from "../trace-info-loader";
+import {
+	flattenHoveredSpans,
+	getElementsAtTime,
+	type HoveredElements,
+	type HoveredSpan,
+} from "./getElementsAtTime";
 import {
 	generateConnectors,
 	type PackedSpan,
@@ -36,11 +43,23 @@ export interface TraceViewerProps {
 	traceInfo: TraceInfo;
 }
 
+/** Type of element that can be focused for scroll-to functionality */
+type FocusedElementType = "screenshot" | "step" | "span";
+
+/** Element to scroll to in the details panel */
+interface FocusedElement {
+	type: FocusedElementType;
+	id: string; // span ID for steps/spans, or screenshot URL for screenshots
+}
+
 /** Pan sensitivity for horizontal scroll (higher = faster pan) */
 const PAN_SENSITIVITY = 0.2;
 
 /** Row height in pixels for the packed layout */
 const ROW_HEIGHT = 28;
+
+/** Lock window size in pixels - hovering within this distance of locked position keeps data locked */
+const LOCK_WINDOW_PX = 50;
 
 export function TraceViewer(props: TraceViewerProps) {
 	// Load trace data using the hook
@@ -70,6 +89,19 @@ export function TraceViewer(props: TraceViewerProps) {
 
 	// Shared hover position state (0-1 percentage in viewport space, or null when not hovering)
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
+
+	// Locked position state - when set, details panel shows data at this time until unlocked
+	// Position is stored in viewport space (0-1)
+	const [lockedPosition, setLockedPosition] = createSignal<number | null>(null);
+
+	// The element currently being hovered in the left-hand timeline
+	const [hoveredElement, setHoveredElement] =
+		createSignal<FocusedElement | null>(null);
+
+	// The element that was locked on click - persists until unlock
+	const [lockedElement, setLockedElement] = createSignal<FocusedElement | null>(
+		null,
+	);
 
 	// Selection state for click-drag on content area (0-1 in viewport space)
 	const [selectionState, setSelectionState] = createSignal<{
@@ -156,7 +188,13 @@ export function TraceViewer(props: TraceViewerProps) {
 			const minSelectionMs = visibleDuration * 0.02;
 
 			if (endMs - startMs > minSelectionMs) {
+				// This was a drag - zoom to selection
 				setViewport((v) => zoomToRange(v, startMs, endMs));
+			} else {
+				// This was a click (not a meaningful drag) - lock to this position
+				setLockedPosition(selection.startPosition);
+				// Also lock the currently hovered element for scroll-to functionality
+				setLockedElement(hoveredElement());
 			}
 
 			setSelectionState(null);
@@ -204,9 +242,37 @@ export function TraceViewer(props: TraceViewerProps) {
 		// Let vertical scroll propagate naturally for scrolling through spans
 	};
 
-	// Handle double-click to reset zoom
+	// Handle double-click to reset zoom and unlock
 	const handleDoubleClick = () => {
+		setLockedPosition(null);
+		setLockedElement(null);
 		setViewport((v) => resetViewport(v));
+	};
+
+	// Handlers for element hover tracking (for scroll-to-span functionality)
+	// NOTE: We intentionally do NOT clear hoveredElement on mouseLeave (null).
+	// The last hovered element persists until a new element is hovered or
+	// the mouse leaves the main panel entirely. This prevents flickering
+	// when moving between elements or crossing boundaries between sections.
+	const handleScreenshotHover = (screenshotUrl: string | null) => {
+		if (screenshotUrl) {
+			setHoveredElement({ type: "screenshot", id: screenshotUrl });
+		}
+		// Don't clear on null - last hovered element persists
+	};
+
+	const handleStepHover = (stepId: string | null) => {
+		if (stepId) {
+			setHoveredElement({ type: "step", id: stepId });
+		}
+		// Don't clear on null - last hovered element persists
+	};
+
+	const handleSpanHover = (spanId: string | null) => {
+		if (spanId) {
+			setHoveredElement({ type: "span", id: spanId });
+		}
+		// Don't clear on null - last hovered element persists
 	};
 
 	// Convert hover position (0-1 in viewport space) to time in milliseconds
@@ -214,6 +280,97 @@ export function TraceViewer(props: TraceViewerProps) {
 		const pos = hoverPosition();
 		if (pos === null) return null;
 		return viewportPositionToTime(pos, viewport());
+	};
+
+	// Convert locked position to time in milliseconds
+	const lockedTimeMs = () => {
+		const pos = lockedPosition();
+		if (pos === null) return null;
+		return viewportPositionToTime(pos, viewport());
+	};
+
+	// Check if hover position is within the lock window (in pixels)
+	const isWithinLockWindow = () => {
+		const locked = lockedPosition();
+		const hover = hoverPosition();
+		if (locked === null || hover === null || !mainPanelRef) return false;
+
+		const panelWidth = mainPanelRef.getBoundingClientRect().width;
+		const lockedPx = locked * panelWidth;
+		const hoverPx = hover * panelWidth;
+		return Math.abs(hoverPx - lockedPx) <= LOCK_WINDOW_PX;
+	};
+
+	// Compute hovered elements (at hover time)
+	const hoveredElements = createMemo((): HoveredElements | null => {
+		const timeMs = hoverTimeMs();
+		if (timeMs === null) return null;
+		return getElementsAtTime(
+			timeMs,
+			traceData.steps(),
+			traceData.spans(),
+			props.traceInfo.screenshots,
+			testStartTimeMs(),
+		);
+	});
+
+	// Compute locked elements (at locked time)
+	const lockedElements = createMemo((): HoveredElements | null => {
+		const timeMs = lockedTimeMs();
+		if (timeMs === null) return null;
+		return getElementsAtTime(
+			timeMs,
+			traceData.steps(),
+			traceData.spans(),
+			props.traceInfo.screenshots,
+			testStartTimeMs(),
+		);
+	});
+
+	// Determine what to display in details panel and header:
+	// - If locked and (no hover OR within lock window): show locked data
+	// - If locked and outside lock window: show hover data
+	// - If not locked: show hover data
+	const displayElements = (): HoveredElements | null => {
+		if (lockedPosition() !== null) {
+			// We have a lock
+			if (hoverPosition() === null || isWithinLockWindow()) {
+				// Mouse left the panel or is within lock window - show locked data
+				return lockedElements();
+			}
+			// Mouse is outside lock window - show hover data
+			return hoveredElements();
+		}
+		// No lock - show hover data
+		return hoveredElements();
+	};
+
+	const displayTimeMs = (): number | null => {
+		if (lockedPosition() !== null) {
+			if (hoverPosition() === null || isWithinLockWindow()) {
+				return lockedTimeMs();
+			}
+			return hoverTimeMs();
+		}
+		return hoverTimeMs();
+	};
+
+	// Determine which element to scroll to in the details panel.
+	// The key behavior: when locked, if hovering over a specific element, scroll to it;
+	// otherwise (no hover or generic hover), scroll to the locked element.
+	const displayFocusedElement = (): FocusedElement | null => {
+		if (lockedPosition() !== null) {
+			// We have a lock
+			if (hoverPosition() === null || isWithinLockWindow()) {
+				// Mouse left the panel or is within lock window - scroll to locked element
+				return lockedElement();
+			}
+			// Mouse is outside lock window - scroll to hovered element if any,
+			// otherwise stay on locked element
+			return hoveredElement() ?? lockedElement();
+		}
+		// No lock - scroll to hovered element
+		return hoveredElement();
 	};
 
 	// Loading state UI
@@ -288,6 +445,7 @@ export function TraceViewer(props: TraceViewerProps) {
 							screenshots={props.traceInfo.screenshots}
 							viewport={viewport()}
 							testStartTimeMs={testStartTimeMs()}
+							onScreenshotHover={handleScreenshotHover}
 						/>
 					}
 					secondPanel={
@@ -301,6 +459,7 @@ export function TraceViewer(props: TraceViewerProps) {
 									steps={traceData.steps()}
 									totalDurationMs={durationMs()}
 									viewport={viewport()}
+									onStepHover={handleStepHover}
 								/>
 							}
 							secondPanel={
@@ -308,6 +467,7 @@ export function TraceViewer(props: TraceViewerProps) {
 									spans={traceData.spans()}
 									totalDurationMs={durationMs()}
 									viewport={viewport()}
+									onSpanHover={handleSpanHover}
 								/>
 							}
 						/>
@@ -325,14 +485,44 @@ export function TraceViewer(props: TraceViewerProps) {
 					/>
 				</Show>
 
-				{/* Hover line overlay for content area (excludes ruler) */}
-				<Show when={hoverPosition()} keyed>
+				{/* Locked position indicator - thick bold line */}
+				<Show when={lockedPosition()} keyed>
 					{(pos) => (
 						<div
-							class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
-							style={{ left: `${pos * 100}%` }}
+							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
+							style={{
+								left: `${pos * 100}%`,
+								width: "3px",
+								"margin-left": "-1px",
+							}}
 						/>
 					)}
+				</Show>
+
+				{/* Hover line overlay - thin line when exploring outside lock window */}
+				<Show
+					when={
+						hoverPosition() !== null &&
+						lockedPosition() !== null &&
+						!isWithinLockWindow()
+					}
+					keyed
+				>
+					<div
+						class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
+						style={{ left: `${hoverPosition()! * 100}%` }}
+					/>
+				</Show>
+
+				{/* Hover line overlay when not locked - standard thin line */}
+				<Show
+					when={hoverPosition() !== null && lockedPosition() === null}
+					keyed
+				>
+					<div
+						class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
+						style={{ left: `${hoverPosition()! * 100}%` }}
+					/>
 				</Show>
 			</div>
 		</div>
@@ -342,7 +532,7 @@ export function TraceViewer(props: TraceViewerProps) {
 		<div class="flex flex-col h-full w-full bg-white text-gray-900">
 			<TraceViewerHeader
 				testInfo={props.traceInfo.testInfo}
-				hoverTimeMs={hoverTimeMs}
+				hoverTimeMs={displayTimeMs}
 			/>
 
 			{/* Resizable Main Content Area */}
@@ -353,7 +543,14 @@ export function TraceViewer(props: TraceViewerProps) {
 					minFirstPanelSize={50}
 					maxFirstPanelSize={90}
 					firstPanel={mainPanelContent}
-					secondPanel={<DetailsPanel traceInfo={props.traceInfo} />}
+					secondPanel={
+						<DetailsPanel
+							traceInfo={props.traceInfo}
+							hoveredElements={displayElements()}
+							testStartTimeMs={testStartTimeMs()}
+							focusedElement={displayFocusedElement()}
+						/>
+					}
 				/>
 			</div>
 		</div>
@@ -419,6 +616,7 @@ interface StepsTimelineProps {
 	steps: Span[];
 	totalDurationMs: number;
 	viewport: TimelineViewport;
+	onStepHover?: (stepId: string | null) => void;
 }
 
 function StepsTimeline(props: StepsTimelineProps) {
@@ -462,6 +660,7 @@ function StepsTimeline(props: StepsTimelineProps) {
 		const depth = depthMap().get(step.id) ?? 0;
 
 		return (
+			// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-span feature
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-95"
 				style={{
@@ -471,6 +670,8 @@ function StepsTimeline(props: StepsTimelineProps) {
 					"background-color": `hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`,
 				}}
 				title={`${step.name} (${step.duration}ms)`}
+				onMouseEnter={() => props.onStepHover?.(step.id)}
+				onMouseLeave={() => props.onStepHover?.(null)}
 			>
 				{step.name}
 			</div>
@@ -540,6 +741,7 @@ interface SpansPanelProps {
 	spans: Span[];
 	totalDurationMs: number;
 	viewport: TimelineViewport;
+	onSpanHover?: (spanId: string | null) => void;
 }
 
 function SpansPanel(props: SpansPanelProps) {
@@ -578,28 +780,33 @@ function SpansPanel(props: SpansPanelProps) {
 		).filter((c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId));
 	});
 
-	const renderSpan = (span: PackedSpan): JSX.Element => {
+	const renderSpan = (packedSpan: PackedSpan): JSX.Element => {
 		// Use reactive getters so positions update when viewport changes
 		const leftPercent = () =>
-			timeToViewportPosition(span.startOffset, props.viewport) * 100;
+			timeToViewportPosition(packedSpan.startOffset, props.viewport) * 100;
 		const rightPercent = () =>
-			timeToViewportPosition(span.startOffset + span.duration, props.viewport) *
-			100;
+			timeToViewportPosition(
+				packedSpan.startOffset + packedSpan.duration,
+				props.viewport,
+			) * 100;
 		const widthPercent = () => rightPercent() - leftPercent();
-		const kind = kindMap().get(span.id) ?? "internal";
+		const kind = kindMap().get(packedSpan.id) ?? "internal";
 
 		return (
+			// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-span feature
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-110"
 				style={{
 					left: `${leftPercent()}%`,
 					width: `${Math.max(widthPercent(), 2)}%`,
-					top: `${span.row * ROW_HEIGHT}px`,
+					top: `${packedSpan.row * ROW_HEIGHT}px`,
 					"background-color": getSpanColor(kind),
 				}}
-				title={`${span.name} (${span.duration}ms)`}
+				title={`${packedSpan.name} (${packedSpan.duration}ms)`}
+				onMouseEnter={() => props.onSpanHover?.(packedSpan.id)}
+				onMouseLeave={() => props.onSpanHover?.(null)}
 			>
-				{span.name}
+				{packedSpan.name}
 			</div>
 		);
 	};
@@ -642,45 +849,319 @@ function SpansPanel(props: SpansPanelProps) {
 						{(connector) => renderConnector(connector)}
 					</For>
 					{/* Render spans on top */}
-					<For each={visibleSpans()}>{(span) => renderSpan(span)}</For>
+					<For each={visibleSpans()}>
+						{(packedSpan) => renderSpan(packedSpan)}
+					</For>
 				</div>
 			</div>
 		</div>
 	);
 }
 
-function DetailsPanel(_props: { traceInfo: TraceInfo }) {
+interface DetailsPanelProps {
+	traceInfo: TraceInfo;
+	hoveredElements: HoveredElements | null;
+	testStartTimeMs: number;
+	/** Element to scroll into view (from hover/lock tracking) */
+	focusedElement: FocusedElement | null;
+}
+
+/** Debounce delay for scroll-to-element (prevents jitter during rapid hover changes) */
+const SCROLL_DEBOUNCE_MS = 50;
+
+function DetailsPanel(props: DetailsPanelProps) {
+	let containerRef: HTMLDivElement | undefined;
+
+	// Flatten the hierarchical spans for rendering
+	const flatSteps = () =>
+		props.hoveredElements
+			? flattenHoveredSpans(props.hoveredElements.steps)
+			: [];
+	const flatSpans = () =>
+		props.hoveredElements
+			? flattenHoveredSpans(props.hoveredElements.spans)
+			: [];
+
+	// Check if a span is the currently focused element
+	const isSpanFocused = (spanId: string): boolean => {
+		const focused = props.focusedElement;
+		return !!(
+			focused &&
+			(focused.type === "step" || focused.type === "span") &&
+			focused.id === spanId
+		);
+	};
+
+	// Check if screenshot is focused
+	const isScreenshotFocused = () => {
+		const focused = props.focusedElement;
+		return focused?.type === "screenshot";
+	};
+
+	// Scroll to focused element when it changes (with debounce to prevent jitter)
+	createEffect(() => {
+		const focused = props.focusedElement;
+		if (!focused || !containerRef) return;
+
+		let selector: string;
+		if (focused.type === "screenshot") {
+			selector = "[data-screenshot]";
+		} else {
+			// For steps and spans, use the span ID
+			selector = `[data-span-id="${focused.id}"]`;
+		}
+
+		// Debounce scroll to avoid jitter during rapid hover transitions
+		const timeout = setTimeout(() => {
+			const element = containerRef?.querySelector(selector);
+			if (element) {
+				element.scrollIntoView({ behavior: "instant", block: "nearest" });
+			}
+		}, SCROLL_DEBOUNCE_MS);
+
+		onCleanup(() => clearTimeout(timeout));
+	});
+
 	return (
-		<div class="h-full flex flex-col bg-white">
-			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-				Details
+		<div ref={containerRef} class="h-full overflow-auto bg-white">
+			<Show
+				when={props.hoveredElements}
+				fallback={
+					<div class="h-full flex items-center justify-center text-gray-400 text-sm">
+						Hover over the timeline to see details
+					</div>
+				}
+			>
+				{(elements) => (
+					<div class="p-4 space-y-6">
+						{/* Screenshot at the top */}
+						<Show when={elements().screenshot}>
+							{(screenshot) => (
+								<div
+									data-screenshot
+									class="bg-gray-100 rounded-lg overflow-hidden border-2 transition-colors duration-150"
+									classList={{
+										"border-blue-500 ring-2 ring-blue-200":
+											isScreenshotFocused(),
+										"border-gray-200": !isScreenshotFocused(),
+									}}
+								>
+									<img
+										src={screenshot().url}
+										alt="Screenshot at hover time"
+										class="w-full h-auto"
+									/>
+								</div>
+							)}
+						</Show>
+
+						{/* Steps section */}
+						<Show when={flatSteps().length > 0}>
+							<div>
+								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+									Steps ({flatSteps().length})
+								</div>
+								<div class="space-y-2">
+									<For each={flatSteps()}>
+										{(hoveredSpan) => (
+											<SpanDetails
+												hoveredSpan={hoveredSpan}
+												testStartTimeMs={props.testStartTimeMs}
+												colorFn={(depth) =>
+													`hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`
+												}
+												isFocused={isSpanFocused(hoveredSpan.span.id)}
+											/>
+										)}
+									</For>
+								</div>
+							</div>
+						</Show>
+
+						{/* Spans section */}
+						<Show when={flatSpans().length > 0}>
+							<div>
+								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+									Spans ({flatSpans().length})
+								</div>
+								<div class="space-y-2">
+									<For each={flatSpans()}>
+										{(hoveredSpan) => (
+											<SpanDetails
+												hoveredSpan={hoveredSpan}
+												testStartTimeMs={props.testStartTimeMs}
+												colorFn={(_, span) => getSpanColor(span.kind)}
+												isFocused={isSpanFocused(hoveredSpan.span.id)}
+											/>
+										)}
+									</For>
+								</div>
+							</div>
+						</Show>
+
+						{/* Empty state when no steps or spans */}
+						<Show when={flatSteps().length === 0 && flatSpans().length === 0}>
+							<div class="text-gray-400 text-sm text-center py-4">
+								No active steps or spans at this time
+							</div>
+						</Show>
+					</div>
+				)}
+			</Show>
+		</div>
+	);
+}
+
+interface SpanDetailsProps {
+	hoveredSpan: HoveredSpan;
+	testStartTimeMs: number;
+	colorFn: (depth: number, span: Span) => string;
+	/** Whether this span is the currently focused element (for visual highlighting) */
+	isFocused: boolean;
+}
+
+function SpanDetails(props: SpanDetailsProps) {
+	const { span, depth } = props.hoveredSpan;
+	const color = () => props.colorFn(depth, span);
+
+	// Format timing info
+	const startTimeDisplay = () => {
+		const absoluteMs = props.testStartTimeMs + span.startOffsetMs;
+		const absoluteDate = new Date(absoluteMs);
+		const timeStr = absoluteDate.toLocaleTimeString("en-US", {
+			hour12: false,
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		});
+		const msStr = String(absoluteMs % 1000).padStart(3, "0");
+		return `${timeStr}.${msStr} (${formatDuration(span.startOffsetMs)} from start)`;
+	};
+
+	const endTimeDisplay = () => {
+		const endOffsetMs = span.startOffsetMs + span.durationMs;
+		const absoluteMs = props.testStartTimeMs + endOffsetMs;
+		const absoluteDate = new Date(absoluteMs);
+		const timeStr = absoluteDate.toLocaleTimeString("en-US", {
+			hour12: false,
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		});
+		const msStr = String(absoluteMs % 1000).padStart(3, "0");
+		return `${timeStr}.${msStr} (${formatDuration(endOffsetMs)} from start)`;
+	};
+
+	// Get attributes as entries, filtering out title attributes since we show title separately
+	const attributeEntries = () => {
+		return Object.entries(span.attributes).filter(
+			([key]) => key !== "test.step.title" && key !== "test.case.title",
+		);
+	};
+
+	return (
+		<div
+			data-span-id={span.id}
+			class="rounded-lg border-2 overflow-hidden transition-all duration-150"
+			classList={{
+				"ring-2 ring-blue-200": props.isFocused,
+			}}
+			style={{
+				"margin-left": `${depth * 12}px`,
+				"border-color": props.isFocused ? "#3b82f6" : color(),
+			}}
+		>
+			{/* Header with span name and color indicator */}
+			<div
+				class="px-3 py-2 text-white text-sm font-medium"
+				style={{ "background-color": color() }}
+			>
+				{span.title}
 			</div>
-			<div class="flex-1 overflow-auto p-3">
-				<div class="text-gray-500 text-sm">
-					<p class="mb-4">
-						Select a step, screenshot, or trace to view details.
-					</p>
-					<div class="border border-gray-200 rounded p-3 bg-gray-50">
-						<div class="text-xs text-gray-400 uppercase tracking-wide mb-2">
-							Placeholder Content
-						</div>
-						<div class="space-y-2 text-xs">
-							<div class="flex justify-between">
-								<span class="text-gray-500">Type:</span>
-								<span class="text-gray-700">-</span>
-							</div>
-							<div class="flex justify-between">
-								<span class="text-gray-500">Duration:</span>
-								<span class="text-gray-700">-</span>
-							</div>
-							<div class="flex justify-between">
-								<span class="text-gray-500">Start Time:</span>
-								<span class="text-gray-700">-</span>
-							</div>
+
+			{/* Details */}
+			<div class="bg-gray-50 px-3 py-2 space-y-2 text-xs">
+				{/* Timing info */}
+				<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+					<span class="text-gray-500">Duration:</span>
+					<span class="font-mono text-gray-900">
+						{formatDuration(span.durationMs)}
+					</span>
+
+					<span class="text-gray-500">Start:</span>
+					<span class="font-mono text-gray-900">{startTimeDisplay()}</span>
+
+					<span class="text-gray-500">End:</span>
+					<span class="font-mono text-gray-900">{endTimeDisplay()}</span>
+
+					<span class="text-gray-500">Kind:</span>
+					<span class="text-gray-900 capitalize">{span.kind}</span>
+
+					<Show when={span.name !== span.title}>
+						<span class="text-gray-500">Span Name:</span>
+						<span class="font-mono text-gray-900">{span.name}</span>
+					</Show>
+				</div>
+
+				{/* Attributes */}
+				<Show when={attributeEntries().length > 0}>
+					<div class="border-t border-gray-200 pt-2 mt-2">
+						<div class="text-gray-500 mb-1">Attributes:</div>
+						<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 pl-2">
+							<For each={attributeEntries()}>
+								{([key, value]) => (
+									<>
+										<span class="text-gray-500 truncate" title={key}>
+											{key}:
+										</span>
+										<span
+											class="font-mono text-gray-900 break-all"
+											title={String(value)}
+										>
+											{formatAttributeValue(value)}
+										</span>
+									</>
+								)}
+							</For>
 						</div>
 					</div>
-				</div>
+				</Show>
 			</div>
 		</div>
 	);
+}
+
+/**
+ * Formats a duration in milliseconds to a human-readable string.
+ */
+function formatDuration(ms: number): string {
+	if (ms < 1) {
+		return `${(ms * 1000).toFixed(0)}µs`;
+	}
+	if (ms < 1000) {
+		return `${ms.toFixed(1)}ms`;
+	}
+	if (ms < 60000) {
+		return `${(ms / 1000).toFixed(2)}s`;
+	}
+	const minutes = Math.floor(ms / 60000);
+	const seconds = ((ms % 60000) / 1000).toFixed(1);
+	return `${minutes}m ${seconds}s`;
+}
+
+/**
+ * Formats an attribute value for display.
+ */
+function formatAttributeValue(value: string | number | boolean): string {
+	if (typeof value === "boolean") {
+		return value ? "true" : "false";
+	}
+	if (typeof value === "number") {
+		return String(value);
+	}
+	// Truncate very long strings
+	if (value.length > 200) {
+		return `${value.slice(0, 200)}...`;
+	}
+	return value;
 }

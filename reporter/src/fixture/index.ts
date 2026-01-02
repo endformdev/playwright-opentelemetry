@@ -41,11 +41,8 @@ export const test = base.extend<{
 		// Access internal _guid property used for page identification
 		const pageGuid = (page as unknown as { _guid: string })._guid;
 		writePageTestMapping(outputDir, testId, pageGuid);
-		page.on("requestfinished", async (request) => {
-			const response = await request.response();
-			if (!response) {
-				return;
-			}
+		page.on("response", async (response) => {
+			const request = response.request();
 			await fixtureCaptureRequestResponse({
 				request,
 				response,
