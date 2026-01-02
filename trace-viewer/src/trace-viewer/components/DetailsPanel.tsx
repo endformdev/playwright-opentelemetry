@@ -13,7 +13,7 @@ import {
 } from "./browserSpanStyles";
 import { SpanDetails } from "./SpanDetails";
 
-const SCROLL_DEBOUNCE_MS = 16; // ~1 frame - keeps it responsive while batching rapid hovers
+const SCROLL_DEBOUNCE_MS = 40;
 const SCROLL_TOP_PADDING_PX = 16;
 
 type FocusedElementType = "screenshot" | "step" | "span";

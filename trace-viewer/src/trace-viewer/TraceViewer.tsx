@@ -1,14 +1,25 @@
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import {
+	createMemo,
+	createSignal,
+	For,
+	onCleanup,
+	onMount,
+	Show,
+} from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import type { TraceInfo } from "../trace-info-loader";
 import { BrowserSpansPanel } from "./components/BrowserSpansPanel";
 import { DetailsPanel } from "./components/DetailsPanel";
 import { ExternalSpansPanel } from "./components/ExternalSpansPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
+import { PanelHeader } from "./components/PanelHeader";
 import { StepsTimeline } from "./components/StepsTimeline";
 import { HoverProvider } from "./contexts/HoverContext";
 import { ViewportProvider } from "./contexts/ViewportContext";
 import { getElementsAtTime, type HoveredElements } from "./getElementsAtTime";
+import { MultiResizablePanel, type PanelConfig } from "./MultiResizablePanel";
+import { packSpans, type SpanInput } from "./packSpans";
+import { calculateDepthBasedSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import { TimelineRuler } from "./TimelineRuler";
@@ -33,8 +44,57 @@ interface FocusedElement {
 	id: string; // span ID for steps/spans, or screenshot URL for screenshots
 }
 
+/** Section identifiers for the main timeline panels */
+type SectionId = "screenshots" | "steps" | "browser" | "external";
+
+interface DisabledSection {
+	id: SectionId;
+	title: string;
+	tooltip: string;
+}
+
+/** Panel size configuration (without content - content rendered separately) */
+interface PanelSizeConfig {
+	id: string;
+	initialSize: number;
+	minSize: number;
+}
+
+const SECTION_TITLES: Record<SectionId, string> = {
+	screenshots: "Screenshots",
+	steps: "Steps Timeline",
+	browser: "Browser Spans",
+	external: "External Spans",
+};
+
+const SECTION_TOOLTIPS: Record<SectionId, string> = {
+	screenshots: "No screenshots were captured during this test",
+	steps: "No test steps were recorded",
+	browser: "No browser spans were captured",
+	external: "No external spans were captured",
+};
+
 const PAN_SENSITIVITY = 0.2;
 const LOCK_WINDOW_PX = 50;
+
+/** Convert spans to SpanInput format for depth calculation */
+function spansToSpanInput(
+	spans: Array<{
+		id: string;
+		title: string;
+		startOffsetMs: number;
+		durationMs: number;
+		parentId: string | null;
+	}>,
+): SpanInput[] {
+	return spans.map((span) => ({
+		id: span.id,
+		name: span.title,
+		startOffset: span.startOffsetMs,
+		duration: span.durationMs,
+		parentId: span.parentId,
+	}));
+}
 
 export function TraceViewer(props: TraceViewerProps) {
 	const traceData = useTraceDataLoader(() => props.traceInfo);
@@ -68,6 +128,104 @@ export function TraceViewer(props: TraceViewerProps) {
 	} | null>(null);
 
 	let mainPanelRef: HTMLDivElement | undefined;
+
+	// Calculate depths for each panel type
+	const stepsDepth = createMemo(() => {
+		const steps = traceData.steps();
+		if (steps.length === 0) return 0;
+		return packSpans(spansToSpanInput(steps)).totalRows;
+	});
+
+	const browserDepth = createMemo(() => {
+		const spans = traceData.browserSpans();
+		if (spans.length === 0) return 0;
+		return packSpans(spansToSpanInput(spans)).totalRows;
+	});
+
+	const externalDepth = createMemo(() => {
+		const spans = traceData.externalSpans();
+		if (spans.length === 0) return 0;
+		return packSpans(spansToSpanInput(spans)).totalRows;
+	});
+
+	// Determine which sections are active/disabled
+	const hasScreenshots = () => props.traceInfo.screenshots.length > 0;
+	const hasSteps = () => stepsDepth() > 0;
+	const hasBrowserSpans = () => browserDepth() > 0;
+	const hasExternalSpans = () => externalDepth() > 0;
+
+	// Get list of disabled sections for the footer
+	const disabledSections = createMemo((): DisabledSection[] => {
+		const sections: DisabledSection[] = [];
+		if (!hasScreenshots()) {
+			sections.push({
+				id: "screenshots",
+				title: SECTION_TITLES.screenshots,
+				tooltip: SECTION_TOOLTIPS.screenshots,
+			});
+		}
+		if (!hasSteps()) {
+			sections.push({
+				id: "steps",
+				title: SECTION_TITLES.steps,
+				tooltip: SECTION_TOOLTIPS.steps,
+			});
+		}
+		if (!hasBrowserSpans()) {
+			sections.push({
+				id: "browser",
+				title: SECTION_TITLES.browser,
+				tooltip: SECTION_TOOLTIPS.browser,
+			});
+		}
+		if (!hasExternalSpans()) {
+			sections.push({
+				id: "external",
+				title: SECTION_TITLES.external,
+				tooltip: SECTION_TOOLTIPS.external,
+			});
+		}
+		return sections;
+	});
+
+	// Calculate depth-based sizes for span panels (just the sizing data, not content)
+	const spanPanelSizeConfigs = createMemo((): PanelSizeConfig[] => {
+		const sizes = calculateDepthBasedSizes({
+			stepsDepth: stepsDepth(),
+			browserDepth: browserDepth(),
+			externalDepth: externalDepth(),
+		});
+		const configs: PanelSizeConfig[] = [];
+
+		if (hasSteps() && sizes.steps !== undefined) {
+			configs.push({
+				id: "steps",
+				initialSize: sizes.steps,
+				minSize: 15,
+			});
+		}
+
+		if (hasBrowserSpans() && sizes.browser !== undefined) {
+			configs.push({
+				id: "browser",
+				initialSize: sizes.browser,
+				minSize: 15,
+			});
+		}
+
+		if (hasExternalSpans() && sizes.external !== undefined) {
+			configs.push({
+				id: "external",
+				initialSize: sizes.external,
+				minSize: 15,
+			});
+		}
+
+		return configs;
+	});
+
+	// Check if we have any active span panels
+	const hasAnySpanPanels = () => spanPanelSizeConfigs().length > 0;
 
 	const handleMouseDown = (e: MouseEvent) => {
 		// Only start selection on primary button
@@ -320,6 +478,62 @@ export function TraceViewer(props: TraceViewerProps) {
 		return Math.abs(selection.currentPosition - selection.startPosition) * 100;
 	};
 
+	// Render content for a panel by its ID
+	// This is called during render, so context is available
+	const renderPanelContent = (panelId: string) => {
+		switch (panelId) {
+			case "steps":
+				return (
+					<StepsTimeline
+						steps={traceData.steps()}
+						onStepHover={handleStepHover}
+					/>
+				);
+			case "browser":
+				return (
+					<BrowserSpansPanel
+						spans={traceData.browserSpans()}
+						onSpanHover={handleSpanHover}
+					/>
+				);
+			case "external":
+				return (
+					<ExternalSpansPanel
+						spans={traceData.externalSpans()}
+						onSpanHover={handleSpanHover}
+					/>
+				);
+			default:
+				return null;
+		}
+	};
+
+	// Build panel configs with content rendered lazily
+	const buildPanelConfigs = (): PanelConfig[] => {
+		return spanPanelSizeConfigs().map((config) => ({
+			...config,
+			content: renderPanelContent(config.id),
+		}));
+	};
+
+	// Render the span panels area (steps, browser, external)
+	const SpanPanelsContent = () => {
+		const configs = buildPanelConfigs();
+
+		// No active span panels
+		if (configs.length === 0) {
+			return null;
+		}
+
+		// Single panel - no need for multi-resizable
+		if (configs.length === 1) {
+			return <div class="h-full">{configs[0].content}</div>;
+		}
+
+		// Multiple panels - use multi-resizable
+		return <MultiResizablePanel direction="vertical" panels={configs} />;
+	};
+
 	const MainPanelContent = () => (
 		// biome-ignore lint/a11y/noStaticElementInteractions: container needs mouse tracking for hover line and drag selection
 		<div
@@ -346,56 +560,65 @@ export function TraceViewer(props: TraceViewerProps) {
 				onViewportChange={handleViewportChange}
 			/>
 
-			<div class="flex-1 min-h-0 relative">
-				<ResizablePanel
-					direction="vertical"
-					initialFirstPanelSize={12}
-					minFirstPanelSize={7}
-					maxFirstPanelSize={40}
-					firstPanel={
-						<ScreenshotFilmstrip
-							screenshots={props.traceInfo.screenshots}
-							viewport={viewport()}
-							testStartTimeMs={testStartTimeMs()}
-							onScreenshotHover={handleScreenshotHover}
-						/>
-					}
-					secondPanel={
+			<div class="flex-1 min-h-0 relative flex flex-col">
+				{/* Active panels section */}
+				<div class="flex-1 min-h-0">
+					<Show
+						when={hasScreenshots() && hasAnySpanPanels()}
+						fallback={
+							<Show
+								when={hasScreenshots()}
+								fallback={
+									<Show when={hasAnySpanPanels()}>
+										<SpanPanelsContent />
+									</Show>
+								}
+							>
+								{/* Only screenshots active */}
+								<ScreenshotFilmstrip
+									screenshots={props.traceInfo.screenshots}
+									viewport={viewport()}
+									testStartTimeMs={testStartTimeMs()}
+									onScreenshotHover={handleScreenshotHover}
+								/>
+							</Show>
+						}
+					>
+						{/* Both screenshots and span panels active */}
 						<ResizablePanel
 							direction="vertical"
-							initialFirstPanelSize={40}
-							minFirstPanelSize={20}
-							maxFirstPanelSize={60}
+							initialFirstPanelSize={12}
+							minFirstPanelSize={7}
+							maxFirstPanelSize={40}
 							firstPanel={
-								<StepsTimeline
-									steps={traceData.steps()}
-									onStepHover={handleStepHover}
+								<ScreenshotFilmstrip
+									screenshots={props.traceInfo.screenshots}
+									viewport={viewport()}
+									testStartTimeMs={testStartTimeMs()}
+									onScreenshotHover={handleScreenshotHover}
 								/>
 							}
-							secondPanel={
-								<ResizablePanel
-									direction="vertical"
-									initialFirstPanelSize={50}
-									minFirstPanelSize={20}
-									maxFirstPanelSize={80}
-									firstPanel={
-										<BrowserSpansPanel
-											spans={traceData.browserSpans()}
-											onSpanHover={handleSpanHover}
-										/>
-									}
-									secondPanel={
-										<ExternalSpansPanel
-											spans={traceData.externalSpans()}
-											onSpanHover={handleSpanHover}
-										/>
-									}
-								/>
-							}
+							secondPanel={<SpanPanelsContent />}
 						/>
-					}
-				/>
+					</Show>
+				</div>
 
+				{/* Disabled sections footer */}
+				<Show when={disabledSections().length > 0}>
+					<div class="flex-shrink-0 border-t border-gray-300">
+						<For each={disabledSections()}>
+							{(section) => (
+								<PanelHeader
+									title={section.title}
+									disabled={true}
+									disabledTooltip={section.tooltip}
+								/>
+							)}
+						</For>
+					</div>
+				</Show>
+
+				{/* Selection overlay */}
 				<Show when={selectionState()}>
 					<div
 						class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
@@ -406,6 +629,7 @@ export function TraceViewer(props: TraceViewerProps) {
 					/>
 				</Show>
 
+				{/* Locked position indicator */}
 				<Show when={lockedPosition()} keyed>
 					{(pos) => (
 						<div
@@ -419,6 +643,7 @@ export function TraceViewer(props: TraceViewerProps) {
 					)}
 				</Show>
 
+				{/* Hover position indicator (when locked and outside lock window) */}
 				<Show
 					when={
 						hoverPosition() !== null &&
@@ -433,6 +658,7 @@ export function TraceViewer(props: TraceViewerProps) {
 					/>
 				</Show>
 
+				{/* Hover position indicator (when not locked) */}
 				<Show
 					when={hoverPosition() !== null && lockedPosition() === null}
 					keyed
