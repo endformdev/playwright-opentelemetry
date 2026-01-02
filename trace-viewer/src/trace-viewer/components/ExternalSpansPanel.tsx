@@ -1,4 +1,4 @@
-import { createMemo, For, type JSX } from "solid-js";
+import { createMemo, For, type JSX, Show } from "solid-js";
 import type { Span, SpanKind } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
 import {
@@ -12,7 +12,7 @@ import { isTimeRangeVisible, timeToViewportPosition } from "../viewport";
 
 const ROW_HEIGHT = 28;
 
-export interface SpansPanelProps {
+export interface ExternalSpansPanelProps {
 	spans: Span[];
 	onSpanHover?: (spanId: string | null) => void;
 }
@@ -39,7 +39,7 @@ function getSpanColor(kind: SpanKind): string {
 	return `hsl(${base.h}, ${base.s}%, ${base.l}%)`;
 }
 
-export function SpansPanel(props: SpansPanelProps) {
+export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 	const { viewport, durationMs } = useViewportContext();
 
 	const packedSpansResult = createMemo(() => {
@@ -125,24 +125,34 @@ export function SpansPanel(props: SpansPanelProps) {
 	};
 
 	const containerHeight = () => packedSpansResult().totalRows * ROW_HEIGHT;
+	const isEmpty = () => props.spans.length === 0;
 
 	return (
 		<div class="h-full flex flex-col bg-gray-50 overflow-hidden">
 			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-				Spans
+				External Spans
 			</div>
-			<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
-				<div class="relative" style={{ height: `${containerHeight()}px` }}>
-					{/* Render connector lines first (behind spans) */}
-					<For each={visibleConnectors()}>
-						{(connector) => renderConnector(connector)}
-					</For>
-					{/* Render spans on top */}
-					<For each={visibleSpans()}>
-						{(packedSpan) => renderSpan(packedSpan)}
-					</For>
+			<Show
+				when={!isEmpty()}
+				fallback={
+					<div class="flex-1 flex items-center justify-center text-sm text-gray-400">
+						No external spans
+					</div>
+				}
+			>
+				<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
+					<div class="relative" style={{ height: `${containerHeight()}px` }}>
+						{/* Render connector lines first (behind spans) */}
+						<For each={visibleConnectors()}>
+							{(connector) => renderConnector(connector)}
+						</For>
+						{/* Render spans on top */}
+						<For each={visibleSpans()}>
+							{(packedSpan) => renderSpan(packedSpan)}
+						</For>
+					</div>
 				</div>
-			</div>
+			</Show>
 		</div>
 	);
 }

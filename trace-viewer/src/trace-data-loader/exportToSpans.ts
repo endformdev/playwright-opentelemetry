@@ -18,6 +18,8 @@ export interface Span {
 	durationMs: number;
 	kind: SpanKind;
 	attributes: Record<string, string | number | boolean>;
+	/** Service name from resource attributes (e.g., "playwright-browser") */
+	serviceName: string;
 }
 
 export type SpanKind =
@@ -34,9 +36,12 @@ export function otlpExportToSpans(
 	const spans: Span[] = [];
 
 	for (const resourceSpans of otlpExport.resourceSpans) {
+		// Extract service.name from resource attributes
+		const serviceName = extractServiceName(resourceSpans.resource.attributes);
+
 		for (const scopeSpans of resourceSpans.scopeSpans) {
 			for (const span of scopeSpans.spans) {
-				spans.push(otlpSpanToSpan(span, testStartTimeMs));
+				spans.push(otlpSpanToSpan(span, testStartTimeMs, serviceName));
 			}
 		}
 	}
@@ -48,9 +53,25 @@ export function otlpExportToSpans(
 }
 
 /**
+ * Extracts the service name from resource attributes.
+ */
+function extractServiceName(attributes: OtlpAttribute[]): string {
+	for (const attr of attributes) {
+		if (attr.key === "service.name" && attr.value.stringValue) {
+			return attr.value.stringValue;
+		}
+	}
+	return "unknown";
+}
+
+/**
  * Converts a single OTLP span to our internal Span format.
  */
-export function otlpSpanToSpan(span: OtlpSpan, testStartTimeMs: number): Span {
+export function otlpSpanToSpan(
+	span: OtlpSpan,
+	testStartTimeMs: number,
+	serviceName: string,
+): Span {
 	const attributes = flattenAttributes(span.attributes);
 	const startTimeMs = nanoToMs(span.startTimeUnixNano);
 	const endTimeMs = nanoToMs(span.endTimeUnixNano);
@@ -65,6 +86,7 @@ export function otlpSpanToSpan(span: OtlpSpan, testStartTimeMs: number): Span {
 		durationMs: endTimeMs - startTimeMs,
 		kind: spanKindFromOtlp(span.kind),
 		attributes,
+		serviceName,
 	};
 }
 

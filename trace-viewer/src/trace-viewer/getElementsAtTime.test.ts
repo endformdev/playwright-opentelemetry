@@ -26,6 +26,7 @@ describe("getElementsAtTime", () => {
 		durationMs,
 		kind: "internal",
 		attributes: {},
+		serviceName: "test-service",
 	});
 
 	describe("screenshot selection", () => {
@@ -204,6 +205,7 @@ describe("flattenHoveredSpans", () => {
 			durationMs: 100,
 			kind: "internal",
 			attributes: {},
+			serviceName: "test-service",
 		},
 		depth,
 		children,

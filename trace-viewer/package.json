@@ -22,6 +22,7 @@
 	"packageManager": "pnpm@10.10.0",
 	"dependencies": {
 		"@zip.js/zip.js": "^2.8.11",
+		"lucide-solid": "^0.562.0",
 		"solid-js": "^1.9.10",
 		"tailwindcss": "^4.1.18",
 		"valibot": "^1.2.0"

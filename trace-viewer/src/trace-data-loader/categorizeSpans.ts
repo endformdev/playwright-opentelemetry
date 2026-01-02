@@ -2,28 +2,40 @@ import type { Span } from "./exportToSpans";
 
 const STEP_SPAN_NAMES = new Set(["playwright.test", "playwright.test.step"]);
 
-export function categorizeSpan(span: Span): "step" | "span" {
-	return STEP_SPAN_NAMES.has(span.name) ? "step" : "span";
+export function categorizeSpan(
+	span: Span,
+): "step" | "browserSpan" | "externalSpan" {
+	if (STEP_SPAN_NAMES.has(span.name)) {
+		return "step";
+	}
+	if (span.serviceName === "playwright-browser") {
+		return "browserSpan";
+	}
+	return "externalSpan";
 }
 
 export interface CategorizedSpans {
 	steps: Span[];
-	spans: Span[];
+	browserSpans: Span[];
+	externalSpans: Span[];
 }
 
 export function categorizeSpans(allSpans: Span[]): CategorizedSpans {
 	const steps: Span[] = [];
-	const spans: Span[] = [];
+	const browserSpans: Span[] = [];
+	const externalSpans: Span[] = [];
 
 	for (const span of allSpans) {
-		if (categorizeSpan(span) === "step") {
+		if (STEP_SPAN_NAMES.has(span.name)) {
 			steps.push(span);
+		} else if (span.serviceName === "playwright-browser") {
+			browserSpans.push(span);
 		} else {
-			spans.push(span);
+			externalSpans.push(span);
 		}
 	}
 
-	return { steps, spans };
+	return { steps, browserSpans, externalSpans };
 }
 
 export function mergeSpans(
@@ -33,9 +45,14 @@ export function mergeSpans(
 	const steps = [...existing.steps, ...incoming.steps].sort(
 		(a, b) => a.startOffsetMs - b.startOffsetMs,
 	);
-	const spans = [...existing.spans, ...incoming.spans].sort(
-		(a, b) => a.startOffsetMs - b.startOffsetMs,
-	);
+	const browserSpans = [
+		...existing.browserSpans,
+		...incoming.browserSpans,
+	].sort((a, b) => a.startOffsetMs - b.startOffsetMs);
+	const externalSpans = [
+		...existing.externalSpans,
+		...incoming.externalSpans,
+	].sort((a, b) => a.startOffsetMs - b.startOffsetMs);
 
-	return { steps, spans };
+	return { steps, browserSpans, externalSpans };
 }
