@@ -3,6 +3,7 @@
 	"packageManager": "pnpm@10.10.0",
 	"scripts": {
 		"format": "biome format --write",
+		"release": "bumpp reporter/package.json trace-viewer/package.json --commit --tag --push",
 		"test": "vitest",
 		"tsc": "tsc --build"
 	},

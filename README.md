@@ -114,6 +114,10 @@ The trace viewer can also load traces from APIs that respond to the following en
 
 ### Releasing
 
+To release both `playwright-opentelemetry` and `@playwright-opentelemetry/trace-viewer`:
+
 ```
-pnpx bumpp
+pnpm release
 ```
+
+This bumps both packages to the same version, commits, tags, and pushes to trigger the publish workflow.
