@@ -43,8 +43,8 @@ function toOtlpAttributes(
 // SPAN_KIND_INTERNAL = 1
 const SPAN_KIND_INTERNAL = 1;
 
-// Build the OTLP trace export request
-export function buildOtlpRequest(
+// Build a single resource span entry for OTLP
+function buildResourceSpan(
 	spans: Span[],
 	serviceName: string,
 	playwrightVersion: string,
@@ -54,7 +54,7 @@ export function buildOtlpRequest(
 		spanId: span.spanId,
 		parentSpanId: span.parentSpanId || undefined,
 		name: span.name,
-		kind: SPAN_KIND_INTERNAL,
+		kind: span.kind ?? SPAN_KIND_INTERNAL,
 		startTimeUnixNano: dateToNanoseconds(span.startTime),
 		endTimeUnixNano: dateToNanoseconds(span.endTime),
 		attributes: toOtlpAttributes(span.attributes),
@@ -67,36 +67,61 @@ export function buildOtlpRequest(
 	}));
 
 	return {
-		resourceSpans: [
-			{
-				resource: {
-					attributes: [
-						{
-							key: "service.name",
-							value: { stringValue: serviceName },
-						},
-						{
-							key: "service.namespace",
-							value: { stringValue: "playwright" },
-						},
-						{
-							key: "service.version",
-							value: { stringValue: playwrightVersion },
-						},
-					],
+		resource: {
+			attributes: [
+				{
+					key: "service.name",
+					value: { stringValue: serviceName },
 				},
-				scopeSpans: [
-					{
-						scope: {
-							name: "playwright-opentelemetry",
-							version,
-						},
-						spans: otlpSpans,
-					},
-				],
+				{
+					key: "service.namespace",
+					value: { stringValue: "playwright" },
+				},
+				{
+					key: "service.version",
+					value: { stringValue: playwrightVersion },
+				},
+			],
+		},
+		scopeSpans: [
+			{
+				scope: {
+					name: "playwright-opentelemetry",
+					version,
+				},
+				spans: otlpSpans,
 			},
 		],
 	};
+}
+
+// Build the OTLP trace export request
+// Groups spans by service name to support multiple services in one request
+export function buildOtlpRequest(
+	spans: Span[],
+	serviceName: string,
+	playwrightVersion: string,
+) {
+	// Group spans by service name
+	const spansByService = new Map<string, Span[]>();
+
+	for (const span of spans) {
+		const spanServiceName = span.serviceName ?? serviceName;
+		const serviceSpans = spansByService.get(spanServiceName);
+		if (serviceSpans) {
+			serviceSpans.push(span);
+		} else {
+			spansByService.set(spanServiceName, [span]);
+		}
+	}
+
+	// Build resource spans for each service
+	const resourceSpans = [];
+	for (const [svcName, svcSpans] of spansByService) {
+		resourceSpans.push(buildResourceSpan(svcSpans, svcName, playwrightVersion));
+	}
+
+	return { resourceSpans };
 }
 
 export async function sendSpans(

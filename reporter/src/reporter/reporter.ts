@@ -54,6 +54,8 @@ export type Span = {
 	attributes: Record<string, string | number | boolean>;
 	status: { code: number };
 	kind?: number;
+	/** Service name for this span (if different from default) */
+	serviceName?: string;
 };
 
 export class PlaywrightOpentelemetryReporter implements Reporter {

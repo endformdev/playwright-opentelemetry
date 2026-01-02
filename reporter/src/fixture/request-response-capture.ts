@@ -13,6 +13,198 @@ export interface FixtureCaptureOptions {
 }
 
 /**
+ * Resource types for HTTP requests, similar to Chrome DevTools Network tab categories.
+ * @see https://developer.chrome.com/docs/devtools/network/reference#type
+ */
+export type ResourceType =
+	| "document"
+	| "script"
+	| "stylesheet"
+	| "image"
+	| "font"
+	| "media"
+	| "fetch"
+	| "other";
+
+/**
+ * Detects the resource type based on Content-Type header with URL extension fallback.
+ * This categorization mirrors Chrome DevTools Network tab behavior.
+ *
+ * @param contentType - The Content-Type response header value (may be null)
+ * @param url - The request URL (used as fallback)
+ * @returns The detected resource type
+ */
+export function detectResourceType(
+	contentType: string | null,
+	url: string,
+): ResourceType {
+	// First, try to determine from Content-Type header
+	if (contentType) {
+		const mimeType = contentType.split(";")[0].trim().toLowerCase();
+
+		// Skip generic/uninformative content types - fall through to URL detection
+		if (mimeType !== "application/octet-stream") {
+			// Document types
+			if (mimeType === "text/html" || mimeType === "application/xhtml+xml") {
+				return "document";
+			}
+
+			// Script types
+			if (
+				mimeType === "application/javascript" ||
+				mimeType === "text/javascript" ||
+				mimeType === "application/x-javascript" ||
+				mimeType === "application/ecmascript" ||
+				mimeType === "text/ecmascript" ||
+				mimeType === "module" ||
+				mimeType === "application/wasm"
+			) {
+				return "script";
+			}
+
+			// Stylesheet types
+			if (mimeType === "text/css") {
+				return "stylesheet";
+			}
+
+			// Image types
+			if (mimeType.startsWith("image/")) {
+				return "image";
+			}
+
+			// Font types
+			if (
+				mimeType.startsWith("font/") ||
+				mimeType === "application/font-woff" ||
+				mimeType === "application/font-woff2" ||
+				mimeType === "application/x-font-ttf" ||
+				mimeType === "application/x-font-opentype"
+			) {
+				return "font";
+			}
+
+			// Media types (audio/video)
+			if (mimeType.startsWith("video/") || mimeType.startsWith("audio/")) {
+				return "media";
+			}
+
+			// Fetch/XHR types (API calls)
+			if (
+				mimeType === "application/json" ||
+				mimeType === "text/plain" ||
+				mimeType === "application/xml" ||
+				mimeType === "text/xml" ||
+				mimeType.endsWith("+json") ||
+				mimeType.endsWith("+xml")
+			) {
+				return "fetch";
+			}
+		}
+	}
+
+	// Fallback: try to determine from URL extension
+	const resourceType = detectResourceTypeFromUrl(url);
+	if (resourceType) {
+		return resourceType;
+	}
+
+	return "other";
+}
+
+/**
+ * Detects resource type from URL file extension.
+ * Used as fallback when Content-Type header is missing or generic.
+ */
+function detectResourceTypeFromUrl(url: string): ResourceType | null {
+	try {
+		const parsedUrl = new URL(url);
+		const pathname = parsedUrl.pathname.toLowerCase();
+
+		// Extract extension (handle query strings and fragments)
+		const lastSegment = pathname.split("/").pop() || "";
+		const dotIndex = lastSegment.lastIndexOf(".");
+		if (dotIndex === -1) {
+			return null;
+		}
+		const extension = lastSegment.slice(dotIndex + 1);
+
+		// Document extensions
+		if (extension === "html" || extension === "htm" || extension === "xhtml") {
+			return "document";
+		}
+
+		// Script extensions
+		if (
+			extension === "js" ||
+			extension === "mjs" ||
+			extension === "cjs" ||
+			extension === "jsx" ||
+			extension === "ts" ||
+			extension === "tsx" ||
+			extension === "wasm"
+		) {
+			return "script";
+		}
+
+		// Stylesheet extensions
+		if (extension === "css") {
+			return "stylesheet";
+		}
+
+		// Image extensions
+		if (
+			extension === "png" ||
+			extension === "jpg" ||
+			extension === "jpeg" ||
+			extension === "gif" ||
+			extension === "svg" ||
+			extension === "webp" ||
+			extension === "ico" ||
+			extension === "bmp" ||
+			extension === "avif"
+		) {
+			return "image";
+		}
+
+		// Font extensions
+		if (
+			extension === "woff" ||
+			extension === "woff2" ||
+			extension === "ttf" ||
+			extension === "otf" ||
+			extension === "eot"
+		) {
+			return "font";
+		}
+
+		// Media extensions
+		if (
+			extension === "mp4" ||
+			extension === "webm" ||
+			extension === "ogg" ||
+			extension === "mp3" ||
+			extension === "wav" ||
+			extension === "m4a" ||
+			extension === "aac" ||
+			extension === "flac" ||
+			extension === "avi" ||
+			extension === "mov"
+		) {
+			return "media";
+		}
+
+		// Fetch/API extensions
+		if (extension === "json" || extension === "xml") {
+			return "fetch";
+		}
+
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * OpenTelemetry SpanKind values
  * @see https://opentelemetry.io/docs/specs/otel/trace/api/#spankind
  */
@@ -97,14 +289,27 @@ export async function fixtureCaptureRequestResponse({
 		statusCodeValue = SPAN_STATUS_CODE_ERROR;
 	}
 
+	// Get Content-Type header for resource type detection
+	const contentType = await response.headerValue("content-type");
+
+	// Detect resource type from Content-Type with URL extension fallback
+	const resourceType = detectResourceType(contentType, url);
+
 	// Build attributes following OpenTelemetry HTTP semantic conventions
 	const attributes: Record<string, string | number | boolean> = {
 		"http.request.method": method,
 		"url.full": url,
+		"url.path": parsedUrl.pathname,
 		"server.address": serverAddress,
 		"server.port": serverPort,
 		"http.response.status_code": statusCode,
+		"http.resource.type": resourceType,
 	};
+
+	// Add query string if present (without the leading '?')
+	if (parsedUrl.search) {
+		attributes["url.query"] = parsedUrl.search.slice(1);
+	}
 
 	// For error responses, set error.type to the status code
 	if (statusCodeValue === SPAN_STATUS_CODE_ERROR) {
@@ -122,6 +327,7 @@ export async function fixtureCaptureRequestResponse({
 		endTime,
 		status: { code: statusCodeValue },
 		attributes,
+		serviceName: "playwright-browser",
 	};
 
 	// Write span to file for reporter to collect

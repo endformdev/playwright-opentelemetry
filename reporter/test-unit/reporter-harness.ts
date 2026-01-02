@@ -62,6 +62,8 @@ export interface NetworkAction {
 	startTime?: Date;
 	/** Duration of the request in milliseconds */
 	duration?: number;
+	/** Content-Type response header - used for resource type detection */
+	contentType?: string;
 }
 
 export interface StepDefinition {
@@ -201,6 +203,8 @@ export interface MockNetworkOptions {
 	startTime?: Date;
 	/** Request duration in milliseconds */
 	duration?: number;
+	/** Content-Type response header */
+	contentType?: string;
 }
 
 /**
@@ -219,6 +223,7 @@ export function createMockNetworkObjects(
 	const statusCode = options?.statusCode ?? 200;
 	const duration = options?.duration ?? 100;
 	const startTime = options?.startTime ?? new Date();
+	const contentType = options?.contentType;
 
 	// Mutable headers object that gets populated when route.fallback is called
 	let capturedHeaders: Record<string, string> = {};
@@ -249,6 +254,12 @@ export function createMockNetworkObjects(
 		url: () => url,
 		status: () => statusCode,
 		request: () => request,
+		headerValue: async (name: string) => {
+			if (name.toLowerCase() === "content-type") {
+				return contentType ?? null;
+			}
+			return null;
+		},
 	} as Response;
 
 	const route = {
@@ -409,6 +420,7 @@ export async function simulateNetworkRequest(
 			statusCode: networkAction.statusCode,
 			startTime: networkAction.startTime,
 			duration: networkAction.duration,
+			contentType: networkAction.contentType,
 		},
 	);
 
