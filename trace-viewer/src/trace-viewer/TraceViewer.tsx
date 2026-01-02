@@ -16,7 +16,10 @@ import { PanelHeader } from "./components/PanelHeader";
 import { StepsTimeline } from "./components/StepsTimeline";
 import { HoverProvider } from "./contexts/HoverContext";
 import { SearchProvider, useSearch } from "./contexts/SearchContext";
-import { ViewportProvider } from "./contexts/ViewportContext";
+import {
+	useViewportContext,
+	ViewportProvider,
+} from "./contexts/ViewportContext";
 import { getElementsAtTime, type HoveredElements } from "./getElementsAtTime";
 import { MultiResizablePanel } from "./MultiResizablePanel";
 import { packSpans, type SpanInput } from "./packSpans";
@@ -26,14 +29,10 @@ import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
 import {
-	createViewport,
 	isTimeRangeVisible,
-	panViewport,
-	resetViewport,
 	type TimelineViewport,
 	timeToViewportPosition,
 	viewportPositionToTime,
-	zoomToRange,
 } from "./viewport";
 
 export interface TraceViewerProps {
@@ -103,20 +102,49 @@ export function TraceViewer(props: TraceViewerProps) {
 	const traceData = useTraceDataLoader(() => props.traceInfo);
 	const durationMs = () => traceData.totalDurationMs();
 
-	const [viewport, setViewport] = createSignal<TimelineViewport>(
-		createViewport(durationMs() || 1000),
-	);
 	const testStartTimeMs = () => {
 		const startNano = BigInt(props.traceInfo.testInfo.startTimeUnixNano);
 		return Number(startNano / BigInt(1_000_000));
 	};
 
-	createMemo(() => {
-		const duration = durationMs();
-		if (duration > 0) {
-			setViewport(createViewport(duration));
-		}
-	});
+	return (
+		<ViewportProvider durationMs={durationMs} testStartTimeMs={testStartTimeMs}>
+			<SearchProvider
+				spans={() => [
+					...traceData.steps(),
+					...traceData.browserSpans(),
+					...traceData.externalSpans(),
+				]}
+			>
+				<HoverProvider
+					steps={() => traceData.steps()}
+					spans={() => [
+						...traceData.browserSpans(),
+						...traceData.externalSpans(),
+					]}
+					screenshots={props.traceInfo.screenshots}
+					testStartTimeMs={testStartTimeMs}
+				>
+					<TraceViewerInner
+						traceInfo={props.traceInfo}
+						traceData={traceData}
+						testStartTimeMs={testStartTimeMs}
+					/>
+				</HoverProvider>
+			</SearchProvider>
+		</ViewportProvider>
+	);
+}
+
+interface TraceViewerInnerProps {
+	traceInfo: TraceInfo;
+	traceData: ReturnType<typeof useTraceDataLoader>;
+	testStartTimeMs: () => number;
+}
+
+function TraceViewerInner(props: TraceViewerInnerProps) {
+	const { viewport, setViewport, zoomToRange, pan, reset } =
+		useViewportContext();
 
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
 	const [lockedPosition, setLockedPosition] = createSignal<number | null>(null);
@@ -137,19 +165,19 @@ export function TraceViewer(props: TraceViewerProps) {
 
 	// Calculate depths for each panel type
 	const stepsDepth = createMemo(() => {
-		const steps = traceData.steps();
+		const steps = props.traceData.steps();
 		if (steps.length === 0) return 0;
 		return packSpans(spansToSpanInput(steps)).totalRows;
 	});
 
 	const browserDepth = createMemo(() => {
-		const spans = traceData.browserSpans();
+		const spans = props.traceData.browserSpans();
 		if (spans.length === 0) return 0;
 		return packSpans(spansToSpanInput(spans)).totalRows;
 	});
 
 	const externalDepth = createMemo(() => {
-		const spans = traceData.externalSpans();
+		const spans = props.traceData.externalSpans();
 		if (spans.length === 0) return 0;
 		return packSpans(spansToSpanInput(spans)).totalRows;
 	});
@@ -311,7 +339,7 @@ export function TraceViewer(props: TraceViewerProps) {
 
 			if (endMs - startMs > minSelectionMs) {
 				// This was a drag - zoom to selection
-				setViewport((v) => zoomToRange(v, startMs, endMs));
+				zoomToRange(startMs, endMs);
 			} else {
 				// This was a click (not a meaningful drag) - lock to this position
 				setLockedPosition(selection.startPosition);
@@ -353,14 +381,14 @@ export function TraceViewer(props: TraceViewerProps) {
 			const visibleDuration =
 				viewport().visibleEndMs - viewport().visibleStartMs;
 			const panDeltaMs = (e.deltaX * PAN_SENSITIVITY * visibleDuration) / 100;
-			setViewport((v) => panViewport(v, panDeltaMs));
+			pan(panDeltaMs);
 		}
 	};
 
 	const handleDoubleClick = () => {
 		setLockedPosition(null);
 		setLockedElement(null);
-		setViewport((v) => resetViewport(v));
+		reset();
 	};
 
 	// We intentionally do NOT clear hoveredElement on mouseLeave (null).
@@ -387,9 +415,9 @@ export function TraceViewer(props: TraceViewerProps) {
 	const handleSpanSelect = (spanId: string) => {
 		// Find the span to get its start time
 		const allSpans = [
-			...traceData.steps(),
-			...traceData.browserSpans(),
-			...traceData.externalSpans(),
+			...props.traceData.steps(),
+			...props.traceData.browserSpans(),
+			...props.traceData.externalSpans(),
 		];
 		const span = allSpans.find((s) => s.id === spanId);
 
@@ -421,9 +449,9 @@ export function TraceViewer(props: TraceViewerProps) {
 
 		// Find the span
 		const allSpans = [
-			...traceData.steps(),
-			...traceData.browserSpans(),
-			...traceData.externalSpans(),
+			...props.traceData.steps(),
+			...props.traceData.browserSpans(),
+			...props.traceData.externalSpans(),
 		];
 		const span = allSpans.find((s) => s.id === spanId);
 
@@ -478,10 +506,10 @@ export function TraceViewer(props: TraceViewerProps) {
 		if (timeMs === null) return null;
 		return getElementsAtTime(
 			timeMs,
-			traceData.steps(),
-			[...traceData.browserSpans(), ...traceData.externalSpans()],
+			props.traceData.steps(),
+			[...props.traceData.browserSpans(), ...props.traceData.externalSpans()],
 			props.traceInfo.screenshots,
-			testStartTimeMs(),
+			props.testStartTimeMs(),
 		);
 	});
 
@@ -490,10 +518,10 @@ export function TraceViewer(props: TraceViewerProps) {
 		if (timeMs === null) return null;
 		return getElementsAtTime(
 			timeMs,
-			traceData.steps(),
-			[...traceData.browserSpans(), ...traceData.externalSpans()],
+			props.traceData.steps(),
+			[...props.traceData.browserSpans(), ...props.traceData.externalSpans()],
 			props.traceInfo.screenshots,
-			testStartTimeMs(),
+			props.testStartTimeMs(),
 		);
 	});
 
@@ -559,7 +587,7 @@ export function TraceViewer(props: TraceViewerProps) {
 				case "steps":
 					return (
 						<StepsTimeline
-							steps={traceData.steps()}
+							steps={props.traceData.steps()}
 							onStepHover={handleStepHover}
 							matchedSpanIds={search.matchedSpanIds()}
 							hoveredSearchSpanId={hoveredSearchSpanId()}
@@ -568,7 +596,7 @@ export function TraceViewer(props: TraceViewerProps) {
 				case "browser":
 					return (
 						<BrowserSpansPanel
-							spans={traceData.browserSpans()}
+							spans={props.traceData.browserSpans()}
 							onSpanHover={handleSpanHover}
 							matchedSpanIds={search.matchedSpanIds()}
 							hoveredSearchSpanId={hoveredSearchSpanId()}
@@ -577,7 +605,7 @@ export function TraceViewer(props: TraceViewerProps) {
 				case "external":
 					return (
 						<ExternalSpansPanel
-							spans={traceData.externalSpans()}
+							spans={props.traceData.externalSpans()}
 							onSpanHover={handleSpanHover}
 							matchedSpanIds={search.matchedSpanIds()}
 							hoveredSearchSpanId={hoveredSearchSpanId()}
@@ -616,15 +644,15 @@ export function TraceViewer(props: TraceViewerProps) {
 			onWheel={handleWheel}
 			onDblClick={handleDoubleClick}
 		>
-			<Show when={traceData.isLoading()}>
+			<Show when={props.traceData.isLoading()}>
 				<LoadingOverlay
-					loaded={traceData.progress().loaded}
-					total={traceData.progress().total}
+					loaded={props.traceData.progress().loaded}
+					total={props.traceData.progress().total}
 				/>
 			</Show>
 
 			<TimelineRuler
-				durationMs={durationMs()}
+				durationMs={props.traceData.totalDurationMs()}
 				viewport={viewport()}
 				hoverPosition={hoverPosition()}
 				onViewportChange={handleViewportChange}
@@ -648,7 +676,7 @@ export function TraceViewer(props: TraceViewerProps) {
 								<ScreenshotFilmstrip
 									screenshots={props.traceInfo.screenshots}
 									viewport={viewport()}
-									testStartTimeMs={testStartTimeMs()}
+									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}
 								/>
 							</Show>
@@ -664,7 +692,7 @@ export function TraceViewer(props: TraceViewerProps) {
 								<ScreenshotFilmstrip
 									screenshots={props.traceInfo.screenshots}
 									viewport={viewport()}
-									testStartTimeMs={testStartTimeMs()}
+									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}
 								/>
 							}
@@ -743,51 +771,31 @@ export function TraceViewer(props: TraceViewerProps) {
 	);
 
 	return (
-		<ViewportProvider durationMs={durationMs} testStartTimeMs={testStartTimeMs}>
-			<SearchProvider
-				spans={() => [
-					...traceData.steps(),
-					...traceData.browserSpans(),
-					...traceData.externalSpans(),
-				]}
-			>
-				<HoverProvider
-					steps={() => traceData.steps()}
-					spans={() => [
-						...traceData.browserSpans(),
-						...traceData.externalSpans(),
-					]}
-					screenshots={props.traceInfo.screenshots}
-					testStartTimeMs={testStartTimeMs}
-				>
-					<div class="flex flex-col h-full w-full bg-white text-gray-900">
-						<TraceViewerHeader
-							testInfo={props.traceInfo.testInfo}
-							hoverTimeMs={displayTimeMs}
-							onSpanSelect={handleSpanSelect}
-							onSpanHover={handleSearchResultHover}
-						/>
+		<div class="flex flex-col h-full w-full bg-white text-gray-900">
+			<TraceViewerHeader
+				testInfo={props.traceInfo.testInfo}
+				hoverTimeMs={displayTimeMs}
+				onSpanSelect={handleSpanSelect}
+				onSpanHover={handleSearchResultHover}
+			/>
 
-						<div class="flex-1 min-h-0">
-							<ResizablePanel
-								direction="horizontal"
-								initialFirstPanelSize={75}
-								minFirstPanelSize={50}
-								maxFirstPanelSize={90}
-								firstPanel={<MainPanelContent />}
-								secondPanel={
-									<DetailsPanel
-										traceInfo={props.traceInfo}
-										hoveredElements={displayElements()}
-										testStartTimeMs={testStartTimeMs()}
-										focusedElement={displayFocusedElement()}
-									/>
-								}
-							/>
-						</div>
-					</div>
-				</HoverProvider>
-			</SearchProvider>
-		</ViewportProvider>
+			<div class="flex-1 min-h-0">
+				<ResizablePanel
+					direction="horizontal"
+					initialFirstPanelSize={75}
+					minFirstPanelSize={50}
+					maxFirstPanelSize={90}
+					firstPanel={<MainPanelContent />}
+					secondPanel={
+						<DetailsPanel
+							traceInfo={props.traceInfo}
+							hoveredElements={displayElements()}
+							testStartTimeMs={props.testStartTimeMs()}
+							focusedElement={displayFocusedElement()}
+						/>
+					}
+				/>
+			</div>
+		</div>
 	);
 }
