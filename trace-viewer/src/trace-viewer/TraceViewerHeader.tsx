@@ -113,7 +113,7 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 				</div>
 
 				{/* Search */}
-				<div class="w-64">
+				<div class="w-80">
 					<SearchCombobox
 						results={search.results()}
 						query={search.query()}

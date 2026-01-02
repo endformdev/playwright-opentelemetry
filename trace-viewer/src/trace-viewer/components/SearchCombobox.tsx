@@ -14,6 +14,7 @@ import {
 	For,
 	type JSX,
 	onCleanup,
+	onMount,
 	Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -82,7 +83,9 @@ export function SearchCombobox(props: SearchComboboxProps) {
 	// Debounce logic - keep local value for responsive typing
 	const [localValue, setLocalValue] = createSignal(props.query);
 	const [isOpen, setIsOpen] = createSignal(false);
+	const [isFocused, setIsFocused] = createSignal(false);
 	let debounceTimeout: number | undefined;
+	let inputRef: HTMLInputElement | undefined;
 
 	// Sync external query changes (e.g., when cleared externally)
 	createEffect(() => setLocalValue(props.query));
@@ -152,6 +155,25 @@ export function SearchCombobox(props: SearchComboboxProps) {
 		props.onResultHover?.(null);
 	};
 
+	// Global keyboard shortcut for "/" to focus search
+	onMount(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			// Only trigger if "/" is pressed and we're not already in an input/textarea
+			if (
+				e.key === "/" &&
+				!isFocused() &&
+				!(e.target instanceof HTMLInputElement) &&
+				!(e.target instanceof HTMLTextAreaElement)
+			) {
+				e.preventDefault();
+				inputRef?.focus();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+		onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
+	});
+
 	onCleanup(() => {
 		if (debounceTimeout) clearTimeout(debounceTimeout);
 	});
@@ -175,11 +197,23 @@ export function SearchCombobox(props: SearchComboboxProps) {
 				</div>
 
 				<Combobox.Input
+					ref={inputRef}
+					onFocus={() => setIsFocused(true)}
+					onBlur={() => setIsFocused(false)}
 					class="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-300 rounded-md 
                  bg-gray-50 focus:bg-white
                  focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 					placeholder={props.placeholder || "Search spans..."}
 				/>
+
+				{/* Keyboard shortcut hint */}
+				<Show when={!isFocused() && !localValue()}>
+					<div class="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+						<kbd class="px-1.5 py-0.5 text-xs font-mono text-gray-400 bg-gray-100 border border-gray-300 rounded">
+							/
+						</kbd>
+					</div>
+				</Show>
 
 				<Show when={localValue()}>
 					<Combobox.ClearTrigger
