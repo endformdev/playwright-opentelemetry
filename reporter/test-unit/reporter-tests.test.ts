@@ -282,3 +282,310 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 		);
 	});
 });
+
+describe("PlaywrightOpentelemetryReporter - Span Timing Encapsulation", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("expands test span start time to encompass beforeEach hook that starts earlier", async () => {
+		// Simulate a beforeEach hook that runs before the test body starts
+		// Test reported start: 10:00:00.100
+		// beforeEach hook starts: 10:00:00.000 (100ms earlier)
+		await runReporterTest({
+			test: {
+				title: "test with beforeEach",
+				titlePath: ["", "chromium", "test.spec.ts", "test with beforeEach"],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+			result: {
+				startTime: new Date("2025-11-06T10:00:00.100Z"),
+				duration: 500, // ends at 10:00:00.600
+				steps: [
+					{
+						title: "beforeEach hook",
+						category: "hook",
+						startTime: new Date("2025-11-06T10:00:00.000Z"), // starts 100ms before test
+						duration: 80, // ends at 10:00:00.080
+					},
+					{
+						title: "Test body step",
+						category: "test.step",
+						startTime: new Date("2025-11-06T10:00:00.150Z"),
+						duration: 200,
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const testSpan = spans.find(
+			(s: { name: string }) => s.name === TEST_SPAN_NAME,
+		);
+
+		// Test span should start when the beforeEach hook started
+		expect(testSpan.startTime).toEqual(new Date("2025-11-06T10:00:00.000Z"));
+		// Test span should end at the reported end time (no later steps)
+		expect(testSpan.endTime).toEqual(new Date("2025-11-06T10:00:00.600Z"));
+	});
+
+	it("expands test span end time to encompass afterEach hook that ends later", async () => {
+		// Simulate an afterEach hook that runs after the test body ends
+		// Test reported end: 10:00:00.600 (start + duration)
+		// afterEach hook ends: 10:00:00.800 (200ms later)
+		await runReporterTest({
+			test: {
+				title: "test with afterEach",
+				titlePath: ["", "chromium", "test.spec.ts", "test with afterEach"],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+			result: {
+				startTime: new Date("2025-11-06T10:00:00.100Z"),
+				duration: 500, // ends at 10:00:00.600
+				steps: [
+					{
+						title: "Test body step",
+						category: "test.step",
+						startTime: new Date("2025-11-06T10:00:00.150Z"),
+						duration: 200,
+					},
+					{
+						title: "afterEach hook",
+						category: "hook",
+						startTime: new Date("2025-11-06T10:00:00.600Z"), // starts when test body ends
+						duration: 200, // ends at 10:00:00.800
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const testSpan = spans.find(
+			(s: { name: string }) => s.name === TEST_SPAN_NAME,
+		);
+
+		// Test span should start at reported start time
+		expect(testSpan.startTime).toEqual(new Date("2025-11-06T10:00:00.100Z"));
+		// Test span should end when the afterEach hook ends
+		expect(testSpan.endTime).toEqual(new Date("2025-11-06T10:00:00.800Z"));
+	});
+
+	it("expands test span to encompass both beforeEach and afterEach hooks", async () => {
+		// Full scenario: beforeEach starts before test, afterEach ends after test
+		await runReporterTest({
+			test: {
+				title: "test with both hooks",
+				titlePath: ["", "chromium", "test.spec.ts", "test with both hooks"],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+			result: {
+				startTime: new Date("2025-11-06T10:00:00.200Z"),
+				duration: 400, // ends at 10:00:00.600
+				steps: [
+					{
+						title: "beforeEach hook",
+						category: "hook",
+						startTime: new Date("2025-11-06T10:00:00.000Z"), // 200ms before test
+						duration: 150, // ends at 10:00:00.150
+					},
+					{
+						title: "Test body step",
+						category: "test.step",
+						startTime: new Date("2025-11-06T10:00:00.250Z"),
+						duration: 300,
+					},
+					{
+						title: "afterEach hook",
+						category: "hook",
+						startTime: new Date("2025-11-06T10:00:00.600Z"),
+						duration: 300, // ends at 10:00:00.900
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const testSpan = spans.find(
+			(s: { name: string }) => s.name === TEST_SPAN_NAME,
+		);
+
+		// Test span should encompass the full lifecycle
+		expect(testSpan.startTime).toEqual(new Date("2025-11-06T10:00:00.000Z"));
+		expect(testSpan.endTime).toEqual(new Date("2025-11-06T10:00:00.900Z"));
+	});
+
+	it("expands test span for fixture setup that starts before test", async () => {
+		// Fixtures can also run before the test body
+		await runReporterTest({
+			test: {
+				title: "test with fixture",
+				titlePath: ["", "chromium", "test.spec.ts", "test with fixture"],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+			result: {
+				startTime: new Date("2025-11-06T10:00:00.300Z"),
+				duration: 400,
+				steps: [
+					{
+						title: "fixture: page",
+						category: "fixture",
+						startTime: new Date("2025-11-06T10:00:00.050Z"), // fixture setup before test
+						duration: 200,
+						location: {
+							file: "/Users/test/project/node_modules/@playwright/test/index.js",
+							line: 100,
+						},
+					},
+					{
+						title: "Test step",
+						category: "test.step",
+						startTime: new Date("2025-11-06T10:00:00.350Z"),
+						duration: 200,
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const testSpan = spans.find(
+			(s: { name: string }) => s.name === TEST_SPAN_NAME,
+		);
+
+		// Test span should start when fixture setup started
+		expect(testSpan.startTime).toEqual(new Date("2025-11-06T10:00:00.050Z"));
+	});
+
+	it("expands test span for nested steps that extend beyond parent timing", async () => {
+		// Nested steps can sometimes have timing that extends beyond their parent
+		await runReporterTest({
+			test: {
+				title: "test with nested steps",
+				titlePath: ["", "chromium", "test.spec.ts", "test with nested steps"],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+			result: {
+				startTime: new Date("2025-11-06T10:00:00.100Z"),
+				duration: 400, // ends at 10:00:00.500
+				steps: [
+					{
+						title: "Parent step",
+						category: "test.step",
+						startTime: new Date("2025-11-06T10:00:00.150Z"),
+						duration: 200,
+						steps: [
+							{
+								title: "Nested async step",
+								category: "test.step",
+								startTime: new Date("2025-11-06T10:00:00.200Z"),
+								duration: 500, // ends at 10:00:00.700 - beyond test end
+							},
+						],
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const testSpan = spans.find(
+			(s: { name: string }) => s.name === TEST_SPAN_NAME,
+		);
+
+		// Test span should end when the nested step ends
+		expect(testSpan.endTime).toEqual(new Date("2025-11-06T10:00:00.700Z"));
+	});
+
+	it("keeps original timing when all steps are within test bounds", async () => {
+		// When all steps fit within the test timing, don't expand
+		await runReporterTest({
+			test: {
+				title: "test with contained steps",
+				titlePath: [
+					"",
+					"chromium",
+					"test.spec.ts",
+					"test with contained steps",
+				],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+			result: {
+				startTime: new Date("2025-11-06T10:00:00.000Z"),
+				duration: 1000, // ends at 10:00:01.000
+				steps: [
+					{
+						title: "Step 1",
+						category: "test.step",
+						startTime: new Date("2025-11-06T10:00:00.100Z"),
+						duration: 200,
+					},
+					{
+						title: "Step 2",
+						category: "test.step",
+						startTime: new Date("2025-11-06T10:00:00.400Z"),
+						duration: 300,
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const testSpan = spans.find(
+			(s: { name: string }) => s.name === TEST_SPAN_NAME,
+		);
+
+		// Test span should keep original timing
+		expect(testSpan.startTime).toEqual(new Date("2025-11-06T10:00:00.000Z"));
+		expect(testSpan.endTime).toEqual(new Date("2025-11-06T10:00:01.000Z"));
+	});
+
+	it("uses original timing when there are no steps", async () => {
+		await runReporterTest({
+			test: {
+				title: "test without steps",
+				titlePath: ["", "chromium", "test.spec.ts", "test without steps"],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+			result: {
+				startTime: new Date("2025-11-06T10:00:00.000Z"),
+				duration: 500,
+				steps: [],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const testSpan = spans.find(
+			(s: { name: string }) => s.name === TEST_SPAN_NAME,
+		);
+
+		// Test span should use original timing
+		expect(testSpan.startTime).toEqual(new Date("2025-11-06T10:00:00.000Z"));
+		expect(testSpan.endTime).toEqual(new Date("2025-11-06T10:00:00.500Z"));
+	});
+});

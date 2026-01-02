@@ -1018,8 +1018,8 @@ function SpanDetails(props: SpanDetailsProps) {
 	const color = () => props.colorFn(depth, span);
 
 	// Format timing info
-	const startTimeDisplay = () => {
-		const absoluteMs = props.testStartTimeMs + span.startOffsetMs;
+	const formatAbsoluteTime = (offsetMs: number) => {
+		const absoluteMs = props.testStartTimeMs + offsetMs;
 		const absoluteDate = new Date(absoluteMs);
 		const timeStr = absoluteDate.toLocaleTimeString("en-US", {
 			hour12: false,
@@ -1028,22 +1028,16 @@ function SpanDetails(props: SpanDetailsProps) {
 			second: "2-digit",
 		});
 		const msStr = String(absoluteMs % 1000).padStart(3, "0");
-		return `${timeStr}.${msStr} (${formatDuration(span.startOffsetMs)} from start)`;
+		return `${timeStr}.${msStr}`;
 	};
 
-	const endTimeDisplay = () => {
-		const endOffsetMs = span.startOffsetMs + span.durationMs;
-		const absoluteMs = props.testStartTimeMs + endOffsetMs;
-		const absoluteDate = new Date(absoluteMs);
-		const timeStr = absoluteDate.toLocaleTimeString("en-US", {
-			hour12: false,
-			hour: "2-digit",
-			minute: "2-digit",
-			second: "2-digit",
-		});
-		const msStr = String(absoluteMs % 1000).padStart(3, "0");
-		return `${timeStr}.${msStr} (${formatDuration(endOffsetMs)} from start)`;
-	};
+	const endOffsetMs = () => span.startOffsetMs + span.durationMs;
+
+	const timeRangeDisplay = () =>
+		`${formatDuration(span.startOffsetMs)} → ${formatDuration(endOffsetMs())}`;
+
+	const absoluteTimeTooltip = () =>
+		`Start: ${formatAbsoluteTime(span.startOffsetMs)}\nEnd: ${formatAbsoluteTime(endOffsetMs())}`;
 
 	// Get attributes as entries, filtering out title attributes since we show title separately
 	const attributeEntries = () => {
@@ -1074,19 +1068,22 @@ function SpanDetails(props: SpanDetailsProps) {
 
 			{/* Details */}
 			<div class="bg-gray-50 px-3 py-2 space-y-2 text-xs">
-				{/* Timing info */}
-				<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
-					<span class="text-gray-500">Duration:</span>
-					<span class="font-mono text-gray-900">
-						{formatDuration(span.durationMs)}
+				{/* Timing info - responsive single row that wraps on small widths */}
+				<div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+					<span>
+						<span class="text-gray-500">Duration: </span>
+						<span class="font-mono text-gray-900">
+							{formatDuration(span.durationMs)}
+						</span>
 					</span>
+					<span class="cursor-help" title={absoluteTimeTooltip()}>
+						<span class="text-gray-500">Time: </span>
+						<span class="font-mono text-gray-500">{timeRangeDisplay()}</span>
+					</span>
+				</div>
 
-					<span class="text-gray-500">Start:</span>
-					<span class="font-mono text-gray-900">{startTimeDisplay()}</span>
-
-					<span class="text-gray-500">End:</span>
-					<span class="font-mono text-gray-900">{endTimeDisplay()}</span>
-
+				{/* Other span info */}
+				<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
 					<span class="text-gray-500">Kind:</span>
 					<span class="text-gray-900 capitalize">{span.kind}</span>
 
