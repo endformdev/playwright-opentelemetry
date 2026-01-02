@@ -74,7 +74,6 @@ export async function fixtureCaptureRequestResponse({
 	// - startTime: absolute timestamp in ms since epoch
 	// - responseEnd: relative to startTime in ms, -1 if not available
 	const timing = request.timing();
-
 	const startTime = new Date(timing.startTime);
 	const endTime =
 		timing.responseEnd >= 0

@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { Request, Response } from "@playwright/test";
 import { test as base } from "@playwright/test";
 import { writePageTestMapping } from "../shared/trace-files";
 import { fixtureOtelHeaderPropagator } from "./network-propagator";
@@ -41,8 +42,34 @@ export const test = base.extend<{
 		// Access internal _guid property used for page identification
 		const pageGuid = (page as unknown as { _guid: string })._guid;
 		writePageTestMapping(outputDir, testId, pageGuid);
-		page.on("response", async (response) => {
-			const request = response.request();
+
+		// Two-phase capture approach:
+		// 1. On 'response': Store the Response object (available synchronously)
+		// 2. On 'requestfinished': Use stored response + accurate timing
+		//
+		// This solves two problems:
+		// - 'response' event has timing.responseEnd = -1 (body not downloaded yet)
+		// - 'requestfinished' requires async request.response() which may fail if page closes
+		const pendingRequests = new Map<Request, Response>();
+
+		page.on("response", (response) => {
+			// Store response synchronously - no await needed
+			pendingRequests.set(response.request(), response);
+		});
+
+		page.on("requestfinished", async (request) => {
+			// Get the stored response - no async request.response() call needed
+			const response = pendingRequests.get(request);
+			pendingRequests.delete(request);
+
+			if (!response) {
+				// No response stored - request may have failed or been handled differently
+				return;
+			}
+
+			// Now we have both:
+			// - The Response object (captured at 'response' event)
+			// - Accurate timing with responseEnd (available at 'requestfinished')
 			await fixtureCaptureRequestResponse({
 				request,
 				response,
@@ -50,6 +77,7 @@ export const test = base.extend<{
 				outputDir,
 			});
 		});
+
 		await use(page);
 	},
 });
