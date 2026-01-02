@@ -12,8 +12,7 @@
 		"dev": "vite",
 		"build": "tsc && vite build",
 		"preview": "vite preview",
-		"test": "vitest",
-		"test:run": "vitest run",
+		"test:e2e": "playwright test",
 		"typecheck": "tsc --noEmit"
 	},
 	"keywords": [
@@ -25,10 +24,10 @@
 	"author": "Oliver Stenbom <oliver@endform.dev>",
 	"license": "Apache-2.0",
 	"packageManager": "pnpm@10.10.0",
-	"dependencies": {},
 	"devDependencies": {
 		"@ark-ui/solid": "^5.30.0",
 		"@leeoniya/ufuzzy": "^1.0.19",
+		"@playwright/test": "^1.57.0",
 		"@tailwindcss/vite": "^4.1.18",
 		"@zip.js/zip.js": "^2.8.11",
 		"lucide-solid": "^0.562.0",

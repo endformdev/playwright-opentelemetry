@@ -4,7 +4,7 @@ export default defineConfig({
 	test: {
 		include: [
 			"reporter/test-unit/**/*.test.ts",
-			"trace-viewer/test-unit/**/*.{test,spec}.{ts,tsx}",
+			"trace-viewer/src/**/*.{test,spec}.{ts,tsx}",
 		],
 	},
 });

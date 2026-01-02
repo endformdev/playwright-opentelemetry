@@ -98,7 +98,10 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 								<span class="text-gray-400">›</span>
 							</span>
 						)}
-						<span class="font-semibold text-gray-900 truncate">
+						<span
+							data-testid="test-name"
+							class="font-semibold text-gray-900 truncate"
+						>
 							{testInfo.name}
 						</span>
 					</div>

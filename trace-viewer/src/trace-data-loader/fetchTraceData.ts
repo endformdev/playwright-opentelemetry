@@ -33,12 +33,12 @@ const OtlpSpanSchema = v.object({
 	startTimeUnixNano: v.string(),
 	endTimeUnixNano: v.string(),
 	attributes: v.array(OtlpAttributeSchema),
-	droppedAttributesCount: v.number(),
+	droppedAttributesCount: v.fallback(v.number(), 0),
 	events: v.array(v.unknown()),
-	droppedEventsCount: v.number(),
+	droppedEventsCount: v.fallback(v.number(), 0),
 	status: OtlpSpanStatusSchema,
 	links: v.array(v.unknown()),
-	droppedLinksCount: v.number(),
+	droppedLinksCount: v.fallback(v.number(), 0),
 });
 
 const OtlpScopeSchema = v.object({
