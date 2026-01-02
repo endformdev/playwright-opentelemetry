@@ -22,6 +22,8 @@ const ROW_HEIGHT = 28;
 export interface BrowserSpansPanelProps {
 	spans: Span[];
 	onSpanHover?: (spanId: string | null) => void;
+	matchedSpanIds?: Set<string>;
+	hoveredSearchSpanId?: string | null;
 }
 
 function spansToSpanInput(spans: Span[]): SpanInput[] {
@@ -78,10 +80,22 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 		const widthPercent = () => rightPercent() - leftPercent();
 		const resourceType = resourceTypeMap().get(packedSpan.id) ?? "other";
 
+		// Make shouldHighlight a function to ensure reactivity
+		const shouldHighlight = () => {
+			// If hovering a specific search result, only highlight that one
+			// Otherwise, highlight all matched spans
+			return props.hoveredSearchSpanId
+				? packedSpan.id === props.hoveredSearchSpanId
+				: props.matchedSpanIds?.has(packedSpan.id);
+		};
+
 		return (
 			// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-span feature
 			<div
 				class="absolute h-6 rounded text-xs flex items-center gap-1.5 px-2 text-white truncate cursor-pointer hover:brightness-110"
+				classList={{
+					"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
+				}}
 				style={{
 					left: `${leftPercent()}%`,
 					width: `${Math.max(widthPercent(), 2)}%`,

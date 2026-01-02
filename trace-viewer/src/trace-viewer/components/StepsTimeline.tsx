@@ -15,6 +15,8 @@ const ROW_HEIGHT = 28;
 export interface StepsTimelineProps {
 	steps: Span[];
 	onStepHover?: (stepId: string | null) => void;
+	matchedSpanIds?: Set<string>;
+	hoveredSearchSpanId?: string | null;
 }
 
 function spansToSpanInput(spans: Span[]): SpanInput[] {
@@ -101,10 +103,22 @@ export function StepsTimeline(props: StepsTimelineProps) {
 		const widthPercent = () => rightPercent() - leftPercent();
 		const depth = depthMap().get(step.id) ?? 0;
 
+		// Make shouldHighlight a function to ensure reactivity
+		const shouldHighlight = () => {
+			// If hovering a specific search result, only highlight that one
+			// Otherwise, highlight all matched spans
+			return props.hoveredSearchSpanId
+				? step.id === props.hoveredSearchSpanId
+				: props.matchedSpanIds?.has(step.id);
+		};
+
 		return (
 			// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-span feature
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-95"
+				classList={{
+					"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
+				}}
 				style={{
 					left: `${leftPercent()}%`,
 					width: `${Math.max(widthPercent(), 3)}%`,

@@ -1,13 +1,20 @@
-import { type Accessor, Show } from "solid-js";
+import { type Accessor, createSignal, Show } from "solid-js";
 import type { TestInfo } from "../trace-info-loader";
+import { SearchInput } from "./components/SearchInput";
+import { SearchResults } from "./components/SearchResults";
+import { useSearch } from "./contexts/SearchContext";
 
 export interface TraceViewerHeaderProps {
 	testInfo: TestInfo;
 	hoverTimeMs: Accessor<number | null>;
+	onSpanSelect?: (spanId: string) => void;
+	onSpanHover?: (spanId: string | null) => void;
 }
 
 export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 	const { testInfo } = props;
+	const search = useSearch();
+	const [showResults, setShowResults] = createSignal(false);
 
 	const duration = () => {
 		const startNano = BigInt(testInfo.startTimeUnixNano);
@@ -74,6 +81,21 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 		return `${date}, ${time}.${ms}`;
 	};
 
+	const handleResultClick = (spanId: string) => {
+		setShowResults(false);
+		props.onSpanSelect?.(spanId);
+	};
+
+	const handleSearchValueChange = (value: string) => {
+		search.setQuery(value);
+		setShowResults(value.length > 0);
+	};
+
+	const handleSearchClear = () => {
+		search.clearSearch();
+		setShowResults(false);
+	};
+
 	return (
 		<div class="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-3">
 			<div class="flex items-center gap-4">
@@ -101,6 +123,22 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 						<span class="font-mono">{duration()}ms</span>
 						<span class={statusColor()}>{testInfo.status}</span>
 					</div>
+				</div>
+
+				{/* Search */}
+				<div class="relative w-64">
+					<SearchInput
+						value={search.query()}
+						onValueChange={handleSearchValueChange}
+						onClear={handleSearchClear}
+					/>
+					<Show when={showResults() && search.query()}>
+						<SearchResults
+							results={search.results()}
+							onResultClick={handleResultClick}
+							onResultHover={props.onSpanHover}
+						/>
+					</Show>
 				</div>
 
 				{/* Hover Time Display */}

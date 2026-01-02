@@ -1,19 +1,12 @@
 import { createSignal, type JSX } from "solid-js";
 
 export interface ResizablePanelProps {
-	/** Direction of the split: 'horizontal' (left/right) or 'vertical' (top/bottom) */
 	direction: "horizontal" | "vertical";
-	/** Initial size of the first panel as a percentage (0-100) */
 	initialFirstPanelSize?: number;
-	/** Minimum size of the first panel as a percentage */
 	minFirstPanelSize?: number;
-	/** Maximum size of the first panel as a percentage */
 	maxFirstPanelSize?: number;
-	/** Content for the first panel */
 	firstPanel: JSX.Element;
-	/** Content for the second panel */
 	secondPanel: JSX.Element;
-	/** Additional class for the container */
 	class?: string;
 }
 
