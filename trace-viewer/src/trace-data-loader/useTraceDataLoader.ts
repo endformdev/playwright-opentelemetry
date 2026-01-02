@@ -12,7 +12,8 @@ interface TraceDataStore {
 	loadedUrls: number;
 	totalUrls: number;
 	steps: Span[];
-	spans: Span[];
+	browserSpans: Span[];
+	externalSpans: Span[];
 	totalDurationMs: number;
 	error?: Error;
 }
@@ -22,7 +23,8 @@ export interface TraceDataLoaderResult {
 	progress: Accessor<{ loaded: number; total: number }>;
 	isLoading: Accessor<boolean>;
 	steps: Accessor<Span[]>;
-	spans: Accessor<Span[]>;
+	browserSpans: Accessor<Span[]>;
+	externalSpans: Accessor<Span[]>;
 	totalDurationMs: Accessor<number>;
 	error: Accessor<Error | undefined>;
 }
@@ -66,7 +68,8 @@ export function useTraceDataLoader(
 				loadedUrls: 0,
 				totalUrls: urls.length,
 				steps: [],
-				spans: [],
+				browserSpans: [],
+				externalSpans: [],
 				totalDurationMs,
 				error: undefined,
 			});
@@ -95,7 +98,8 @@ export function useTraceDataLoader(
 		progress: () => ({ loaded: store.loadedUrls, total: store.totalUrls }),
 		isLoading: () => store.status === "loading",
 		steps: () => store.steps,
-		spans: () => store.spans,
+		browserSpans: () => store.browserSpans,
+		externalSpans: () => store.externalSpans,
 		totalDurationMs: () => store.totalDurationMs,
 		error: () => store.error,
 	};
@@ -125,11 +129,16 @@ async function loadAllUrls(
 		setStore(
 			produce((state) => {
 				const merged = mergeSpans(
-					{ steps: state.steps, spans: state.spans },
+					{
+						steps: state.steps,
+						browserSpans: state.browserSpans,
+						externalSpans: state.externalSpans,
+					},
 					result,
 				);
 				state.steps = merged.steps;
-				state.spans = merged.spans;
+				state.browserSpans = merged.browserSpans;
+				state.externalSpans = merged.externalSpans;
 				state.loadedUrls += 1;
 			}),
 		);
@@ -171,7 +180,8 @@ function createInitialTraceDataStore(): TraceDataStore {
 		loadedUrls: 0,
 		totalUrls: 0,
 		steps: [],
-		spans: [],
+		browserSpans: [],
+		externalSpans: [],
 		totalDurationMs: 0,
 	};
 }

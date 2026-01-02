@@ -10,11 +10,12 @@ describe("otlpSpanToSpan", () => {
 			name: "HTTP GET",
 		});
 
-		const result = otlpSpanToSpan(span, 500); // test started at 500ms
+		const result = otlpSpanToSpan(span, 500, "test-service"); // test started at 500ms
 
 		expect(result.id).toBe("def456");
 		expect(result.traceId).toBe("abc123");
 		expect(result.name).toBe("HTTP GET");
+		expect(result.serviceName).toBe("test-service");
 	});
 
 	it("calculates startOffsetMs relative to test start", () => {
@@ -27,7 +28,7 @@ describe("otlpSpanToSpan", () => {
 
 		// Test started at 1000ms (in milliseconds, matching what TestInfo provides)
 		const testStartTimeMs = 1000;
-		const result = otlpSpanToSpan(span, testStartTimeMs);
+		const result = otlpSpanToSpan(span, testStartTimeMs, "test-service");
 
 		// startOffsetMs = 2000ms - 1000ms = 1000ms
 		expect(result.startOffsetMs).toBe(1000);
@@ -43,8 +44,12 @@ describe("otlpSpanToSpan", () => {
 			parentSpanId: undefined,
 		});
 
-		expect(otlpSpanToSpan(spanWithParent, 0).parentId).toBe("parent123");
-		expect(otlpSpanToSpan(spanWithoutParent, 0).parentId).toBe(null);
+		expect(otlpSpanToSpan(spanWithParent, 0, "test-service").parentId).toBe(
+			"parent123",
+		);
+		expect(otlpSpanToSpan(spanWithoutParent, 0, "test-service").parentId).toBe(
+			null,
+		);
 	});
 
 	it("maps OTLP span kinds correctly", () => {
@@ -55,12 +60,20 @@ describe("otlpSpanToSpan", () => {
 		const consumerSpan = createOtlpSpan({ kind: 5 });
 		const unspecifiedSpan = createOtlpSpan({ kind: 0 });
 
-		expect(otlpSpanToSpan(internalSpan, 0).kind).toBe("internal");
-		expect(otlpSpanToSpan(serverSpan, 0).kind).toBe("server");
-		expect(otlpSpanToSpan(clientSpan, 0).kind).toBe("client");
-		expect(otlpSpanToSpan(producerSpan, 0).kind).toBe("producer");
-		expect(otlpSpanToSpan(consumerSpan, 0).kind).toBe("consumer");
-		expect(otlpSpanToSpan(unspecifiedSpan, 0).kind).toBe("internal"); // defaults to internal
+		expect(otlpSpanToSpan(internalSpan, 0, "test-service").kind).toBe(
+			"internal",
+		);
+		expect(otlpSpanToSpan(serverSpan, 0, "test-service").kind).toBe("server");
+		expect(otlpSpanToSpan(clientSpan, 0, "test-service").kind).toBe("client");
+		expect(otlpSpanToSpan(producerSpan, 0, "test-service").kind).toBe(
+			"producer",
+		);
+		expect(otlpSpanToSpan(consumerSpan, 0, "test-service").kind).toBe(
+			"consumer",
+		);
+		expect(otlpSpanToSpan(unspecifiedSpan, 0, "test-service").kind).toBe(
+			"internal",
+		); // defaults to internal
 	});
 
 	it("extracts title from test.step.title attribute", () => {
@@ -71,7 +84,7 @@ describe("otlpSpanToSpan", () => {
 			],
 		});
 
-		const result = otlpSpanToSpan(span, 0);
+		const result = otlpSpanToSpan(span, 0, "test-service");
 
 		expect(result.title).toBe("Click button");
 		expect(result.name).toBe("playwright.test.step");
@@ -85,7 +98,7 @@ describe("otlpSpanToSpan", () => {
 			],
 		});
 
-		const result = otlpSpanToSpan(span, 0);
+		const result = otlpSpanToSpan(span, 0, "test-service");
 
 		expect(result.title).toBe("should login");
 	});
@@ -96,7 +109,7 @@ describe("otlpSpanToSpan", () => {
 			attributes: [{ key: "http.method", value: { stringValue: "GET" } }],
 		});
 
-		const result = otlpSpanToSpan(span, 0);
+		const result = otlpSpanToSpan(span, 0, "test-service");
 
 		expect(result.title).toBe("HTTP GET /api/users");
 	});
@@ -111,12 +124,20 @@ describe("otlpSpanToSpan", () => {
 			],
 		});
 
-		const result = otlpSpanToSpan(span, 0);
+		const result = otlpSpanToSpan(span, 0, "test-service");
 
 		expect(result.attributes["string.attr"]).toBe("hello");
 		expect(result.attributes["int.attr"]).toBe(42);
 		expect(result.attributes["double.attr"]).toBe(3.14);
 		expect(result.attributes["bool.attr"]).toBe(true);
+	});
+
+	it("includes serviceName in result", () => {
+		const span = createOtlpSpan({ name: "test.span" });
+
+		const result = otlpSpanToSpan(span, 0, "playwright-browser");
+
+		expect(result.serviceName).toBe("playwright-browser");
 	});
 });
 
@@ -226,6 +247,97 @@ describe("otlpExportToSpans", () => {
 		expect(result[0].id).toBe("early");
 		expect(result[1].id).toBe("middle");
 		expect(result[2].id).toBe("late");
+	});
+
+	it("extracts service.name from resource attributes", () => {
+		const otlp: OtlpExport = {
+			resourceSpans: [
+				{
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "playwright-browser" },
+							},
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "test", version: "1.0" },
+							spans: [createOtlpSpan({ spanId: "span1" })],
+						},
+					],
+				},
+			],
+		};
+
+		const result = otlpExportToSpans(otlp, 0);
+
+		expect(result[0].serviceName).toBe("playwright-browser");
+	});
+
+	it("defaults to 'unknown' when service.name is missing", () => {
+		const otlp: OtlpExport = {
+			resourceSpans: [
+				{
+					resource: { attributes: [] },
+					scopeSpans: [
+						{
+							scope: { name: "test", version: "1.0" },
+							spans: [createOtlpSpan({ spanId: "span1" })],
+						},
+					],
+				},
+			],
+		};
+
+		const result = otlpExportToSpans(otlp, 0);
+
+		expect(result[0].serviceName).toBe("unknown");
+	});
+
+	it("applies different service names to different resourceSpans", () => {
+		const otlp: OtlpExport = {
+			resourceSpans: [
+				{
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "playwright-browser" },
+							},
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "test", version: "1.0" },
+							spans: [createOtlpSpan({ spanId: "browser-span" })],
+						},
+					],
+				},
+				{
+					resource: {
+						attributes: [
+							{ key: "service.name", value: { stringValue: "external-api" } },
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "test", version: "1.0" },
+							spans: [createOtlpSpan({ spanId: "api-span" })],
+						},
+					],
+				},
+			],
+		};
+
+		const result = otlpExportToSpans(otlp, 0);
+
+		const browserSpan = result.find((s) => s.id === "browser-span");
+		const apiSpan = result.find((s) => s.id === "api-span");
+
+		expect(browserSpan?.serviceName).toBe("playwright-browser");
+		expect(apiSpan?.serviceName).toBe("external-api");
 	});
 });
 

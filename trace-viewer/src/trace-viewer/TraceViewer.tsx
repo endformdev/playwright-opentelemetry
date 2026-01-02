@@ -1,9 +1,10 @@
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import type { TraceInfo } from "../trace-info-loader";
+import { BrowserSpansPanel } from "./components/BrowserSpansPanel";
 import { DetailsPanel } from "./components/DetailsPanel";
+import { ExternalSpansPanel } from "./components/ExternalSpansPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
-import { SpansPanel } from "./components/SpansPanel";
 import { StepsTimeline } from "./components/StepsTimeline";
 import { HoverProvider } from "./contexts/HoverContext";
 import { ViewportProvider } from "./contexts/ViewportContext";
@@ -248,7 +249,7 @@ export function TraceViewer(props: TraceViewerProps) {
 		return getElementsAtTime(
 			timeMs,
 			traceData.steps(),
-			traceData.spans(),
+			[...traceData.browserSpans(), ...traceData.externalSpans()],
 			props.traceInfo.screenshots,
 			testStartTimeMs(),
 		);
@@ -260,7 +261,7 @@ export function TraceViewer(props: TraceViewerProps) {
 		return getElementsAtTime(
 			timeMs,
 			traceData.steps(),
-			traceData.spans(),
+			[...traceData.browserSpans(), ...traceData.externalSpans()],
 			props.traceInfo.screenshots,
 			testStartTimeMs(),
 		);
@@ -362,9 +363,9 @@ export function TraceViewer(props: TraceViewerProps) {
 					secondPanel={
 						<ResizablePanel
 							direction="vertical"
-							initialFirstPanelSize={60}
+							initialFirstPanelSize={40}
 							minFirstPanelSize={20}
-							maxFirstPanelSize={80}
+							maxFirstPanelSize={60}
 							firstPanel={
 								<StepsTimeline
 									steps={traceData.steps()}
@@ -372,9 +373,23 @@ export function TraceViewer(props: TraceViewerProps) {
 								/>
 							}
 							secondPanel={
-								<SpansPanel
-									spans={traceData.spans()}
-									onSpanHover={handleSpanHover}
+								<ResizablePanel
+									direction="vertical"
+									initialFirstPanelSize={50}
+									minFirstPanelSize={20}
+									maxFirstPanelSize={80}
+									firstPanel={
+										<BrowserSpansPanel
+											spans={traceData.browserSpans()}
+											onSpanHover={handleSpanHover}
+										/>
+									}
+									secondPanel={
+										<ExternalSpansPanel
+											spans={traceData.externalSpans()}
+											onSpanHover={handleSpanHover}
+										/>
+									}
 								/>
 							}
 						/>
@@ -435,7 +450,10 @@ export function TraceViewer(props: TraceViewerProps) {
 		<ViewportProvider durationMs={durationMs} testStartTimeMs={testStartTimeMs}>
 			<HoverProvider
 				steps={() => traceData.steps()}
-				spans={() => traceData.spans()}
+				spans={() => [
+					...traceData.browserSpans(),
+					...traceData.externalSpans(),
+				]}
 				screenshots={props.traceInfo.screenshots}
 				testStartTimeMs={testStartTimeMs}
 			>

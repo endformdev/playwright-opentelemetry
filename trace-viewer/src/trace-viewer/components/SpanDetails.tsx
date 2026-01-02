@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, type JSX } from "solid-js";
 import type { Span } from "../../trace-data-loader/exportToSpans";
 import type { HoveredSpan } from "../getElementsAtTime";
 import { formatAttributeValue, formatDuration } from "../formatters";
@@ -8,6 +8,10 @@ export interface SpanDetailsProps {
 	testStartTimeMs: number;
 	colorFn: (depth: number, span: Span) => string;
 	isFocused: boolean;
+	/** Optional icon to display in header */
+	icon?: JSX.Element;
+	/** Optional override for display title */
+	displayTitle?: string;
 }
 
 export function SpanDetails(props: SpanDetailsProps) {
@@ -55,10 +59,11 @@ export function SpanDetails(props: SpanDetailsProps) {
 		>
 			{/* Header with span name and color indicator */}
 			<div
-				class="px-3 py-2 text-white text-sm font-medium"
+				class="px-3 py-2 text-white text-sm font-medium flex items-center gap-2"
 				style={{ "background-color": color() }}
 			>
-				{span.title}
+				{props.icon}
+				<span class="truncate">{props.displayTitle ?? span.title}</span>
 			</div>
 
 			{/* Details */}

@@ -5,6 +5,12 @@ import {
 	flattenHoveredSpans,
 	type HoveredElements,
 } from "../getElementsAtTime";
+import {
+	getResourceColor,
+	getResourceDisplayName,
+	getResourceIcon,
+	getResourceType,
+} from "./browserSpanStyles";
 import { SpanDetails } from "./SpanDetails";
 
 const SCROLL_DEBOUNCE_MS = 16; // ~1 frame - keeps it responsive while batching rapid hovers
@@ -44,10 +50,18 @@ export function DetailsPanel(props: DetailsPanelProps) {
 		props.hoveredElements
 			? flattenHoveredSpans(props.hoveredElements.steps)
 			: [];
-	const flatSpans = () =>
+
+	const allSpans = () =>
 		props.hoveredElements
 			? flattenHoveredSpans(props.hoveredElements.spans)
 			: [];
+
+	// Split spans by service name
+	const flatBrowserSpans = () =>
+		allSpans().filter((hs) => hs.span.serviceName === "playwright-browser");
+
+	const flatExternalSpans = () =>
+		allSpans().filter((hs) => hs.span.serviceName !== "playwright-browser");
 
 	const isSpanFocused = (spanId: string): boolean => {
 		const focused = props.focusedElement;
@@ -155,14 +169,42 @@ export function DetailsPanel(props: DetailsPanelProps) {
 							</div>
 						</Show>
 
-						{/* Spans section */}
-						<Show when={flatSpans().length > 0}>
+						{/* Browser Spans section */}
+						<Show when={flatBrowserSpans().length > 0}>
 							<div>
 								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-									Spans ({flatSpans().length})
+									Browser Spans ({flatBrowserSpans().length})
 								</div>
 								<div class="space-y-2">
-									<For each={flatSpans()}>
+									<For each={flatBrowserSpans()}>
+										{(hoveredSpan) => {
+											const resourceType = getResourceType(hoveredSpan.span);
+											return (
+												<SpanDetails
+													hoveredSpan={hoveredSpan}
+													testStartTimeMs={props.testStartTimeMs}
+													colorFn={() => getResourceColor(resourceType)}
+													isFocused={isSpanFocused(hoveredSpan.span.id)}
+													icon={getResourceIcon(resourceType, 16)}
+													displayTitle={getResourceDisplayName(
+														hoveredSpan.span,
+													)}
+												/>
+											);
+										}}
+									</For>
+								</div>
+							</div>
+						</Show>
+
+						{/* External Spans section */}
+						<Show when={flatExternalSpans().length > 0}>
+							<div>
+								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+									External Spans ({flatExternalSpans().length})
+								</div>
+								<div class="space-y-2">
+									<For each={flatExternalSpans()}>
 										{(hoveredSpan) => (
 											<SpanDetails
 												hoveredSpan={hoveredSpan}
@@ -177,7 +219,13 @@ export function DetailsPanel(props: DetailsPanelProps) {
 						</Show>
 
 						{/* Empty state when no steps or spans */}
-						<Show when={flatSteps().length === 0 && flatSpans().length === 0}>
+						<Show
+							when={
+								flatSteps().length === 0 &&
+								flatBrowserSpans().length === 0 &&
+								flatExternalSpans().length === 0
+							}
+						>
 							<div class="text-gray-400 text-sm text-center py-4">
 								No active steps or spans at this time
 							</div>
