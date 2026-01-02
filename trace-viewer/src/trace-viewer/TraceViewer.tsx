@@ -478,8 +478,6 @@ export function TraceViewer(props: TraceViewerProps) {
 		return Math.abs(selection.currentPosition - selection.startPosition) * 100;
 	};
 
-	// Render content for a panel by its ID
-	// This is called during render, so context is available
 	const renderPanelContent = (panelId: string) => {
 		switch (panelId) {
 			case "steps":
@@ -508,7 +506,6 @@ export function TraceViewer(props: TraceViewerProps) {
 		}
 	};
 
-	// Build panel configs with content rendered lazily
 	const buildPanelConfigs = (): PanelConfig[] => {
 		return spanPanelSizeConfigs().map((config) => ({
 			...config,
@@ -516,21 +513,17 @@ export function TraceViewer(props: TraceViewerProps) {
 		}));
 	};
 
-	// Render the span panels area (steps, browser, external)
 	const SpanPanelsContent = () => {
 		const configs = buildPanelConfigs();
 
-		// No active span panels
 		if (configs.length === 0) {
 			return null;
 		}
 
-		// Single panel - no need for multi-resizable
 		if (configs.length === 1) {
 			return <div class="h-full">{configs[0].content}</div>;
 		}
 
-		// Multiple panels - use multi-resizable
 		return <MultiResizablePanel direction="vertical" panels={configs} />;
 	};
 

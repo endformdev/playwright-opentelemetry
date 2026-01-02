@@ -27,7 +27,6 @@ export interface DetailsPanelProps {
 	traceInfo: TraceInfo;
 	hoveredElements: HoveredElements | null;
 	testStartTimeMs: number;
-	/** Element to scroll into view (from hover/lock tracking) */
 	focusedElement: FocusedElement | null;
 }
 
