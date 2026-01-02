@@ -38,14 +38,14 @@ describe("calculateDepthBasedSizes", () => {
 
 	it("distributes proportionally based on depth", () => {
 		const result = calculateDepthBasedSizes({
-			stepsDepth: 4, // MIN_ROWS = 4
-			browserDepth: 8, // 2x minimum
-			externalDepth: 12, // 3x minimum
+			stepsDepth: 8, // MIN_ROWS = 8
+			browserDepth: 16, // 2x minimum
+			externalDepth: 24, // 3x minimum
 		});
-		// Total effective depth: 4 + 8 + 12 = 24
-		// steps: 4/24 = 16.67%
-		// browser: 8/24 = 33.33%
-		// external: 12/24 = 50%
+		// Total effective depth: 8 + 16 + 24 = 48
+		// steps: 8/48 = 16.67%
+		// browser: 16/48 = 33.33%
+		// external: 24/48 = 50%
 		expect(result.steps).toBeCloseTo(16.67, 1);
 		expect(result.browser).toBeCloseTo(33.33, 1);
 		expect(result.external).toBeCloseTo(50, 1);
@@ -53,13 +53,13 @@ describe("calculateDepthBasedSizes", () => {
 
 	it("uses minimum of 4 rows for panels with less depth", () => {
 		const result = calculateDepthBasedSizes({
-			stepsDepth: 2, // Below minimum, will use 4
-			browserDepth: 8,
+			stepsDepth: 2, // Below minimum, will use 8
+			browserDepth: 16,
 			externalDepth: 0, // Inactive
 		});
-		// Total effective depth: 4 + 8 = 12
-		// steps: 4/12 = 33.33%
-		// browser: 8/12 = 66.67%
+		// Total effective depth: 8 + 16 = 24
+		// steps: 8/24 = 33.33%
+		// browser: 16/24 = 66.67%
 		expect(result.steps).toBeCloseTo(33.33, 1);
 		expect(result.browser).toBeCloseTo(66.67, 1);
 		expect(result.external).toBeUndefined();
@@ -79,16 +79,16 @@ describe("calculateDepthBasedSizes", () => {
 
 	it("gives more space to panel with deeper nesting", () => {
 		const result = calculateDepthBasedSizes({
-			stepsDepth: 4,
-			browserDepth: 20,
-			externalDepth: 4,
+			stepsDepth: 8,
+			browserDepth: 40,
+			externalDepth: 8,
 		});
-		// steps and external each get minimum (4)
-		// browser gets the bulk (20)
-		// Total: 4 + 20 + 4 = 28
-		expect(result.steps).toBeCloseTo((4 / 28) * 100, 1);
-		expect(result.browser).toBeCloseTo((20 / 28) * 100, 1);
-		expect(result.external).toBeCloseTo((4 / 28) * 100, 1);
+		// steps and external each get minimum (8)
+		// browser gets the bulk (40)
+		// Total: 8 + 40 + 8 = 56
+		expect(result.steps).toBeCloseTo((8 / 56) * 100, 1);
+		expect(result.browser).toBeCloseTo((40 / 56) * 100, 1);
+		expect(result.external).toBeCloseTo((8 / 56) * 100, 1);
 	});
 });
 
