@@ -845,7 +845,10 @@ interface DetailsPanelProps {
 }
 
 /** Debounce delay for scroll-to-element (prevents jitter during rapid hover changes) */
-const SCROLL_DEBOUNCE_MS = 50;
+const SCROLL_DEBOUNCE_MS = 16; // ~1 frame - keeps it responsive while batching rapid hovers
+
+/** Padding from top when scrolling to an element (in pixels) */
+const SCROLL_TOP_PADDING_PX = 16;
 
 function DetailsPanel(props: DetailsPanelProps) {
 	let containerRef: HTMLDivElement | undefined;
@@ -876,24 +879,36 @@ function DetailsPanel(props: DetailsPanelProps) {
 		return focused?.type === "screenshot";
 	};
 
-	// Scroll to focused element when it changes (with debounce to prevent jitter)
 	createEffect(() => {
 		const focused = props.focusedElement;
-		if (!focused || !containerRef) return;
+		const currentId = focused
+			? focused.type === "screenshot"
+				? "screenshot"
+				: focused.id
+			: null;
 
-		let selector: string;
-		if (focused.type === "screenshot") {
-			selector = "[data-screenshot]";
-		} else {
-			// For steps and spans, use the span ID
-			selector = `[data-span-id="${focused.id}"]`;
-		}
+		if (!currentId || !containerRef) return;
 
-		// Debounce scroll to avoid jitter during rapid hover transitions
+		const selector =
+			focused!.type === "screenshot"
+				? "[data-screenshot]"
+				: `[data-span-id="${focused!.id}"]`;
+
 		const timeout = setTimeout(() => {
 			const element = containerRef?.querySelector(selector);
-			if (element) {
-				element.scrollIntoView({ behavior: "instant", block: "nearest" });
+			if (element && containerRef) {
+				const elementRect = element.getBoundingClientRect();
+				const containerRect = containerRef.getBoundingClientRect();
+				const elementTopInScrollArea =
+					elementRect.top - containerRect.top + containerRef.scrollTop;
+				const targetScrollTop = Math.max(
+					0,
+					elementTopInScrollArea - SCROLL_TOP_PADDING_PX,
+				);
+				containerRef.scrollTo({
+					top: targetScrollTop,
+					behavior: "smooth",
+				});
 			}
 		}, SCROLL_DEBOUNCE_MS);
 
