@@ -21,6 +21,7 @@
 	"license": "Apache-2.0",
 	"packageManager": "pnpm@10.10.0",
 	"dependencies": {
+		"@ark-ui/solid": "^5.30.0",
 		"@leeoniya/ufuzzy": "^1.0.19",
 		"@zip.js/zip.js": "^2.8.11",
 		"lucide-solid": "^0.562.0",

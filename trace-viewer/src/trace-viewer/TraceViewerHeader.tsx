@@ -1,7 +1,6 @@
-import { type Accessor, createSignal, Show } from "solid-js";
+import { type Accessor, Show } from "solid-js";
 import type { TestInfo } from "../trace-info-loader";
-import { SearchInput } from "./components/SearchInput";
-import { SearchResults } from "./components/SearchResults";
+import { SearchCombobox } from "./components/SearchCombobox";
 import { useSearch } from "./contexts/SearchContext";
 
 export interface TraceViewerHeaderProps {
@@ -14,7 +13,6 @@ export interface TraceViewerHeaderProps {
 export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 	const { testInfo } = props;
 	const search = useSearch();
-	const [showResults, setShowResults] = createSignal(false);
 
 	const duration = () => {
 		const startNano = BigInt(testInfo.startTimeUnixNano);
@@ -81,19 +79,8 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 		return `${date}, ${time}.${ms}`;
 	};
 
-	const handleResultClick = (spanId: string) => {
-		setShowResults(false);
+	const handleResultSelect = (spanId: string) => {
 		props.onSpanSelect?.(spanId);
-	};
-
-	const handleSearchValueChange = (value: string) => {
-		search.setQuery(value);
-		setShowResults(value.length > 0);
-	};
-
-	const handleSearchClear = () => {
-		search.clearSearch();
-		setShowResults(false);
 	};
 
 	return (
@@ -126,19 +113,15 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 				</div>
 
 				{/* Search */}
-				<div class="relative w-64">
-					<SearchInput
-						value={search.query()}
-						onValueChange={handleSearchValueChange}
-						onClear={handleSearchClear}
+				<div class="w-64">
+					<SearchCombobox
+						results={search.results()}
+						query={search.query()}
+						onQueryChange={search.setQuery}
+						onClear={search.clearSearch}
+						onResultSelect={handleResultSelect}
+						onResultHover={props.onSpanHover}
 					/>
-					<Show when={showResults() && search.query()}>
-						<SearchResults
-							results={search.results()}
-							onResultClick={handleResultClick}
-							onResultHover={props.onSpanHover}
-						/>
-					</Show>
 				</div>
 
 				{/* Hover Time Display */}
