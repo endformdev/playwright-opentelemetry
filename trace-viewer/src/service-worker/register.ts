@@ -36,7 +36,10 @@ export type ServiceWorkerMessage =
 	| { type: "UNLOAD_TRACE" }
 	| { type: "PING" };
 
-export type ServiceWorkerResponse = { type: "TRACE_LOADED" } | { type: "PONG" };
+export type ServiceWorkerResponse =
+	| { type: "TRACE_LOADED" }
+	| { type: "TRACE_LOAD_ERROR"; error: string }
+	| { type: "PONG" };
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
 	if (!("serviceWorker" in navigator)) {
@@ -55,15 +58,8 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 	// Wait for the service worker to be ready
 	await navigator.serviceWorker.ready;
 
-	// If there's a waiting worker, activate it immediately
-	if (registration.waiting) {
-		registration.waiting.postMessage({ type: "SKIP_WAITING" });
-	}
-
-	// Wait for the active worker to be available
 	const activeWorker = await waitForActiveWorker(registration);
 
-	// Verify the worker is responsive
 	await pingServiceWorker(activeWorker);
 
 	return registration;
@@ -144,6 +140,7 @@ export async function loadTraceInServiceWorker(
 
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => {
+			navigator.serviceWorker.removeEventListener("message", handleMessage);
 			reject(new Error("Timeout loading trace in service worker"));
 		}, 30000);
 
@@ -152,6 +149,14 @@ export async function loadTraceInServiceWorker(
 				clearTimeout(timeout);
 				navigator.serviceWorker.removeEventListener("message", handleMessage);
 				resolve();
+			} else if (event.data?.type === "TRACE_LOAD_ERROR") {
+				clearTimeout(timeout);
+				navigator.serviceWorker.removeEventListener("message", handleMessage);
+				reject(
+					new Error(
+						`Service worker error: ${event.data.error || "Unknown error"}`,
+					),
+				);
 			}
 		};
 

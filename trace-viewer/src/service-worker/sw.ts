@@ -54,21 +54,31 @@ sw.addEventListener("activate", (event: ExtendableEvent) => {
 // Message handler for loading trace data
 sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 	const { type, data } = event.data;
+	const client = event.source as Client | null;
 
 	switch (type) {
 		case "LOAD_TRACE": {
-			// Store trace data (replacing any previously loaded trace)
-			currentTrace = {
-				testInfo: data.testInfo,
-				traceFiles: deserializeTraceFiles(data.traceFiles),
-				screenshots: deserializeScreenshots(data.screenshots),
-				screenshotMetas: data.screenshotMetas,
-			};
+			try {
+				// Store trace data (replacing any previously loaded trace)
+				currentTrace = {
+					testInfo: data.testInfo,
+					traceFiles: deserializeTraceFiles(data.traceFiles),
+					screenshots: deserializeScreenshots(data.screenshots),
+					screenshotMetas: data.screenshotMetas,
+				};
 
-			// Notify the client that loading is complete
-			(event.source as Client | null)?.postMessage({
-				type: "TRACE_LOADED",
-			});
+				// Notify the client that loading is complete
+				client?.postMessage({
+					type: "TRACE_LOADED",
+				});
+			} catch (error) {
+				// Send error back to client so it doesn't hang waiting for TRACE_LOADED
+				const message = error instanceof Error ? error.message : String(error);
+				client?.postMessage({
+					type: "TRACE_LOAD_ERROR",
+					error: message,
+				});
+			}
 			break;
 		}
 
@@ -78,7 +88,7 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 		}
 
 		case "PING": {
-			(event.source as Client | null)?.postMessage({ type: "PONG" });
+			client?.postMessage({ type: "PONG" });
 			break;
 		}
 	}

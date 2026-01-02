@@ -11,8 +11,8 @@ import { loadZipFile } from "./zips";
 let swRegistrationPromise: Promise<ServiceWorkerRegistration> | null = null;
 
 export async function loadLocalZip(file: File): Promise<TraceInfo> {
-	await unloadCurrentTrace();
 	await ensureServiceWorker();
+	await unloadCurrentTrace();
 
 	const zipResult = await loadZipFile(file);
 
