@@ -19,6 +19,8 @@ export interface NetworkSpan {
 	endTime: Date;
 	status: { code: number };
 	attributes: Record<string, string | number | boolean>;
+	/** Service name for this span (browser network spans use a different service) */
+	serviceName?: string;
 }
 
 export interface PageTestMapping {

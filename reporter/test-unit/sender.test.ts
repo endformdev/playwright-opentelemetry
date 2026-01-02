@@ -372,4 +372,138 @@ describe("sendSpans", () => {
 
 		expect(serviceVersionAttr.value.stringValue).toBe("1.56.1");
 	});
+
+	it("groups spans by service name into separate resourceSpans", async () => {
+		mockFetch.mockResolvedValue({
+			ok: true,
+			status: 200,
+		});
+
+		const spans: Span[] = [
+			{
+				traceId: "trace1",
+				spanId: "span1",
+				name: "test span",
+				startTime: new Date("2001-09-09T01:46:40.000Z"),
+				endTime: new Date("2001-09-09T01:46:40.500Z"),
+				attributes: {},
+				status: { code: 1 },
+				// Uses default service name (no serviceName field)
+			},
+			{
+				traceId: "trace1",
+				spanId: "span2",
+				parentSpanId: "span1",
+				name: "HTTP GET",
+				kind: 3, // SPAN_KIND_CLIENT
+				startTime: new Date("2001-09-09T01:46:40.100Z"),
+				endTime: new Date("2001-09-09T01:46:40.400Z"),
+				attributes: { "http.request.method": "GET" },
+				status: { code: 0 },
+				serviceName: "playwright-browser", // Different service name
+			},
+		];
+
+		await sendSpans(spans, defaultOptions);
+
+		const callArgs = mockFetch.mock.calls[0];
+		const body = JSON.parse(callArgs[1].body);
+
+		// Should have 2 resourceSpans - one for each service
+		expect(body.resourceSpans).toHaveLength(2);
+
+		// Find the resource spans by service name
+		const defaultServiceResource = body.resourceSpans.find(
+			(rs: {
+				resource: {
+					attributes: Array<{ key: string; value: { stringValue: string } }>;
+				};
+			}) =>
+				rs.resource.attributes.find(
+					(attr: { key: string; value: { stringValue: string } }) =>
+						attr.key === "service.name" &&
+						attr.value.stringValue === "playwright-tests",
+				),
+		);
+		const browserServiceResource = body.resourceSpans.find(
+			(rs: {
+				resource: {
+					attributes: Array<{ key: string; value: { stringValue: string } }>;
+				};
+			}) =>
+				rs.resource.attributes.find(
+					(attr: { key: string; value: { stringValue: string } }) =>
+						attr.key === "service.name" &&
+						attr.value.stringValue === "playwright-browser",
+				),
+		);
+
+		expect(defaultServiceResource).toBeDefined();
+		expect(browserServiceResource).toBeDefined();
+
+		// Check that spans are in the correct resource
+		expect(defaultServiceResource.scopeSpans[0].spans).toHaveLength(1);
+		expect(defaultServiceResource.scopeSpans[0].spans[0].name).toBe(
+			"test span",
+		);
+
+		expect(browserServiceResource.scopeSpans[0].spans).toHaveLength(1);
+		expect(browserServiceResource.scopeSpans[0].spans[0].name).toBe("HTTP GET");
+	});
+
+	it("preserves span kind for client spans", async () => {
+		mockFetch.mockResolvedValue({
+			ok: true,
+			status: 200,
+		});
+
+		const spans: Span[] = [
+			{
+				traceId: "trace1",
+				spanId: "span1",
+				name: "HTTP GET",
+				kind: 3, // SPAN_KIND_CLIENT
+				startTime: new Date("2001-09-09T01:46:40.000Z"),
+				endTime: new Date("2001-09-09T01:46:40.500Z"),
+				attributes: {},
+				status: { code: 0 },
+			},
+		];
+
+		await sendSpans(spans, defaultOptions);
+
+		const callArgs = mockFetch.mock.calls[0];
+		const body = JSON.parse(callArgs[1].body);
+
+		// Span kind should be 3 (CLIENT), not 1 (INTERNAL)
+		expect(body.resourceSpans[0].scopeSpans[0].spans[0].kind).toBe(3);
+	});
+
+	it("defaults to INTERNAL span kind when not specified", async () => {
+		mockFetch.mockResolvedValue({
+			ok: true,
+			status: 200,
+		});
+
+		const spans: Span[] = [
+			{
+				traceId: "trace1",
+				spanId: "span1",
+				name: "test span",
+				startTime: new Date("2001-09-09T01:46:40.000Z"),
+				endTime: new Date("2001-09-09T01:46:40.500Z"),
+				attributes: {},
+				status: { code: 1 },
+				// No kind specified
+			},
+		];
+
+		await sendSpans(spans, defaultOptions);
+
+		const callArgs = mockFetch.mock.calls[0];
+		const body = JSON.parse(callArgs[1].body);
+
+		// Span kind should default to 1 (INTERNAL)
+		expect(body.resourceSpans[0].scopeSpans[0].spans[0].kind).toBe(1);
+	});
 });

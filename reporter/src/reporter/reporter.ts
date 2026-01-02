@@ -54,6 +54,8 @@ export type Span = {
 	attributes: Record<string, string | number | boolean>;
 	status: { code: number };
 	kind?: number;
+	/** Service name for this span (if different from default) */
+	serviceName?: string;
 };
 
 export class PlaywrightOpentelemetryReporter implements Reporter {
@@ -245,18 +247,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_CODE_LINE_NUMBER] = line;
 		}
 
-		const span: Span = {
-			traceId,
-			spanId: testSpanId,
-			name: TEST_SPAN_NAME,
-			startTime: result.startTime,
-			endTime: new Date(result.startTime.getTime() + result.duration),
-			attributes,
-			status: { code: result.status === test.expectedStatus ? 1 : 2 }, // 1=OK, 2=ERROR
-		};
-
-		const testSpans: Span[] = [span];
-		// Process test steps recursively
+		// Process test steps recursively first to collect all child spans
 		// Track processed step IDs to merge duplicates (Playwright can report the same step twice,
 		// once with location info and once without - we want to merge them)
 		const processedSteps = new Map<string, Span>();
@@ -273,18 +264,54 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			}
 		}
 
-		// Add processed step spans to this test's spans
-		// Filter out marker objects used to track skipped steps (they have keys starting with __skip__)
+		// Collect step spans (filter out marker objects used to track skipped steps)
+		const stepSpans: Span[] = [];
 		for (const [key, stepSpan] of processedSteps.entries()) {
 			if (!key.startsWith("__skip__")) {
-				testSpans.push(stepSpan);
+				stepSpans.push(stepSpan);
 			}
 		}
 
+		// Collect network spans
 		const networkSpans = await collectNetworkSpans(outputDir, testId);
-		for (const networkSpan of networkSpans) {
-			testSpans.push(networkSpan);
+
+		// Calculate test span timing to encompass all child spans
+		// Start with Playwright's reported timing as the baseline
+		let minStartTime = result.startTime;
+		let maxEndTime = new Date(result.startTime.getTime() + result.duration);
+
+		// Expand bounds based on step spans (includes hooks, fixtures, etc.)
+		for (const stepSpan of stepSpans) {
+			if (stepSpan.startTime < minStartTime) {
+				minStartTime = stepSpan.startTime;
+			}
+			if (stepSpan.endTime > maxEndTime) {
+				maxEndTime = stepSpan.endTime;
+			}
 		}
+
+		// Expand bounds based on network spans
+		for (const networkSpan of networkSpans) {
+			if (networkSpan.startTime < minStartTime) {
+				minStartTime = networkSpan.startTime;
+			}
+			if (networkSpan.endTime > maxEndTime) {
+				maxEndTime = networkSpan.endTime;
+			}
+		}
+
+		const span: Span = {
+			traceId,
+			spanId: testSpanId,
+			name: TEST_SPAN_NAME,
+			startTime: minStartTime,
+			endTime: maxEndTime,
+			attributes,
+			status: { code: result.status === test.expectedStatus ? 1 : 2 }, // 1=OK, 2=ERROR
+		};
+
+		// Build the final spans array with test span first
+		const testSpans: Span[] = [span, ...stepSpans, ...networkSpans];
 
 		// Add all test spans to the global spans array
 		this.spans.push(...testSpans);
@@ -297,6 +324,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					? path.relative(this.rootDir, test.location.file)
 					: (test.location?.file ?? "");
 
+			// Calculate the computed duration for the trace zip
+			const computedDuration = maxEndTime.getTime() - minStartTime.getTime();
+
 			await createTraceZip({
 				outputDir,
 				testId,
@@ -306,8 +336,8 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				playwrightVersion: this.playwrightVersion || "unknown",
 				relativeFilePath,
 				status: result.status,
-				startTime: result.startTime,
-				duration: result.duration,
+				startTime: minStartTime,
+				duration: computedDuration,
 			});
 		}
 	}
@@ -357,12 +387,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			processedSteps.set(`__skip__${stepId}`, {} as Span);
 
 			// Remove any span we already created for this stepId (from a duplicate without location)
-			const existingSpan = processedSteps.get(stepId);
-			if (existingSpan) {
-				const spanIndex = this.spans.indexOf(existingSpan);
-				if (spanIndex !== -1) {
-					this.spans.splice(spanIndex, 1);
-				}
+			if (processedSteps.has(stepId)) {
 				processedSteps.delete(stepId);
 			}
 
@@ -469,7 +494,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			status: { code: step.error ? 2 : 1 }, // 1=OK, 2=ERROR
 		};
 
-		this.spans.push(stepSpan);
 		processedSteps.set(stepId, stepSpan);
 
 		// Recursively process nested steps
