@@ -29,6 +29,8 @@ export default defineConfig({
 	            otlpHeaders: {
                     "x-honeycomb-team": "xxxabc",
                 }
+				// Or output a opentelemetry report zip
+				storeTraceZip: true,
 			} satisfies PlaywrightOpentelemetryReporterOptions,
 		],
 	],
@@ -49,12 +51,42 @@ test("has title", async ({ page }) => {
 });
 ```
 
+### Add screenshots
+
+```ts
+import { defineConfig, devices } from "@playwright/test";
+import type { PlaywrightOpentelemetryReporterOptions } from "playwright-opentelemetry";
+
+export default defineConfig({
+    // ... other Playwright config
+	use: {
+		// Most performant method of screenshot collection
+		trace: {
+			mode: "on",
+			screenshots: true,
+			snapshots: false,
+			sources: false,
+			attachments: false,
+		},
+		// Otherwise this also does the trick!
+		// trace: "on"
+	}
+    // ... rest of Playwright config
+});
+```
+
 ### Showing a trace
 
+Go to the [hosted trace viewer](https://trace.endform.dev).
 
+Or boot your own locally:
+
+```bash
+npx @playwright-opentelemetry/trace-viewer
 ```
-npx @playwright-opentelemetry/trace-viewer my-file.zip
-```
+This boots the trace viewer on `localhost:9294`.
+
+Then load your zip file or an API url responding with telemetry.
 
 ## Output Formats
 
@@ -105,12 +137,13 @@ The trace viewer can also load traces from APIs that respond to the following en
 
 ### Developing `playwright-opentelemetry`
 
-- `pnpm dev` starts a dev server that outputs `dist/index.mjs`
-- `pnpm build` otherwise creates a one-off compiled build
-- `pnpm test:unit` to run the unit tests
-- `pnpm test:e2e` uses the compiled reporter output
+Root level commands are:
+
+- `pnpm test` to run the unit tests
 - `pnpm typecheck` for typescript
 - `pnpm format` to format files
+
+Other instructions for the [reporter](reporter/README.md) and the [trace-viewer](trace-viewer/README.md) are available in their respective READMEs.
 
 ### Releasing
 
