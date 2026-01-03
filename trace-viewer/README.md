@@ -2,25 +2,21 @@
 
 A SolidJS single-page application for viewing Playwright test execution traces in OpenTelemetry format.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/endformdev/playwright-opentelemetry/tree/main/trace-viewer)
-
 ## Overview
 
 This trace viewer provides a rich, interactive visualization of Playwright test runs that have been exported to OpenTelemetry format. It displays test steps, timing information, screenshots captured during execution, and additional trace data like HTTP requests.
 
+## Run the trace viewer
+
+To boot the trace viewer on `localhost:9294`:
+
+```
+npx @playwright-opentelemetry/trace-viewer
+```
+
 ## Deploy Your Own
 
-### One-Click Deploy
-
-Click the button above to deploy your own instance to Cloudflare Workers. The deployment will:
-
-1. Clone this subdirectory to your GitHub account
-2. Build the application using Vite
-3. Deploy to Cloudflare Workers with static assets
-
-### Manual Deploy
-
-If you prefer to deploy manually:
+You can deploy a copy of the trace viewer to cloudflare:
 
 ```bash
 # Clone the repository
