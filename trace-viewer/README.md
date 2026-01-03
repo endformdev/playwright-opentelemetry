@@ -10,7 +10,7 @@ This trace viewer provides a rich, interactive visualization of Playwright test 
 
 To boot the trace viewer on `localhost:9294`:
 
-```
+```bash
 npx @playwright-opentelemetry/trace-viewer
 ```
 
@@ -19,7 +19,6 @@ npx @playwright-opentelemetry/trace-viewer
 You can deploy a copy of the trace viewer to cloudflare:
 
 ```bash
-# Clone the repository
 git clone https://github.com/endformdev/playwright-opentelemetry.git
 cd playwright-opentelemetry/trace-viewer
 
