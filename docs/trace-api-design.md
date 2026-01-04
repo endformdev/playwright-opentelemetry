@@ -28,6 +28,11 @@ All data writes directly to `traces/{traceId}/`. A lifecycle rule expires traces
 
 ## Library Architecture
 
+The library provides two levels of API:
+
+1. **High-level convenience**: `createTraceApi()` wires everything together with sensible defaults
+2. **Low-level building blocks**: Individual handlers and storage for full composition control
+
 ### Installation
 
 ```bash
@@ -55,51 +60,45 @@ export default {
 };
 ```
 
-### Advanced Usage with Custom Middleware
+### Adding Middleware with Native H3
+
+The high-level API returns an H3 instance, so you can add middleware using standard H3 patterns:
 
 ```typescript
 // worker.ts
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
+import { getHeader, createError } from 'h3';
 
 const api = createTraceApi({
   storage: {
     bucket: 'my-traces',
-    endpoint: 'https://s3.us-east-1.amazonaws.com',
-    accessKeyId: env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
-    region: 'us-east-1',
+    endpoint: env.R2_ENDPOINT,
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
   },
-
-  // Transform storage paths (e.g., for multi-tenancy)
-  resolvePath: async (event, path) => {
-    const orgId = event.context.orgId;
-    return orgId ? `orgs/${orgId}/${path}` : path;
-  },
-
-  // Global middleware (runs on all requests)
-  middleware: [
-    (event) => {
-      console.log(`[${event.req.method}] ${event.path}`);
-    },
-  ],
-
-  // Write middleware (runs on POST/PUT endpoints)
-  writeMiddleware: [
-    async (event) => {
-      const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
-      const org = await validateToken(token);
-      if (!org) {
-        throw createError({ statusCode: 401, message: 'Unauthorized' });
-      }
-      event.context.orgId = org.id;
-    },
-  ],
-
-  // Read middleware (runs on GET endpoints)
-  readMiddleware: [
-    // Could be different auth, or public
-  ],
 });
+
+// Add authentication to write endpoints using native H3 middleware
+api.use('/v1/traces', async (event) => {
+  const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
+  if (!await validateToken(token)) {
+    throw createError({ statusCode: 401, message: 'Unauthorized' });
+  }
+});
+
+api.use('/playwright-opentelemetry/**', async (event) => {
+  const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
+  if (!await validateToken(token)) {
+    throw createError({ statusCode: 401, message: 'Unauthorized' });
+  }
+});
+
+// Read endpoints (/traces/**) are public by default
+// Add auth if needed:
+// api.use('/traces/**', readAuthMiddleware);
+
+// Add custom routes
+api.get('/health', () => ({ status: 'ok' }));
 
 export default {
   fetch: api.fetch,
@@ -120,37 +119,88 @@ interface TraceApiConfig {
   };
 
   // Transform storage paths before read/write (optional)
+  // Useful for multi-tenancy - see examples below
   resolvePath?: (event: H3Event, path: string) => Promise<string> | string;
-
-  // Middleware arrays (optional)
-  middleware?: EventHandler[];      // All routes
-  writeMiddleware?: EventHandler[]; // POST/PUT routes
-  readMiddleware?: EventHandler[];  // GET routes
 }
 ```
 
-### Accessing the H3 App Directly
+### Low-Level Building Blocks
 
-For advanced use cases, you can access the underlying H3 instance:
+For maximum flexibility, you can compose your own API using individual handlers:
 
 ```typescript
-import { createTraceApi } from '@playwright-opentelemetry/trace-api';
+import { H3 } from 'h3';
+import {
+  createS3Storage,
+  createOtlpHandler,
+  createPlaywrightHandler,
+  createViewerHandler,
+} from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
-
-// Add custom routes
-api.get('/health', () => ({ status: 'ok' }));
-
-// Add additional middleware
-api.use((event) => {
-  // custom logic
+const storage = createS3Storage({
+  bucket: 'my-traces',
+  endpoint: env.R2_ENDPOINT,
+  accessKeyId: env.R2_ACCESS_KEY_ID,
+  secretAccessKey: env.R2_SECRET_ACCESS_KEY,
 });
 
-// Mount sub-applications
-api.mount('/admin', adminApp);
+const app = new H3();
+
+// Add only the handlers you need
+app.post('/v1/traces', createOtlpHandler(storage));
+app.put('/playwright-opentelemetry/**', createPlaywrightHandler(storage));
+app.get('/traces/**', createViewerHandler(storage));
 
 export default {
-  fetch: api.fetch,
+  fetch: app.fetch,
+};
+```
+
+#### Write-Only API
+
+Expose only the endpoints that receive trace data (for a dedicated ingestion service):
+
+```typescript
+import { H3 } from 'h3';
+import {
+  createS3Storage,
+  createOtlpHandler,
+  createPlaywrightHandler,
+} from '@playwright-opentelemetry/trace-api';
+
+const storage = createS3Storage({ ... });
+
+const app = new H3();
+
+// Authentication middleware
+app.use(authMiddleware);
+
+// Write endpoints only
+app.post('/v1/traces', createOtlpHandler(storage));
+app.put('/playwright-opentelemetry/**', createPlaywrightHandler(storage));
+
+export default {
+  fetch: app.fetch,
+};
+```
+
+#### Read-Only API
+
+Expose only the endpoints that serve trace data (for the trace viewer):
+
+```typescript
+import { H3 } from 'h3';
+import { createS3Storage, createViewerHandler } from '@playwright-opentelemetry/trace-api';
+
+const storage = createS3Storage({ ... });
+
+const app = new H3();
+
+// Read endpoints only - could be public or with different auth
+app.get('/traces/**', createViewerHandler(storage));
+
+export default {
+  fetch: app.fetch,
 };
 ```
 
@@ -301,19 +351,35 @@ The library uses [aws4fetch](https://github.com/mhart/aws4fetch) for S3 operatio
 trace-api/
 ├── src/
 │   ├── index.ts              # Main exports
-│   ├── createTraceApi.ts     # Factory function returning H3 instance
-│   ├── routes/
-│   │   ├── otlp.ts           # POST /v1/traces
-│   │   ├── playwright.ts     # PUT /playwright-opentelemetry/*
-│   │   └── viewer.ts         # GET /traces/*
+│   ├── createTraceApi.ts     # High-level factory function
+│   ├── handlers/
+│   │   ├── otlp.ts           # createOtlpHandler - POST /v1/traces
+│   │   ├── playwright.ts     # createPlaywrightHandler - PUT /playwright-opentelemetry/*
+│   │   └── viewer.ts         # createViewerHandler - GET /traces/*
 │   ├── storage/
 │   │   ├── types.ts          # Storage interface
-│   │   └── s3.ts             # S3 implementation using aws4fetch
+│   │   └── s3.ts             # createS3Storage - S3 implementation using aws4fetch
 │   └── utils/
 │       └── otlp.ts           # OTLP parsing helpers
 ├── package.json
 ├── tsconfig.json
 └── README.md
+```
+
+### Exports
+
+```typescript
+// High-level convenience
+export { createTraceApi } from './createTraceApi';
+
+// Low-level building blocks
+export { createS3Storage } from './storage/s3';
+export { createOtlpHandler } from './handlers/otlp';
+export { createPlaywrightHandler } from './handlers/playwright';
+export { createViewerHandler } from './handlers/viewer';
+
+// Types
+export type { TraceApiConfig, StorageConfig, TraceStorage } from './types';
 ```
 
 ## Lifecycle and Garbage Collection
@@ -390,38 +456,39 @@ export default {
         region: 'auto',
       },
 
+      // Prefix all paths with org ID for isolation
       resolvePath: (event, path) => {
         const orgId = event.context.orgId;
         return `orgs/${orgId}/${path}`;
       },
-
-      writeMiddleware: [
-        async (event) => {
-          const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
-          if (!token) {
-            throw createError({ statusCode: 401, message: 'Missing authorization' });
-          }
-
-          const response = await env.AUTH_SERVICE.fetch(
-            'https://auth/validate',
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-
-          if (!response.ok) {
-            throw createError({ statusCode: 401, message: 'Invalid token' });
-          }
-
-          const { orgId } = await response.json();
-          event.context.orgId = orgId;
-        },
-      ],
-
-      readMiddleware: [
-        async (event) => {
-          // Similar auth for read access, or make traces publicly readable
-        },
-      ],
     });
+
+    // Auth middleware for write endpoints - validates token and sets orgId
+    const authMiddleware = async (event) => {
+      const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
+      if (!token) {
+        throw createError({ statusCode: 401, message: 'Missing authorization' });
+      }
+
+      const response = await env.AUTH_SERVICE.fetch(
+        'https://auth/validate',
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (!response.ok) {
+        throw createError({ statusCode: 401, message: 'Invalid token' });
+      }
+
+      const { orgId } = await response.json();
+      event.context.orgId = orgId;
+    };
+
+    // Apply auth to write endpoints
+    api.use('/v1/traces', authMiddleware);
+    api.use('/playwright-opentelemetry/**', authMiddleware);
+
+    // Read endpoints could use different auth or be public
+    // api.use('/traces/**', readAuthMiddleware);
 
     return api.fetch(request);
   },
