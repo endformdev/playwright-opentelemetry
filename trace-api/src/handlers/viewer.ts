@@ -1,6 +1,7 @@
 import type { EventHandler } from "h3";
 import { createError, defineEventHandler, getRouterParam } from "h3";
-import type { TraceStorage } from "../storage/s3";
+import { applyCors } from "../cors";
+import type { TraceApiHandlerConfig } from "../createTraceApi";
 
 /**
  * Create a handler for the trace viewer read API.
@@ -12,7 +13,7 @@ import type { TraceStorage } from "../storage/s3";
  * - GET /test-traces/{traceId}/screenshots -> { screenshots: [...] }
  * - GET /test-traces/{traceId}/screenshots/{filename}
  *
- * @param storage - TraceStorage implementation
+ * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
  *
  * @example
@@ -21,11 +22,20 @@ import type { TraceStorage } from "../storage/s3";
  *
  * const router = createRouter();
  * // TRACES_READ_PATH = '/test-traces/**'
- * router.get(TRACES_READ_PATH, createViewerHandler(storage));
+ * router.get(TRACES_READ_PATH, createViewerHandler({ storage }));
  * ```
  */
-export function createViewerHandler(storage: TraceStorage): EventHandler {
+export function createViewerHandler(
+	config: TraceApiHandlerConfig,
+): EventHandler {
+	const storage = config.storage;
+
 	return defineEventHandler(async (event) => {
+		// Handle CORS if configured
+		const corsResponse = applyCors(event, config.corsOrigin);
+		if (corsResponse) {
+			return corsResponse;
+		}
 		// Get the full path after /test-traces/
 		const path = getRouterParam(event, "_");
 		if (!path) {
@@ -44,12 +54,19 @@ export function createViewerHandler(storage: TraceStorage): EventHandler {
 
 		if (parts.length === 2 && parts[1] === "opentelemetry-protocol") {
 			// List all JSON files in opentelemetry-protocol directory
-			const prefix = `traces/${traceId}/opentelemetry-protocol/`;
-			const files = await storage.list(prefix);
+			let prefix = `traces/${traceId}/opentelemetry-protocol/`;
+
+			// Apply path resolution if configured
+			let resolvedPrefix = prefix;
+			if (config.resolvePath) {
+				resolvedPrefix = await config.resolvePath(event, prefix);
+			}
+
+			const files = await storage.list(resolvedPrefix);
 
 			// Extract just the filenames (remove prefix)
 			const jsonFiles = files
-				.map((file) => file.replace(prefix, ""))
+				.map((file) => file.replace(resolvedPrefix, ""))
 				.filter((file) => file.endsWith(".json"));
 
 			return { jsonFiles };
@@ -57,15 +74,22 @@ export function createViewerHandler(storage: TraceStorage): EventHandler {
 
 		if (parts.length === 2 && parts[1] === "screenshots") {
 			// List all screenshots
-			const prefix = `traces/${traceId}/screenshots/`;
-			const files = await storage.list(prefix);
+			let prefix = `traces/${traceId}/screenshots/`;
+
+			// Apply path resolution if configured
+			let resolvedPrefix = prefix;
+			if (config.resolvePath) {
+				resolvedPrefix = await config.resolvePath(event, prefix);
+			}
+
+			const files = await storage.list(resolvedPrefix);
 
 			// Extract filenames and parse timestamps for sorting
 			// Filename format: {pageId}-{timestampMs}.jpeg (e.g., page@abc-1767539662401.jpeg)
 			// Timestamp is in milliseconds since epoch
 			const screenshots = files
 				.map((file) => {
-					const filename = file.replace(prefix, "");
+					const filename = file.replace(resolvedPrefix, "");
 					// Extract timestamp from filename (format: pageId-timestamp.jpeg)
 					const match = filename.match(/-(\d+)\./);
 					const timestamp = match ? Number.parseInt(match[1], 10) : 0;
@@ -77,7 +101,13 @@ export function createViewerHandler(storage: TraceStorage): EventHandler {
 		}
 
 		// Otherwise, it's a direct file request
-		const storagePath = `traces/${path}`;
+		let storagePath = `traces/${path}`;
+
+		// Apply path resolution if configured
+		if (config.resolvePath) {
+			storagePath = await config.resolvePath(event, storagePath);
+		}
+
 		const data = await storage.get(storagePath);
 
 		if (!data) {

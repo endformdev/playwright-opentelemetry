@@ -1,10 +1,10 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { H3, type H3Event } from "h3";
 import {
 	OTLP_TRACES_WRITE_PATH,
 	PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
 	TRACES_READ_PATH,
 } from "./api";
+import type { TraceApiHandlerConfig } from "./createTraceApi";
 import { createOtlpHandler } from "./handlers/otlp";
 import { createPlaywrightHandler } from "./handlers/playwright";
 import { createViewerHandler } from "./handlers/viewer";
@@ -16,44 +16,30 @@ export interface TestHarnessConfig {
 	 * Useful for multi-tenancy testing.
 	 */
 	resolvePath?: (event: H3Event, path: string) => Promise<string> | string;
+	/**
+	 * CORS origin setting. Defaults to false (disabled).
+	 * Set to "*" or a specific origin string to enable CORS.
+	 */
+	corsOrigin?: string | false;
 }
 
-// AsyncLocalStorage to share the current H3Event with the storage layer
-const eventContext = new AsyncLocalStorage<H3Event>();
-
 export function createTestHarness(config?: TestHarnessConfig): H3 {
-	const baseStorage = createInMemoryStorage();
-
-	// Wrap storage with resolvePath if provided
-	const storage = config?.resolvePath
-		? createPathResolvingStorage(baseStorage, config.resolvePath, eventContext)
-		: baseStorage;
+	const storage = createInMemoryStorage();
 
 	const app = new H3();
 
-	// Wrap handlers with AsyncLocalStorage context if resolvePath is provided
-	if (config?.resolvePath) {
-		const otlpHandler = createOtlpHandler(storage);
-		const playwrightHandler = createPlaywrightHandler(storage);
-		const viewerHandler = createViewerHandler(storage);
+	const apiConfig: TraceApiHandlerConfig = {
+		storage,
+		resolvePath: config?.resolvePath,
+		corsOrigin: config?.corsOrigin,
+	};
 
-		app.post(OTLP_TRACES_WRITE_PATH, (event: H3Event) => {
-			return eventContext.run(event, () => otlpHandler(event));
-		});
-		app.put(PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH, (event: H3Event) => {
-			return eventContext.run(event, () => playwrightHandler(event));
-		});
-		app.get(TRACES_READ_PATH, (event: H3Event) => {
-			return eventContext.run(event, () => viewerHandler(event));
-		});
-	} else {
-		app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(storage));
-		app.put(
-			PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
-			createPlaywrightHandler(storage),
-		);
-		app.get(TRACES_READ_PATH, createViewerHandler(storage));
-	}
+	app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(apiConfig));
+	app.put(
+		PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
+		createPlaywrightHandler(apiConfig),
+	);
+	app.get(TRACES_READ_PATH, createViewerHandler(apiConfig));
 
 	return app;
 }
@@ -199,55 +185,6 @@ export function createInMemoryStorage(): TraceStorage {
 			}
 
 			return results.sort();
-		},
-	};
-}
-
-/**
- * Create a storage wrapper that transforms paths using resolvePath.
- * Uses AsyncLocalStorage to access the current H3Event from the request context.
- */
-function createPathResolvingStorage(
-	baseStorage: TraceStorage,
-	resolvePath: (event: H3Event, path: string) => Promise<string> | string,
-	eventStore: AsyncLocalStorage<H3Event>,
-): TraceStorage {
-	return {
-		async put(path: string, data: string | ArrayBuffer, contentType: string) {
-			const event = eventStore.getStore();
-			if (!event) {
-				throw new Error("No event context available for path resolution");
-			}
-			const resolvedPath = await resolvePath(event, path);
-			return baseStorage.put(resolvedPath, data, contentType);
-		},
-
-		async get(path: string): Promise<ArrayBuffer | null> {
-			const event = eventStore.getStore();
-			if (!event) {
-				throw new Error("No event context available for path resolution");
-			}
-			const resolvedPath = await resolvePath(event, path);
-			return baseStorage.get(resolvedPath);
-		},
-
-		async list(prefix: string): Promise<string[]> {
-			const event = eventStore.getStore();
-			if (!event) {
-				throw new Error("No event context available for path resolution");
-			}
-			const resolvedPrefix = await resolvePath(event, prefix);
-			const results = await baseStorage.list(resolvedPrefix);
-
-			// Strip the resolved prefix to return relative paths
-			return results.map((fullPath) => {
-				// Remove the tenant prefix to match the expected format
-				const prefixToRemove = resolvedPrefix.replace(prefix, "");
-				if (fullPath.startsWith(prefixToRemove)) {
-					return fullPath.substring(prefixToRemove.length);
-				}
-				return fullPath;
-			});
 		},
 	};
 }

@@ -1,6 +1,7 @@
 import type { EventHandler } from "h3";
 import { defineEventHandler, getRouterParam, readBody } from "h3";
-import type { TraceStorage } from "../storage/s3";
+import { applyCors } from "../cors";
+import type { TraceApiHandlerConfig } from "../createTraceApi";
 
 /**
  * Create a handler for Playwright-specific trace data.
@@ -10,7 +11,7 @@ import type { TraceStorage } from "../storage/s3";
  * - PUT /playwright-opentelemetry/test.json -> traces/{traceId}/test.json
  * - PUT /playwright-opentelemetry/screenshots/{filename} -> traces/{traceId}/screenshots/{filename}
  *
- * @param storage - TraceStorage implementation
+ * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
  *
  * @example
@@ -19,11 +20,20 @@ import type { TraceStorage } from "../storage/s3";
  *
  * const router = createRouter();
  * // PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH = '/playwright-opentelemetry/**'
- * router.put(PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH, createPlaywrightHandler(storage));
+ * router.put(PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH, createPlaywrightHandler({ storage }));
  * ```
  */
-export function createPlaywrightHandler(storage: TraceStorage): EventHandler {
+export function createPlaywrightHandler(
+	config: TraceApiHandlerConfig,
+): EventHandler {
+	const storage = config.storage;
+
 	return defineEventHandler(async (event) => {
+		// Handle CORS if configured
+		const corsResponse = applyCors(event, config.corsOrigin);
+		if (corsResponse) {
+			return corsResponse;
+		}
 		// Get trace ID from header
 		const traceId = event.req.headers.get("x-trace-id");
 		if (!traceId) {
@@ -42,7 +52,12 @@ export function createPlaywrightHandler(storage: TraceStorage): EventHandler {
 			: "image/jpeg";
 
 		// Build storage path
-		const storagePath = `traces/${traceId}/${path}`;
+		let storagePath = `traces/${traceId}/${path}`;
+
+		// Apply path resolution if configured
+		if (config.resolvePath) {
+			storagePath = await config.resolvePath(event, storagePath);
+		}
 
 		// Read the body - use raw body for binary data (screenshots)
 		if (contentType === "image/jpeg") {

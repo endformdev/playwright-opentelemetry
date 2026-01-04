@@ -4,7 +4,7 @@ export {
 	TRACES_READ_PATH,
 } from "./api";
 
-export type { TraceApiConfig } from "./createTraceApi";
+export type { TraceApiConfig, TraceApiHandlerConfig } from "./createTraceApi";
 export { createTraceApi } from "./createTraceApi";
 
 export { createOtlpHandler } from "./handlers/otlp";

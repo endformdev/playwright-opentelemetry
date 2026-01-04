@@ -1,6 +1,7 @@
 import type { EventHandler } from "h3";
 import { defineEventHandler, readBody } from "h3";
-import type { TraceStorage } from "../storage/s3";
+import { applyCors } from "../cors";
+import type { TraceApiHandlerConfig } from "../createTraceApi";
 
 interface OtlpPayload {
 	resourceSpans?: Array<{
@@ -26,7 +27,7 @@ interface OtlpPayload {
  * service.name from each resourceSpan, and writes to storage at:
  * `traces/{traceId}/opentelemetry-protocol/{serviceName}-{spanId}.json`
  *
- * @param storage - TraceStorage implementation
+ * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
  *
  * @example
@@ -35,11 +36,18 @@ interface OtlpPayload {
  *
  * const router = createRouter();
  * // OTLP_TRACES_WRITE_PATH = '/v1/traces'
- * router.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(storage));
+ * router.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler({ storage }));
  * ```
  */
-export function createOtlpHandler(storage: TraceStorage): EventHandler {
+export function createOtlpHandler(config: TraceApiHandlerConfig): EventHandler {
+	const storage = config.storage;
+
 	return defineEventHandler(async (event) => {
+		// Handle CORS if configured
+		const corsResponse = applyCors(event, config.corsOrigin);
+		if (corsResponse) {
+			return corsResponse;
+		}
 		const payload = (await readBody(event)) as OtlpPayload;
 
 		// Group spans by traceId to handle multiple traces in a single POST
@@ -120,7 +128,12 @@ export function createOtlpHandler(storage: TraceStorage): EventHandler {
 		const storePromises: Promise<void>[] = [];
 		for (const [traceId, group] of traceGroups) {
 			const filename = `${group.serviceName}-${group.spanId}.json`;
-			const path = `traces/${traceId}/opentelemetry-protocol/${filename}`;
+			let path = `traces/${traceId}/opentelemetry-protocol/${filename}`;
+
+			// Apply path resolution if configured
+			if (config.resolvePath) {
+				path = await config.resolvePath(event, path);
+			}
 
 			const tracePayload = {
 				resourceSpans: group.resourceSpans,
