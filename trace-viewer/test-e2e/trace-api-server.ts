@@ -6,7 +6,8 @@ import {
 	PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
 	TRACES_READ_PATH,
 } from "@playwright-opentelemetry/trace-api";
-import { defineEventHandler, H3, serve } from "h3";
+import type { CorsOptions } from "h3";
+import { defineEventHandler, H3, handleCors, serve } from "h3";
 
 const PORT = 9295;
 
@@ -45,30 +46,59 @@ const storage = {
 };
 
 const app = new H3();
-app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(storage));
+
+// CORS options for cross-origin requests from the trace viewer
+const corsOptions: CorsOptions = {
+	origin: "*" as const,
+	methods: "*" as const,
+	preflight: {
+		statusCode: 204,
+	},
+};
+
+// Wrap each handler with CORS support
+const withCors = (handler: any) => {
+	return defineEventHandler(async (event) => {
+		const corsResponse = handleCors(event, corsOptions);
+		if (corsResponse) {
+			return corsResponse;
+		}
+		return handler(event);
+	});
+};
+
+app.post(OTLP_TRACES_WRITE_PATH, withCors(createOtlpHandler(storage)));
 
 const playwrightHandler = createPlaywrightHandler(storage);
 app.put(
 	PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
-	defineEventHandler(async (event) => {
-		// Extract trace ID from X-Trace-Id header
-		const traceId = event.req.headers.get("x-trace-id");
-		if (traceId) {
-			traceIds.add(traceId);
-		}
+	withCors(
+		defineEventHandler(async (event) => {
+			// Extract trace ID from X-Trace-Id header
+			const traceId = event.req.headers.get("x-trace-id");
+			if (traceId) {
+				traceIds.add(traceId);
+			}
 
-		return playwrightHandler(event);
+			return playwrightHandler(event);
+		}),
+	),
+);
+
+app.get(TRACES_READ_PATH, withCors(createViewerHandler(storage)));
+
+app.get(
+	"/trace-ids",
+	withCors(() => {
+		return { traceIds: Array.from(traceIds).sort() };
 	}),
 );
 
-app.get(TRACES_READ_PATH, createViewerHandler(storage));
-
-app.get("/trace-ids", () => {
-	return { traceIds: Array.from(traceIds).sort() };
-});
-
-app.get("/health", () => {
-	return { status: "ok" };
-});
+app.get(
+	"/health",
+	withCors(() => {
+		return { status: "ok" };
+	}),
+);
 
 serve(app, { port: PORT, gracefulShutdown: false });
