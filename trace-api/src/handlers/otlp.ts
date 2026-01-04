@@ -1,5 +1,5 @@
-import { defineEventHandler } from "h3";
 import type { EventHandler } from "h3";
+import { defineEventHandler } from "h3";
 import type { TraceStorage } from "../storage/s3";
 
 /**

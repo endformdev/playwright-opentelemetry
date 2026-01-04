@@ -1,47 +1,23 @@
-/**
- * S3-compatible storage configuration.
- */
 export interface StorageConfig {
 	/** S3 bucket name */
 	bucket: string;
 	/** S3-compatible endpoint URL */
 	endpoint: string;
-	/** Access key ID for authentication */
 	accessKeyId: string;
-	/** Secret access key for authentication */
 	secretAccessKey: string;
 	/** AWS region (default: 'auto', works for R2) */
 	region?: string;
 }
 
-/**
- * Storage interface for trace data operations.
- */
 export interface TraceStorage {
-	/**
-	 * Write data to storage.
-	 * @param path - Storage path (e.g., "traces/{traceId}/test.json")
-	 * @param data - Data to write (string or ArrayBuffer)
-	 * @param contentType - MIME type of the content
-	 */
 	put(
 		path: string,
 		data: string | ArrayBuffer,
 		contentType: string,
 	): Promise<void>;
 
-	/**
-	 * Read data from storage.
-	 * @param path - Storage path
-	 * @returns Data as ArrayBuffer, or null if not found
-	 */
 	get(path: string): Promise<ArrayBuffer | null>;
 
-	/**
-	 * List objects under a prefix.
-	 * @param prefix - Path prefix to list
-	 * @returns Array of object keys
-	 */
 	list(prefix: string): Promise<string[]>;
 }
 
