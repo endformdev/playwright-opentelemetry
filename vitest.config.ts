@@ -5,6 +5,7 @@ export default defineConfig({
 		include: [
 			"reporter/test-unit/**/*.test.ts",
 			"trace-viewer/src/**/*.{test,spec}.{ts,tsx}",
+			"trace-api/src/**/*.{test,spec}.{ts,tsx}",
 		],
 	},
 });
