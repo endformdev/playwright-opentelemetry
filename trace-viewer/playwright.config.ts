@@ -6,7 +6,8 @@ export default defineConfig({
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,
 	workers: process.env.CI ? 1 : undefined,
-	reporter: "html",
+	reporter: [["html", { open: "never" }]],
+	globalSetup: "./test-e2e/global-setup.ts",
 	use: {
 		baseURL: "http://localhost:9294",
 		trace: "on-first-retry",
@@ -21,12 +22,10 @@ export default defineConfig({
 		{
 			command: "pnpm dev",
 			url: "http://localhost:9294",
-			reuseExistingServer: !process.env.CI,
 		},
 		{
-			command: "npx tsx test-e2e/mock-api-server.ts",
+			command: "npx tsx test-e2e/trace-api-server.ts",
 			url: "http://localhost:9295/health",
-			reuseExistingServer: !process.env.CI,
 		},
 	],
 });

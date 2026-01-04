@@ -82,15 +82,24 @@ importers:
       '@leeoniya/ufuzzy':
         specifier: ^1.0.19
         version: 1.0.19
+      '@playwright-opentelemetry/trace-api':
+        specifier: workspace:*
+        version: link:../trace-api
       '@playwright/test':
         specifier: ^1.57.0
         version: 1.57.0
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.1.18(vite@7.3.0(@types/node@25.0.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.44.1))
+      '@types/node':
+        specifier: ^25.0.3
+        version: 25.0.3
       '@zip.js/zip.js':
         specifier: ^2.8.11
         version: 2.8.11
+      h3:
+        specifier: 2.0.1-rc.7
+        version: 2.0.1-rc.7
       lucide-solid:
         specifier: ^0.562.0
         version: 0.562.0(solid-js@1.9.10)

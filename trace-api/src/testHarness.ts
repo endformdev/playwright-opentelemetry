@@ -170,7 +170,7 @@ interface StoredObject {
 	contentType: string;
 }
 
-function createInMemoryStorage(): TraceStorage {
+export function createInMemoryStorage(): TraceStorage {
 	const store = new Map<string, StoredObject>();
 
 	return {

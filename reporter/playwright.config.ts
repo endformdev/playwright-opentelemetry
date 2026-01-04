@@ -4,12 +4,24 @@ import type { PlaywrightOpentelemetryReporterOptions } from "./dist/reporter.mjs
 
 loadEnv();
 
-if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
-	throw new Error("OTEL_EXPORTER_OTLP_ENDPOINT is not set");
+// Allow either OTEL_EXPORTER_OTLP_ENDPOINT or PLAYWRIGHT_TRACE_API_ENDPOINT to be set
+if (
+	!process.env.OTEL_EXPORTER_OTLP_ENDPOINT &&
+	!process.env.PLAYWRIGHT_TRACE_API_ENDPOINT
+) {
+	throw new Error(
+		"Either OTEL_EXPORTER_OTLP_ENDPOINT or PLAYWRIGHT_TRACE_API_ENDPOINT must be set",
+	);
 }
 
-if (!process.env.OTEL_EXPORTER_OTLP_HEADERS) {
-	throw new Error("OTEL_EXPORTER_OTLP_HEADERS is not set");
+// Only require OTLP headers if using OTLP endpoint
+if (
+	process.env.OTEL_EXPORTER_OTLP_ENDPOINT &&
+	!process.env.OTEL_EXPORTER_OTLP_HEADERS
+) {
+	throw new Error(
+		"OTEL_EXPORTER_OTLP_HEADERS is required when using OTEL_EXPORTER_OTLP_ENDPOINT",
+	);
 }
 
 /**
@@ -32,6 +44,10 @@ export default defineConfig({
 			{
 				debug: false,
 				storeTraceZip: true,
+				// Allow configuring trace API endpoint via environment variable
+				...(process.env.PLAYWRIGHT_TRACE_API_ENDPOINT && {
+					playwrightTraceApiEndpoint: process.env.PLAYWRIGHT_TRACE_API_ENDPOINT,
+				}),
 			} satisfies PlaywrightOpentelemetryReporterOptions,
 		],
 	],
