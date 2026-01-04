@@ -287,9 +287,11 @@ GET /test-traces/{traceId}/opentelemetry-protocol
   -> { "jsonFiles": ["playwright-opentelemetry.json", "backend.json"] }
 GET /test-traces/{traceId}/opentelemetry-protocol/{file}.json
 GET /test-traces/{traceId}/screenshots
-  -> { "screenshots": [{ "timestamp": 1234567890, "file": "page@abc-1234567890.jpeg" }] }
+  -> { "screenshots": [{ "timestamp": 1767539662401, "file": "page@abc-1767539662401.jpeg" }] }
 GET /test-traces/{traceId}/screenshots/{filename}
 ```
+
+Screenshot timestamps are in **milliseconds since Unix epoch** (13 digits). The timestamp is extracted from the filename format `{pageId}-{timestampMs}.jpeg`.
 
 The listing endpoints (`/opentelemetry-protocol` and `/screenshots`) call S3 ListObjects and format the response.
 

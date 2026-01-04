@@ -61,16 +61,17 @@ export function createViewerHandler(storage: TraceStorage): EventHandler {
 			const files = await storage.list(prefix);
 
 			// Extract filenames and parse timestamps for sorting
+			// Filename format: {pageId}-{timestampMs}.jpeg (e.g., page@abc-1767539662401.jpeg)
+			// Timestamp is in milliseconds since epoch
 			const screenshots = files
 				.map((file) => {
 					const filename = file.replace(prefix, "");
 					// Extract timestamp from filename (format: pageId-timestamp.jpeg)
 					const match = filename.match(/-(\d+)\./);
 					const timestamp = match ? Number.parseInt(match[1], 10) : 0;
-					return { timestamp, filename };
+					return { timestamp, file: filename };
 				})
-				.sort((a, b) => a.timestamp - b.timestamp)
-				.map((item) => item.filename); // Return just filenames
+				.sort((a, b) => a.timestamp - b.timestamp);
 
 			return { screenshots };
 		}

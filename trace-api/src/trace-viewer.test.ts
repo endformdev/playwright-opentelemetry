@@ -289,21 +289,30 @@ describe("Trace Viewer", () => {
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
-			screenshots: string[];
+			screenshots: Array<{ timestamp: number; file: string }>;
 		};
 		expect(screenshotsList.screenshots).toHaveLength(3);
-		// Verify sorted order
+		// Verify sorted order with timestamp and file properties
 		expect(screenshotsList.screenshots).toEqual([
-			"page@abc-1766927492100000000.jpeg",
-			"page@abc-1766927492200000000.jpeg",
-			"page@abc-1766927492300000000.jpeg",
+			{
+				timestamp: 1766927492100000000,
+				file: "page@abc-1766927492100000000.jpeg",
+			},
+			{
+				timestamp: 1766927492200000000,
+				file: "page@abc-1766927492200000000.jpeg",
+			},
+			{
+				timestamp: 1766927492300000000,
+				file: "page@abc-1766927492300000000.jpeg",
+			},
 		]);
 
 		// Viewer: Fetch individual images for display
-		for (const filename of screenshotsList.screenshots) {
+		for (const screenshot of screenshotsList.screenshots) {
 			const response = await app.fetch(
 				new Request(
-					`http://localhost/test-traces/${traceId}/screenshots/${filename}`,
+					`http://localhost/test-traces/${traceId}/screenshots/${screenshot.file}`,
 				),
 			);
 			expect(response.status).toBe(200);

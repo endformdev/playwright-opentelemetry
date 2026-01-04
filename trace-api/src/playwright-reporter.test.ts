@@ -132,12 +132,18 @@ describe("Playwright Reporter", () => {
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
-			screenshots: string[];
+			screenshots: Array<{ timestamp: number; file: string }>;
 		};
 		expect(screenshotsList.screenshots).toHaveLength(2);
 		expect(screenshotsList.screenshots).toEqual([
-			"page@123-1766927492200000000.jpeg",
-			"page@123-1766927492700000000.jpeg",
+			{
+				timestamp: 1766927492200000000,
+				file: "page@123-1766927492200000000.jpeg",
+			},
+			{
+				timestamp: 1766927492700000000,
+				file: "page@123-1766927492700000000.jpeg",
+			},
 		]);
 
 		// 4. Fetch individual screenshot
@@ -345,14 +351,26 @@ describe("Playwright Reporter", () => {
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
-			screenshots: string[];
+			screenshots: Array<{ timestamp: number; file: string }>;
 		};
 		expect(screenshotsList.screenshots).toHaveLength(4);
 		expect(screenshotsList.screenshots).toEqual([
-			"page@abc-1766927492100000000.jpeg",
-			"page@abc-1766927492300000000.jpeg",
-			"popup@def-1766927492500000000.jpeg",
-			"popup@def-1766927492700000000.jpeg",
+			{
+				timestamp: 1766927492100000000,
+				file: "page@abc-1766927492100000000.jpeg",
+			},
+			{
+				timestamp: 1766927492300000000,
+				file: "page@abc-1766927492300000000.jpeg",
+			},
+			{
+				timestamp: 1766927492500000000,
+				file: "popup@def-1766927492500000000.jpeg",
+			},
+			{
+				timestamp: 1766927492700000000,
+				file: "popup@def-1766927492700000000.jpeg",
+			},
 		]);
 	});
 

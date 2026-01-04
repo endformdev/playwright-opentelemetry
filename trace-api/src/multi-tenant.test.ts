@@ -439,12 +439,18 @@ describe("Multi-Tenant Storage", () => {
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
-			screenshots: string[];
+			screenshots: Array<{ timestamp: number; file: string }>;
 		};
 		expect(screenshotsList.screenshots).toHaveLength(2);
 		expect(screenshotsList.screenshots).toEqual([
-			"page@abc-1766927492300000000.jpeg",
-			"page@abc-1766927492700000000.jpeg",
+			{
+				timestamp: 1766927492300000000,
+				file: "page@abc-1766927492300000000.jpeg",
+			},
+			{
+				timestamp: 1766927492700000000,
+				file: "page@abc-1766927492700000000.jpeg",
+			},
 		]);
 
 		// Verify individual screenshot retrieval
