@@ -101,14 +101,16 @@ describe("Playwright Reporter", () => {
 		// Verification: Read back complete trace
 		// 1. Get test.json
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/test.json`),
+			new Request(`http://localhost/test-traces/${traceId}/test.json`),
 		);
 		expect(getTestJsonResponse.status).toBe(200);
 		expect(await getTestJsonResponse.json()).toEqual(testJson);
 
 		// 2. List and get OTLP files
 		const listOtlpResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`),
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
 		const otlpFiles = (await listOtlpResponse.json()) as {
@@ -118,7 +120,7 @@ describe("Playwright Reporter", () => {
 
 		const getOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
 			),
 		);
 		expect(getOtlpResponse.status).toBe(200);
@@ -126,7 +128,7 @@ describe("Playwright Reporter", () => {
 
 		// 3. List and get screenshots
 		const listScreenshotsResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/screenshots`),
+			new Request(`http://localhost/test-traces/${traceId}/screenshots`),
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
@@ -141,7 +143,7 @@ describe("Playwright Reporter", () => {
 		// 4. Fetch individual screenshot
 		const getScreenshotResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/screenshots/${screenshots[0].filename}`,
+				`http://localhost/test-traces/${traceId}/screenshots/${screenshots[0].filename}`,
 			),
 		);
 		expect(getScreenshotResponse.status).toBe(200);
@@ -202,7 +204,7 @@ describe("Playwright Reporter", () => {
 
 		// Verify error information is preserved
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/test.json`),
+			new Request(`http://localhost/test-traces/${traceId}/test.json`),
 		);
 		expect(getTestJsonResponse.status).toBe(200);
 		const retrievedTestJson = (await getTestJsonResponse.json()) as {
@@ -261,7 +263,7 @@ describe("Playwright Reporter", () => {
 
 		// Verify screenshots list is empty
 		const listScreenshotsResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/screenshots`),
+			new Request(`http://localhost/test-traces/${traceId}/screenshots`),
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
@@ -339,7 +341,7 @@ describe("Playwright Reporter", () => {
 
 		// Verify all screenshots are stored and listed correctly
 		const listScreenshotsResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/screenshots`),
+			new Request(`http://localhost/test-traces/${traceId}/screenshots`),
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
@@ -437,14 +439,14 @@ describe("Playwright Reporter", () => {
 
 		// Verify traces are isolated
 		const test1Response = await app.fetch(
-			new Request(`http://localhost/traces/${test1TraceId}/test.json`),
+			new Request(`http://localhost/test-traces/${test1TraceId}/test.json`),
 		);
 		expect(test1Response.status).toBe(200);
 		const test1Data = (await test1Response.json()) as { name: string };
 		expect(test1Data.name).toBe("first test");
 
 		const test2Response = await app.fetch(
-			new Request(`http://localhost/traces/${test2TraceId}/test.json`),
+			new Request(`http://localhost/test-traces/${test2TraceId}/test.json`),
 		);
 		expect(test2Response.status).toBe(200);
 		const test2Data = (await test2Response.json()) as { name: string };
@@ -453,7 +455,7 @@ describe("Playwright Reporter", () => {
 		// Verify OTLP files don't interfere
 		const otlp1Response = await app.fetch(
 			new Request(
-				`http://localhost/traces/${test1TraceId}/opentelemetry-protocol`,
+				`http://localhost/test-traces/${test1TraceId}/opentelemetry-protocol`,
 			),
 		);
 		const otlp1Files = (await otlp1Response.json()) as { jsonFiles: string[] };
@@ -461,7 +463,7 @@ describe("Playwright Reporter", () => {
 
 		const otlp2Response = await app.fetch(
 			new Request(
-				`http://localhost/traces/${test2TraceId}/opentelemetry-protocol`,
+				`http://localhost/test-traces/${test2TraceId}/opentelemetry-protocol`,
 			),
 		);
 		const otlp2Files = (await otlp2Response.json()) as { jsonFiles: string[] };
@@ -557,7 +559,9 @@ describe("Playwright Reporter", () => {
 
 		// Verify large OTLP payload is handled correctly
 		const listOtlpResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`),
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
 		const otlpFiles = (await listOtlpResponse.json()) as {
@@ -567,7 +571,7 @@ describe("Playwright Reporter", () => {
 
 		const getOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
 			),
 		);
 		expect(getOtlpResponse.status).toBe(200);

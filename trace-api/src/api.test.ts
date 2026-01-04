@@ -78,7 +78,7 @@ describe("Trace API integration", () => {
 
 		// Step 3: GET test.json back via viewer API
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/test.json`, {
+			new Request(`http://localhost/test-traces/${traceId}/test.json`, {
 				method: "GET",
 			}),
 		);
@@ -90,9 +90,12 @@ describe("Trace API integration", () => {
 		// Step 4: GET OTLP data back via viewer API
 		// First, list available OTLP files
 		const listOtlpResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`, {
-				method: "GET",
-			}),
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				{
+					method: "GET",
+				},
+			),
 		);
 
 		expect(listOtlpResponse.status).toBe(200);
@@ -104,7 +107,7 @@ describe("Trace API integration", () => {
 		// Then, get the specific OTLP file
 		const getOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/opentelemetry-protocol/backend-api-abc123def456.json`,
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/backend-api-abc123def456.json`,
 				{
 					method: "GET",
 				},

@@ -6,11 +6,11 @@ import type { TraceStorage } from "../storage/s3";
  * Create a handler for the trace viewer read API.
  *
  * Serves trace data in the format expected by the trace viewer:
- * - GET /traces/{traceId}/test.json
- * - GET /traces/{traceId}/opentelemetry-protocol -> { jsonFiles: [...] }
- * - GET /traces/{traceId}/opentelemetry-protocol/{file}.json
- * - GET /traces/{traceId}/screenshots -> { screenshots: [...] }
- * - GET /traces/{traceId}/screenshots/{filename}
+ * - GET /test-traces/{traceId}/test.json
+ * - GET /test-traces/{traceId}/opentelemetry-protocol -> { jsonFiles: [...] }
+ * - GET /test-traces/{traceId}/opentelemetry-protocol/{file}.json
+ * - GET /test-traces/{traceId}/screenshots -> { screenshots: [...] }
+ * - GET /test-traces/{traceId}/screenshots/{filename}
  *
  * @param storage - TraceStorage implementation
  * @returns H3 event handler
@@ -20,13 +20,13 @@ import type { TraceStorage } from "../storage/s3";
  * import { TRACES_READ_PATH } from '@playwright-opentelemetry/trace-api';
  *
  * const router = createRouter();
- * // TRACES_READ_PATH = '/traces/**'
+ * // TRACES_READ_PATH = '/test-traces/**'
  * router.get(TRACES_READ_PATH, createViewerHandler(storage));
  * ```
  */
 export function createViewerHandler(storage: TraceStorage): EventHandler {
 	return defineEventHandler(async (event) => {
-		// Get the full path after /traces/
+		// Get the full path after /test-traces/
 		const path = getRouterParam(event, "_");
 		if (!path) {
 			throw new Error("Path is required");
@@ -38,7 +38,7 @@ export function createViewerHandler(storage: TraceStorage): EventHandler {
 		const traceId = parts[0];
 
 		if (parts.length === 1) {
-			// GET /traces/{traceId} - not implemented yet
+			// GET /test-traces/{traceId} - not implemented yet
 			throw new Error("Trace listing not implemented");
 		}
 

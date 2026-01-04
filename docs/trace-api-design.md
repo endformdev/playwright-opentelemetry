@@ -93,9 +93,9 @@ api.use('/playwright-opentelemetry/**', async (event) => {
   }
 });
 
-// Read endpoints (/traces/**) are public by default
+// Read endpoints (/test-traces/**) are public by default
 // Add auth if needed:
-// api.use('/traces/**', readAuthMiddleware);
+// api.use('/test-traces/**', readAuthMiddleware);
 
 // Add custom routes
 api.get('/health', () => ({ status: 'ok' }));
@@ -149,7 +149,7 @@ const app = new H3();
 // Add only the handlers you need
 app.post('/v1/traces', createOtlpHandler(storage));
 app.put('/playwright-opentelemetry/**', createPlaywrightHandler(storage));
-app.get('/traces/**', createViewerHandler(storage));
+app.get('/test-traces/**', createViewerHandler(storage));
 
 export default {
   fetch: app.fetch,
@@ -197,7 +197,7 @@ const storage = createS3Storage({ ... });
 const app = new H3();
 
 // Read endpoints only - could be public or with different auth
-app.get('/traces/**', createViewerHandler(storage));
+app.get('/test-traces/**', createViewerHandler(storage));
 
 export default {
   fetch: app.fetch,
@@ -282,13 +282,13 @@ Body: JPEG image data
 Serves the format expected by the trace viewer:
 
 ```
-GET /traces/{traceId}/test.json
-GET /traces/{traceId}/opentelemetry-protocol
+GET /test-traces/{traceId}/test.json
+GET /test-traces/{traceId}/opentelemetry-protocol
   -> { "jsonFiles": ["playwright-opentelemetry.json", "backend.json"] }
-GET /traces/{traceId}/opentelemetry-protocol/{file}.json
-GET /traces/{traceId}/screenshots
+GET /test-traces/{traceId}/opentelemetry-protocol/{file}.json
+GET /test-traces/{traceId}/screenshots
   -> { "screenshots": [{ "timestamp": 1234567890, "file": "page@abc-1234567890.jpeg" }] }
-GET /traces/{traceId}/screenshots/{filename}
+GET /test-traces/{traceId}/screenshots/{filename}
 ```
 
 The listing endpoints (`/opentelemetry-protocol` and `/screenshots`) call S3 ListObjects and format the response.
@@ -355,7 +355,7 @@ trace-api/
 │   ├── handlers/
 │   │   ├── otlp.ts           # createOtlpHandler - POST /v1/traces
 │   │   ├── playwright.ts     # createPlaywrightHandler - PUT /playwright-opentelemetry/*
-│   │   └── viewer.ts         # createViewerHandler - GET /traces/*
+│   │   └── viewer.ts         # createViewerHandler - GET /test-traces/*
 │   ├── storage/
 │   │   ├── types.ts          # Storage interface
 │   │   └── s3.ts             # createS3Storage - S3 implementation using aws4fetch
@@ -488,7 +488,7 @@ export default {
     api.use('/playwright-opentelemetry/**', authMiddleware);
 
     // Read endpoints could use different auth or be public
-    // api.use('/traces/**', readAuthMiddleware);
+    // api.use('/test-traces/**', readAuthMiddleware);
 
     return api.fetch(request);
   },

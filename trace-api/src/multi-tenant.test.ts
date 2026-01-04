@@ -128,7 +128,7 @@ describe("Multi-Tenant Storage", () => {
 
 		// Verification: Tenant A can read their own data
 		const orgAGetResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/test.json`, {
+			new Request(`http://localhost/test-traces/${traceId}/test.json`, {
 				headers: {
 					"X-Org-Id": "org-a",
 				},
@@ -140,7 +140,7 @@ describe("Multi-Tenant Storage", () => {
 
 		// Verification: Tenant B can read their own data
 		const orgBGetResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/test.json`, {
+			new Request(`http://localhost/test-traces/${traceId}/test.json`, {
 				headers: {
 					"X-Org-Id": "org-b",
 				},
@@ -152,11 +152,14 @@ describe("Multi-Tenant Storage", () => {
 
 		// Verification: OTLP files are isolated
 		const orgAOtlpListResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`, {
-				headers: {
-					"X-Org-Id": "org-a",
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				{
+					headers: {
+						"X-Org-Id": "org-a",
+					},
 				},
-			}),
+			),
 		);
 		expect(orgAOtlpListResponse.status).toBe(200);
 		const orgAOtlpFiles = (await orgAOtlpListResponse.json()) as {
@@ -165,11 +168,14 @@ describe("Multi-Tenant Storage", () => {
 		expect(orgAOtlpFiles.jsonFiles.length).toBeGreaterThan(0);
 
 		const orgBOtlpListResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`, {
-				headers: {
-					"X-Org-Id": "org-b",
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				{
+					headers: {
+						"X-Org-Id": "org-b",
+					},
 				},
-			}),
+			),
 		);
 		expect(orgBOtlpListResponse.status).toBe(200);
 		const orgBOtlpFiles = (await orgBOtlpListResponse.json()) as {
@@ -180,7 +186,7 @@ describe("Multi-Tenant Storage", () => {
 		// Retrieve and verify the OTLP data is different for each tenant
 		const orgAOtlpDataResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/opentelemetry-protocol/${orgAOtlpFiles.jsonFiles[0]}`,
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/${orgAOtlpFiles.jsonFiles[0]}`,
 				{
 					headers: {
 						"X-Org-Id": "org-a",
@@ -203,7 +209,7 @@ describe("Multi-Tenant Storage", () => {
 
 		const orgBOtlpDataResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/opentelemetry-protocol/${orgBOtlpFiles.jsonFiles[0]}`,
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/${orgBOtlpFiles.jsonFiles[0]}`,
 				{
 					headers: {
 						"X-Org-Id": "org-b",
@@ -364,7 +370,7 @@ describe("Multi-Tenant Storage", () => {
 
 		// 1. Verify test.json
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/test.json`, {
+			new Request(`http://localhost/test-traces/${traceId}/test.json`, {
 				headers: {
 					"X-Org-Id": "tenant-123",
 				},
@@ -376,11 +382,14 @@ describe("Multi-Tenant Storage", () => {
 
 		// 2. Verify OTLP files (should have both playwright and backend-api)
 		const listOtlpResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`, {
-				headers: {
-					"X-Org-Id": "tenant-123",
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				{
+					headers: {
+						"X-Org-Id": "tenant-123",
+					},
 				},
-			}),
+			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
 		const otlpFiles = (await listOtlpResponse.json()) as {
@@ -394,7 +403,7 @@ describe("Multi-Tenant Storage", () => {
 		// Verify both OTLP files can be retrieved
 		const getPlaywrightOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/opentelemetry-protocol/${sortedOtlpFiles[1]}`,
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/${sortedOtlpFiles[1]}`,
 				{
 					headers: {
 						"X-Org-Id": "tenant-123",
@@ -408,7 +417,7 @@ describe("Multi-Tenant Storage", () => {
 
 		const getBackendOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/opentelemetry-protocol/${sortedOtlpFiles[0]}`,
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/${sortedOtlpFiles[0]}`,
 				{
 					headers: {
 						"X-Org-Id": "tenant-123",
@@ -422,7 +431,7 @@ describe("Multi-Tenant Storage", () => {
 
 		// 3. Verify screenshots
 		const listScreenshotsResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/screenshots`, {
+			new Request(`http://localhost/test-traces/${traceId}/screenshots`, {
 				headers: {
 					"X-Org-Id": "tenant-123",
 				},
@@ -441,7 +450,7 @@ describe("Multi-Tenant Storage", () => {
 		// Verify individual screenshot retrieval
 		const getScreenshotResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/screenshots/${screenshots[0].filename}`,
+				`http://localhost/test-traces/${traceId}/screenshots/${screenshots[0].filename}`,
 				{
 					headers: {
 						"X-Org-Id": "tenant-123",

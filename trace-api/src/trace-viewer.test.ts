@@ -84,14 +84,16 @@ describe("Trace Viewer", () => {
 		// Viewer flow: Load complete trace
 		// 1. Get test.json for metadata
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/test.json`),
+			new Request(`http://localhost/test-traces/${traceId}/test.json`),
 		);
 		expect(getTestJsonResponse.status).toBe(200);
 		expect(await getTestJsonResponse.json()).toEqual(testJson);
 
 		// 2. List OTLP files
 		const listOtlpResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`),
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
 		const otlpFiles = (await listOtlpResponse.json()) as {
@@ -102,7 +104,7 @@ describe("Trace Viewer", () => {
 		// 3. Fetch each OTLP file
 		const getOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
 			),
 		);
 		expect(getOtlpResponse.status).toBe(200);
@@ -110,7 +112,7 @@ describe("Trace Viewer", () => {
 
 		// 4. List screenshots
 		const listScreenshotsResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/screenshots`),
+			new Request(`http://localhost/test-traces/${traceId}/screenshots`),
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
@@ -121,7 +123,7 @@ describe("Trace Viewer", () => {
 		// 5. Fetch screenshots for filmstrip
 		const getScreenshotResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/screenshots/${screenshots[0].filename}`,
+				`http://localhost/test-traces/${traceId}/screenshots/${screenshots[0].filename}`,
 			),
 		);
 		expect(getScreenshotResponse.status).toBe(200);
@@ -213,7 +215,9 @@ describe("Trace Viewer", () => {
 
 		// Viewer: List OTLP sources
 		const listOtlpResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`),
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
 		const otlpFiles = (await listOtlpResponse.json()) as {
@@ -225,7 +229,7 @@ describe("Trace Viewer", () => {
 		for (const filename of otlpFiles.jsonFiles) {
 			const response = await app.fetch(
 				new Request(
-					`http://localhost/traces/${traceId}/opentelemetry-protocol/${filename}`,
+					`http://localhost/test-traces/${traceId}/opentelemetry-protocol/${filename}`,
 				),
 			);
 			expect(response.status).toBe(200);
@@ -281,7 +285,7 @@ describe("Trace Viewer", () => {
 
 		// Viewer: List screenshots (should be sorted by timestamp)
 		const listScreenshotsResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/screenshots`),
+			new Request(`http://localhost/test-traces/${traceId}/screenshots`),
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
@@ -299,7 +303,7 @@ describe("Trace Viewer", () => {
 		for (const filename of screenshotsList.screenshots) {
 			const response = await app.fetch(
 				new Request(
-					`http://localhost/traces/${traceId}/screenshots/${filename}`,
+					`http://localhost/test-traces/${traceId}/screenshots/${filename}`,
 				),
 			);
 			expect(response.status).toBe(200);
@@ -313,13 +317,15 @@ describe("Trace Viewer", () => {
 
 		// Attempt to load a trace that doesn't exist
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/traces/${nonExistentTraceId}/test.json`),
+			new Request(
+				`http://localhost/test-traces/${nonExistentTraceId}/test.json`,
+			),
 		);
 		expect(getTestJsonResponse.status).toBe(404);
 
 		const listOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${nonExistentTraceId}/opentelemetry-protocol`,
+				`http://localhost/test-traces/${nonExistentTraceId}/opentelemetry-protocol`,
 			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
@@ -329,7 +335,9 @@ describe("Trace Viewer", () => {
 		expect(otlpFiles.jsonFiles).toEqual([]);
 
 		const listScreenshotsResponse = await app.fetch(
-			new Request(`http://localhost/traces/${nonExistentTraceId}/screenshots`),
+			new Request(
+				`http://localhost/test-traces/${nonExistentTraceId}/screenshots`,
+			),
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
@@ -365,7 +373,9 @@ describe("Trace Viewer", () => {
 
 		// Viewer can still show spans without test metadata
 		const listOtlpResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`),
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
 		const otlpFiles = (await listOtlpResponse.json()) as {
@@ -375,7 +385,7 @@ describe("Trace Viewer", () => {
 
 		const getOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/traces/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
 			),
 		);
 		expect(getOtlpResponse.status).toBe(200);
@@ -383,7 +393,7 @@ describe("Trace Viewer", () => {
 
 		// test.json doesn't exist
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/test.json`),
+			new Request(`http://localhost/test-traces/${traceId}/test.json`),
 		);
 		expect(getTestJsonResponse.status).toBe(404);
 	});
@@ -432,7 +442,7 @@ describe("Trace Viewer", () => {
 
 		// Viewer: Verify empty screenshots array
 		const listScreenshotsResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/screenshots`),
+			new Request(`http://localhost/test-traces/${traceId}/screenshots`),
 		);
 		expect(listScreenshotsResponse.status).toBe(200);
 		const screenshotsList = (await listScreenshotsResponse.json()) as {
@@ -465,13 +475,15 @@ describe("Trace Viewer", () => {
 
 		// Viewer: test.json exists
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/test.json`),
+			new Request(`http://localhost/test-traces/${traceId}/test.json`),
 		);
 		expect(getTestJsonResponse.status).toBe(200);
 
 		// Viewer: Verify empty jsonFiles array
 		const listOtlpResponse = await app.fetch(
-			new Request(`http://localhost/traces/${traceId}/opentelemetry-protocol`),
+			new Request(
+				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
 		const otlpFiles = (await listOtlpResponse.json()) as {

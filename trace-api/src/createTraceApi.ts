@@ -31,7 +31,7 @@ const eventContext = new AsyncLocalStorage<H3Event>();
  * Returns an H3 app with all endpoints configured:
  * - POST /v1/traces - OTLP trace ingestion
  * - PUT /playwright-opentelemetry/** - Playwright test data
- * - GET /traces/** - Trace viewer read API
+ * - GET /test-traces/** - Trace viewer read API
  *
  */
 export function createTraceApi(config: TraceApiConfig): H3 {

@@ -70,7 +70,7 @@ app.use(PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH, authMiddleware);
 app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(storage));
 // /playwright-opentelemetry/**
 app.put(PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH, createPlaywrightHandler(storage));
-// /traces/**
+// /test-traces/**
 app.get(TRACES_READ_PATH, createViewerHandler(storage));
 
 export default {
@@ -158,11 +158,11 @@ Writes screenshots to `traces/{traceId}/screenshots/{filename}`.
 **Read Endpoints:**
 
 ```
-GET /traces/{traceId}/test.json
-GET /traces/{traceId}/opentelemetry-protocol
-GET /traces/{traceId}/opentelemetry-protocol/{file}.json
-GET /traces/{traceId}/screenshots
-GET /traces/{traceId}/screenshots/{filename}
+GET /test-traces/{traceId}/test.json
+GET /test-traces/{traceId}/opentelemetry-protocol
+GET /test-traces/{traceId}/opentelemetry-protocol/{file}.json
+GET /test-traces/{traceId}/screenshots
+GET /test-traces/{traceId}/screenshots/{filename}
 ```
 
 Serves trace data in the format expected by the trace viewer.
