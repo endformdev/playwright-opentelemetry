@@ -1,11 +1,5 @@
 import type { EventHandler } from "h3";
-import {
-	defineEventHandler,
-	getHeader,
-	getRouterParam,
-	readBody,
-	readRawBody,
-} from "h3";
+import { defineEventHandler, getRouterParam, readBody } from "h3";
 import type { TraceStorage } from "../storage/s3";
 
 /**
@@ -31,7 +25,7 @@ import type { TraceStorage } from "../storage/s3";
 export function createPlaywrightHandler(storage: TraceStorage): EventHandler {
 	return defineEventHandler(async (event) => {
 		// Get trace ID from header
-		const traceId = getHeader(event, "x-trace-id");
+		const traceId = event.req.headers.get("x-trace-id");
 		if (!traceId) {
 			throw new Error("X-Trace-Id header is required");
 		}
@@ -52,15 +46,10 @@ export function createPlaywrightHandler(storage: TraceStorage): EventHandler {
 
 		// Read the body - use raw body for binary data (screenshots)
 		if (contentType === "image/jpeg") {
-			const rawBody = await readRawBody(event);
-			if (!rawBody) {
+			const buffer = await event.req.arrayBuffer();
+			if (!buffer) {
 				throw new Error("Request body is required");
 			}
-			// Convert Uint8Array to ArrayBuffer
-			const buffer =
-				typeof rawBody === "string"
-					? new TextEncoder().encode(rawBody).buffer
-					: new Uint8Array(rawBody).buffer;
 			await storage.put(storagePath, buffer, contentType);
 		} else {
 			const body = await readBody(event);

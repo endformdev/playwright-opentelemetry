@@ -4,6 +4,7 @@ import {
 	createScreenshotBuffer,
 	createTestHarness,
 	createTestJson,
+	generateSpanId,
 	generateTraceId,
 } from "./testHarness";
 
@@ -490,5 +491,119 @@ describe("Backend Instrumentation", () => {
 			new Request(`http://localhost/traces/${traceId}/test.json`),
 		);
 		expect(getTestJsonResponse.status).toBe(404);
+	});
+
+	it("single OTLP post with spans from multiple traces", async () => {
+		const app = createTestHarness();
+		const traceId1 = generateTraceId();
+		const traceId2 = generateTraceId();
+
+		// A backend service batches spans from different traces in one POST
+		// This is totally reasonable - the OTLP exporter may batch across traces
+		const mixedOtlp = {
+			resourceSpans: [
+				{
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "backend-api" },
+							},
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "backend-api-instrumentation" },
+							spans: [
+								{
+									traceId: traceId1,
+									spanId: generateSpanId(),
+									name: "GET /api/users",
+									startTimeUnixNano: "1766927492100000000",
+									endTimeUnixNano: "1766927492300000000",
+									status: { code: 1 },
+								},
+								{
+									traceId: traceId2,
+									spanId: generateSpanId(),
+									name: "GET /api/orders",
+									startTimeUnixNano: "1766927492150000000",
+									endTimeUnixNano: "1766927492350000000",
+									status: { code: 1 },
+								},
+							],
+						},
+					],
+				},
+			],
+		};
+
+		await app.fetch(
+			new Request("http://localhost/v1/traces", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(mixedOtlp),
+			}),
+		);
+
+		// Verify trace 1 has its span
+		const listOtlp1Response = await app.fetch(
+			new Request(`http://localhost/traces/${traceId1}/opentelemetry-protocol`),
+		);
+		expect(listOtlp1Response.status).toBe(200);
+		const otlp1Files = (await listOtlp1Response.json()) as {
+			jsonFiles: string[];
+		};
+		expect(otlp1Files.jsonFiles).toHaveLength(1);
+		expect(otlp1Files.jsonFiles[0]).toContain("backend-api");
+
+		// Verify the stored file for trace 1 only contains spans from trace 1
+		const trace1Filename = otlp1Files.jsonFiles[0];
+		const trace1FileResponse = await app.fetch(
+			new Request(
+				`http://localhost/traces/${traceId1}/opentelemetry-protocol/${trace1Filename}`,
+			),
+		);
+		expect(trace1FileResponse.status).toBe(200);
+		const trace1Content = (await trace1FileResponse.json()) as {
+			resourceSpans: Array<{
+				scopeSpans: Array<{ spans: Array<{ name: string; traceId: string }> }>;
+			}>;
+		};
+		const trace1Spans =
+			trace1Content.resourceSpans[0].scopeSpans[0].spans || [];
+		expect(trace1Spans).toHaveLength(1);
+		expect(trace1Spans[0].name).toBe("GET /api/users");
+		expect(trace1Spans[0].traceId).toBe(traceId1);
+
+		// Verify trace 2 has its span
+		const listOtlp2Response = await app.fetch(
+			new Request(`http://localhost/traces/${traceId2}/opentelemetry-protocol`),
+		);
+		expect(listOtlp2Response.status).toBe(200);
+		const otlp2Files = (await listOtlp2Response.json()) as {
+			jsonFiles: string[];
+		};
+		expect(otlp2Files.jsonFiles).toHaveLength(1);
+		expect(otlp2Files.jsonFiles[0]).toContain("backend-api");
+
+		// Verify the stored file for trace 2 only contains spans from trace 2
+		const trace2Filename = otlp2Files.jsonFiles[0];
+		const trace2FileResponse = await app.fetch(
+			new Request(
+				`http://localhost/traces/${traceId2}/opentelemetry-protocol/${trace2Filename}`,
+			),
+		);
+		expect(trace2FileResponse.status).toBe(200);
+		const trace2Content = (await trace2FileResponse.json()) as {
+			resourceSpans: Array<{
+				scopeSpans: Array<{ spans: Array<{ name: string; traceId: string }> }>;
+			}>;
+		};
+		const trace2Spans =
+			trace2Content.resourceSpans[0].scopeSpans[0].spans || [];
+		expect(trace2Spans).toHaveLength(1);
+		expect(trace2Spans[0].name).toBe("GET /api/orders");
+		expect(trace2Spans[0].traceId).toBe(traceId2);
 	});
 });

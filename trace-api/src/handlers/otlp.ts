@@ -42,13 +42,19 @@ export function createOtlpHandler(storage: TraceStorage): EventHandler {
 	return defineEventHandler(async (event) => {
 		const payload = (await readBody(event)) as OtlpPayload;
 
-		// Extract first available service name, span ID, and trace ID
-		let serviceName = "unknown";
-		let spanId = "unknown";
-		let traceId = "unknown";
+		// Group spans by traceId to handle multiple traces in a single POST
+		const traceGroups = new Map<
+			string,
+			{
+				serviceName: string;
+				spanId: string;
+				resourceSpans: OtlpPayload["resourceSpans"];
+			}
+		>();
 
 		for (const resourceSpan of payload.resourceSpans || []) {
 			// Extract service.name from resource attributes
+			let serviceName = "unknown";
 			if (resourceSpan.resource?.attributes) {
 				for (const attr of resourceSpan.resource.attributes) {
 					if (attr.key === "service.name" && attr.value?.stringValue) {
@@ -58,38 +64,74 @@ export function createOtlpHandler(storage: TraceStorage): EventHandler {
 				}
 			}
 
-			// Extract first span's traceId and spanId
+			// Process each span and group by traceId
 			for (const scopeSpan of resourceSpan.scopeSpans || []) {
-				for (const span of scopeSpan.spans || []) {
-					if (span.traceId) {
-						traceId = span.traceId;
-					}
-					if (span.spanId) {
-						spanId = span.spanId;
-					}
-					if (traceId !== "unknown" && spanId !== "unknown") {
-						break;
-					}
-				}
-				if (traceId !== "unknown" && spanId !== "unknown") {
-					break;
-				}
-			}
+				// Group spans within this scopeSpan by traceId
+				const spansByTrace = new Map<
+					string,
+					Array<{ traceId?: string; spanId?: string }>
+				>();
 
-			if (
-				serviceName !== "unknown" &&
-				traceId !== "unknown" &&
-				spanId !== "unknown"
-			) {
-				break;
+				for (const span of scopeSpan.spans || []) {
+					const traceId = span.traceId || "unknown";
+					if (!spansByTrace.has(traceId)) {
+						spansByTrace.set(traceId, []);
+					}
+					spansByTrace.get(traceId)?.push(span);
+				}
+
+				// Create separate payloads for each traceId
+				for (const [traceId, spans] of spansByTrace) {
+					if (traceId === "unknown") continue;
+
+					const spanId = spans[0]?.spanId || "unknown";
+
+					if (!traceGroups.has(traceId)) {
+						traceGroups.set(traceId, {
+							serviceName,
+							spanId,
+							resourceSpans: [
+								{
+									resource: resourceSpan.resource,
+									scopeSpans: [
+										{
+											...scopeSpan,
+											spans,
+										},
+									],
+								},
+							],
+						});
+					} else {
+						// Append to existing trace group
+						const group = traceGroups.get(traceId);
+						if (group?.resourceSpans?.[0]?.scopeSpans) {
+							group.resourceSpans[0].scopeSpans.push({
+								...scopeSpan,
+								spans,
+							});
+						}
+					}
+				}
 			}
 		}
 
-		// Store the payload
-		const filename = `${serviceName}-${spanId}.json`;
-		const path = `traces/${traceId}/opentelemetry-protocol/${filename}`;
+		// Store each trace group separately
+		const storePromises: Promise<void>[] = [];
+		for (const [traceId, group] of traceGroups) {
+			const filename = `${group.serviceName}-${group.spanId}.json`;
+			const path = `traces/${traceId}/opentelemetry-protocol/${filename}`;
 
-		await storage.put(path, JSON.stringify(payload), "application/json");
+			const tracePayload = {
+				resourceSpans: group.resourceSpans,
+			};
+
+			storePromises.push(
+				storage.put(path, JSON.stringify(tracePayload), "application/json"),
+			);
+		}
+
+		await Promise.all(storePromises);
 
 		return { status: "ok" };
 	});
