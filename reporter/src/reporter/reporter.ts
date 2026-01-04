@@ -1,4 +1,5 @@
 import { existsSync, type FSWatcher, mkdirSync, watch } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type {
 	FullConfig,
@@ -39,6 +40,8 @@ import { createTraceZip } from "./trace-zip-builder";
 export interface PlaywrightOpentelemetryReporterOptions {
 	otlpEndpoint?: string;
 	otlpHeaders?: Record<string, string>;
+	playwrightTraceApiEndpoint?: string;
+	playwrightTraceApiHeaders?: Record<string, string>;
 	storeTraceZip?: boolean;
 	serviceName?: string;
 	debug?: boolean;
@@ -64,6 +67,8 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private playwrightVersion?: string;
 	private resolvedEndpoint: string;
 	private resolvedHeaders: Record<string, string>;
+	private resolvedTraceApiEndpoint: string;
+	private resolvedTraceApiHeaders: Record<string, string>;
 	private resolvedServiceName: string;
 
 	/** Maps test.id to its project's outputDir */
@@ -92,13 +97,21 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			...envHeaders, // env headers override config headers
 		};
 
+		// Resolve trace API endpoint and headers
+		this.resolvedTraceApiEndpoint = options.playwrightTraceApiEndpoint || "";
+		this.resolvedTraceApiHeaders = options.playwrightTraceApiHeaders || {};
+
 		this.resolvedServiceName =
 			process.env.OTEL_SERVICE_NAME ||
 			options.serviceName ||
 			"playwright-tests";
 
-		// Require either an OTLP endpoint or storeTraceZip to be enabled
-		if (!this.resolvedEndpoint && !this.options.storeTraceZip) {
+		// Require either an OTLP endpoint, trace API endpoint, or storeTraceZip to be enabled
+		if (
+			!this.resolvedEndpoint &&
+			!this.resolvedTraceApiEndpoint &&
+			!this.options.storeTraceZip
+		) {
 			throw new Error(getConfigurationErrorMessage());
 		}
 	}
@@ -316,17 +329,15 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Add all test spans to the global spans array
 		this.spans.push(...testSpans);
 
+		// Calculate relative file path and duration for both zip and trace API
+		const relativeFilePath =
+			test.location && this.rootDir
+				? path.relative(this.rootDir, test.location.file)
+				: (test.location?.file ?? "");
+		const computedDuration = maxEndTime.getTime() - minStartTime.getTime();
+
 		// If storeTraceZip is enabled, create zip file for this test
 		if (this.options.storeTraceZip) {
-			// Calculate relative file path
-			const relativeFilePath =
-				test.location && this.rootDir
-					? path.relative(this.rootDir, test.location.file)
-					: (test.location?.file ?? "");
-
-			// Calculate the computed duration for the trace zip
-			const computedDuration = maxEndTime.getTime() - minStartTime.getTime();
-
 			await createTraceZip({
 				outputDir,
 				testId,
@@ -340,6 +351,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				duration: computedDuration,
 			});
 		}
+
+		// If trace API is configured, send test.json and screenshots
+		if (this.resolvedTraceApiEndpoint) {
+			await this.sendTestJsonToTraceApi({
+				test,
+				result,
+				traceId,
+				outputDir,
+				relativeFilePath,
+				startTime: minStartTime,
+				computedDuration,
+			});
+		}
 	}
 
 	async onEnd(_result: FullResult) {
@@ -349,7 +373,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 		this.directoryWatchers = [];
 
-		// Only send spans if an endpoint is configured
+		// Send spans to OTLP endpoint if configured
 		if (this.resolvedEndpoint) {
 			await sendSpans(this.spans, {
 				tracesEndpoint: this.resolvedEndpoint,
@@ -359,6 +383,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				debug: this.options.debug ?? false,
 			});
 		}
+
+		// Send spans to trace API endpoint if configured
+		if (this.resolvedTraceApiEndpoint) {
+			await sendSpans(this.spans, {
+				tracesEndpoint: `${this.resolvedTraceApiEndpoint}/v1/traces`,
+				headers: this.resolvedTraceApiHeaders,
+				serviceName: this.resolvedServiceName,
+				playwrightVersion: this.playwrightVersion || "unknown",
+				debug: this.options.debug ?? false,
+			});
+		}
+
 		for (const [testId, outputDir] of this.testOutputDirs.entries()) {
 			await cleanupTestFiles(outputDir, testId);
 		}
@@ -526,10 +562,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		return this.options.debug ?? false;
 	}
 
-	/**
-	 * Get the output directory for a test ID.
-	 * Throws if the test ID was not registered in onBegin.
-	 */
 	private getOutputDir(testId: string): string {
 		const outputDir = this.testOutputDirs.get(testId);
 		if (!outputDir) {
@@ -538,6 +570,93 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			);
 		}
 		return outputDir;
+	}
+
+	private async sendTestJsonToTraceApi(params: {
+		test: TestCase;
+		result: TestResult;
+		traceId: string;
+		outputDir: string;
+		relativeFilePath: string;
+		startTime: Date;
+		computedDuration: number;
+	}): Promise<void> {
+		const {
+			test,
+			result,
+			traceId,
+			outputDir,
+			relativeFilePath,
+			startTime,
+			computedDuration,
+		} = params;
+
+		// Build test.json content
+		const titlePath = test.titlePath();
+		const describes = titlePath.length > 4 ? titlePath.slice(3, -1) : [];
+		const line = test.location?.line ?? 0;
+
+		const startTimeUnixNano = (startTime.getTime() * 1_000_000).toString();
+		const endTimeUnixNano = (
+			(startTime.getTime() + computedDuration) *
+			1_000_000
+		).toString();
+
+		const testJson = {
+			name: test.title,
+			describes,
+			file: relativeFilePath,
+			line,
+			status: result.status,
+			traceId,
+			startTimeUnixNano,
+			endTimeUnixNano,
+		};
+
+		// Send test.json
+		const testJsonUrl = `${this.resolvedTraceApiEndpoint}/playwright-opentelemetry/test.json`;
+		await fetch(testJsonUrl, {
+			method: "PUT",
+			headers: {
+				"content-type": "application/json",
+				"x-trace-id": traceId,
+				...this.resolvedTraceApiHeaders,
+			},
+			body: JSON.stringify(testJson),
+		});
+
+		// Send screenshots
+		const screenshotsDir = path.join(
+			outputDir,
+			PW_OTEL_DIR,
+			test.id,
+			"screenshots",
+		);
+		if (existsSync(screenshotsDir)) {
+			const files = await readdir(screenshotsDir);
+
+			const screenshotFiles = files.filter(
+				(file) => file.endsWith(".jpeg") || file.endsWith(".jpg"),
+			);
+
+			await Promise.all(
+				screenshotFiles.map(async (file) => {
+					const filePath = path.join(screenshotsDir, file);
+					const buffer = await readFile(filePath);
+
+					const screenshotUrl = `${this.resolvedTraceApiEndpoint}/playwright-opentelemetry/screenshots/${file}`;
+					await fetch(screenshotUrl, {
+						method: "PUT",
+						headers: {
+							"content-type": "image/jpeg",
+							"x-trace-id": traceId,
+							...this.resolvedTraceApiHeaders,
+						},
+						body: buffer,
+					});
+				}),
+			);
+		}
 	}
 }
 

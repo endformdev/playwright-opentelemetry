@@ -1,200 +1,205 @@
 import { expect, test } from "@playwright/test";
 
-const MOCK_API_URL = "http://localhost:9295";
+const TRACE_API_URL = "http://localhost:9295";
 
 test("loads trace from API and displays test info and spans", async ({
 	page,
 	request,
 }) => {
-	const traceId = `test-trace-${Date.now()}`;
 	const testStartTime = Date.now();
 	const testEndTime = testStartTime + 2000; // 2 second test
 
 	const traceIdHex = "abc123def456abc123def456abc123de";
 
-	await request.post(`${MOCK_API_URL}/${traceId}`, {
+	// Step 1: Send OTLP traces via POST /v1/traces
+	await request.post(`${TRACE_API_URL}/v1/traces`, {
 		data: {
-			testInfo: {
-				name: "Example login test",
-				describes: ["Authentication", "Login flow"],
-				file: "auth/login.spec.ts",
-				line: 15,
-				status: "passed",
-				traceId: traceIdHex,
-				startTimeUnixNano: `${testStartTime}000000`,
-				endTimeUnixNano: `${testEndTime}000000`,
-			},
-			traces: [
+			resourceSpans: [
+				// Playwright test spans
 				{
-					resourceSpans: [
-						// Playwright test spans
-						{
-							resource: {
-								attributes: [
-									{
-										key: "service.name",
-										value: { stringValue: "playwright-tests" },
-									},
-								],
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "playwright-tests" },
 							},
-							scopeSpans: [
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "playwright", version: "1.50.0" },
+							spans: [
+								// Test span (root)
 								{
-									scope: { name: "playwright", version: "1.50.0" },
-									spans: [
-										// Test span (root)
+									traceId: traceIdHex,
+									spanId: "span00000001",
+									name: "playwright.test",
+									kind: 1,
+									startTimeUnixNano: `${testStartTime}000000`,
+									endTimeUnixNano: `${testEndTime}000000`,
+									attributes: [
 										{
-											traceId: traceIdHex,
-											spanId: "span00000001",
-											name: "playwright.test",
-											kind: 1,
-											startTimeUnixNano: `${testStartTime}000000`,
-											endTimeUnixNano: `${testEndTime}000000`,
-											attributes: [
-												{
-													key: "test.case.title",
-													value: { stringValue: "Example login test" },
-												},
-											],
-											status: { code: 1 },
-											events: [],
-											links: [],
-										},
-										// Step: Navigate to login page
-										{
-											traceId: traceIdHex,
-											spanId: "span00000002",
-											parentSpanId: "span00000001",
-											name: "playwright.test.step",
-											kind: 1,
-											startTimeUnixNano: `${testStartTime + 100}000000`,
-											endTimeUnixNano: `${testStartTime + 500}000000`,
-											attributes: [
-												{
-													key: "test.step.title",
-													value: { stringValue: "Navigate to login page" },
-												},
-											],
-											status: { code: 1 },
-											events: [],
-											links: [],
-										},
-										// Step: Fill login form
-										{
-											traceId: traceIdHex,
-											spanId: "span00000003",
-											parentSpanId: "span00000001",
-											name: "playwright.test.step",
-											kind: 1,
-											startTimeUnixNano: `${testStartTime + 600}000000`,
-											endTimeUnixNano: `${testStartTime + 1200}000000`,
-											attributes: [
-												{
-													key: "test.step.title",
-													value: { stringValue: "Fill login form" },
-												},
-											],
-											status: { code: 1 },
-											events: [],
-											links: [],
+											key: "test.case.title",
+											value: { stringValue: "Example login test" },
 										},
 									],
+									status: { code: 1 },
+									events: [],
+									links: [],
+								},
+								// Step: Navigate to login page
+								{
+									traceId: traceIdHex,
+									spanId: "span00000002",
+									parentSpanId: "span00000001",
+									name: "playwright.test.step",
+									kind: 1,
+									startTimeUnixNano: `${testStartTime + 100}000000`,
+									endTimeUnixNano: `${testStartTime + 500}000000`,
+									attributes: [
+										{
+											key: "test.step.title",
+											value: { stringValue: "Navigate to login page" },
+										},
+									],
+									status: { code: 1 },
+									events: [],
+									links: [],
+								},
+								// Step: Fill login form
+								{
+									traceId: traceIdHex,
+									spanId: "span00000003",
+									parentSpanId: "span00000001",
+									name: "playwright.test.step",
+									kind: 1,
+									startTimeUnixNano: `${testStartTime + 600}000000`,
+									endTimeUnixNano: `${testStartTime + 1200}000000`,
+									attributes: [
+										{
+											key: "test.step.title",
+											value: { stringValue: "Fill login form" },
+										},
+									],
+									status: { code: 1 },
+									events: [],
+									links: [],
 								},
 							],
 						},
-						// Browser spans (playwright-browser service)
-						{
-							resource: {
-								attributes: [
-									{
-										key: "service.name",
-										value: { stringValue: "playwright-browser" },
-									},
-								],
+					],
+				},
+				// Browser spans (playwright-browser service)
+				{
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "playwright-browser" },
 							},
-							scopeSpans: [
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "playwright-browser", version: "1.0" },
+							spans: [
 								{
-									scope: { name: "playwright-browser", version: "1.0" },
-									spans: [
-										{
-											traceId: traceIdHex,
-											spanId: "span00000010",
-											name: "HTTP GET /login",
-											kind: 3, // CLIENT
-											startTimeUnixNano: `${testStartTime + 150}000000`,
-											endTimeUnixNano: `${testStartTime + 400}000000`,
-											attributes: [],
-											status: { code: 1 },
-											events: [],
-											links: [],
-										},
-										{
-											traceId: traceIdHex,
-											spanId: "span00000011",
-											name: "HTTP POST /api/auth",
-											kind: 3, // CLIENT
-											startTimeUnixNano: `${testStartTime + 700}000000`,
-											endTimeUnixNano: `${testStartTime + 1100}000000`,
-											attributes: [],
-											status: { code: 1 },
-											events: [],
-											links: [],
-										},
-									],
+									traceId: traceIdHex,
+									spanId: "span00000010",
+									name: "HTTP GET /login",
+									kind: 3, // CLIENT
+									startTimeUnixNano: `${testStartTime + 150}000000`,
+									endTimeUnixNano: `${testStartTime + 400}000000`,
+									attributes: [],
+									status: { code: 1 },
+									events: [],
+									links: [],
+								},
+								{
+									traceId: traceIdHex,
+									spanId: "span00000011",
+									name: "HTTP POST /api/auth",
+									kind: 3, // CLIENT
+									startTimeUnixNano: `${testStartTime + 700}000000`,
+									endTimeUnixNano: `${testStartTime + 1100}000000`,
+									attributes: [],
+									status: { code: 1 },
+									events: [],
+									links: [],
 								},
 							],
 						},
-						// External spans (api-service)
-						{
-							resource: {
-								attributes: [
-									{
-										key: "service.name",
-										value: { stringValue: "api-service" },
-									},
-								],
+					],
+				},
+				// External spans (api-service)
+				{
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "api-service" },
 							},
-							scopeSpans: [
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "api", version: "1.0" },
+							spans: [
 								{
-									scope: { name: "api", version: "1.0" },
-									spans: [
-										{
-											traceId: traceIdHex,
-											spanId: "span00000020",
-											name: "POST /api/auth",
-											kind: 2, // SERVER
-											startTimeUnixNano: `${testStartTime + 750}000000`,
-											endTimeUnixNano: `${testStartTime + 1050}000000`,
-											attributes: [],
-											status: { code: 1 },
-											events: [],
-											links: [],
-										},
-										{
-											traceId: traceIdHex,
-											spanId: "span00000021",
-											name: "DB query users",
-											kind: 1, // INTERNAL
-											startTimeUnixNano: `${testStartTime + 800}000000`,
-											endTimeUnixNano: `${testStartTime + 950}000000`,
-											attributes: [],
-											status: { code: 1 },
-											events: [],
-											links: [],
-										},
-									],
+									traceId: traceIdHex,
+									spanId: "span00000020",
+									name: "POST /api/auth",
+									kind: 2, // SERVER
+									startTimeUnixNano: `${testStartTime + 750}000000`,
+									endTimeUnixNano: `${testStartTime + 1050}000000`,
+									attributes: [],
+									status: { code: 1 },
+									events: [],
+									links: [],
+								},
+								{
+									traceId: traceIdHex,
+									spanId: "span00000021",
+									name: "DB query users",
+									kind: 1, // INTERNAL
+									startTimeUnixNano: `${testStartTime + 800}000000`,
+									endTimeUnixNano: `${testStartTime + 950}000000`,
+									attributes: [],
+									status: { code: 1 },
+									events: [],
+									links: [],
 								},
 							],
 						},
 					],
 				},
 			],
-			screenshots: [],
 		},
 	});
 
+	// Step 2: Send test.json via PUT /playwright-opentelemetry/test.json
+	await request.put(`${TRACE_API_URL}/playwright-opentelemetry/test.json`, {
+		headers: {
+			"X-Trace-Id": traceIdHex,
+		},
+		data: {
+			name: "Example login test",
+			describes: ["Authentication", "Login flow"],
+			file: "auth/login.spec.ts",
+			line: 15,
+			status: "passed",
+			traceId: traceIdHex,
+			startTimeUnixNano: `${testStartTime}000000`,
+			endTimeUnixNano: `${testEndTime}000000`,
+		},
+	});
+
+	// Step 3: Load the trace in the viewer (note the /test-traces prefix)
 	await page.goto("/");
 
-	await page.getByTestId("api-url-input").fill(`${MOCK_API_URL}/${traceId}`);
+	await page
+		.getByTestId("api-url-input")
+		.fill(`${TRACE_API_URL}/test-traces/${traceIdHex}`);
 	await page.getByTestId("load-api-button").click();
 
 	// Test name should be visible in header
@@ -225,69 +230,71 @@ test("loads trace from API and displays test info and spans", async ({
 
 test("can load trace via URL query parameter", async ({ page, request }) => {
 	// Register a trace first
-	const traceId = `url-param-trace-${Date.now()}`;
 	const testStartTime = Date.now();
 	const testEndTime = testStartTime + 1000;
 	const traceIdHex = "def456abc123def456abc123def456ab";
 
-	await request.post(`${MOCK_API_URL}/${traceId}`, {
+	// Send OTLP traces
+	await request.post(`${TRACE_API_URL}/v1/traces`, {
 		data: {
-			testInfo: {
-				name: "URL param test",
-				describes: [],
-				file: "param.spec.ts",
-				line: 5,
-				status: "passed",
-				traceId: traceIdHex,
-				startTimeUnixNano: `${testStartTime}000000`,
-				endTimeUnixNano: `${testEndTime}000000`,
-			},
-			traces: [
+			resourceSpans: [
 				{
-					resourceSpans: [
-						{
-							resource: {
-								attributes: [
-									{
-										key: "service.name",
-										value: { stringValue: "playwright-tests" },
-									},
-								],
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "playwright-tests" },
 							},
-							scopeSpans: [
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "playwright", version: "1.50.0" },
+							spans: [
 								{
-									scope: { name: "playwright", version: "1.50.0" },
-									spans: [
+									traceId: traceIdHex,
+									spanId: "span00000001",
+									name: "playwright.test",
+									kind: 1,
+									startTimeUnixNano: `${testStartTime}000000`,
+									endTimeUnixNano: `${testEndTime}000000`,
+									attributes: [
 										{
-											traceId: traceIdHex,
-											spanId: "span00000001",
-											name: "playwright.test",
-											kind: 1,
-											startTimeUnixNano: `${testStartTime}000000`,
-											endTimeUnixNano: `${testEndTime}000000`,
-											attributes: [
-												{
-													key: "test.case.title",
-													value: { stringValue: "URL param test" },
-												},
-											],
-											status: { code: 1 },
-											events: [],
-											links: [],
+											key: "test.case.title",
+											value: { stringValue: "URL param test" },
 										},
 									],
+									status: { code: 1 },
+									events: [],
+									links: [],
 								},
 							],
 						},
 					],
 				},
 			],
-			screenshots: [],
+		},
+	});
+
+	// Send test.json
+	await request.put(`${TRACE_API_URL}/playwright-opentelemetry/test.json`, {
+		headers: {
+			"X-Trace-Id": traceIdHex,
+		},
+		data: {
+			name: "URL param test",
+			describes: [],
+			file: "param.spec.ts",
+			line: 5,
+			status: "passed",
+			traceId: traceIdHex,
+			startTimeUnixNano: `${testStartTime}000000`,
+			endTimeUnixNano: `${testEndTime}000000`,
 		},
 	});
 
 	// Navigate directly with the traceSource query parameter
-	const apiUrl = `${MOCK_API_URL}/${traceId}`;
+	const apiUrl = `${TRACE_API_URL}/test-traces/${traceIdHex}`;
 	await page.goto(`/?traceSource=${encodeURIComponent(apiUrl)}`);
 
 	// Test should load directly without needing to use the input

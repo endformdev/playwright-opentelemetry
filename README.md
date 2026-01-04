@@ -105,7 +105,7 @@ When running the reporter with `storeTraceZip: true`, a local copy of trace data
 
 ### Trace API
 
-The trace viewer can also load traces from APIs that respond to the following endpoints
+The trace viewer can also load traces from APIs that respond to the following endpoints:
 
 - `GET {baseUrl}/test.json` - Base test information
 - `GET {baseUrl}/opentelemetry-protocol` - list OpenTelemetry traces
@@ -116,9 +116,7 @@ The trace viewer can also load traces from APIs that respond to the following en
 	- Response format `{ "screenshots": [ { "timestamp": 1766929201038, "file": "page@xxxbbb-1766929201038.jpeg" }] }`
 - `GET {baseUrl}/screenshots/{filename}` - Individual screenshots
 
-
-
-### `test.json`
+#### `test.json`
 
 ```json
 {
@@ -132,6 +130,12 @@ The trace viewer can also load traces from APIs that respond to the following en
 	"endTimeUnixNano": "1766927493119000000",
 }
 ```
+
+### Deploying Your Own Trace API
+
+The `@playwright-opentelemetry/trace-api` package provides a customizable H3-based library for storing and serving traces from S3-compatible storage. You can deploy it to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers.
+
+See the [trace-api README](trace-api/README.md) for installation, usage examples, and deployment instructions.
 
 ## Contributing
 
