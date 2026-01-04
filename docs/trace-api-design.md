@@ -4,22 +4,15 @@ Backend API design for storing complete Playwright OpenTelemetry traces in S3-co
 
 ## Overview
 
-The Trace API is designed as a **customizable Hono-based library** that can be deployed to Cloudflare Workers (or any other platform supporting Hono). Users import the library and configure it for their specific needs, including custom authentication, multi-tenancy, and storage backends.
+The Trace API is designed as a **customizable H3-based library** that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any other platform supporting web-standard Request/Response handlers. Users import the library and configure it for their specific needs, including custom authentication, multi-tenancy, and storage backends.
 
 ## Storage Architecture
 
-Two-directory structure with different lifecycle rules:
+Single directory structure with lifecycle-based retention:
 
 ```
 s3://bucket/
-├── pending/           # 1-day expiration lifecycle rule
-│   └── {traceId}/
-│       ├── opentelemetry-protocol/
-│       │   └── {source}.json
-│       └── screenshots/
-│           └── {filename}.jpeg
-│
-└── traces/            # Long-term storage
+└── traces/
     └── {traceId}/
         ├── test.json
         ├── opentelemetry-protocol/
@@ -29,7 +22,9 @@ s3://bucket/
             └── {pageId}-{timestamp}.jpeg
 ```
 
-**Why two directories?** OTLP spans from backend services may arrive before the Playwright test completes and sends `test.json`. The `pending/` directory holds these orphan spans temporarily. When `test.json` arrives, all pending data is promoted to `traces/`. If no test.json ever arrives (e.g., a backend service ran but no test was associated), the S3 lifecycle rule automatically cleans up after 1 day.
+All data writes directly to `traces/{traceId}/`. A lifecycle rule expires traces after a configurable retention period (default: 30 days).
+
+**Orphan spans** (OTLP data from services where no test.json ever arrives) will accumulate until the lifecycle rule cleans them up. This is an acceptable trade-off for the simplicity of not needing existence checks, conditional routing, or promotion logic.
 
 ## Library Architecture
 
@@ -45,15 +40,19 @@ npm install @playwright-opentelemetry/trace-api
 // worker.ts
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-export default createTraceApi({
+const api = createTraceApi({
   storage: {
     bucket: 'my-traces',
     endpoint: 'https://xxx.r2.cloudflarestorage.com',
     accessKeyId: env.R2_ACCESS_KEY_ID,
     secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    region: 'auto', // Use 'auto' for R2, or specific region for AWS S3
+    region: 'auto',
   },
 });
+
+export default {
+  fetch: api.fetch,
+};
 ```
 
 ### Advanced Usage with Custom Middleware
@@ -61,9 +60,8 @@ export default createTraceApi({
 ```typescript
 // worker.ts
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
-import { cors } from 'hono/cors';
 
-export default createTraceApi({
+const api = createTraceApi({
   storage: {
     bucket: 'my-traces',
     endpoint: 'https://s3.us-east-1.amazonaws.com',
@@ -73,35 +71,39 @@ export default createTraceApi({
   },
 
   // Transform storage paths (e.g., for multi-tenancy)
-  resolvePath: async (ctx, path) => {
-    const orgId = ctx.get('orgId');
+  resolvePath: async (event, path) => {
+    const orgId = event.context.orgId;
     return orgId ? `orgs/${orgId}/${path}` : path;
   },
 
-  // Custom middleware by route group
-  middleware: {
-    // Applied to all routes
-    global: [
-      cors({ origin: '*' }),
-    ],
-    // Applied to write endpoints (POST /v1/traces, PUT /playwright-opentelemetry/*)
-    write: [
-      async (ctx, next) => {
-        const token = ctx.req.header('Authorization')?.replace('Bearer ', '');
-        const org = await validateToken(token);
-        if (!org) {
-          return ctx.json({ error: 'Unauthorized' }, 401);
-        }
-        ctx.set('orgId', org.id);
-        await next();
-      },
-    ],
-    // Applied to read endpoints (GET /traces/*)
-    read: [
-      // Could be different auth, or public
-    ],
-  },
+  // Global middleware (runs on all requests)
+  middleware: [
+    (event) => {
+      console.log(`[${event.req.method}] ${event.path}`);
+    },
+  ],
+
+  // Write middleware (runs on POST/PUT endpoints)
+  writeMiddleware: [
+    async (event) => {
+      const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
+      const org = await validateToken(token);
+      if (!org) {
+        throw createError({ statusCode: 401, message: 'Unauthorized' });
+      }
+      event.context.orgId = org.id;
+    },
+  ],
+
+  // Read middleware (runs on GET endpoints)
+  readMiddleware: [
+    // Could be different auth, or public
+  ],
 });
+
+export default {
+  fetch: api.fetch,
+};
 ```
 
 ### Configuration Options
@@ -111,41 +113,78 @@ interface TraceApiConfig {
   // S3-compatible storage configuration (required)
   storage: {
     bucket: string;
-    endpoint: string;           // S3 endpoint URL
+    endpoint: string;
     accessKeyId: string;
     secretAccessKey: string;
-    region?: string;            // Default: 'auto' (works for R2)
+    region?: string; // Default: 'auto' (works for R2)
   };
 
   // Transform storage paths before read/write (optional)
-  // Use this for multi-tenancy, adding org prefixes, etc.
-  resolvePath?: (ctx: Context, path: string) => Promise<string> | string;
+  resolvePath?: (event: H3Event, path: string) => Promise<string> | string;
 
-  // Custom middleware (optional)
-  middleware?: {
-    global?: MiddlewareHandler[];  // All routes
-    write?: MiddlewareHandler[];   // POST/PUT routes
-    read?: MiddlewareHandler[];    // GET routes
-  };
+  // Middleware arrays (optional)
+  middleware?: EventHandler[];      // All routes
+  writeMiddleware?: EventHandler[]; // POST/PUT routes
+  readMiddleware?: EventHandler[];  // GET routes
 }
 ```
 
-### Accessing the Hono App Directly
+### Accessing the H3 App Directly
 
-For advanced use cases, you can access the underlying Hono app:
+For advanced use cases, you can access the underlying H3 instance:
 
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const traceApi = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storage: { ... } });
 
 // Add custom routes
-traceApi.get('/health', (c) => c.json({ status: 'ok' }));
+api.get('/health', () => ({ status: 'ok' }));
 
 // Add additional middleware
-traceApi.use('/*', customMiddleware());
+api.use((event) => {
+  // custom logic
+});
 
-export default traceApi;
+// Mount sub-applications
+api.mount('/admin', adminApp);
+
+export default {
+  fetch: api.fetch,
+};
+```
+
+### Other Runtimes
+
+**Deno:**
+```typescript
+import { createTraceApi } from '@playwright-opentelemetry/trace-api';
+
+const api = createTraceApi({ storage: { ... } });
+
+Deno.serve({ port: 3000 }, api.fetch);
+```
+
+**Bun:**
+```typescript
+import { createTraceApi } from '@playwright-opentelemetry/trace-api';
+
+const api = createTraceApi({ storage: { ... } });
+
+export default {
+  port: 3000,
+  fetch: api.fetch,
+};
+```
+
+**Node.js:**
+```typescript
+import { serve } from 'h3/node';
+import { createTraceApi } from '@playwright-opentelemetry/trace-api';
+
+const api = createTraceApi({ storage: { ... } });
+
+serve(api, { port: 3000 });
 ```
 
 ## API Endpoints
@@ -162,9 +201,7 @@ Body: Standard OTLP JSON payload
 **Backend logic:**
 1. Parse `traceId` from each span in the payload
 2. Extract `service.name` from resource attributes for the filename
-3. HEAD `traces/{traceId}/test.json` to check if trace is promoted
-4. If exists: write to `traces/{traceId}/opentelemetry-protocol/{serviceName}.json`
-5. If not: write to `pending/{traceId}/opentelemetry-protocol/{serviceName}.json`
+3. Write to `traces/{traceId}/opentelemetry-protocol/{serviceName}.json`
 
 Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, custom instrumentation, etc.).
 
@@ -179,8 +216,6 @@ Body: test.json content
 
 **Backend logic:**
 1. Write to `traces/{traceId}/test.json`
-2. LIST `pending/{traceId}/`
-3. For each object: COPY to `traces/{traceId}/...` then DELETE from pending
 
 ```
 PUT /playwright-opentelemetry/screenshots/{filename}
@@ -190,9 +225,7 @@ Body: JPEG image data
 ```
 
 **Backend logic:**
-1. HEAD `traces/{traceId}/test.json`
-2. If exists: write to `traces/{traceId}/screenshots/{filename}`
-3. If not: write to `pending/{traceId}/screenshots/{filename}`
+1. Write to `traces/{traceId}/screenshots/{filename}`
 
 ### Trace Viewer API (Read)
 
@@ -212,7 +245,7 @@ The listing endpoints (`/opentelemetry-protocol` and `/screenshots`) call S3 Lis
 
 ## Bucket Setup (Required)
 
-Users must configure their S3-compatible bucket with a lifecycle rule to expire objects in the `pending/` prefix. This is a one-time setup.
+Users must configure their S3-compatible bucket with a lifecycle rule to expire traces after the desired retention period. This is a one-time setup.
 
 ### AWS S3
 
@@ -222,35 +255,35 @@ aws s3api put-bucket-lifecycle-configuration \
   --bucket my-traces \
   --lifecycle-configuration '{
     "Rules": [{
-      "ID": "ExpirePendingTraces",
+      "ID": "ExpireTraces",
       "Status": "Enabled",
-      "Filter": { "Prefix": "pending/" },
-      "Expiration": { "Days": 1 }
+      "Filter": { "Prefix": "traces/" },
+      "Expiration": { "Days": 30 }
     }]
   }'
 ```
 
 Or via AWS Console:
 1. Go to S3 > your bucket > Management > Lifecycle rules
-2. Create rule with prefix filter `pending/`
-3. Set expiration to 1 day
+2. Create rule with prefix filter `traces/`
+3. Set expiration to desired retention period (e.g., 30 days)
 
 ### Cloudflare R2
 
 Using Wrangler:
 ```bash
 wrangler r2 bucket lifecycle set my-traces --rules '[{
-  "id": "expire-pending",
+  "id": "expire-traces",
   "enabled": true,
-  "conditions": { "prefix": "pending/" },
-  "deleteObjectsTransition": { "daysAfterUpload": 1 }
+  "conditions": { "prefix": "traces/" },
+  "deleteObjectsTransition": { "daysAfterUpload": 30 }
 }]'
 ```
 
 Or via Cloudflare Dashboard:
 1. Go to R2 > your bucket > Settings > Object lifecycle rules
-2. Add rule with prefix `pending/`
-3. Set "Delete objects" after 1 day
+2. Add rule with prefix `traces/`
+3. Set "Delete objects" after desired retention period
 
 ### Other S3-Compatible Storage
 
@@ -268,7 +301,7 @@ The library uses [aws4fetch](https://github.com/mhart/aws4fetch) for S3 operatio
 trace-api/
 ├── src/
 │   ├── index.ts              # Main exports
-│   ├── createTraceApi.ts     # Factory function
+│   ├── createTraceApi.ts     # Factory function returning H3 instance
 │   ├── routes/
 │   │   ├── otlp.ts           # POST /v1/traces
 │   │   ├── playwright.ts     # PUT /playwright-opentelemetry/*
@@ -285,23 +318,20 @@ trace-api/
 
 ## Lifecycle and Garbage Collection
 
-- **Pending traces**: S3 lifecycle rule expires objects in `pending/` after 1 day
-- **Promoted traces**: Objects in `traces/` persist until explicitly deleted or per your retention policy
+- **All traces**: S3 lifecycle rule expires objects in `traces/` after the configured retention period (recommended: 30 days)
+- **Orphan spans**: Traces without `test.json` are cleaned up by the same lifecycle rule
 
-This ensures orphan spans (from services that ran but had no associated test) are automatically cleaned up without any application-level garbage collection logic.
+This approach accepts that some orphan data may exist temporarily, trading perfect cleanup for operational simplicity.
 
 ## Cost Characteristics
 
 Per-request costs (S3 Standard pricing, R2 is similar):
-- HEAD (existence check): $0.0004/1,000 requests, ~10-50ms latency
 - PUT: $0.005/1,000 requests
 - GET: $0.0004/1,000 requests
 - LIST: $0.005/1,000 requests
 - Storage: $0.023/GB/month (S3), $0.015/GB/month (R2)
 
-The HEAD check on every OTLP request adds ~10-50ms latency. For high-throughput scenarios, consider:
-- Caching known traceIds in Workers KV or Durable Objects
-- Using R2 for lower latency from Workers
+The simplified architecture eliminates HEAD checks entirely, reducing both latency and cost per request.
 
 ## Adding External Traces
 
@@ -340,13 +370,12 @@ Here's a complete example of a multi-tenant setup where each organization's trac
 ```typescript
 // worker.ts
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
-import { cors } from 'hono/cors';
+import { getHeader, createError } from 'h3';
 
 interface Env {
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
   R2_ENDPOINT: string;
-  // Your auth service binding
   AUTH_SERVICE: Fetcher;
 }
 
@@ -361,44 +390,37 @@ export default {
         region: 'auto',
       },
 
-      resolvePath: (ctx, path) => {
-        const orgId = ctx.get('orgId');
-        // Prefix all paths with org ID for isolation
+      resolvePath: (event, path) => {
+        const orgId = event.context.orgId;
         return `orgs/${orgId}/${path}`;
       },
 
-      middleware: {
-        global: [cors({ origin: '*' })],
-        write: [
-          async (ctx, next) => {
-            const token = ctx.req.header('Authorization')?.replace('Bearer ', '');
-            if (!token) {
-              return ctx.json({ error: 'Missing authorization' }, 401);
-            }
+      writeMiddleware: [
+        async (event) => {
+          const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
+          if (!token) {
+            throw createError({ statusCode: 401, message: 'Missing authorization' });
+          }
 
-            // Validate token and get org
-            const response = await env.AUTH_SERVICE.fetch(
-              'https://auth/validate',
-              { headers: { Authorization: `Bearer ${token}` } }
-            );
+          const response = await env.AUTH_SERVICE.fetch(
+            'https://auth/validate',
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
 
-            if (!response.ok) {
-              return ctx.json({ error: 'Invalid token' }, 401);
-            }
+          if (!response.ok) {
+            throw createError({ statusCode: 401, message: 'Invalid token' });
+          }
 
-            const { orgId } = await response.json();
-            ctx.set('orgId', orgId);
-            await next();
-          },
-        ],
-        read: [
-          async (ctx, next) => {
-            // Similar auth for read access
-            // Or make traces publicly readable by trace ID
-            await next();
-          },
-        ],
-      },
+          const { orgId } = await response.json();
+          event.context.orgId = orgId;
+        },
+      ],
+
+      readMiddleware: [
+        async (event) => {
+          // Similar auth for read access, or make traces publicly readable
+        },
+      ],
     });
 
     return api.fetch(request);
@@ -409,5 +431,5 @@ export default {
 This results in storage paths like:
 ```
 traces/orgs/{orgId}/traces/{traceId}/test.json
-traces/orgs/{orgId}/pending/{traceId}/opentelemetry-protocol/...
+traces/orgs/{orgId}/traces/{traceId}/opentelemetry-protocol/...
 ```
