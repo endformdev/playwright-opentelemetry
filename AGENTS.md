@@ -1,7 +1,7 @@
 # Agent Guidelines for playwright-opentelemetry
 
-Always run unit tests from workspace root.
-Always typecheck from workspace root.
+Always run unit tests from workspace root: `pnpm tsc`
+Always typecheck from workspace root: `pnpm test`
 Never make types.ts files.
 
 ## For trace-reporter
