@@ -23,6 +23,14 @@
 	],
 	"author": "Oliver Stenbom <oliver@endform.dev>",
 	"license": "Apache-2.0",
+	"homepage": "https://github.com/endformdev/playwright-opentelemetry#readme",
+	"bugs": {
+		"url": "https://github.com/endformdev/playwright-opentelemetry/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/endformdev/playwright-opentelemetry"
+	},
 	"packageManager": "pnpm@10.10.0",
 	"devDependencies": {
 		"@ark-ui/solid": "^5.30.0",
