@@ -33,7 +33,6 @@ export type ServiceWorkerMessage =
 	| {
 			type: "LOAD_TRACE";
 			data: TraceLoadData;
-			basePath: string;
 	  }
 	| { type: "UNLOAD_TRACE" }
 	| { type: "PING" };
@@ -58,12 +57,20 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 		type: swType,
 	});
 
+	console.log("Service worker registered with scope:", basePath);
+
 	// Wait for the service worker to be ready
 	await navigator.serviceWorker.ready;
 
+	console.log("Service worker ready");
+
 	const activeWorker = await waitForActiveWorker(registration);
 
+	console.log("Active service worker:", activeWorker);
+
 	await pingServiceWorker(activeWorker);
+
+	console.log("Pinged service worker");
 
 	return registration;
 }
@@ -168,7 +175,6 @@ export async function loadTraceInServiceWorker(
 		worker.postMessage({
 			type: "LOAD_TRACE",
 			data,
-			basePath: getBasePath(),
 		});
 	});
 }

@@ -40,7 +40,15 @@ interface LoadedTrace {
 }
 
 let currentTrace: LoadedTrace | null = null;
-let basePath = "/";
+
+/**
+ * Gets the base path from the build-time environment variable.
+ * Always returns an absolute path with trailing slash.
+ */
+function getBasePath(): string {
+	const base = import.meta.env.VITE_TRACE_VIEWER_BASE ?? "/";
+	return base.endsWith("/") ? base : `${base}/`;
+}
 
 // Install event - skip waiting to activate immediately
 sw.addEventListener("install", () => {
@@ -60,9 +68,6 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 	switch (type) {
 		case "LOAD_TRACE": {
 			try {
-				// Update the base path from the message
-				basePath = event.data.basePath;
-
 				// Store trace data (replacing any previously loaded trace)
 				currentTrace = {
 					testInfo: data.testInfo,
@@ -110,14 +115,14 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
 
 	// Helper to check if pathname matches a base-relative path
 	const matchesPath = (relativePath: string): boolean => {
-		const normalizedBase = basePath.endsWith("/") ? basePath : `${basePath}/`;
+		const normalizedBase = getBasePath();
 		const fullPath = normalizedBase + relativePath.replace(/^\//, "");
 		return pathname === fullPath || pathname === fullPath.replace(/\/$/, "");
 	};
 
 	// Helper to extract filename from a base-relative prefix
 	const extractFilename = (relativePrefix: string): string | null => {
-		const normalizedBase = basePath.endsWith("/") ? basePath : `${basePath}/`;
+		const normalizedBase = getBasePath();
 		const fullPrefix = normalizedBase + relativePrefix.replace(/^\//, "");
 		if (pathname.startsWith(fullPrefix)) {
 			return pathname.slice(fullPrefix.length);

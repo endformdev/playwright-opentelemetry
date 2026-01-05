@@ -1,46 +1,15 @@
 /**
- * Detects the base path of the application at runtime.
- * Always returns a path with a trailing slash.
+ * Returns the base path for the application.
+ * Set via VITE_TRACE_VIEWER_BASE environment variable at build time.
+ * Always returns an absolute path with trailing slash.
  *
- * If the app is served from /trace-viewer/index.html, this returns '/trace-viewer/'
- * If served from root, returns '/'
+ * Examples:
+ * - VITE_TRACE_VIEWER_BASE="/" -> "/"
+ * - VITE_TRACE_VIEWER_BASE="/trace-viewer" -> "/trace-viewer/"
  */
 export function getBasePath(): string {
-	// In browser, detect from current location
-	if (typeof window !== "undefined") {
-		// Get the path without any query params or hash
-		const path = window.location.pathname;
-
-		let basePath: string;
-
-		// Find the last segment that looks like a file or the root
-		// If path ends with / or /index.html, that's our base
-		if (path.endsWith("/")) {
-			basePath = path;
-		} else if (path.endsWith("/index.html")) {
-			basePath = path.slice(0, -"index.html".length);
-		} else if (document.baseURI) {
-			// For any other path (e.g., /trace-viewer/some-route), we need to determine
-			// where the app is mounted. Since we're using Vite's base: './', we can
-			// detect the base from where the script was loaded from using document.baseURI
-			const baseUrl = new URL(document.baseURI);
-			basePath = baseUrl.pathname;
-		} else {
-			// Fallback: assume we're at the directory containing the current path
-			const lastSlash = path.lastIndexOf("/");
-			if (lastSlash > 0) {
-				basePath = path.slice(0, lastSlash + 1);
-			} else {
-				basePath = "/";
-			}
-		}
-
-		// Ensure the base path always ends with a trailing slash
-		// This is required for service worker scope registration
-		return basePath.endsWith("/") ? basePath : `${basePath}/`;
-	}
-
-	return "/";
+	const base = import.meta.env.VITE_TRACE_VIEWER_BASE ?? "/";
+	return base.endsWith("/") ? base : `${base}/`;
 }
 
 export function resolveBasePath(path: string): string {
