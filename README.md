@@ -151,10 +151,10 @@ Other instructions for the [reporter](reporter/README.md) and the [trace-viewer]
 
 ### Releasing
 
-To release both `playwright-opentelemetry` and `@playwright-opentelemetry/trace-viewer`:
+To release all packages: `playwright-opentelemetry`, `@playwright-opentelemetry/trace-viewer` and `@playwright-opentelemetry/trace-api`:
 
 ```
 pnpm release
 ```
 
-This bumps both packages to the same version, commits, tags, and pushes to trigger the publish workflow.
+This bumps all packages to the same version, commits, tags, and pushes to trigger the publish workflow.

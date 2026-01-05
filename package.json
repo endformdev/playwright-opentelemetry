@@ -5,7 +5,7 @@
 		"format": "biome format --write",
 		"test": "vitest",
 		"tsc": "tsc --build",
-		"release": "pnpx bumpp reporter/package.json trace-viewer/package.json --commit --tag --push"
+		"release": "pnpx bumpp reporter/package.json trace-viewer/package.json trace-api/package.json --commit --tag --push"
 	},
 	"devDependencies": {
 		"typescript": "catalog:",
