@@ -16,7 +16,9 @@ npx @playwright-opentelemetry/trace-viewer
 
 ## Deploy Your Own
 
-You can deploy a copy of the trace viewer to cloudflare:
+### Cloudflare
+
+You can deploy a copy of the trace viewer to Cloudflare:
 
 ```bash
 git clone https://github.com/endformdev/playwright-opentelemetry.git
@@ -25,6 +27,14 @@ cd playwright-opentelemetry/trace-viewer
 pnpm install
 pnpm build
 pnpm deploy
+```
+
+### Custom Base Path (Optional)
+
+If you want to build with absolute paths for a specific deployment location:
+
+```bash
+TRACE_VIEWER_BASE=/trace-viewer/ pnpm build
 ```
 
 ## Local Development

@@ -4,6 +4,7 @@ import { VitePWA } from "vite-plugin-pwa";
 import solidPlugin from "vite-plugin-solid";
 
 export default defineConfig({
+	base: getBasePath(),
 	plugins: [
 		solidPlugin(),
 		tailwindcss(),
@@ -34,3 +35,8 @@ export default defineConfig({
 		target: "esnext",
 	},
 });
+
+function getBasePath(): string {
+	const base = process.env.VITE_TRACE_VIEWER_BASE ?? "/";
+	return base.endsWith("/") ? base : `${base}/`;
+}
