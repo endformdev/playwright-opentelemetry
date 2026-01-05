@@ -35,7 +35,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Build packages
-        run: pnpm --filter "./reporter" --filter "./trace-viewer" run build
+        run: pnpm --filter "./reporter" --filter "./trace-viewer" --filter "./trace-api" run build
       
       - name: Publish packages to npm
-        run: pnpm --filter "./reporter" --filter "./trace-viewer" publish --no-git-checks --access public
+        run: pnpm --filter "./reporter" --filter "./trace-viewer" --filter "./trace-api" publish --no-git-checks --access public
