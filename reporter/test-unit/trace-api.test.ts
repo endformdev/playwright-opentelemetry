@@ -16,8 +16,8 @@ describe("Trace API Integration", () => {
 		 * Full integration test: A complete test run with steps and network activity
 		 * should send all data to the trace API:
 		 * 1. OTLP spans to POST {endpoint}/v1/traces
-		 * 2. test.json to PUT {endpoint}/playwright-opentelemetry/test.json
-		 * 3. Screenshots to PUT {endpoint}/playwright-opentelemetry/screenshots/{filename}
+		 * 2. test.json to PUT {endpoint}/otel-playwright-reporter/test.json
+		 * 3. Screenshots to PUT {endpoint}/otel-playwright-reporter/screenshots/{filename}
 		 *
 		 * All requests should include:
 		 * - X-Trace-Id header with the test's traceId
@@ -122,7 +122,7 @@ describe("Trace API Integration", () => {
 		const testJsonCalls = mockFetch.mock.calls.filter(
 			(call) =>
 				call[0] ===
-					"https://traces.example.com/playwright-opentelemetry/test.json" &&
+					"https://traces.example.com/otel-playwright-reporter/test.json" &&
 				call[1]?.method === "PUT",
 		);
 		expect(testJsonCalls).toHaveLength(1);
@@ -226,7 +226,7 @@ describe("Trace API Integration", () => {
 		const testJsonCalls = mockFetch.mock.calls.filter(
 			(call) =>
 				call[0] ===
-					"https://traces.example.com/playwright-opentelemetry/test.json" &&
+					"https://traces.example.com/otel-playwright-reporter/test.json" &&
 				call[1]?.method === "PUT",
 		);
 		expect(testJsonCalls).toHaveLength(1);
@@ -235,7 +235,7 @@ describe("Trace API Integration", () => {
 		const otelTestJsonCalls = mockFetch.mock.calls.filter(
 			(call) =>
 				call[0].includes("otel-collector.example.com") &&
-				call[0].includes("playwright-opentelemetry"),
+				call[0].includes("otel-playwright-reporter"),
 		);
 		expect(otelTestJsonCalls).toHaveLength(0);
 

@@ -4,7 +4,7 @@ import {
 	createViewerHandler,
 	OTLP_TRACES_WRITE_PATH,
 	PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
-	TRACES_READ_PATH,
+	TRACE_VIEWER_READ_PATH,
 	type TraceApiHandlerConfig,
 } from "@playwright-opentelemetry/trace-api";
 import { defineEventHandler, H3, serve } from "h3";
@@ -69,7 +69,7 @@ app.put(
 	}),
 );
 
-app.get(TRACES_READ_PATH, createViewerHandler(config));
+app.get(TRACE_VIEWER_READ_PATH, createViewerHandler(config));
 
 app.get("/trace-ids", () => {
 	return { traceIds: Array.from(traceIds).sort() };

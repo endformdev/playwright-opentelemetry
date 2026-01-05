@@ -1,7 +1,7 @@
 export {
 	OTLP_TRACES_WRITE_PATH,
-	PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
-	TRACES_READ_PATH,
+	PLAYWRIGHT_REPORTER_WRITE_PATH,
+	TRACE_VIEWER_READ_PATH,
 } from "./api";
 
 export type { TraceApiConfig, TraceApiHandlerConfig } from "./createTraceApi";

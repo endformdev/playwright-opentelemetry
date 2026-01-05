@@ -24,7 +24,7 @@ test.describe("reporter, trace-api, trace-viewer flow", () => {
 
 		await page
 			.getByTestId("api-url-input")
-			.fill(`${TRACE_API_URL}/test-traces/${traceId}`);
+			.fill(`${TRACE_API_URL}/otel-trace-viewer/${traceId}`);
 		await page.getByTestId("load-api-button").click();
 
 		// Wait for the trace to load

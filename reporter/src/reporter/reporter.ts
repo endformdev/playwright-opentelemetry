@@ -614,7 +614,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		};
 
 		// Send test.json
-		const testJsonUrl = `${this.resolvedTraceApiEndpoint}/playwright-opentelemetry/test.json`;
+		const testJsonUrl = `${this.resolvedTraceApiEndpoint}/otel-playwright-reporter/test.json`;
 		await fetch(testJsonUrl, {
 			method: "PUT",
 			headers: {
@@ -644,7 +644,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					const filePath = path.join(screenshotsDir, file);
 					const buffer = await readFile(filePath);
 
-					const screenshotUrl = `${this.resolvedTraceApiEndpoint}/playwright-opentelemetry/screenshots/${file}`;
+					const screenshotUrl = `${this.resolvedTraceApiEndpoint}/otel-playwright-reporter/screenshots/${file}`;
 					await fetch(screenshotUrl, {
 						method: "PUT",
 						headers: {

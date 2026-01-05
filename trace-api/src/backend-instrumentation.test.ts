@@ -81,7 +81,7 @@ describe("Backend Instrumentation", () => {
 			file: "tests/backend.spec.ts",
 		});
 		await app.fetch(
-			new Request("http://localhost/playwright-opentelemetry/test.json", {
+			new Request("http://localhost/otel-playwright-reporter/test.json", {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -94,7 +94,7 @@ describe("Backend Instrumentation", () => {
 		// Verify both Playwright and backend spans appear in the trace
 		const listOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
 			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
@@ -185,7 +185,7 @@ describe("Backend Instrumentation", () => {
 			file: "tests/backend.spec.ts",
 		});
 		await app.fetch(
-			new Request("http://localhost/playwright-opentelemetry/test.json", {
+			new Request("http://localhost/otel-playwright-reporter/test.json", {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -198,7 +198,7 @@ describe("Backend Instrumentation", () => {
 		// Verify all three services appear in OTLP file listing
 		const listOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
 			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
@@ -249,7 +249,7 @@ describe("Backend Instrumentation", () => {
 			file: "tests/backend.spec.ts",
 		});
 		await app.fetch(
-			new Request("http://localhost/playwright-opentelemetry/test.json", {
+			new Request("http://localhost/otel-playwright-reporter/test.json", {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -261,13 +261,13 @@ describe("Backend Instrumentation", () => {
 
 		// Verify both are present in final trace
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/test-traces/${traceId}/test.json`),
+			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
 		);
 		expect(getTestJsonResponse.status).toBe(200);
 
 		const listOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
 			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
@@ -312,7 +312,7 @@ describe("Backend Instrumentation", () => {
 			file: "tests/backend.spec.ts",
 		});
 		await app.fetch(
-			new Request("http://localhost/playwright-opentelemetry/test.json", {
+			new Request("http://localhost/otel-playwright-reporter/test.json", {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -324,7 +324,7 @@ describe("Backend Instrumentation", () => {
 
 		await app.fetch(
 			new Request(
-				"http://localhost/playwright-opentelemetry/screenshots/page@123-1766927492500000000.jpeg",
+				"http://localhost/otel-playwright-reporter/screenshots/page@123-1766927492500000000.jpeg",
 				{
 					method: "PUT",
 					headers: {
@@ -360,7 +360,7 @@ describe("Backend Instrumentation", () => {
 		// Verify late spans are added to existing trace
 		const listOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
 			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
@@ -448,7 +448,7 @@ describe("Backend Instrumentation", () => {
 		// Verify all batches are stored as separate files
 		const listOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
 			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
@@ -489,7 +489,7 @@ describe("Backend Instrumentation", () => {
 		// Verify OTLP is stored (will be cleaned up by lifecycle policy later)
 		const listOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
 			),
 		);
 		expect(listOtlpResponse.status).toBe(200);
@@ -500,7 +500,7 @@ describe("Backend Instrumentation", () => {
 
 		// test.json should not exist
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/test-traces/${traceId}/test.json`),
+			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
 		);
 		expect(getTestJsonResponse.status).toBe(404);
 	});
@@ -561,7 +561,7 @@ describe("Backend Instrumentation", () => {
 		// Verify trace 1 has its span
 		const listOtlp1Response = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId1}/opentelemetry-protocol`,
+				`http://localhost/otel-trace-viewer/${traceId1}/opentelemetry-protocol`,
 			),
 		);
 		expect(listOtlp1Response.status).toBe(200);
@@ -575,7 +575,7 @@ describe("Backend Instrumentation", () => {
 		const trace1Filename = otlp1Files.jsonFiles[0];
 		const trace1FileResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId1}/opentelemetry-protocol/${trace1Filename}`,
+				`http://localhost/otel-trace-viewer/${traceId1}/opentelemetry-protocol/${trace1Filename}`,
 			),
 		);
 		expect(trace1FileResponse.status).toBe(200);
@@ -593,7 +593,7 @@ describe("Backend Instrumentation", () => {
 		// Verify trace 2 has its span
 		const listOtlp2Response = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId2}/opentelemetry-protocol`,
+				`http://localhost/otel-trace-viewer/${traceId2}/opentelemetry-protocol`,
 			),
 		);
 		expect(listOtlp2Response.status).toBe(200);
@@ -607,7 +607,7 @@ describe("Backend Instrumentation", () => {
 		const trace2Filename = otlp2Files.jsonFiles[0];
 		const trace2FileResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId2}/opentelemetry-protocol/${trace2Filename}`,
+				`http://localhost/otel-trace-viewer/${traceId2}/opentelemetry-protocol/${trace2Filename}`,
 			),
 		);
 		expect(trace2FileResponse.status).toBe(200);

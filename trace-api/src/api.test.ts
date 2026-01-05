@@ -51,7 +51,7 @@ describe("Trace API integration", () => {
 
 		expect(otlpResponse.status).toBe(200);
 
-		// Step 2: PUT test.json to /playwright-opentelemetry/test.json
+		// Step 2: PUT test.json to /otel-playwright-reporter/test.json
 		const testJson = {
 			name: "should complete successfully",
 			describes: ["User API", "GET endpoint"],
@@ -64,7 +64,7 @@ describe("Trace API integration", () => {
 		};
 
 		const testJsonResponse = await app.fetch(
-			new Request("http://localhost/playwright-opentelemetry/test.json", {
+			new Request("http://localhost/otel-playwright-reporter/test.json", {
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
@@ -78,7 +78,7 @@ describe("Trace API integration", () => {
 
 		// Step 3: GET test.json back via viewer API
 		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/test-traces/${traceId}/test.json`, {
+			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`, {
 				method: "GET",
 			}),
 		);
@@ -91,7 +91,7 @@ describe("Trace API integration", () => {
 		// First, list available OTLP files
 		const listOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId}/opentelemetry-protocol`,
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
 				{
 					method: "GET",
 				},
@@ -107,7 +107,7 @@ describe("Trace API integration", () => {
 		// Then, get the specific OTLP file
 		const getOtlpResponse = await app.fetch(
 			new Request(
-				`http://localhost/test-traces/${traceId}/opentelemetry-protocol/backend-api-abc123def456.json`,
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol/backend-api-abc123def456.json`,
 				{
 					method: "GET",
 				},

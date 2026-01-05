@@ -40,8 +40,8 @@ import {
   createPlaywrightHandler,
   createViewerHandler,
   OTLP_TRACES_WRITE_PATH,
-  PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
-  TRACES_READ_PATH,
+  PLAYWRIGHT_REPORTER_WRITE_PATH,
+  TRACE_VIEWER_READ_PATH,
 } from '@playwright-opentelemetry/trace-api';
 
 const storage = createS3Storage({
@@ -63,15 +63,15 @@ const authMiddleware = async (event) => {
 
 // Apply auth to write endpoints
 app.use(OTLP_TRACES_WRITE_PATH, authMiddleware);
-app.use(PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH, authMiddleware);
+app.use(PLAYWRIGHT_REPORTER_WRITE_PATH, authMiddleware);
 
 // Add handlers
 // /v1/traces/
 app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(storage));
-// /playwright-opentelemetry/**
-app.put(PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH, createPlaywrightHandler(storage));
-// /test-traces/**
-app.get(TRACES_READ_PATH, createViewerHandler(storage));
+// /otel-playwright-reporter/**
+app.put(PLAYWRIGHT_REPORTER_WRITE_PATH, createPlaywrightHandler(storage));
+// /otel-trace-viewer/**
+app.get(TRACE_VIEWER_READ_PATH, createViewerHandler(storage));
 
 export default {
   fetch: app.fetch,
@@ -140,7 +140,7 @@ Body: Standard OTLP JSON payload
 Writes OTLP spans to `traces/{traceId}/opentelemetry-protocol/{serviceName}.json`.
 
 ```
-PUT /playwright-opentelemetry/test.json
+PUT /otel-playwright-reporter/test.json
 X-Trace-Id: {traceId}
 Body: test.json content
 ```
@@ -148,7 +148,7 @@ Body: test.json content
 Writes test metadata to `traces/{traceId}/test.json`.
 
 ```
-PUT /playwright-opentelemetry/screenshots/{filename}
+PUT /otel-playwright-reporter/screenshots/{filename}
 X-Trace-Id: {traceId}
 Body: JPEG image data
 ```
@@ -158,11 +158,11 @@ Writes screenshots to `traces/{traceId}/screenshots/{filename}`.
 **Read Endpoints:**
 
 ```
-GET /test-traces/{traceId}/test.json
-GET /test-traces/{traceId}/opentelemetry-protocol
-GET /test-traces/{traceId}/opentelemetry-protocol/{file}.json
-GET /test-traces/{traceId}/screenshots
-GET /test-traces/{traceId}/screenshots/{filename}
+GET /otel-trace-viewer/{traceId}/test.json
+GET /otel-trace-viewer/{traceId}/opentelemetry-protocol
+GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
+GET /otel-trace-viewer/{traceId}/screenshots
+GET /otel-trace-viewer/{traceId}/screenshots/{filename}
 ```
 
 Serves trace data in the format expected by the trace viewer.

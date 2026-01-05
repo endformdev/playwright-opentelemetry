@@ -1,8 +1,8 @@
 import { H3, type H3Event } from "h3";
 import {
 	OTLP_TRACES_WRITE_PATH,
-	PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
-	TRACES_READ_PATH,
+	PLAYWRIGHT_REPORTER_WRITE_PATH,
+	TRACE_VIEWER_READ_PATH,
 } from "./api";
 import { createOtlpHandler } from "./handlers/otlp";
 import { createPlaywrightHandler } from "./handlers/playwright";
@@ -60,8 +60,8 @@ export interface TraceApiHandlerConfig {
  *
  * Returns an H3 app with all endpoints configured:
  * - POST /v1/traces - OTLP trace ingestion
- * - PUT /playwright-opentelemetry/** - Playwright test data
- * - GET /test-traces/** - Trace viewer read API
+ * - PUT /otel-playwright-reporter/** - Playwright test data
+ * - GET /otel-trace-viewer/** - Trace viewer read API
  *
  */
 export function createTraceApi(config: TraceApiConfig): H3 {
@@ -84,10 +84,10 @@ export function createTraceApi(config: TraceApiConfig): H3 {
 
 	h3.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(handlerConfig));
 	h3.put(
-		PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
+		PLAYWRIGHT_REPORTER_WRITE_PATH,
 		createPlaywrightHandler(handlerConfig),
 	);
-	h3.get(TRACES_READ_PATH, createViewerHandler(handlerConfig));
+	h3.get(TRACE_VIEWER_READ_PATH, createViewerHandler(handlerConfig));
 
 	return h3;
 }

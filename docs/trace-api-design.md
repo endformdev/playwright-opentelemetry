@@ -86,16 +86,16 @@ api.use('/v1/traces', async (event) => {
   }
 });
 
-api.use('/playwright-opentelemetry/**', async (event) => {
+api.use('/otel-playwright-reporter/**', async (event) => {
   const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
   if (!await validateToken(token)) {
     throw createError({ statusCode: 401, message: 'Unauthorized' });
   }
 });
 
-// Read endpoints (/test-traces/**) are public by default
+// Read endpoints (/otel-trace-viewer/**) are public by default
 // Add auth if needed:
-// api.use('/test-traces/**', readAuthMiddleware);
+// api.use('/otel-trace-viewer/**', readAuthMiddleware);
 
 // Add custom routes
 api.get('/health', () => ({ status: 'ok' }));
@@ -148,8 +148,8 @@ const app = new H3();
 
 // Add only the handlers you need
 app.post('/v1/traces', createOtlpHandler(storage));
-app.put('/playwright-opentelemetry/**', createPlaywrightHandler(storage));
-app.get('/test-traces/**', createViewerHandler(storage));
+app.put('/otel-playwright-reporter/**', createPlaywrightHandler(storage));
+app.get('/otel-trace-viewer/**', createViewerHandler(storage));
 
 export default {
   fetch: app.fetch,
@@ -177,7 +177,7 @@ app.use(authMiddleware);
 
 // Write endpoints only
 app.post('/v1/traces', createOtlpHandler(storage));
-app.put('/playwright-opentelemetry/**', createPlaywrightHandler(storage));
+app.put('/otel-playwright-reporter/**', createPlaywrightHandler(storage));
 
 export default {
   fetch: app.fetch,
@@ -197,7 +197,7 @@ const storage = createS3Storage({ ... });
 const app = new H3();
 
 // Read endpoints only - could be public or with different auth
-app.get('/test-traces/**', createViewerHandler(storage));
+app.get('/otel-trace-viewer/**', createViewerHandler(storage));
 
 export default {
   fetch: app.fetch,
@@ -258,7 +258,7 @@ Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, cus
 ### Playwright-Specific Endpoints
 
 ```
-PUT /playwright-opentelemetry/test.json
+PUT /otel-playwright-reporter/test.json
 X-Trace-Id: {traceId}
 
 Body: test.json content
@@ -268,7 +268,7 @@ Body: test.json content
 1. Write to `traces/{traceId}/test.json`
 
 ```
-PUT /playwright-opentelemetry/screenshots/{filename}
+PUT /otel-playwright-reporter/screenshots/{filename}
 X-Trace-Id: {traceId}
 
 Body: JPEG image data
@@ -282,13 +282,13 @@ Body: JPEG image data
 Serves the format expected by the trace viewer:
 
 ```
-GET /test-traces/{traceId}/test.json
-GET /test-traces/{traceId}/opentelemetry-protocol
+GET /otel-trace-viewer/{traceId}/test.json
+GET /otel-trace-viewer/{traceId}/opentelemetry-protocol
   -> { "jsonFiles": ["playwright-opentelemetry.json", "backend.json"] }
-GET /test-traces/{traceId}/opentelemetry-protocol/{file}.json
-GET /test-traces/{traceId}/screenshots
+GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
+GET /otel-trace-viewer/{traceId}/screenshots
   -> { "screenshots": [{ "timestamp": 1767539662401, "file": "page@abc-1767539662401.jpeg" }] }
-GET /test-traces/{traceId}/screenshots/{filename}
+GET /otel-trace-viewer/{traceId}/screenshots/{filename}
 ```
 
 Screenshot timestamps are in **milliseconds since Unix epoch** (13 digits). The timestamp is extracted from the filename format `{pageId}-{timestampMs}.jpeg`.
@@ -356,8 +356,8 @@ trace-api/
 │   ├── createTraceApi.ts     # High-level factory function
 │   ├── handlers/
 │   │   ├── otlp.ts           # createOtlpHandler - POST /v1/traces
-│   │   ├── playwright.ts     # createPlaywrightHandler - PUT /playwright-opentelemetry/*
-│   │   └── viewer.ts         # createViewerHandler - GET /test-traces/*
+│   │   ├── playwright.ts     # createPlaywrightHandler - PUT /otel-playwright-reporter/*
+│   │   └── viewer.ts         # createViewerHandler - GET /otel-trace-viewer/*
 │   ├── storage/
 │   │   ├── types.ts          # Storage interface
 │   │   └── s3.ts             # createS3Storage - S3 implementation using aws4fetch
@@ -487,10 +487,10 @@ export default {
 
     // Apply auth to write endpoints
     api.use('/v1/traces', authMiddleware);
-    api.use('/playwright-opentelemetry/**', authMiddleware);
+    api.use('/otel-playwright-reporter/**', authMiddleware);
 
     // Read endpoints could use different auth or be public
-    // api.use('/test-traces/**', readAuthMiddleware);
+    // api.use('/otel-trace-viewer/**', readAuthMiddleware);
 
     return api.fetch(request);
   },

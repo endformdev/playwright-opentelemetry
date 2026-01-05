@@ -1,8 +1,8 @@
 import { H3, type H3Event } from "h3";
 import {
 	OTLP_TRACES_WRITE_PATH,
-	PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
-	TRACES_READ_PATH,
+	PLAYWRIGHT_REPORTER_WRITE_PATH,
+	TRACE_VIEWER_READ_PATH,
 } from "./api";
 import type { TraceApiHandlerConfig } from "./createTraceApi";
 import { createOtlpHandler } from "./handlers/otlp";
@@ -35,11 +35,8 @@ export function createTestHarness(config?: TestHarnessConfig): H3 {
 	};
 
 	app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(apiConfig));
-	app.put(
-		PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
-		createPlaywrightHandler(apiConfig),
-	);
-	app.get(TRACES_READ_PATH, createViewerHandler(apiConfig));
+	app.put(PLAYWRIGHT_REPORTER_WRITE_PATH, createPlaywrightHandler(apiConfig));
+	app.get(TRACE_VIEWER_READ_PATH, createViewerHandler(apiConfig));
 
 	return app;
 }

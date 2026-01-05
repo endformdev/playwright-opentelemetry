@@ -177,8 +177,8 @@ test("loads trace from API and displays test info and spans", async ({
 		},
 	});
 
-	// Step 2: Send test.json via PUT /playwright-opentelemetry/test.json
-	await request.put(`${TRACE_API_URL}/playwright-opentelemetry/test.json`, {
+	// Step 2: Send test.json via PUT /otel-playwright-reporter/test.json
+	await request.put(`${TRACE_API_URL}/otel-playwright-reporter/test.json`, {
 		headers: {
 			"X-Trace-Id": traceIdHex,
 		},
@@ -194,12 +194,12 @@ test("loads trace from API and displays test info and spans", async ({
 		},
 	});
 
-	// Step 3: Load the trace in the viewer (note the /test-traces prefix)
+	// Step 3: Load the trace in the viewer (note the /otel-trace-viewer prefix)
 	await page.goto("/");
 
 	await page
 		.getByTestId("api-url-input")
-		.fill(`${TRACE_API_URL}/test-traces/${traceIdHex}`);
+		.fill(`${TRACE_API_URL}/otel-trace-viewer/${traceIdHex}`);
 	await page.getByTestId("load-api-button").click();
 
 	// Test name should be visible in header
@@ -277,7 +277,7 @@ test("can load trace via URL query parameter", async ({ page, request }) => {
 	});
 
 	// Send test.json
-	await request.put(`${TRACE_API_URL}/playwright-opentelemetry/test.json`, {
+	await request.put(`${TRACE_API_URL}/otel-playwright-reporter/test.json`, {
 		headers: {
 			"X-Trace-Id": traceIdHex,
 		},
@@ -294,7 +294,7 @@ test("can load trace via URL query parameter", async ({ page, request }) => {
 	});
 
 	// Navigate directly with the traceSource query parameter
-	const apiUrl = `${TRACE_API_URL}/test-traces/${traceIdHex}`;
+	const apiUrl = `${TRACE_API_URL}/otel-trace-viewer/${traceIdHex}`;
 	await page.goto(`/?traceSource=${encodeURIComponent(apiUrl)}`);
 
 	// Test should load directly without needing to use the input

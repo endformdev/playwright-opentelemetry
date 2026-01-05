@@ -7,22 +7,22 @@ import type { TraceApiHandlerConfig } from "../createTraceApi";
  * Create a handler for the trace viewer read API.
  *
  * Serves trace data in the format expected by the trace viewer:
- * - GET /test-traces/{traceId}/test.json
- * - GET /test-traces/{traceId}/opentelemetry-protocol -> { jsonFiles: [...] }
- * - GET /test-traces/{traceId}/opentelemetry-protocol/{file}.json
- * - GET /test-traces/{traceId}/screenshots -> { screenshots: [...] }
- * - GET /test-traces/{traceId}/screenshots/{filename}
+ * - GET /otel-trace-viewer/{traceId}/test.json
+ * - GET /otel-trace-viewer/{traceId}/opentelemetry-protocol -> { jsonFiles: [...] }
+ * - GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
+ * - GET /otel-trace-viewer/{traceId}/screenshots -> { screenshots: [...] }
+ * - GET /otel-trace-viewer/{traceId}/screenshots/{filename}
  *
  * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
  *
  * @example
  * ```ts
- * import { TRACES_READ_PATH } from '@playwright-opentelemetry/trace-api';
+ * import { TRACE_VIEWER_READ_PATH } from '@playwright-opentelemetry/trace-api';
  *
  * const router = createRouter();
- * // TRACES_READ_PATH = '/test-traces/**'
- * router.get(TRACES_READ_PATH, createViewerHandler({ storage }));
+ * // TRACE_VIEWER_READ_PATH = '/otel-trace-viewer/**'
+ * router.get(TRACE_VIEWER_READ_PATH, createViewerHandler({ storage }));
  * ```
  */
 export function createViewerHandler(
@@ -36,7 +36,7 @@ export function createViewerHandler(
 		if (corsResponse) {
 			return corsResponse;
 		}
-		// Get the full path after /test-traces/
+		// Get the full path after /otel-trace-viewer/
 		const path = getRouterParam(event, "_");
 		if (!path) {
 			throw new Error("Path is required");
@@ -48,7 +48,7 @@ export function createViewerHandler(
 		const traceId = parts[0];
 
 		if (parts.length === 1) {
-			// GET /test-traces/{traceId} - not implemented yet
+			// GET /otel-trace-viewer/{traceId} - not implemented yet
 			throw new Error("Trace listing not implemented");
 		}
 
