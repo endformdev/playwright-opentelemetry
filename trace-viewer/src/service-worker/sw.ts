@@ -40,6 +40,7 @@ interface LoadedTrace {
 }
 
 let currentTrace: LoadedTrace | null = null;
+let basePath = "/";
 
 // Install event - skip waiting to activate immediately
 sw.addEventListener("install", () => {
@@ -59,6 +60,9 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 	switch (type) {
 		case "LOAD_TRACE": {
 			try {
+				// Update the base path from the message
+				basePath = event.data.basePath;
+
 				// Store trace data (replacing any previously loaded trace)
 				currentTrace = {
 					testInfo: data.testInfo,
@@ -104,35 +108,53 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
 		return;
 	}
 
-	// GET /test.json
-	if (pathname === "/test.json") {
+	// Helper to check if pathname matches a base-relative path
+	const matchesPath = (relativePath: string): boolean => {
+		const normalizedBase = basePath.endsWith("/") ? basePath : `${basePath}/`;
+		const fullPath = normalizedBase + relativePath.replace(/^\//, "");
+		return pathname === fullPath || pathname === fullPath.replace(/\/$/, "");
+	};
+
+	// Helper to extract filename from a base-relative prefix
+	const extractFilename = (relativePrefix: string): string | null => {
+		const normalizedBase = basePath.endsWith("/") ? basePath : `${basePath}/`;
+		const fullPrefix = normalizedBase + relativePrefix.replace(/^\//, "");
+		if (pathname.startsWith(fullPrefix)) {
+			return pathname.slice(fullPrefix.length);
+		}
+		return null;
+	};
+
+	// GET /test.json (relative to base)
+	if (matchesPath("test.json")) {
 		event.respondWith(jsonResponse(currentTrace.testInfo));
 		return;
 	}
 
 	// GET /opentelemetry-protocol (list trace files)
-	if (pathname === "/opentelemetry-protocol") {
+	if (matchesPath("opentelemetry-protocol")) {
 		const jsonFiles = Array.from(currentTrace.traceFiles.keys());
 		event.respondWith(jsonResponse({ jsonFiles }));
 		return;
 	}
 
 	// GET /opentelemetry-protocol/{file}
-	const traceFileMatch = pathname.match(/^\/opentelemetry-protocol\/(.+)$/);
-	if (traceFileMatch) {
-		const filename = traceFileMatch[1];
-		const traceData = currentTrace.traceFiles.get(filename);
+	const traceFilename = extractFilename("opentelemetry-protocol/");
+	if (traceFilename) {
+		const traceData = currentTrace.traceFiles.get(traceFilename);
 
 		if (traceData) {
 			event.respondWith(jsonResponse(traceData));
 		} else {
-			event.respondWith(notFoundResponse(`Trace file not found: ${filename}`));
+			event.respondWith(
+				notFoundResponse(`Trace file not found: ${traceFilename}`),
+			);
 		}
 		return;
 	}
 
 	// GET /screenshots (list screenshots)
-	if (pathname === "/screenshots") {
+	if (matchesPath("screenshots")) {
 		event.respondWith(
 			jsonResponse({ screenshots: currentTrace.screenshotMetas }),
 		);
@@ -140,15 +162,16 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
 	}
 
 	// GET /screenshots/{filename}
-	const screenshotMatch = pathname.match(/^\/screenshots\/(.+)$/);
-	if (screenshotMatch) {
-		const filename = screenshotMatch[1];
-		const screenshot = currentTrace.screenshots.get(filename);
+	const screenshotFilename = extractFilename("screenshots/");
+	if (screenshotFilename) {
+		const screenshot = currentTrace.screenshots.get(screenshotFilename);
 
 		if (screenshot) {
 			event.respondWith(blobResponse(screenshot));
 		} else {
-			event.respondWith(notFoundResponse(`Screenshot not found: ${filename}`));
+			event.respondWith(
+				notFoundResponse(`Screenshot not found: ${screenshotFilename}`),
+			);
 		}
 		return;
 	}

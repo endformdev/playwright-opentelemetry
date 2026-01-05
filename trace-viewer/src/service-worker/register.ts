@@ -1,3 +1,4 @@
+import { getBasePath, resolveBasePath } from "../basePath";
 import type { TestInfo } from "../trace-info-loader/TraceInfoLoader";
 
 export interface ServiceWorkerState {
@@ -32,6 +33,7 @@ export type ServiceWorkerMessage =
 	| {
 			type: "LOAD_TRACE";
 			data: TraceLoadData;
+			basePath: string;
 	  }
 	| { type: "UNLOAD_TRACE" }
 	| { type: "PING" };
@@ -46,12 +48,13 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 		throw new Error("Service Workers are not supported in this browser");
 	}
 
+	const basePath = getBasePath();
 	const swUrl = getServiceWorkerUrl();
 	const swType = getServiceWorkerType();
 
-	// Register the service worker
+	// Register the service worker with scope matching the base path
 	const registration = await navigator.serviceWorker.register(swUrl, {
-		scope: "/",
+		scope: basePath,
 		type: swType,
 	});
 
@@ -165,6 +168,7 @@ export async function loadTraceInServiceWorker(
 		worker.postMessage({
 			type: "LOAD_TRACE",
 			data,
+			basePath: getBasePath(),
 		});
 	});
 }
@@ -186,19 +190,22 @@ export async function unloadTraceFromServiceWorker(): Promise<void> {
  * These URLs will be intercepted by the service worker.
  */
 export function getTraceApiUrl(path: string): string {
-	return `/${path}`;
+	return resolveBasePath(path);
 }
 
 export function getScreenshotUrl(filename: string): string {
-	return `/screenshots/${filename}`;
+	return resolveBasePath(`screenshots/${filename}`);
 }
 
 export function getTraceFileUrl(filename: string): string {
-	return `/opentelemetry-protocol/${filename}`;
+	return resolveBasePath(`opentelemetry-protocol/${filename}`);
 }
 
 function getServiceWorkerUrl(): string {
-	return import.meta.env.MODE === "production" ? "/sw.js" : "/dev-sw.js?dev-sw";
+	// Use base path to construct the service worker URL
+	return import.meta.env.MODE === "production"
+		? resolveBasePath("sw.js")
+		: resolveBasePath("dev-sw.js?dev-sw");
 }
 
 function getServiceWorkerType(): "module" | "classic" {

@@ -4,6 +4,7 @@ import { VitePWA } from "vite-plugin-pwa";
 import solidPlugin from "vite-plugin-solid";
 
 export default defineConfig({
+	base: process.env.TRACE_VIEWER_BASE ?? "./",
 	plugins: [
 		solidPlugin(),
 		tailwindcss(),
