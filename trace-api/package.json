@@ -1,6 +1,6 @@
 {
 	"name": "@playwright-opentelemetry/trace-api",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "H3-based API library for storing and serving Playwright OpenTelemetry traces in S3-compatible storage.",
 	"type": "module",
 	"license": "Apache-2.0",
