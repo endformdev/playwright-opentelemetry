@@ -1,8 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { TestCase, TestStatus } from "@playwright/test/reporter";
-import { BlobWriter, TextReader, ZipWriter } from "@zip.js/zip.js";
-import { getScreenshotsDir } from "../shared/trace-files";
+import type { Entry, FileEntry } from "@zip.js/zip.js";
+import {
+	BlobReader,
+	BlobWriter,
+	TextReader,
+	ZipReader,
+	ZipWriter,
+} from "@zip.js/zip.js";
 import type { Span } from "./reporter";
 import { buildOtlpRequest } from "./sender";
 
@@ -41,34 +47,61 @@ export function getZipFilename(test: TestCase, testId: string): string {
 	return `${testId}-pw-otel.zip`;
 }
 
+const PLAYWRIGHT_TRACE_RESOURCES_DIR = "resources/";
+
 /**
- * Get all screenshots for a test from its dedicated screenshots directory.
- * Returns a Map of filename -> file buffer.
+ * Extract screenshots from a Playwright trace ZIP file.
+ * Screenshots are stored in the resources/ directory with names like:
+ * {pageGuid}-{timestamp}.jpeg (e.g., page@abc123-1766929201038.jpeg)
+ *
+ * @param traceZipPath - Path to the Playwright trace.zip file
+ * @returns Map of filename (without resources/ prefix) to Blob
  */
-async function getTestScreenshots(
-	outputDir: string,
-	testId: string,
-): Promise<Map<string, Buffer>> {
-	const screenshots = new Map<string, Buffer>();
-	const screenshotsDir = getScreenshotsDir(outputDir, testId);
+export async function extractScreenshotsFromPlaywrightTrace(
+	traceZipPath: string,
+): Promise<Map<string, Blob>> {
+	const screenshots = new Map<string, Blob>();
 
 	try {
-		const files = await fs.readdir(screenshotsDir);
+		// Read the trace ZIP file
+		const zipBuffer = await fs.readFile(traceZipPath);
+		const zipBlob = new Blob([zipBuffer]);
 
-		for (const file of files) {
-			if (!file.endsWith(".jpeg") && !file.endsWith(".jpg")) {
-				continue;
-			}
+		// Open the ZIP and get entries
+		const zipReader = new ZipReader(new BlobReader(zipBlob));
+		const entries = await zipReader.getEntries();
 
-			const filePath = path.join(screenshotsDir, file);
-			const buffer = await fs.readFile(filePath);
-			screenshots.set(file, buffer);
-		}
+		// Extract screenshot files from resources/ directory
+		// Process concurrently for efficiency
+		await Promise.all(
+			entries
+				.filter((entry): entry is FileEntry => {
+					if (!isFileEntry(entry)) return false;
+					if (!entry.filename.startsWith(PLAYWRIGHT_TRACE_RESOURCES_DIR))
+						return false;
+					const name = entry.filename.slice(
+						PLAYWRIGHT_TRACE_RESOURCES_DIR.length,
+					);
+					return name.endsWith(".jpeg") || name.endsWith(".jpg");
+				})
+				.map(async (entry) => {
+					const filename = entry.filename.slice(
+						PLAYWRIGHT_TRACE_RESOURCES_DIR.length,
+					);
+					const blob = await entry.getData(new BlobWriter("image/jpeg"));
+					screenshots.set(filename, blob);
+				}),
+		);
+
+		await zipReader.close();
 	} catch (err) {
+		// If file doesn't exist or can't be read, return empty map
+		// This allows tests without tracing enabled to still work
 		if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-			throw err;
+			console.warn(
+				`Warning: Could not extract screenshots from trace ZIP: ${err}`,
+			);
 		}
-		// Directory doesn't exist, no screenshots
 	}
 
 	return screenshots;
@@ -89,6 +122,8 @@ export interface CreateTraceZipOptions {
 	startTime: Date;
 	/** Test duration in milliseconds */
 	duration: number;
+	/** Screenshots extracted from Playwright trace ZIP (filename -> Blob) */
+	screenshots: Map<string, Blob>;
 }
 
 /**
@@ -133,8 +168,14 @@ export function buildTestInfo(
 export async function createTraceZip(
 	options: CreateTraceZipOptions,
 ): Promise<void> {
-	const { outputDir, testId, test, spans, serviceName, playwrightVersion } =
-		options;
+	const {
+		outputDir,
+		test,
+		spans,
+		serviceName,
+		playwrightVersion,
+		screenshots,
+	} = options;
 
 	// Build OTLP request JSON
 	const otlpRequest = buildOtlpRequest(spans, serviceName, playwrightVersion);
@@ -148,35 +189,35 @@ export async function createTraceZip(
 	const testInfo = buildTestInfo(options, traceId);
 	const testInfoJson = JSON.stringify(testInfo, null, 2);
 
-	// Get screenshots for this test
-	const screenshots = await getTestScreenshots(outputDir, testId);
-
 	// Create zip file
 	const blobWriter = new BlobWriter("application/zip");
 	const zipWriter = new ZipWriter(blobWriter);
 
-	// Add test.json at root
+	// Add test.json and trace JSON first
 	await zipWriter.add("test.json", new TextReader(testInfoJson));
-
-	// Add trace JSON
 	await zipWriter.add(
 		"opentelemetry-protocol/playwright-opentelemetry.json",
 		new TextReader(traceJson),
 	);
 
-	// Add screenshots
-	for (const [filename, buffer] of screenshots) {
-		const blob = new Blob([buffer as Uint8Array<ArrayBuffer>]);
-		await zipWriter.add(`screenshots/${filename}`, blob.stream());
-	}
+	// Add screenshots concurrently by streaming directly from input blobs
+	await Promise.all(
+		Array.from(screenshots.entries()).map(([filename, blob]) =>
+			zipWriter.add(`screenshots/${filename}`, blob.stream()),
+		),
+	);
 
 	// Close and get the zip blob
 	const zipBlob = await zipWriter.close();
 
 	// Write to file
-	const zipFilename = getZipFilename(test, testId);
+	const zipFilename = getZipFilename(test, test.id);
 	const zipPath = path.join(outputDir, zipFilename);
 
 	const arrayBuffer = await zipBlob.arrayBuffer();
 	await fs.writeFile(zipPath, Buffer.from(arrayBuffer));
+}
+
+function isFileEntry(entry: Entry): entry is FileEntry {
+	return !entry.directory;
 }

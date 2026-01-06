@@ -43,6 +43,12 @@ export interface ResultDefinition {
 	startTime?: Date;
 	duration?: number;
 	steps?: StepDefinition[];
+	attachments?: Array<{
+		name: string;
+		contentType: string;
+		path?: string;
+		body?: Buffer;
+	}>;
 }
 
 export interface NetworkAction {
@@ -350,7 +356,7 @@ export function buildTestResult(
 		startTime,
 		duration,
 		steps,
-		attachments: [],
+		attachments: def?.attachments ?? [],
 	} as Partial<TestResult> as TestResult;
 }
 

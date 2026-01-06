@@ -1,5 +1,4 @@
-import { existsSync, type FSWatcher, mkdirSync, watch } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import type {
 	FullConfig,
@@ -13,7 +12,6 @@ import type {
 import {
 	cleanupTestFiles,
 	collectNetworkSpans,
-	copyScreenshotForTest,
 	createNetworkDirs,
 	generateSpanId,
 	getOrCreateTraceId,
@@ -35,7 +33,10 @@ import {
 	TEST_STEP_SPAN_NAME,
 } from "./reporter-attributes";
 import { sendSpans } from "./sender";
-import { createTraceZip } from "./trace-zip-builder";
+import {
+	createTraceZip,
+	extractScreenshotsFromPlaywrightTrace,
+} from "./trace-zip-builder";
 
 export interface PlaywrightOpentelemetryReporterOptions {
 	otlpEndpoint?: string;
@@ -73,9 +74,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	/** Maps test.id to its project's outputDir */
 	private testOutputDirs: Map<string, string> = new Map();
-
-	/** File system watchers for output directories */
-	private directoryWatchers: FSWatcher[] = [];
 
 	private testSpans: Map<string, string> = new Map();
 	private testTraceIds: Map<string, string> = new Map();
@@ -120,9 +118,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		this.rootDir = config.rootDir;
 		this.playwrightVersion = config.version;
 
-		// Track unique directories to avoid duplicate watchers
-		const watchedDirs = new Set<string>();
-
 		for (const test of suite.allTests()) {
 			const project = test.parent.project();
 			if (project?.outputDir) {
@@ -130,51 +125,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 				const otelDir = path.join(project.outputDir, PW_OTEL_DIR);
 				mkdirSync(otelDir, { recursive: true });
-
-				// Set up file watcher to copy screenshots to test-specific directories
-				if (this.options.storeTraceZip && !watchedDirs.has(project.outputDir)) {
-					watchedDirs.add(project.outputDir);
-					const watcher = watch(
-						project.outputDir,
-						{ recursive: true },
-						(_eventType, filename) => {
-							if (
-								!filename ||
-								(!filename.endsWith(".jpg") && !filename.endsWith(".jpeg"))
-							) {
-								return;
-							}
-
-							const sourcePath = path.join(project.outputDir, filename);
-							if (!existsSync(sourcePath)) {
-								return;
-							}
-
-							// Extract pageGuid from filename: {pageGuid}-{timestamp}.jpeg
-							// e.g., page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg
-							const basename = path.basename(filename);
-							const lastDashIndex = basename.lastIndexOf("-");
-
-							if (lastDashIndex === -1) {
-								return;
-							}
-
-							const pageGuid = basename.slice(0, lastDashIndex);
-
-							try {
-								copyScreenshotForTest(
-									project.outputDir,
-									pageGuid,
-									sourcePath,
-									basename,
-								);
-							} catch (_err) {
-								// Ignore copy errors - screenshot may have been deleted
-							}
-						},
-					);
-					this.directoryWatchers.push(watcher);
-				}
 			}
 		}
 	}
@@ -343,6 +293,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				: (test.location?.file ?? "");
 		const computedDuration = maxEndTime.getTime() - minStartTime.getTime();
 
+		// Extract screenshots from Playwright's trace ZIP if available
+		// The trace attachment is created by Playwright when tracing is enabled
+		let screenshots = new Map<string, Blob>();
+		const traceAttachment = result.attachments.find(
+			(a) => a.name === "trace" && a.contentType === "application/zip",
+		);
+		if (traceAttachment?.path) {
+			screenshots = await extractScreenshotsFromPlaywrightTrace(
+				traceAttachment.path,
+			);
+		}
+
 		// If storeTraceZip is enabled, create zip file for this test
 		if (this.options.storeTraceZip) {
 			await createTraceZip({
@@ -356,6 +318,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				status: result.status,
 				startTime: minStartTime,
 				duration: computedDuration,
+				screenshots,
 			});
 		}
 
@@ -365,21 +328,15 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				test,
 				result,
 				traceId,
-				outputDir,
 				relativeFilePath,
 				startTime: minStartTime,
 				computedDuration,
+				screenshots,
 			});
 		}
 	}
 
 	async onEnd(_result: FullResult) {
-		// Close all directory watchers
-		for (const watcher of this.directoryWatchers) {
-			watcher.close();
-		}
-		this.directoryWatchers = [];
-
 		// Send spans to OTLP endpoint if configured
 		if (this.resolvedEndpoint) {
 			await sendSpans(this.spans, {
@@ -583,19 +540,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		test: TestCase;
 		result: TestResult;
 		traceId: string;
-		outputDir: string;
 		relativeFilePath: string;
 		startTime: Date;
 		computedDuration: number;
+		screenshots: Map<string, Blob>;
 	}): Promise<void> {
 		const {
 			test,
 			result,
 			traceId,
-			outputDir,
 			relativeFilePath,
 			startTime,
 			computedDuration,
+			screenshots,
 		} = params;
 
 		// Build test.json content
@@ -632,38 +589,21 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			body: JSON.stringify(testJson),
 		});
 
-		// Send screenshots
-		const screenshotsDir = path.join(
-			outputDir,
-			PW_OTEL_DIR,
-			test.id,
-			"screenshots",
+		// Send screenshots concurrently
+		await Promise.all(
+			Array.from(screenshots.entries()).map(async ([filename, blob]) => {
+				const screenshotUrl = `${this.resolvedTraceApiEndpoint}/otel-playwright-reporter/screenshots/${filename}`;
+				await fetch(screenshotUrl, {
+					method: "PUT",
+					headers: {
+						"content-type": "image/jpeg",
+						"x-trace-id": traceId,
+						...this.resolvedTraceApiHeaders,
+					},
+					body: blob,
+				});
+			}),
 		);
-		if (existsSync(screenshotsDir)) {
-			const files = await readdir(screenshotsDir);
-
-			const screenshotFiles = files.filter(
-				(file) => file.endsWith(".jpeg") || file.endsWith(".jpg"),
-			);
-
-			await Promise.all(
-				screenshotFiles.map(async (file) => {
-					const filePath = path.join(screenshotsDir, file);
-					const buffer = await readFile(filePath);
-
-					const screenshotUrl = `${this.resolvedTraceApiEndpoint}/otel-playwright-reporter/screenshots/${file}`;
-					await fetch(screenshotUrl, {
-						method: "PUT",
-						headers: {
-							"content-type": "image/jpeg",
-							"x-trace-id": traceId,
-							...this.resolvedTraceApiHeaders,
-						},
-						body: buffer,
-					});
-				}),
-			);
-		}
 	}
 }
 

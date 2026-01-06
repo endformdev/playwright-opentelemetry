@@ -1,5 +1,4 @@
 import { execSync } from "node:child_process";
-import { resolve } from "node:path";
 
 export default async function globalSetup() {
 	console.log("Running reporter e2e tests to generate trace data...");

@@ -44,7 +44,7 @@
 	"scripts": {
 		"build": "tsdown",
 		"dev": "tsdown --watch",
-		"test:e2e": "playwright test",
+		"test:e2e": "pnpm build && pnpm playwright test",
 		"verify:trace-zips": "bun scripts/verify-trace-zips.ts"
 	},
 	"peerDependencies": {

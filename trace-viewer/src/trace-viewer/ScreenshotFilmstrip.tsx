@@ -99,7 +99,11 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	);
 
 	return (
-		<div ref={contentRef} class="h-full bg-gray-50 overflow-hidden p-2">
+		<div
+			ref={contentRef}
+			class="h-full bg-gray-50 overflow-hidden p-2"
+			data-testid="screenshot-filmstrip"
+		>
 			<div class="flex gap-2 h-full">
 				<Show
 					when={slotCount() > 0}
@@ -148,6 +152,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 												class="w-full h-full object-contain"
 												loading="lazy"
 												draggable={false}
+												data-testid="screenshot-filmstrip-image"
 											/>
 										</div>
 									)}

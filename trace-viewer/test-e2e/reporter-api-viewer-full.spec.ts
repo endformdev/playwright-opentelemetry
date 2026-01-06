@@ -33,9 +33,25 @@ test.describe("reporter, trace-api, trace-viewer flow", () => {
 		// Verify we can see the test name (should be from reporter/test-e2e/example.spec.ts)
 		const testName = await page.getByTestId("test-name").textContent();
 		expect(testName).toBeTruthy();
-		console.log(`Loaded trace for test: ${testName}`);
 
 		const passedLocator = page.getByText("passed");
 		await expect(passedLocator).toBeVisible();
+
+		// Verify screenshots are displayed in the filmstrip
+		const filmstrip = page.getByTestId("screenshot-filmstrip");
+		await expect(filmstrip).toBeVisible();
+
+		// Verify at least one screenshot image exists and has a valid src
+		const screenshotImages = page.getByTestId("screenshot-filmstrip-image");
+		await expect(screenshotImages.first()).toBeVisible({ timeout: 10000 });
+
+		// Verify the screenshot has a valid src URL (should point to a screenshot endpoint)
+		const firstImageSrc = await screenshotImages.first().getAttribute("src");
+		expect(firstImageSrc).toBeTruthy();
+		expect(firstImageSrc).toContain("screenshots/");
+
+		// Verify multiple screenshots exist (the test navigates, so should have multiple)
+		const screenshotCount = await screenshotImages.count();
+		expect(screenshotCount).toBeGreaterThan(0);
 	});
 });
