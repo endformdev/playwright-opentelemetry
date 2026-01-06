@@ -1,6 +1,6 @@
 {
 	"name": "@playwright-opentelemetry/trace-viewer",
-	"version": "0.3.1",
+	"version": "0.3.2",
 	"type": "module",
 	"description": "Playwright OpenTelemetry Trace Viewer - A web application for viewing Playwright Opentelemetry test traces",
 	"bin": "./bin/serve.js",
