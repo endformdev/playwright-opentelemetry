@@ -179,12 +179,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 	}
 
-	onTestBegin(test: TestCase) {
+	onTestBegin(test: TestCase, result: TestResult) {
 		const testId = test.id;
 		const outputDir = this.getOutputDir(testId);
 
 		const traceId = getOrCreateTraceId(outputDir, testId);
 		this.testTraceIds.set(testId, traceId);
+
+		// Attach trace ID for downstream reporters to consume
+		result.attachments.push({
+			name: "playwright-opentelemetry-trace-id",
+			contentType: "text/plain",
+			body: Buffer.from(traceId, "utf-8"),
+		});
 
 		const testSpanId = generateSpanId();
 		this.testSpans.set(testId, testSpanId);

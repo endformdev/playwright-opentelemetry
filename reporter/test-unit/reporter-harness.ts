@@ -171,7 +171,7 @@ export async function runReporterTest({
 
 	// Execute hooks in order
 	reporter.onBegin(mergedConfig, mockSuite);
-	await reporter.onTestBegin(testCase);
+	await reporter.onTestBegin(testCase, testResult);
 
 	// Execute step hooks (depth-first: begin -> nested -> end)
 	if (testResult.steps && testResult.steps.length > 0) {
@@ -188,7 +188,7 @@ export async function runReporterTest({
 	await reporter.onTestEnd(testCase, testResult);
 	await reporter.onEnd({} as FullResult);
 
-	return { reporter };
+	return { reporter, testResult };
 }
 
 export interface MockNetworkObjects {
@@ -350,7 +350,8 @@ export function buildTestResult(
 		startTime,
 		duration,
 		steps,
-	} as TestResult;
+		attachments: [],
+	} as Partial<TestResult> as TestResult;
 }
 
 function buildSteps(
@@ -483,4 +484,5 @@ async function executeStepHooks(
 
 export interface TestHarnessResult {
 	reporter: PlaywrightOpentelemetryReporter;
+	testResult: TestResult;
 }

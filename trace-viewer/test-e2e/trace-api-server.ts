@@ -3,7 +3,7 @@ import {
 	createPlaywrightHandler,
 	createViewerHandler,
 	OTLP_TRACES_WRITE_PATH,
-	PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
+	PLAYWRIGHT_REPORTER_WRITE_PATH,
 	TRACE_VIEWER_READ_PATH,
 	type TraceApiHandlerConfig,
 } from "@playwright-opentelemetry/trace-api";
@@ -57,7 +57,7 @@ app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(config));
 
 const playwrightHandler = createPlaywrightHandler(config);
 app.put(
-	PLAYWRIGHT_OPENTELEMETRY_WRITE_PATH,
+	PLAYWRIGHT_REPORTER_WRITE_PATH,
 	defineEventHandler(async (event) => {
 		// Extract trace ID from X-Trace-Id header
 		const traceId = event.req.headers.get("x-trace-id");

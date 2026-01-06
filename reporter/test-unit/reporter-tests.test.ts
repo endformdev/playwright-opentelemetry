@@ -281,6 +281,39 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			}),
 		);
 	});
+
+	it("attaches trace ID to test result for downstream reporters", async () => {
+		const { testResult } = await runReporterTest({
+			test: {
+				title: "test with trace attachment",
+				titlePath: [
+					"",
+					"chromium",
+					"test.spec.ts",
+					"test with trace attachment",
+				],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+		});
+
+		// Verify attachment was added with correct structure
+		expect(testResult.attachments).toContainEqual({
+			name: "playwright-opentelemetry-trace-id",
+			contentType: "text/plain",
+			body: expect.any(Buffer),
+		});
+
+		// Verify the body contains a valid trace ID (32 hex characters)
+		const attachment = testResult.attachments.find(
+			(a) => a.name === "playwright-opentelemetry-trace-id",
+		);
+		expect(attachment).toBeDefined();
+		const traceId = attachment?.body?.toString("utf-8");
+		expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+	});
 });
 
 describe("PlaywrightOpentelemetryReporter - Span Timing Encapsulation", () => {

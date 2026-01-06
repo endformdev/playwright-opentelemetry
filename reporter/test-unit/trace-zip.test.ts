@@ -377,7 +377,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Execute reporter lifecycle
 			reporter.onBegin(config, mockSuite);
-			reporter.onTestBegin(testCase);
+			reporter.onTestBegin(testCase, testResult);
 
 			// Simulate the fixture recording the page-test mapping
 			// This would happen in the real page fixture when the page is used
@@ -537,7 +537,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Execute reporter lifecycle
 			reporter.onBegin(config, mockSuite);
-			reporter.onTestBegin(testCase);
+			reporter.onTestBegin(testCase, testResult);
 			await reporter.onTestEnd(testCase, testResult);
 			await reporter.onEnd({} as FullResult);
 
@@ -609,7 +609,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Execute reporter lifecycle
 			reporter.onBegin(config, mockSuite);
-			reporter.onTestBegin(testCase);
+			reporter.onTestBegin(testCase, testResult);
 			await reporter.onTestEnd(testCase, testResult);
 			await reporter.onEnd({} as FullResult);
 
@@ -708,7 +708,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			reporter.onBegin(config, mockSuite);
 
 			// --- Test 1 execution ---
-			reporter.onTestBegin(testCase1);
+			reporter.onTestBegin(testCase1, testResult1);
 
 			// Record page mapping for test 1
 			recordPageTestMapping(outputDir, {
@@ -733,7 +733,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			await reporter.onTestEnd(testCase1, testResult1);
 
 			// --- Test 2 execution ---
-			reporter.onTestBegin(testCase2);
+			reporter.onTestBegin(testCase2, testResult2);
 
 			// Record page mapping for test 2
 			recordPageTestMapping(outputDir, {
@@ -902,7 +902,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Execute reporter lifecycle
 			reporter.onBegin(config, mockSuite);
-			reporter.onTestBegin(testCase);
+			reporter.onTestBegin(testCase, testResult);
 
 			// Record both page mappings for this test
 			recordPageTestMapping(outputDir, {
