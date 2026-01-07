@@ -398,8 +398,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		const onGlobalMouseUp = () => handleMouseUp();
 		document.addEventListener("mouseup", onGlobalMouseUp);
 
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape" && lockedPosition() !== null) {
+				handleUnlock();
+			}
+		};
+		document.addEventListener("keydown", onKeyDown);
+
 		onCleanup(() => {
 			document.removeEventListener("mouseup", onGlobalMouseUp);
+			document.removeEventListener("keydown", onKeyDown);
 		});
 	});
 
@@ -440,9 +448,13 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 	};
 
-	const handleDoubleClick = () => {
+	const handleUnlock = () => {
 		setLockedPosition(null);
 		setLockedElement(null);
+	};
+
+	const handleDoubleClick = () => {
+		handleUnlock();
 		reset();
 	};
 
