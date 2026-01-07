@@ -11,8 +11,8 @@ import type { ScreenshotInfo } from "~/trace-info-loader";
 
 import {
 	type Screenshot,
-	selectScreenshots,
 	type SlotScreenshot,
+	selectScreenshots,
 	viewportToTimeRange,
 } from "./selectScreenshots";
 import type { TimelineViewport } from "./viewport";
@@ -149,7 +149,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 											<img
 												src={s().url}
 												alt={`Screenshot at ${s().timestamp}`}
-												class="w-full h-full object-contain"
+												class="w-full h-full object-contain select-none"
 												loading="lazy"
 												draggable={false}
 												data-testid="screenshot-filmstrip-image"
