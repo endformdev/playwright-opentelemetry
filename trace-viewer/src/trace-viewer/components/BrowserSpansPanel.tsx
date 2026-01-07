@@ -10,11 +10,11 @@ import {
 } from "../packSpans";
 import { isTimeRangeVisible, timeToViewportPosition } from "../viewport";
 import {
-	type ResourceType,
 	getResourceColor,
 	getResourceDisplayName,
 	getResourceIcon,
 	getResourceType,
+	type ResourceType,
 } from "./browserSpanStyles";
 
 const ROW_HEIGHT = 28;
@@ -92,7 +92,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 		return (
 			// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-span feature
 			<div
-				class="absolute h-6 rounded text-xs flex items-center gap-1.5 px-2 text-white truncate cursor-pointer hover:brightness-110"
+				class="absolute h-6 rounded text-xs flex items-center gap-1.5 px-2 text-white truncate cursor-pointer hover:brightness-110 select-none"
 				classList={{
 					"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
 				}}
@@ -107,7 +107,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 				onMouseLeave={() => props.onSpanHover?.(null)}
 			>
 				{getResourceIcon(resourceType)}
-				<span class="truncate">{packedSpan.name}</span>
+				<span class="truncate select-none">{packedSpan.name}</span>
 			</div>
 		);
 	};
