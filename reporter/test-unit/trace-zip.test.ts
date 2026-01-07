@@ -32,6 +32,7 @@ vi.mock("../src/reporter/sender", async (importOriginal) => {
 });
 
 import { sendSpans } from "../src/reporter/sender";
+import { extractScreenshotsFromPlaywrightTrace } from "../src/reporter/trace-zip-builder";
 
 /**
  * Helper to create a unique test output directory
@@ -871,5 +872,154 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(page1Screenshots).toHaveLength(1);
 			expect(page2Screenshots).toHaveLength(2);
 		});
+	});
+});
+
+describe("extractScreenshotsFromPlaywrightTrace", () => {
+	let outputDir: string;
+
+	afterEach(async () => {
+		if (outputDir && existsSync(outputDir)) {
+			rmSync(outputDir, { recursive: true, force: true });
+		}
+	});
+
+	/**
+	 * Creates a mock trace ZIP with arbitrary files in resources/
+	 */
+	async function createTraceZipWithResources(
+		files: Array<{ filename: string; content: Buffer }>,
+	): Promise<string> {
+		outputDir = `/tmp/trace-extract-test-${Date.now()}`;
+		mkdirSync(outputDir, { recursive: true });
+
+		const traceZipPath = path.join(outputDir, "trace.zip");
+		const blobWriter = new BlobWriter("application/zip");
+		const zipWriter = new ZipWriter(blobWriter);
+
+		// Add trace.trace file
+		await zipWriter.add(
+			"trace.trace",
+			new Blob([JSON.stringify({ name: "trace" })]).stream() as ReadableStream,
+		);
+
+		// Add all specified files
+		for (const { filename, content } of files) {
+			await zipWriter.add(
+				filename,
+				new Blob([new Uint8Array(content)]).stream() as ReadableStream,
+			);
+		}
+
+		const zipBlob = await zipWriter.close();
+		await fs.writeFile(traceZipPath, Buffer.from(await zipBlob.arrayBuffer()));
+
+		return traceZipPath;
+	}
+
+	const minimalJpeg = Buffer.from([
+		0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+		0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xd9,
+	]);
+
+	it("extracts screenshots matching page@{hash}-{timestamp}.jpeg pattern", async () => {
+		const traceZipPath = await createTraceZipWithResources([
+			{
+				filename:
+					"resources/page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg",
+				content: minimalJpeg,
+			},
+			{
+				filename: "resources/page@abc123-999999.jpeg",
+				content: minimalJpeg,
+			},
+		]);
+
+		const screenshots =
+			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
+
+		expect(screenshots.size).toBe(2);
+		expect(
+			screenshots.has(
+				"page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg",
+			),
+		).toBe(true);
+		expect(screenshots.has("page@abc123-999999.jpeg")).toBe(true);
+	});
+
+	it("extracts screenshots with different prefixes (frame@, element@, etc.)", async () => {
+		const traceZipPath = await createTraceZipWithResources([
+			{
+				filename: "resources/frame@deadbeef-123456.jpeg",
+				content: minimalJpeg,
+			},
+			{
+				filename: "resources/element@cafebabe-789012.jpeg",
+				content: minimalJpeg,
+			},
+			{
+				filename: "resources/MyCustomThing@abcd1234-555555.jpeg",
+				content: minimalJpeg,
+			},
+		]);
+
+		const screenshots =
+			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
+
+		expect(screenshots.size).toBe(3);
+		expect(screenshots.has("frame@deadbeef-123456.jpeg")).toBe(true);
+		expect(screenshots.has("element@cafebabe-789012.jpeg")).toBe(true);
+		expect(screenshots.has("MyCustomThing@abcd1234-555555.jpeg")).toBe(true);
+	});
+
+	it("ignores static assets that don't match the screenshot pattern", async () => {
+		const traceZipPath = await createTraceZipWithResources([
+			// Valid screenshot - should be included
+			{
+				filename:
+					"resources/page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg",
+				content: minimalJpeg,
+			},
+			// Static assets - should be ignored
+			{ filename: "resources/logo.jpeg", content: minimalJpeg },
+			{ filename: "resources/banner.jpg", content: minimalJpeg },
+			{ filename: "resources/thumbnail-123.jpeg", content: minimalJpeg },
+			{ filename: "resources/image-abc.jpg", content: minimalJpeg },
+			// Missing @ symbol
+			{ filename: "resources/page-123456.jpeg", content: minimalJpeg },
+			// Missing timestamp after dash
+			{ filename: "resources/page@abc123.jpeg", content: minimalJpeg },
+			// Non-hex hash (has 'g' which is not hex)
+			{ filename: "resources/page@ghijklmn-123456.jpeg", content: minimalJpeg },
+		]);
+
+		const screenshots =
+			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
+
+		expect(screenshots.size).toBe(1);
+		expect(
+			screenshots.has(
+				"page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg",
+			),
+		).toBe(true);
+	});
+
+	it("ignores non-jpeg files even if they match the naming pattern", async () => {
+		const traceZipPath = await createTraceZipWithResources([
+			{
+				filename: "resources/page@abc123-123456.jpeg",
+				content: minimalJpeg,
+			},
+			// These should be ignored - wrong extension
+			{ filename: "resources/page@abc123-123456.png", content: minimalJpeg },
+			{ filename: "resources/page@abc123-123456.webp", content: minimalJpeg },
+			{ filename: "resources/page@abc123-123456.gif", content: minimalJpeg },
+		]);
+
+		const screenshots =
+			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
+
+		expect(screenshots.size).toBe(1);
+		expect(screenshots.has("page@abc123-123456.jpeg")).toBe(true);
 	});
 });

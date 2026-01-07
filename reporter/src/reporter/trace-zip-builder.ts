@@ -50,6 +50,12 @@ export function getZipFilename(test: TestCase, testId: string): string {
 const PLAYWRIGHT_TRACE_RESOURCES_DIR = "resources/";
 
 /**
+ * Pattern to match Playwright screenshot filenames: {name}@{hex-hash}-{timestamp}.jpeg
+ * Examples: page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg
+ */
+const PLAYWRIGHT_SCREENSHOT_PATTERN = /^.+@[a-f0-9]+-\d+\.jpe?g$/i;
+
+/**
  * Extract screenshots from a Playwright trace ZIP file.
  * Screenshots are stored in the resources/ directory with names like:
  * {pageGuid}-{timestamp}.jpeg (e.g., page@abc123-1766929201038.jpeg)
@@ -82,7 +88,7 @@ export async function extractScreenshotsFromPlaywrightTrace(
 					const name = entry.filename.slice(
 						PLAYWRIGHT_TRACE_RESOURCES_DIR.length,
 					);
-					return name.endsWith(".jpeg") || name.endsWith(".jpg");
+					return PLAYWRIGHT_SCREENSHOT_PATTERN.test(name);
 				})
 				.map(async (entry) => {
 					const filename = entry.filename.slice(
