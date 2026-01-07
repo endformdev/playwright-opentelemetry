@@ -101,15 +101,21 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 			return null;
 		};
 
+		const shouldHavePadding = () => widthPercent() > 2;
+
+		const displayWidthPercent = () =>
+			widthPercent() > 2 ? widthPercent() : widthPercent() - 0.1;
+
 		return (
 			<div
-				class="absolute h-6 rounded text-xs flex items-center gap-1.5 px-2 text-white truncate cursor-pointer hover:brightness-110 select-none"
+				class="absolute h-6 rounded text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
 				classList={{
 					"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
+					"px-2": shouldHavePadding(),
 				}}
 				style={{
 					left: `${leftPercent()}%`,
-					width: `${Math.max(widthPercent(), 1)}%`,
+					width: `${displayWidthPercent()}%`,
 					top: `${packedSpan.row * ROW_HEIGHT}px`,
 					"background-color": getResourceColor(resourceType),
 				}}
