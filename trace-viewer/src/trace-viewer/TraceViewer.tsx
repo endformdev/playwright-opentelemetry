@@ -77,6 +77,7 @@ const SECTION_TOOLTIPS: Record<SectionId, string> = {
 };
 
 const PAN_SENSITIVITY = 0.2;
+const ZOOM_SENSITIVITY = 0.005;
 const LOCK_WINDOW_PX = 50;
 
 /** Convert spans to SpanInput format for depth calculation */
@@ -143,7 +144,7 @@ interface TraceViewerInnerProps {
 }
 
 function TraceViewerInner(props: TraceViewerInnerProps) {
-	const { viewport, setViewport, zoomToRange, pan, reset } =
+	const { viewport, setViewport, zoomToRange, pan, zoom, reset } =
 		useViewportContext();
 
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
@@ -372,6 +373,24 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	const handleWheel = (e: WheelEvent) => {
 		if (!mainPanelRef) return;
+
+		// Check for zoom modifier keys (Cmd, Ctrl, or Shift)
+		const isZoomModifier = e.metaKey || e.ctrlKey || e.shiftKey;
+
+		if (isZoomModifier && e.deltaY !== 0) {
+			e.preventDefault();
+
+			const rect = mainPanelRef.getBoundingClientRect();
+			const focalPosition = Math.max(
+				0,
+				Math.min(1, (e.clientX - rect.left) / rect.width),
+			);
+
+			// Negative deltaY (scroll up) = zoom in (positive zoomDelta)
+			const zoomDelta = -e.deltaY * ZOOM_SENSITIVITY;
+			zoom(focalPosition, zoomDelta);
+			return;
+		}
 
 		const isHorizontalScroll = Math.abs(e.deltaX) > Math.abs(e.deltaY);
 

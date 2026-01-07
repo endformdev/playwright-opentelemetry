@@ -13,6 +13,7 @@ import {
 	resetViewport,
 	type TimelineViewport,
 	zoomToRange,
+	zoomViewport,
 } from "../viewport";
 
 export interface SelectionState {
@@ -29,6 +30,7 @@ export interface ViewportContextValue {
 	// Operations
 	setViewport: Setter<TimelineViewport>;
 	pan: (deltaMs: number) => void;
+	zoom: (focalPosition: number, zoomDelta: number) => void;
 	zoomToRange: (startMs: number, endMs: number) => void;
 	reset: () => void;
 
@@ -67,6 +69,10 @@ export function ViewportProvider(props: ViewportProviderProps) {
 		setViewport((v) => panViewport(v, deltaMs));
 	};
 
+	const zoom = (focalPosition: number, zoomDelta: number) => {
+		setViewport((v) => zoomViewport(v, focalPosition, zoomDelta));
+	};
+
 	const zoomTo = (startMs: number, endMs: number) => {
 		setViewport((v) => zoomToRange(v, startMs, endMs));
 	};
@@ -101,6 +107,7 @@ export function ViewportProvider(props: ViewportProviderProps) {
 		testStartTimeMs: props.testStartTimeMs,
 		setViewport,
 		pan,
+		zoom,
 		zoomToRange: zoomTo,
 		reset,
 		selectionState,
