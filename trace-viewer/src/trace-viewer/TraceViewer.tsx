@@ -491,6 +491,25 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 	};
 
+	// Navigate to a span without changing time position - only updates focus for scrolling
+	const handleSpanNavigate = (spanId: string) => {
+		const allSpans = [
+			...props.traceData.steps(),
+			...props.traceData.browserSpans(),
+			...props.traceData.externalSpans(),
+		];
+		const span = allSpans.find((s) => s.id === spanId);
+
+		if (span) {
+			const isStep =
+				span.name === "playwright.test" || span.name === "playwright.test.step";
+			setLockedElement({
+				type: isStep ? "step" : "span",
+				id: spanId,
+			});
+		}
+	};
+
 	const handleSearchResultHover = (spanId: string | null) => {
 		// Track which span is being hovered in search results
 		setHoveredSearchSpanId(spanId);
@@ -849,6 +868,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 							hoveredElements={displayElements()}
 							testStartTimeMs={props.testStartTimeMs()}
 							focusedElement={displayFocusedElement()}
+							onNavigateToSpan={handleSpanNavigate}
 						/>
 					}
 				/>

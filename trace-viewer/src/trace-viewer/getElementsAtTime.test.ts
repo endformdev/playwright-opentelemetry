@@ -194,6 +194,7 @@ describe("flattenHoveredSpans", () => {
 		id: string,
 		depth: number,
 		children: HoveredSpan[] = [],
+		parent: HoveredSpan | null = null,
 	): HoveredSpan => ({
 		span: {
 			id,
@@ -209,6 +210,7 @@ describe("flattenHoveredSpans", () => {
 		},
 		depth,
 		children,
+		parent,
 	});
 
 	it("flattens empty array", () => {

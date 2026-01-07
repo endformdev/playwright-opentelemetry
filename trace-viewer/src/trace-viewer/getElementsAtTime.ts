@@ -8,6 +8,7 @@ export interface HoveredSpan {
 	span: Span;
 	depth: number;
 	children: HoveredSpan[];
+	parent: HoveredSpan | null;
 }
 
 /**
@@ -108,19 +109,28 @@ function findSpansAtTime(timeMs: number, allSpans: Span[]): HoveredSpan[] {
 	}
 
 	// Build tree recursively
-	function buildTree(parentId: string | null, depth: number): HoveredSpan[] {
+	function buildTree(
+		parentId: string | null,
+		depth: number,
+		parentNode: HoveredSpan | null,
+	): HoveredSpan[] {
 		const children = childrenMap.get(parentId) || [];
 		// Sort by start time
 		children.sort((a, b) => a.startOffsetMs - b.startOffsetMs);
 
-		return children.map((span) => ({
-			span,
-			depth,
-			children: buildTree(span.id, depth + 1),
-		}));
+		return children.map((span) => {
+			const node: HoveredSpan = {
+				span,
+				depth,
+				parent: parentNode,
+				children: [], // Will be populated next
+			};
+			node.children = buildTree(span.id, depth + 1, node);
+			return node;
+		});
 	}
 
-	return buildTree(null, 0);
+	return buildTree(null, 0, null);
 }
 
 /**

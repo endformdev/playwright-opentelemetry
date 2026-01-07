@@ -28,6 +28,7 @@ export interface DetailsPanelProps {
 	hoveredElements: HoveredElements | null;
 	testStartTimeMs: number;
 	focusedElement: FocusedElement | null;
+	onNavigateToSpan?: (spanId: string) => void;
 }
 
 function getSpanColor(kind: SpanKind): string {
@@ -161,6 +162,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 													`hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`
 												}
 												isFocused={isSpanFocused(hoveredSpan.span.id)}
+												onNavigateToSpan={props.onNavigateToSpan}
 											/>
 										)}
 									</For>
@@ -188,6 +190,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 													displayTitle={getResourceDisplayName(
 														hoveredSpan.span,
 													)}
+													onNavigateToSpan={props.onNavigateToSpan}
 												/>
 											);
 										}}
@@ -210,6 +213,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 												testStartTimeMs={props.testStartTimeMs}
 												colorFn={(_, span) => getSpanColor(span.kind)}
 												isFocused={isSpanFocused(hoveredSpan.span.id)}
+												onNavigateToSpan={props.onNavigateToSpan}
 											/>
 										)}
 									</For>
