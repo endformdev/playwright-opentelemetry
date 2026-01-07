@@ -1,3 +1,5 @@
+import { Tooltip } from "@ark-ui/solid/tooltip";
+import ZoomIn from "lucide-solid/icons/zoom-in";
 import {
 	createEffect,
 	createSignal,
@@ -6,7 +8,8 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-
+import { Portal } from "solid-js/web";
+import type { TestPhase } from "./detectTestPhases";
 import { calculateTimelineScale, type TimelineTick } from "./timelineScale";
 import {
 	clampViewport,
@@ -25,6 +28,10 @@ export interface TimelineRulerProps {
 	hoverPosition: number | null;
 	/** Callback when viewport is adjusted via handle drag or pan */
 	onViewportChange?: (newViewport: TimelineViewport) => void;
+	/** Test phases (before hooks, test body, after hooks) - if present, shows phase indicator bar */
+	testPhases?: TestPhase[] | null;
+	/** Callback when a phase is clicked */
+	onPhaseClick?: (phase: TestPhase) => void;
 }
 
 /** Minimum viewport width as percentage of total duration */
@@ -214,109 +221,170 @@ export function TimelineRuler(props: TimelineRulerProps) {
 		return "ew-resize";
 	};
 
+	// Get phase color based on type
+	const getPhaseColor = (type: TestPhase["type"]) => {
+		switch (type) {
+			case "before-hooks":
+				return "bg-amber-300/60 hover:bg-amber-300/80";
+			case "test-body":
+				return "bg-green-300/60 hover:bg-green-300/80";
+			case "after-hooks":
+				return "bg-amber-300/60 hover:bg-amber-300/80";
+		}
+	};
+
+	// Calculate phase position as percentage of total duration
+	const getPhasePosition = (phase: TestPhase) => {
+		const startPercent = (phase.startMs / props.durationMs) * 100;
+		const endPercent = (phase.endMs / props.durationMs) * 100;
+		return {
+			left: startPercent,
+			width: endPercent - startPercent,
+		};
+	};
+
+	const hasPhases = () => props.testPhases && props.testPhases.length > 0;
+
 	return (
-		<div
-			ref={containerRef}
-			class="relative h-6 bg-gray-50 border-b border-gray-200 flex-shrink-0 select-none"
-			style={{ cursor: getCursor() }}
-		>
-			{/* Viewport indicator overlay - shows when zoomed in */}
-			<Show when={!isFullyZoomedOut(props.viewport)}>
-				{/* Dimmed areas outside viewport */}
-				<div
-					class="absolute top-0 bottom-0 bg-gray-300/30 pointer-events-none"
-					style={{
-						left: "0%",
-						width: `${viewportStartPercent()}%`,
-					}}
-				/>
-				<div
-					class="absolute top-0 bottom-0 bg-gray-300/30 pointer-events-none"
-					style={{
-						left: `${viewportEndPercent()}%`,
-						right: "0%",
-					}}
-				/>
+		<div class="flex-shrink-0 select-none">
+			{/* Main ruler area */}
+			<div
+				ref={containerRef}
+				class="relative h-6 bg-gray-50"
+				classList={{ "border-b border-gray-200": !hasPhases() }}
+				style={{ cursor: getCursor() }}
+			>
+				{/* Viewport indicator overlay - shows when zoomed in */}
+				<Show when={!isFullyZoomedOut(props.viewport)}>
+					{/* Dimmed areas outside viewport */}
+					<div
+						class="absolute top-0 bottom-0 bg-gray-300/30 pointer-events-none"
+						style={{
+							left: "0%",
+							width: `${viewportStartPercent()}%`,
+						}}
+					/>
+					<div
+						class="absolute top-0 bottom-0 bg-gray-300/30 pointer-events-none"
+						style={{
+							left: `${viewportEndPercent()}%`,
+							right: "0%",
+						}}
+					/>
 
-				{/* Viewport box - draggable center for panning */}
-				{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for viewport panning */}
-				<div
-					class="absolute top-0 bottom-0 bg-blue-500/10 border-y border-blue-400/50"
-					style={{
-						left: `${viewportStartPercent()}%`,
-						width: `${viewportWidthPercent()}%`,
-						cursor: dragState()?.mode === "pan" ? "grabbing" : "grab",
-					}}
-					onMouseDown={handleMouseDown("pan")}
-				/>
+					{/* Viewport box - draggable center for panning */}
+					{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for viewport panning */}
+					<div
+						class="absolute top-0 bottom-0 bg-blue-500/10 border-y border-blue-400/50"
+						style={{
+							left: `${viewportStartPercent()}%`,
+							width: `${viewportWidthPercent()}%`,
+							cursor: dragState()?.mode === "pan" ? "grabbing" : "grab",
+						}}
+						onMouseDown={handleMouseDown("pan")}
+					/>
 
-				{/* Left handle */}
-				{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for viewport resize */}
-				<div
-					class="absolute top-0 bottom-0 w-1.5 bg-blue-500 hover:bg-blue-600 cursor-ew-resize z-10 transition-colors"
-					style={{
-						left: `${viewportStartPercent()}%`,
-						transform: "translateX(-50%)",
-					}}
-					onMouseDown={handleMouseDown("left-handle")}
-				>
-					{/* Handle grip indicator */}
-					<div class="absolute inset-y-1 left-0.5 w-px bg-blue-300" />
-				</div>
+					{/* Left handle */}
+					{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for viewport resize */}
+					<div
+						class="absolute top-0 bottom-0 w-1.5 bg-blue-500 hover:bg-blue-600 cursor-ew-resize z-10 transition-colors"
+						style={{
+							left: `${viewportStartPercent()}%`,
+							transform: "translateX(-50%)",
+						}}
+						onMouseDown={handleMouseDown("left-handle")}
+					>
+						{/* Handle grip indicator */}
+						<div class="absolute inset-y-1 left-0.5 w-px bg-blue-300" />
+					</div>
 
-				{/* Right handle */}
-				{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for viewport resize */}
-				<div
-					class="absolute top-0 bottom-0 w-1.5 bg-blue-500 hover:bg-blue-600 cursor-ew-resize z-10 transition-colors"
-					style={{
-						left: `${viewportEndPercent()}%`,
-						transform: "translateX(-50%)",
-					}}
-					onMouseDown={handleMouseDown("right-handle")}
-				>
-					{/* Handle grip indicator */}
-					<div class="absolute inset-y-1 left-0.5 w-px bg-blue-300" />
-				</div>
-			</Show>
+					{/* Right handle */}
+					{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for viewport resize */}
+					<div
+						class="absolute top-0 bottom-0 w-1.5 bg-blue-500 hover:bg-blue-600 cursor-ew-resize z-10 transition-colors"
+						style={{
+							left: `${viewportEndPercent()}%`,
+							transform: "translateX(-50%)",
+						}}
+						onMouseDown={handleMouseDown("right-handle")}
+					>
+						{/* Handle grip indicator */}
+						<div class="absolute inset-y-1 left-0.5 w-px bg-blue-300" />
+					</div>
+				</Show>
 
-			{/* Tick marks and labels */}
-			<For each={ticks()}>
-				{(tick, index) => {
-					const isLast = () => index() === ticks().length - 1;
+				{/* Tick marks and labels */}
+				<For each={ticks()}>
+					{(tick, index) => {
+						const isLast = () => index() === ticks().length - 1;
 
-					return (
-						<div
-							class="absolute top-0 bottom-0 flex items-center pointer-events-none"
-							style={{
-								left: `${tick.position * 100}%`,
-							}}
-						>
-							{/* Vertical tick line - almost full height */}
-							<div class="w-px h-5 bg-gray-300" />
-
-							{/* Label - to the right of the tick, except for last tick */}
-							<span
-								class="text-[10px] text-gray-500 whitespace-nowrap pl-1"
+						return (
+							<div
+								class="absolute top-0 bottom-0 flex items-center pointer-events-none"
 								style={{
-									position: isLast() ? "absolute" : "relative",
-									right: isLast() ? "1px" : undefined,
+									left: `${tick.position * 100}%`,
 								}}
 							>
-								{tick.label}
-							</span>
-						</div>
-					);
-				}}
-			</For>
+								{/* Vertical tick line - almost full height */}
+								<div class="w-px h-5 bg-gray-300" />
 
-			{/* Hover indicator on total timeline */}
-			<Show when={hoverPositionOnTotal()} keyed>
-				{(pos) => (
-					<div
-						class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
-						style={{ left: `${pos}%` }}
-					/>
-				)}
+								{/* Label - to the right of the tick, except for last tick */}
+								<span
+									class="text-[10px] text-gray-500 whitespace-nowrap pl-1"
+									style={{
+										position: isLast() ? "absolute" : "relative",
+										right: isLast() ? "1px" : undefined,
+									}}
+								>
+									{tick.label}
+								</span>
+							</div>
+						);
+					}}
+				</For>
+
+				{/* Hover indicator on total timeline */}
+				<Show when={hoverPositionOnTotal()} keyed>
+					{(pos) => (
+						<div
+							class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
+							style={{ left: `${pos}%` }}
+						/>
+					)}
+				</Show>
+			</div>
+
+			{/* Test phase indicator bar */}
+			<Show when={hasPhases()}>
+				<div class="relative h-1.5 bg-gray-100 border-b border-gray-200">
+					<For each={props.testPhases!}>
+						{(phase) => {
+							const position = getPhasePosition(phase);
+							return (
+								<Tooltip.Root openDelay={300} closeDelay={0}>
+									<Tooltip.Trigger
+										class={`absolute top-0 bottom-0 cursor-pointer transition-colors ${getPhaseColor(phase.type)}`}
+										style={{
+											left: `${position.left}%`,
+											width: `${position.width}%`,
+										}}
+										onClick={() => {
+											props.onPhaseClick?.(phase);
+										}}
+									/>
+									<Portal>
+										<Tooltip.Positioner>
+											<Tooltip.Content class="bg-gray-900 text-white text-xs px-2 py-1 rounded shadow-lg z-50 flex items-center gap-1.5">
+												<ZoomIn size={12} />
+												{phase.label}
+											</Tooltip.Content>
+										</Tooltip.Positioner>
+									</Portal>
+								</Tooltip.Root>
+							);
+						}}
+					</For>
+				</div>
 			</Show>
 		</div>
 	);

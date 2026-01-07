@@ -1,4 +1,5 @@
 import {
+	createEffect,
 	createMemo,
 	createSignal,
 	For,
@@ -20,6 +21,11 @@ import {
 	useViewportContext,
 	ViewportProvider,
 } from "./contexts/ViewportContext";
+import {
+	detectTestPhases,
+	getTestBodyPhase,
+	type TestPhase,
+} from "./detectTestPhases";
 import { getElementsAtTime, type HoveredElements } from "./getElementsAtTime";
 import { MultiResizablePanel } from "./MultiResizablePanel";
 import { packSpans, type SpanInput } from "./packSpans";
@@ -222,6 +228,38 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 		return sections;
 	});
+
+	// Detect test phases (before hooks, test body, after hooks) for the phase indicator bar
+	const testPhases = createMemo(() =>
+		detectTestPhases(props.traceData.steps()),
+	);
+
+	// Track whether we've done the initial zoom
+	const [hasInitialZoom, setHasInitialZoom] = createSignal(false);
+
+	// Auto-zoom to test body on initial load when phases are detected
+	createEffect(() => {
+		// Wait for loading to complete
+		if (props.traceData.isLoading()) return;
+
+		// Only do this once
+		if (hasInitialZoom()) return;
+
+		const phases = testPhases();
+		if (!phases) return;
+
+		const testBody = getTestBodyPhase(phases);
+		if (testBody) {
+			// Zoom to test body with some padding
+			zoomToRange(testBody.startMs, testBody.endMs);
+			setHasInitialZoom(true);
+		}
+	});
+
+	// Handle phase click - zoom to the clicked phase
+	const handlePhaseClick = (phase: TestPhase) => {
+		zoomToRange(phase.startMs, phase.endMs);
+	};
 
 	// Calculate depth-based sizes for span panels (just the sizing data, not content)
 	const spanPanelSizeConfigs = createMemo((): PanelSizeConfig[] => {
@@ -675,6 +713,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				viewport={viewport()}
 				hoverPosition={hoverPosition()}
 				onViewportChange={handleViewportChange}
+				testPhases={testPhases()}
+				onPhaseClick={handlePhaseClick}
 			/>
 
 			<div class="flex-1 min-h-0 relative flex flex-col">
