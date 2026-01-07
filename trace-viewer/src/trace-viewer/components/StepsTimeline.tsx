@@ -112,6 +112,13 @@ export function StepsTimeline(props: StepsTimelineProps) {
 				: props.matchedSpanIds?.has(step.id);
 		};
 
+		const displayText = () => {
+			if (widthPercent() > 2) {
+				return step.name;
+			}
+			return null;
+		};
+
 		return (
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-95 select-none"
@@ -120,7 +127,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 				}}
 				style={{
 					left: `${leftPercent()}%`,
-					width: `${Math.max(widthPercent(), 3)}%`,
+					width: `${Math.max(widthPercent(), 1)}%`,
 					top: `${step.row * ROW_HEIGHT}px`,
 					"background-color": `hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`,
 				}}
@@ -128,7 +135,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 				onMouseEnter={() => props.onStepHover?.(step.id)}
 				onMouseLeave={() => props.onStepHover?.(null)}
 			>
-				{step.name}
+				{displayText()}
 			</div>
 		);
 	};

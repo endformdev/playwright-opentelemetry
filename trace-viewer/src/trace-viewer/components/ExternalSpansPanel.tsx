@@ -94,6 +94,13 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 				: props.matchedSpanIds?.has(packedSpan.id);
 		};
 
+		const displayText = () => {
+			if (widthPercent() > 2) {
+				return packedSpan.name;
+			}
+			return null;
+		};
+
 		return (
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-110 select-none"
@@ -110,7 +117,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 				onMouseEnter={() => props.onSpanHover?.(packedSpan.id)}
 				onMouseLeave={() => props.onSpanHover?.(null)}
 			>
-				{packedSpan.name}
+				{displayText()}
 			</div>
 		);
 	};

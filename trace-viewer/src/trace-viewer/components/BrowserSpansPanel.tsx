@@ -89,6 +89,18 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 				: props.matchedSpanIds?.has(packedSpan.id);
 		};
 
+		const displayText = () => {
+			if (widthPercent() > 2) {
+				return (
+					<>
+						{getResourceIcon(resourceType)}
+						<span class="truncate select-none">{packedSpan.name}</span>
+					</>
+				);
+			}
+			return null;
+		};
+
 		return (
 			<div
 				class="absolute h-6 rounded text-xs flex items-center gap-1.5 px-2 text-white truncate cursor-pointer hover:brightness-110 select-none"
@@ -97,7 +109,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 				}}
 				style={{
 					left: `${leftPercent()}%`,
-					width: `${Math.max(widthPercent(), 2)}%`,
+					width: `${Math.max(widthPercent(), 1)}%`,
 					top: `${packedSpan.row * ROW_HEIGHT}px`,
 					"background-color": getResourceColor(resourceType),
 				}}
@@ -105,8 +117,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 				onMouseEnter={() => props.onSpanHover?.(packedSpan.id)}
 				onMouseLeave={() => props.onSpanHover?.(null)}
 			>
-				{getResourceIcon(resourceType)}
-				<span class="truncate select-none">{packedSpan.name}</span>
+				{displayText()}
 			</div>
 		);
 	};
