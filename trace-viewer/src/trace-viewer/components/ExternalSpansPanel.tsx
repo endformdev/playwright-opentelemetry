@@ -95,7 +95,6 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 		};
 
 		return (
-			// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-span feature
 			<div
 				class="absolute h-6 rounded text-xs flex items-center px-2 text-white truncate cursor-pointer hover:brightness-110 select-none"
 				classList={{

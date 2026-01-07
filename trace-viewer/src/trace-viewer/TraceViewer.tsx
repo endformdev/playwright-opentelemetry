@@ -168,9 +168,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		string | null
 	>(null);
 
-	let mainPanelRef: HTMLDivElement | undefined;
-
-	// Calculate depths for each panel type
+	let contentAreaRef: HTMLDivElement | undefined;
 	const stepsDepth = createMemo(() => {
 		const steps = props.traceData.steps();
 		if (steps.length === 0) return 0;
@@ -303,7 +301,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const handleMouseDown = (e: MouseEvent) => {
 		// Only start selection on primary button
 		if (e.button !== 0) return;
-		if (!mainPanelRef) return;
+		if (!contentAreaRef) return;
 
 		// Don't start selection if clicking on resize handles
 		const target = e.target as HTMLElement;
@@ -315,7 +313,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			return;
 		}
 
-		const rect = mainPanelRef.getBoundingClientRect();
+		const rect = contentAreaRef.getBoundingClientRect();
 		const position = (e.clientX - rect.left) / rect.width;
 
 		if (position >= 0 && position <= 1) {
@@ -324,9 +322,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const handleMouseMove = (e: MouseEvent) => {
-		if (!mainPanelRef) return;
+		if (!contentAreaRef) return;
 
-		const rect = mainPanelRef.getBoundingClientRect();
+		const rect = contentAreaRef.getBoundingClientRect();
 		const position = (e.clientX - rect.left) / rect.width;
 
 		// Update selection if dragging
@@ -410,7 +408,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const handleWheel = (e: WheelEvent) => {
-		if (!mainPanelRef) return;
+		if (!contentAreaRef) return;
 
 		// Check for zoom modifier keys (Cmd, Ctrl, or Shift)
 		const isZoomModifier = e.metaKey || e.ctrlKey || e.shiftKey;
@@ -418,7 +416,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (isZoomModifier && e.deltaY !== 0) {
 			e.preventDefault();
 
-			const rect = mainPanelRef.getBoundingClientRect();
+			const rect = contentAreaRef.getBoundingClientRect();
 			const focalPosition = Math.max(
 				0,
 				Math.min(1, (e.clientX - rect.left) / rect.width),
@@ -550,9 +548,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const isWithinLockWindow = () => {
 		const locked = lockedPosition();
 		const hover = hoverPosition();
-		if (locked === null || hover === null || !mainPanelRef) return false;
+		if (locked === null || hover === null || !contentAreaRef) return false;
 
-		const panelWidth = mainPanelRef.getBoundingClientRect().width;
+		const panelWidth = contentAreaRef.getBoundingClientRect().width;
 		const lockedPx = locked * panelWidth;
 		const hoverPx = hover * panelWidth;
 		return Math.abs(hoverPx - lockedPx) <= LOCK_WINDOW_PX;
@@ -690,17 +688,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const MainPanelContent = () => (
-		// biome-ignore lint/a11y/noStaticElementInteractions: container needs mouse tracking for hover line and drag selection
-		<div
-			ref={mainPanelRef}
-			class="flex flex-col h-full relative"
-			style={{ cursor: selectionState() ? "crosshair" : undefined }}
-			onMouseDown={handleMouseDown}
-			onMouseMove={handleMouseMove}
-			onMouseLeave={handleMouseLeave}
-			onWheel={handleWheel}
-			onDblClick={handleDoubleClick}
-		>
+		<div class="flex flex-col h-full relative">
 			<Show when={props.traceData.isLoading()}>
 				<LoadingOverlay
 					loaded={props.traceData.progress().loaded}
@@ -715,9 +703,19 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				onViewportChange={handleViewportChange}
 				testPhases={testPhases()}
 				onPhaseClick={handlePhaseClick}
+				onDoubleClick={handleDoubleClick}
 			/>
 
-			<div class="flex-1 min-h-0 relative flex flex-col">
+			<div
+				ref={contentAreaRef}
+				class="flex-1 min-h-0 relative flex flex-col"
+				style={{ cursor: selectionState() ? "crosshair" : undefined }}
+				onMouseDown={handleMouseDown}
+				onMouseMove={handleMouseMove}
+				onMouseLeave={handleMouseLeave}
+				onWheel={handleWheel}
+				onDblClick={handleDoubleClick}
+			>
 				{/* Active panels section */}
 				<div class="flex-1 min-h-0">
 					<Show

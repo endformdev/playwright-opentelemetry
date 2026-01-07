@@ -140,7 +140,6 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 									}
 								>
 									{(s) => (
-										// biome-ignore lint/a11y/noStaticElementInteractions: hover tracking for scroll-to-screenshot feature
 										<div
 											class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm"
 											onMouseEnter={() => props.onScreenshotHover?.(s().url)}

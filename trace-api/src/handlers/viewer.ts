@@ -54,7 +54,7 @@ export function createViewerHandler(
 
 		if (parts.length === 2 && parts[1] === "opentelemetry-protocol") {
 			// List all JSON files in opentelemetry-protocol directory
-			let prefix = `traces/${traceId}/opentelemetry-protocol/`;
+			const prefix = `traces/${traceId}/opentelemetry-protocol/`;
 
 			// Apply path resolution if configured
 			let resolvedPrefix = prefix;
@@ -74,7 +74,7 @@ export function createViewerHandler(
 
 		if (parts.length === 2 && parts[1] === "screenshots") {
 			// List all screenshots
-			let prefix = `traces/${traceId}/screenshots/`;
+			const prefix = `traces/${traceId}/screenshots/`;
 
 			// Apply path resolution if configured
 			let resolvedPrefix = prefix;

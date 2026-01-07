@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
 	type Screenshot,
-	selectScreenshots,
 	type SlotScreenshot,
+	selectScreenshots,
 	type TimeRange,
 	viewportToTimeRange,
 } from "./selectScreenshots";

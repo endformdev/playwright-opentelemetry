@@ -32,6 +32,8 @@ export interface TimelineRulerProps {
 	testPhases?: TestPhase[] | null;
 	/** Callback when a phase is clicked */
 	onPhaseClick?: (phase: TestPhase) => void;
+	/** Callback when ruler is double-clicked (for zoom reset) */
+	onDoubleClick?: () => void;
 }
 
 /** Minimum viewport width as percentage of total duration */
@@ -245,8 +247,13 @@ export function TimelineRuler(props: TimelineRulerProps) {
 
 	const hasPhases = () => props.testPhases && props.testPhases.length > 0;
 
+	const handleDoubleClick = (e: MouseEvent) => {
+		e.stopPropagation();
+		props.onDoubleClick?.();
+	};
+
 	return (
-		<div class="flex-shrink-0 select-none">
+		<div class="flex-shrink-0 select-none" onDblClick={handleDoubleClick}>
 			{/* Main ruler area */}
 			<div
 				ref={containerRef}
@@ -273,7 +280,6 @@ export function TimelineRuler(props: TimelineRulerProps) {
 					/>
 
 					{/* Viewport box - draggable center for panning */}
-					{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for viewport panning */}
 					<div
 						class="absolute top-0 bottom-0 bg-blue-500/10 border-y border-blue-400/50"
 						style={{
@@ -285,7 +291,6 @@ export function TimelineRuler(props: TimelineRulerProps) {
 					/>
 
 					{/* Left handle */}
-					{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for viewport resize */}
 					<div
 						class="absolute top-0 bottom-0 w-1.5 bg-blue-500 hover:bg-blue-600 cursor-ew-resize z-10 transition-colors"
 						style={{
@@ -299,7 +304,6 @@ export function TimelineRuler(props: TimelineRulerProps) {
 					</div>
 
 					{/* Right handle */}
-					{/* biome-ignore lint/a11y/noStaticElementInteractions: drag handle for viewport resize */}
 					<div
 						class="absolute top-0 bottom-0 w-1.5 bg-blue-500 hover:bg-blue-600 cursor-ew-resize z-10 transition-colors"
 						style={{

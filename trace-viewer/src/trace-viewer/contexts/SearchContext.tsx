@@ -6,13 +6,13 @@ import {
 	type ParentComponent,
 	useContext,
 } from "solid-js";
-import type { Span } from "../../trace-data-loader/exportToSpans";
 import {
 	buildHaystack,
 	buildSearchIndex,
-	searchSpans,
 	type SearchMatch,
+	searchSpans,
 } from "../../search";
+import type { Span } from "../../trace-data-loader/exportToSpans";
 
 export interface SearchContextValue {
 	query: Accessor<string>;

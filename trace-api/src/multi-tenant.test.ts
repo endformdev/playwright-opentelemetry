@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { H3Event } from "h3";
+import { describe, expect, it } from "vitest";
 import {
 	createOtlpPayload,
 	createScreenshotBuffer,

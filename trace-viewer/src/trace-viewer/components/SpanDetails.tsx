@@ -1,7 +1,7 @@
-import { For, Show, type JSX } from "solid-js";
+import { For, type JSX, Show } from "solid-js";
 import type { Span } from "../../trace-data-loader/exportToSpans";
-import type { HoveredSpan } from "../getElementsAtTime";
 import { formatAttributeValue, formatDuration } from "../formatters";
+import type { HoveredSpan } from "../getElementsAtTime";
 
 export interface SpanDetailsProps {
 	hoveredSpan: HoveredSpan;

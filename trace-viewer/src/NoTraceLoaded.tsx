@@ -55,7 +55,6 @@ export function NoTraceLoaded(props: { setTraceSource: TraceSourceSetter }) {
 	};
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: Drop zone needs drag events
 		<div
 			class={`flex-1 flex items-center justify-center ${dragOver() ? "bg-blue-900/20" : ""}`}
 			onDrop={handleDrop}
