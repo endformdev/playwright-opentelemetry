@@ -117,12 +117,13 @@ export function createViewerHandler(
 			});
 		}
 
-		// If it's a screenshot, return as binary
+		// If it's a screenshot, return as binary with caching
 		if (path.includes("/screenshots/")) {
-			// Return raw binary data
+			// Return raw binary data with 10 minute cache
 			return new Response(data, {
 				headers: {
 					"Content-Type": "image/jpeg",
+					"Cache-Control": "public, max-age=600",
 				},
 			});
 		}
