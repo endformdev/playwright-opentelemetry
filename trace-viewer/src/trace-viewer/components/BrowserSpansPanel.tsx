@@ -1,13 +1,7 @@
 import { createMemo, For, type JSX, Show } from "solid-js";
 import type { Span } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
-import {
-	generateConnectors,
-	type PackedSpan,
-	packSpans,
-	type SpanConnector,
-	type SpanInput,
-} from "../packSpans";
+import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
 import { isTimeRangeVisible, timeToViewportPosition } from "../viewport";
 import {
 	getResourceColor,
@@ -59,13 +53,6 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 				span.startOffset + span.duration,
 				viewport(),
 			),
-		);
-	});
-
-	const visibleConnectors = createMemo(() => {
-		const visibleIds = new Set(visibleSpans().map((s) => s.id));
-		return generateConnectors(packedSpansResult().spans, durationMs()).filter(
-			(c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId),
 		);
 	});
 
@@ -128,28 +115,6 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 		);
 	};
 
-	const renderConnector = (connector: SpanConnector): JSX.Element => {
-		const rowDiff = connector.childRow - connector.parentRow;
-		const topPx = connector.parentRow * ROW_HEIGHT + 24; // Start just below parent span (24px = 6 row height)
-		const heightPx = (rowDiff - 1) * ROW_HEIGHT + 4; // Connect to child span
-
-		const xPercent = () => {
-			const xPositionMs = (connector.xPercent / 100) * durationMs();
-			return timeToViewportPosition(xPositionMs, viewport()) * 100;
-		};
-
-		return (
-			<div
-				class="absolute w-px bg-gray-400"
-				style={{
-					left: `${xPercent()}%`,
-					top: `${topPx}px`,
-					height: `${heightPx}px`,
-				}}
-			/>
-		);
-	};
-
 	const containerHeight = () => packedSpansResult().totalRows * ROW_HEIGHT;
 	const isEmpty = () => props.spans.length === 0;
 
@@ -168,11 +133,6 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 			>
 				<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
 					<div class="relative" style={{ height: `${containerHeight()}px` }}>
-						{/* Render connector lines first (behind spans) */}
-						<For each={visibleConnectors()}>
-							{(connector) => renderConnector(connector)}
-						</For>
-						{/* Render spans on top */}
 						<For each={visibleSpans()}>
 							{(packedSpan) => renderSpan(packedSpan)}
 						</For>

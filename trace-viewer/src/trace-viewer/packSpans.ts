@@ -171,66 +171,6 @@ export function packSpans(spans: SpanInput[]): PackedSpansResult {
 }
 
 /**
- * Connector line information for rendering parent-child relationships
- */
-export interface SpanConnector {
-	parentId: string;
-	childId: string;
-	parentRow: number;
-	childRow: number;
-	/** X position as percentage (0-100) where the connector should be drawn */
-	xPercent: number;
-}
-
-/**
- * Generates connector line data for parent-child relationships.
- * Connectors are positioned at the start of the child span.
- *
- * @param packedSpans - Array of packed spans with row assignments
- * @param totalDuration - Total timeline duration in ms (for percentage calculation)
- * @returns Array of connector line specifications
- */
-export function generateConnectors(
-	packedSpans: PackedSpan[],
-	totalDuration: number,
-): SpanConnector[] {
-	if (totalDuration <= 0) {
-		return [];
-	}
-
-	const spanMap = new Map<string, PackedSpan>();
-	for (const span of packedSpans) {
-		spanMap.set(span.id, span);
-	}
-
-	const connectors: SpanConnector[] = [];
-
-	for (const span of packedSpans) {
-		if (span.parentId === null) {
-			continue;
-		}
-
-		const parent = spanMap.get(span.parentId);
-		if (!parent) {
-			continue;
-		}
-
-		// Only draw connector if parent and child are not on adjacent rows
-		// (adjacent is still visually clear)
-		// Actually, let's always draw connectors for clarity
-		connectors.push({
-			parentId: span.parentId,
-			childId: span.id,
-			parentRow: parent.row,
-			childRow: span.row,
-			xPercent: (span.startOffset / totalDuration) * 100,
-		});
-	}
-
-	return connectors;
-}
-
-/**
  * Converts a hierarchical span tree to a flat array suitable for packSpans.
  * Preserves the tree traversal order (pre-order: parent before children).
  *

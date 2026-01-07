@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
 	findAvailableRow,
 	flattenSpanTree,
-	generateConnectors,
 	packSpans,
 	spansOverlap,
 } from "./packSpans";
@@ -256,52 +255,6 @@ describe("packSpans", () => {
 		expect(result.spans[2].row).toBe(0); // http2
 		expect(result.spans[3].row).toBe(1); // db2
 		expect(result.totalRows).toBe(2);
-	});
-});
-
-describe("generateConnectors", () => {
-	it("returns empty for spans without parents", () => {
-		const packed = packSpans([
-			{ id: "a", name: "A", startOffset: 0, duration: 100, parentId: null },
-		]);
-		const connectors = generateConnectors(packed.spans, 1000);
-		expect(connectors).toEqual([]);
-	});
-
-	it("generates connector for child span", () => {
-		const packed = packSpans([
-			{
-				id: "parent",
-				name: "Parent",
-				startOffset: 0,
-				duration: 500,
-				parentId: null,
-			},
-			{
-				id: "child",
-				name: "Child",
-				startOffset: 100,
-				duration: 100,
-				parentId: "parent",
-			},
-		]);
-		const connectors = generateConnectors(packed.spans, 1000);
-		expect(connectors).toHaveLength(1);
-		expect(connectors[0]).toEqual({
-			parentId: "parent",
-			childId: "child",
-			parentRow: 0,
-			childRow: 1,
-			xPercent: 10, // 100/1000 * 100
-		});
-	});
-
-	it("returns empty for zero duration", () => {
-		const packed = packSpans([
-			{ id: "a", name: "A", startOffset: 0, duration: 100, parentId: null },
-		]);
-		const connectors = generateConnectors(packed.spans, 0);
-		expect(connectors).toEqual([]);
 	});
 });
 

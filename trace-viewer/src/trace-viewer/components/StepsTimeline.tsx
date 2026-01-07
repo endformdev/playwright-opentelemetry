@@ -1,13 +1,7 @@
 import { createMemo, For, type JSX } from "solid-js";
 import type { Span } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
-import {
-	generateConnectors,
-	type PackedSpan,
-	packSpans,
-	type SpanConnector,
-	type SpanInput,
-} from "../packSpans";
+import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
 import { isTimeRangeVisible, timeToViewportPosition } from "../viewport";
 
 const ROW_HEIGHT = 28;
@@ -87,13 +81,6 @@ export function StepsTimeline(props: StepsTimelineProps) {
 		);
 	});
 
-	const visibleConnectors = createMemo(() => {
-		const visibleIds = new Set(visibleSteps().map((s) => s.id));
-		return generateConnectors(packedStepsResult().spans, durationMs()).filter(
-			(c) => visibleIds.has(c.parentId) || visibleIds.has(c.childId),
-		);
-	});
-
 	const renderStep = (step: PackedSpan): JSX.Element => {
 		const leftPercent = () =>
 			timeToViewportPosition(step.startOffset, viewport()) * 100;
@@ -146,29 +133,6 @@ export function StepsTimeline(props: StepsTimelineProps) {
 		);
 	};
 
-	const renderConnector = (connector: SpanConnector): JSX.Element => {
-		const rowDiff = connector.childRow - connector.parentRow;
-		const topPx = connector.parentRow * ROW_HEIGHT + 24;
-		const heightPx = (rowDiff - 1) * ROW_HEIGHT + 4;
-
-		// Use reactive getter so position updates when viewport changes
-		const xPercent = () => {
-			const xPositionMs = (connector.xPercent / 100) * durationMs();
-			return timeToViewportPosition(xPositionMs, viewport()) * 100;
-		};
-
-		return (
-			<div
-				class="absolute w-px bg-gray-400"
-				style={{
-					left: `${xPercent()}%`,
-					top: `${topPx}px`,
-					height: `${heightPx}px`,
-				}}
-			/>
-		);
-	};
-
 	const containerHeight = () => packedStepsResult().totalRows * ROW_HEIGHT;
 
 	return (
@@ -178,11 +142,6 @@ export function StepsTimeline(props: StepsTimelineProps) {
 			</div>
 			<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
 				<div class="relative" style={{ height: `${containerHeight()}px` }}>
-					{/* Render connector lines first (behind spans) */}
-					<For each={visibleConnectors()}>
-						{(connector) => renderConnector(connector)}
-					</For>
-					{/* Render steps on top */}
 					<For each={visibleSteps()}>{(step) => renderStep(step)}</For>
 				</div>
 			</div>
