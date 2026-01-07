@@ -25,16 +25,34 @@ describe("spansOverlap", () => {
 		).toBe(true);
 	});
 
-	it("returns false for adjacent spans (no gap)", () => {
+	it("returns true for adjacent spans (no gap) due to 2ms minimum gap requirement", () => {
 		expect(
 			spansOverlap(
 				{ startOffset: 0, duration: 100 },
 				{ startOffset: 100, duration: 100 },
 			),
+		).toBe(true);
+	});
+
+	it("returns true for spans less than 2ms apart", () => {
+		expect(
+			spansOverlap(
+				{ startOffset: 0, duration: 100 },
+				{ startOffset: 101, duration: 100 },
+			),
+		).toBe(true);
+	});
+
+	it("returns false for spans exactly 2ms apart", () => {
+		expect(
+			spansOverlap(
+				{ startOffset: 0, duration: 100 },
+				{ startOffset: 102, duration: 100 },
+			),
 		).toBe(false);
 	});
 
-	it("returns false for non-overlapping spans with gap", () => {
+	it("returns false for non-overlapping spans with large gap", () => {
 		expect(
 			spansOverlap(
 				{ startOffset: 0, duration: 100 },
@@ -43,13 +61,22 @@ describe("spansOverlap", () => {
 		).toBe(false);
 	});
 
-	it("returns false for spans in reverse order", () => {
+	it("returns false for spans in reverse order with sufficient gap", () => {
 		expect(
 			spansOverlap(
 				{ startOffset: 200, duration: 100 },
 				{ startOffset: 0, duration: 100 },
 			),
 		).toBe(false);
+	});
+
+	it("returns true for spans in reverse order within 2ms", () => {
+		expect(
+			spansOverlap(
+				{ startOffset: 101, duration: 100 },
+				{ startOffset: 0, duration: 100 },
+			),
+		).toBe(true);
 	});
 });
 
@@ -83,8 +110,9 @@ describe("findAvailableRow", () => {
 			[{ startOffset: 50, duration: 200 }],
 			[{ startOffset: 100, duration: 100 }],
 		];
-		// Span at 250-350 overlaps with row 0, but not rows 1 or 2
-		const row = findAvailableRow({ startOffset: 250, duration: 100 }, rows, 0);
+		// Span at 252-352: row 0 ends at 300 (overlaps), row 1 ends at 250 (2ms gap - ok), row 2 ends at 200 (52ms gap - ok)
+		// First available is row 1
+		const row = findAvailableRow({ startOffset: 252, duration: 100 }, rows, 0);
 		expect(row).toBe(1);
 	});
 });
