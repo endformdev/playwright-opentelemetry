@@ -1,6 +1,6 @@
 {
 	"name": "playwright-opentelemetry",
-	"version": "0.3.3",
+	"version": "0.3.4",
 	"description": "A reporter for Playwright that can export traces and spans in opentelemetry format.",
 	"type": "module",
 	"license": "Apache-2.0",
