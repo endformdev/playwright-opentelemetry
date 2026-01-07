@@ -130,7 +130,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 							{(screenshot) => (
 								<div
 									data-screenshot
-									class="bg-gray-100 rounded-lg overflow-hidden border-2 transition-colors duration-150"
+									class="bg-gray-100 rounded-md overflow-hidden border-2 transition-colors duration-150"
 									classList={{
 										"border-blue-500 ring-2 ring-blue-200":
 											isScreenshotFocused(),

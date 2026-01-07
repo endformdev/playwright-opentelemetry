@@ -113,7 +113,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 
 		return (
 			<div
-				class="absolute h-6 rounded text-xs flex items-center text-white truncate cursor-pointer hover:brightness-95 select-none"
+				class="absolute h-6 rounded-xs text-xs flex items-center text-white truncate cursor-pointer hover:brightness-95 select-none"
 				classList={{
 					"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
 					"px-2": shouldHavePadding(),

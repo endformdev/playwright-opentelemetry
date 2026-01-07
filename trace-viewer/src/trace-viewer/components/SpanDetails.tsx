@@ -59,7 +59,7 @@ export function SpanDetails(props: SpanDetailsProps) {
 	return (
 		<div
 			data-span-id={span.id}
-			class="rounded-lg border-2 overflow-hidden transition-all duration-150"
+			class="rounded-md border-2 overflow-hidden transition-all duration-150"
 			classList={{
 				"ring-2 ring-blue-200": props.isFocused,
 			}}
