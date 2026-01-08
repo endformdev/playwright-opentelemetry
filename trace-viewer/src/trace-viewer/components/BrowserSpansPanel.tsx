@@ -1,8 +1,8 @@
-import { createMemo, For, type JSX, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import type { Span } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
 import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
-import { isTimeRangeVisible, timeToViewportPosition } from "../viewport";
+import { isTimeRangeVisible } from "../viewport";
 import {
 	getResourceColor,
 	getResourceDisplayName,
@@ -10,8 +10,7 @@ import {
 	getResourceType,
 	type ResourceType,
 } from "./browserSpanStyles";
-
-const ROW_HEIGHT = 28;
+import { ROW_HEIGHT, SpanBar } from "./SpanBar";
 
 export interface BrowserSpansPanelProps {
 	spans: Span[];
@@ -31,7 +30,7 @@ function spansToSpanInput(spans: Span[]): SpanInput[] {
 }
 
 export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
-	const { viewport, durationMs } = useViewportContext();
+	const { viewport } = useViewportContext();
 
 	const packedSpansResult = createMemo(() => {
 		const spanInputs = spansToSpanInput(props.spans);
@@ -56,65 +55,6 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 		);
 	});
 
-	const renderSpan = (packedSpan: PackedSpan): JSX.Element => {
-		const leftPercent = () =>
-			timeToViewportPosition(packedSpan.startOffset, viewport()) * 100;
-		const rightPercent = () =>
-			timeToViewportPosition(
-				packedSpan.startOffset + packedSpan.duration,
-				viewport(),
-			) * 100;
-		const widthPercent = () => rightPercent() - leftPercent();
-		const resourceType = resourceTypeMap().get(packedSpan.id) ?? "other";
-
-		// Make shouldHighlight a function to ensure reactivity
-		const shouldHighlight = () => {
-			// If hovering a specific search result, only highlight that one
-			// Otherwise, highlight all matched spans
-			return props.hoveredSearchSpanId
-				? packedSpan.id === props.hoveredSearchSpanId
-				: props.matchedSpanIds?.has(packedSpan.id);
-		};
-
-		const displayText = () => {
-			if (widthPercent() > 2) {
-				return (
-					<>
-						{getResourceIcon(resourceType)}
-						<span class="truncate select-none">{packedSpan.name}</span>
-					</>
-				);
-			}
-			return null;
-		};
-
-		const shouldHavePadding = () => widthPercent() > 2;
-
-		const displayWidthPercent = () =>
-			widthPercent() > 2 ? widthPercent() : widthPercent() - 0.1;
-
-		return (
-			<div
-				class="absolute h-6 rounded-xs text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
-				classList={{
-					"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
-					"px-2": shouldHavePadding(),
-				}}
-				style={{
-					left: `${leftPercent()}%`,
-					width: `${displayWidthPercent()}%`,
-					top: `${packedSpan.row * ROW_HEIGHT}px`,
-					"background-color": getResourceColor(resourceType),
-				}}
-				title={`${packedSpan.name} (${packedSpan.duration}ms)`}
-				onMouseEnter={() => props.onSpanHover?.(packedSpan.id)}
-				onMouseLeave={() => props.onSpanHover?.(null)}
-			>
-				{displayText()}
-			</div>
-		);
-	};
-
 	const containerHeight = () => packedSpansResult().totalRows * ROW_HEIGHT;
 	const isEmpty = () => props.spans.length === 0;
 
@@ -134,7 +74,24 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 				<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
 					<div class="relative" style={{ height: `${containerHeight()}px` }}>
 						<For each={visibleSpans()}>
-							{(packedSpan) => renderSpan(packedSpan)}
+							{(packedSpan: PackedSpan) => {
+								const resourceType =
+									resourceTypeMap().get(packedSpan.id) ?? "other";
+								return (
+									<SpanBar
+										id={packedSpan.id}
+										name={packedSpan.name}
+										startOffset={packedSpan.startOffset}
+										duration={packedSpan.duration}
+										row={packedSpan.row}
+										color={getResourceColor(resourceType)}
+										icon={getResourceIcon(resourceType)}
+										onHover={props.onSpanHover}
+										matchedSpanIds={props.matchedSpanIds}
+										hoveredSearchSpanId={props.hoveredSearchSpanId}
+									/>
+								);
+							}}
 						</For>
 					</div>
 				</div>

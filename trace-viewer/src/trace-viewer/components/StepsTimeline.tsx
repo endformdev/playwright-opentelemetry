@@ -1,10 +1,9 @@
-import { createMemo, For, type JSX } from "solid-js";
+import { createMemo, For } from "solid-js";
 import type { Span } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
 import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
-import { isTimeRangeVisible, timeToViewportPosition } from "../viewport";
-
-const ROW_HEIGHT = 28;
+import { isTimeRangeVisible } from "../viewport";
+import { ROW_HEIGHT, SpanBar } from "./SpanBar";
 
 export interface StepsTimelineProps {
 	steps: Span[];
@@ -61,8 +60,12 @@ function buildDepthMap(spans: Span[]): Map<string, number> {
 	return depthMap;
 }
 
+function getStepColor(depth: number): string {
+	return `hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`;
+}
+
 export function StepsTimeline(props: StepsTimelineProps) {
-	const { viewport, durationMs } = useViewportContext();
+	const { viewport } = useViewportContext();
 
 	const packedStepsResult = createMemo(() => {
 		const spanInputs = spansToSpanInput(props.steps);
@@ -81,58 +84,6 @@ export function StepsTimeline(props: StepsTimelineProps) {
 		);
 	});
 
-	const renderStep = (step: PackedSpan): JSX.Element => {
-		const leftPercent = () =>
-			timeToViewportPosition(step.startOffset, viewport()) * 100;
-		const rightPercent = () =>
-			timeToViewportPosition(step.startOffset + step.duration, viewport()) *
-			100;
-		const widthPercent = () => rightPercent() - leftPercent();
-		const depth = depthMap().get(step.id) ?? 0;
-
-		// Make shouldHighlight a function to ensure reactivity
-		const shouldHighlight = () => {
-			// If hovering a specific search result, only highlight that one
-			// Otherwise, highlight all matched spans
-			return props.hoveredSearchSpanId
-				? step.id === props.hoveredSearchSpanId
-				: props.matchedSpanIds?.has(step.id);
-		};
-
-		const displayText = () => {
-			if (widthPercent() > 2) {
-				return step.name;
-			}
-			return null;
-		};
-
-		const shouldHavePadding = () => widthPercent() > 2;
-
-		const displayWidthPercent = () =>
-			widthPercent() > 2 ? widthPercent() : widthPercent() - 0.1;
-
-		return (
-			<div
-				class="absolute h-6 rounded-xs text-xs flex items-center text-white truncate cursor-pointer hover:brightness-95 select-none"
-				classList={{
-					"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
-					"px-2": shouldHavePadding(),
-				}}
-				style={{
-					left: `${leftPercent()}%`,
-					width: `${displayWidthPercent()}%`,
-					top: `${step.row * ROW_HEIGHT}px`,
-					"background-color": `hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`,
-				}}
-				title={`${step.name} (${step.duration}ms)`}
-				onMouseEnter={() => props.onStepHover?.(step.id)}
-				onMouseLeave={() => props.onStepHover?.(null)}
-			>
-				{displayText()}
-			</div>
-		);
-	};
-
 	const containerHeight = () => packedStepsResult().totalRows * ROW_HEIGHT;
 
 	return (
@@ -142,7 +93,24 @@ export function StepsTimeline(props: StepsTimelineProps) {
 			</div>
 			<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
 				<div class="relative" style={{ height: `${containerHeight()}px` }}>
-					<For each={visibleSteps()}>{(step) => renderStep(step)}</For>
+					<For each={visibleSteps()}>
+						{(step: PackedSpan) => {
+							const depth = depthMap().get(step.id) ?? 0;
+							return (
+								<SpanBar
+									id={step.id}
+									name={step.name}
+									startOffset={step.startOffset}
+									duration={step.duration}
+									row={step.row}
+									color={getStepColor(depth)}
+									onHover={props.onStepHover}
+									matchedSpanIds={props.matchedSpanIds}
+									hoveredSearchSpanId={props.hoveredSearchSpanId}
+								/>
+							);
+						}}
+					</For>
 				</div>
 			</div>
 		</div>
