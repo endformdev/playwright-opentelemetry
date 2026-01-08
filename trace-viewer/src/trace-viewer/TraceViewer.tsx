@@ -15,7 +15,7 @@ import { ExternalSpansPanel } from "./components/ExternalSpansPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { PanelHeader } from "./components/PanelHeader";
 import { StepsTimeline } from "./components/StepsTimeline";
-import { HoverProvider } from "./contexts/HoverContext";
+import { HoverProvider, useHoverContext } from "./contexts/HoverContext";
 import { SearchProvider, useSearch } from "./contexts/SearchContext";
 import {
 	useViewportContext,
@@ -26,7 +26,6 @@ import {
 	getTestBodyPhase,
 	type TestPhase,
 } from "./detectTestPhases";
-import { getElementsAtTime, type HoveredElements } from "./getElementsAtTime";
 import { MultiResizablePanel } from "./MultiResizablePanel";
 import { packSpans, type SpanInput } from "./packSpans";
 import { calculateDepthBasedSizes } from "./panelSizing";
@@ -43,13 +42,6 @@ import {
 
 export interface TraceViewerProps {
 	traceInfo: TraceInfo;
-}
-
-type FocusedElementType = "screenshot" | "step" | "span";
-
-interface FocusedElement {
-	type: FocusedElementType;
-	id: string; // span ID for steps/spans, or screenshot URL for screenshots
 }
 
 /** Section identifiers for the main timeline panels */
@@ -84,7 +76,7 @@ const SECTION_TOOLTIPS: Record<SectionId, string> = {
 
 const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
-const LOCK_WINDOW_PX = 50;
+const MIN_SELECTION_DISPLAY_PERCENT = 1;
 
 /** Convert spans to SpanInput format for depth calculation */
 function spansToSpanInput(
@@ -153,13 +145,23 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const { viewport, setViewport, zoomToRange, pan, zoom, reset } =
 		useViewportContext();
 
-	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
-	const [lockedPosition, setLockedPosition] = createSignal<number | null>(null);
-	const [hoveredElement, setHoveredElement] =
-		createSignal<FocusedElement | null>(null);
-	const [lockedElement, setLockedElement] = createSignal<FocusedElement | null>(
-		null,
-	);
+	const {
+		mode,
+		hoverPosition,
+		setHoverPosition,
+		lockedPosition,
+		lock,
+		unlock,
+		enterSearchOverride,
+		exitSearchOverride,
+		hoveredElement,
+		setHoveredElement,
+		lockedElement,
+		displayTimeMs,
+		displayElements,
+		displayFocusedElement,
+	} = useHoverContext();
+
 	const [selectionState, setSelectionState] = createSignal<{
 		startPosition: number;
 		currentPosition: number;
@@ -344,15 +346,20 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			computedStyle.cursor === "col-resize" ||
 			computedStyle.cursor === "row-resize"
 		) {
-			setHoverPosition(null);
+			// Only update hover position in hover mode
+			if (mode() === "hover") {
+				setHoverPosition(null);
+			}
 			return;
 		}
 
-		// Clamp to valid range
-		if (position >= 0 && position <= 1) {
-			setHoverPosition(position);
-		} else {
-			setHoverPosition(null);
+		// Only update hover position in hover mode
+		if (mode() === "hover") {
+			if (position >= 0 && position <= 1) {
+				setHoverPosition(position);
+			} else {
+				setHoverPosition(null);
+			}
 		}
 	};
 
@@ -375,13 +382,24 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			const minSelectionMs = visibleDuration * 0.02;
 
 			if (endMs - startMs > minSelectionMs) {
-				// This was a drag - zoom to selection
+				// This was a drag - zoom to selection (works in any mode, doesn't change mode)
 				zoomToRange(startMs, endMs);
 			} else {
-				// This was a click (not a meaningful drag) - lock to this position
-				setLockedPosition(selection.startPosition);
-				// Also lock the currently hovered element for scroll-to functionality
-				setLockedElement(hoveredElement());
+				// This was a click (not a meaningful drag)
+				const currentMode = mode();
+				switch (currentMode) {
+					case "hover":
+						// Lock to this position
+						lock(selection.startPosition, hoveredElement());
+						break;
+					case "locked":
+					case "search-override":
+						// Any click unlocks - set hover position to click location
+						// so the hover line appears immediately
+						setHoverPosition(selection.startPosition);
+						unlock();
+						break;
+				}
 			}
 
 			setSelectionState(null);
@@ -389,7 +407,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const handleMouseLeave = () => {
-		setHoverPosition(null);
+		if (mode() === "hover") {
+			setHoverPosition(null);
+		}
 		// Don't clear selection on mouse leave - user might drag outside temporarily
 	};
 
@@ -399,8 +419,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		document.addEventListener("mouseup", onGlobalMouseUp);
 
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && lockedPosition() !== null) {
-				handleUnlock();
+			const currentMode = mode();
+			if (e.key === "Escape" && currentMode !== "hover") {
+				unlock();
 			}
 		};
 		document.addEventListener("keydown", onKeyDown);
@@ -448,13 +469,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 	};
 
-	const handleUnlock = () => {
-		setLockedPosition(null);
-		setLockedElement(null);
-	};
-
 	const handleDoubleClick = () => {
-		handleUnlock();
+		unlock();
 		reset();
 	};
 
@@ -462,19 +478,19 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	// The last hovered element persists until a new element is hovered or
 	// the mouse leaves the main panel entirely.
 	const handleScreenshotHover = (screenshotUrl: string | null) => {
-		if (screenshotUrl) {
+		if (screenshotUrl && mode() === "hover") {
 			setHoveredElement({ type: "screenshot", id: screenshotUrl });
 		}
 	};
 
 	const handleStepHover = (stepId: string | null) => {
-		if (stepId) {
+		if (stepId && mode() === "hover") {
 			setHoveredElement({ type: "step", id: stepId });
 		}
 	};
 
 	const handleSpanHover = (spanId: string | null) => {
-		if (spanId) {
+		if (spanId && mode() === "hover") {
 			setHoveredElement({ type: "span", id: spanId });
 		}
 	};
@@ -492,11 +508,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			const position = timeToViewportPosition(span.startOffsetMs, viewport());
 			const clampedPosition = Math.max(0, Math.min(1, position));
 
-			setLockedPosition(clampedPosition);
-
 			const isStep =
 				span.name === "playwright.test" || span.name === "playwright.test.step";
-			setLockedElement({
+			lock(clampedPosition, {
 				type: isStep ? "step" : "span",
 				id: spanId,
 			});
@@ -515,10 +529,20 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (span) {
 			const isStep =
 				span.name === "playwright.test" || span.name === "playwright.test.step";
-			setLockedElement({
-				type: isStep ? "step" : "span",
-				id: spanId,
-			});
+
+			// When navigating within locked mode, we need to update the locked element
+			// This is used by the details panel breadcrumb navigation
+			const currentMode = mode();
+			if (currentMode === "locked" || currentMode === "search-override") {
+				// Re-lock at the current position but with the new element
+				const pos = lockedPosition();
+				if (pos !== null) {
+					lock(pos, {
+						type: isStep ? "step" : "span",
+						id: spanId,
+					});
+				}
+			}
 		}
 	};
 
@@ -527,10 +551,20 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		setHoveredSearchSpanId(spanId);
 
 		if (!spanId) {
-			// Clear hover state - will snap back to locked if locked, or show nothing
+			// Clearing search hover
+			const currentMode = mode();
+			if (currentMode === "search-override") {
+				exitSearchOverride();
+			}
 			setHoverPosition(null);
 			setHoveredElement(null);
 			return;
+		}
+
+		// Entering search hover - enter search-override mode if locked
+		const currentMode = mode();
+		if (currentMode === "locked") {
+			enterSearchOverride();
 		}
 
 		// Find the span
@@ -562,94 +596,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				id: spanId,
 			});
 		}
-	};
-
-	const hoverTimeMs = () => {
-		const pos = hoverPosition();
-		if (pos === null) return null;
-		return viewportPositionToTime(pos, viewport());
-	};
-
-	const lockedTimeMs = () => {
-		const pos = lockedPosition();
-		if (pos === null) return null;
-		return viewportPositionToTime(pos, viewport());
-	};
-
-	const isWithinLockWindow = () => {
-		const locked = lockedPosition();
-		const hover = hoverPosition();
-		if (locked === null || hover === null || !contentAreaRef) return false;
-
-		const panelWidth = contentAreaRef.getBoundingClientRect().width;
-		const lockedPx = locked * panelWidth;
-		const hoverPx = hover * panelWidth;
-		return Math.abs(hoverPx - lockedPx) <= LOCK_WINDOW_PX;
-	};
-
-	const hoveredElements = createMemo((): HoveredElements | null => {
-		const timeMs = hoverTimeMs();
-		if (timeMs === null) return null;
-		return getElementsAtTime(
-			timeMs,
-			props.traceData.steps(),
-			[...props.traceData.browserSpans(), ...props.traceData.externalSpans()],
-			props.traceInfo.screenshots,
-			props.testStartTimeMs(),
-		);
-	});
-
-	const lockedElements = createMemo((): HoveredElements | null => {
-		const timeMs = lockedTimeMs();
-		if (timeMs === null) return null;
-		return getElementsAtTime(
-			timeMs,
-			props.traceData.steps(),
-			[...props.traceData.browserSpans(), ...props.traceData.externalSpans()],
-			props.traceInfo.screenshots,
-			props.testStartTimeMs(),
-		);
-	});
-
-	// Determine what to display in details panel and header:
-	// - If locked and (no hover OR within lock window): show locked data
-	// - If locked and outside lock window: show hover data
-	// - If not locked: show hover data
-	const displayElements = (): HoveredElements | null => {
-		if (lockedPosition() !== null) {
-			if (hoverPosition() === null || isWithinLockWindow()) {
-				return lockedElements();
-			}
-			return hoveredElements();
-		}
-		return hoveredElements();
-	};
-
-	const displayTimeMs = (): number | null => {
-		if (lockedPosition() !== null) {
-			if (hoverPosition() === null || isWithinLockWindow()) {
-				return lockedTimeMs();
-			}
-			return hoverTimeMs();
-		}
-		return hoverTimeMs();
-	};
-
-	// Determine which element to scroll to in the details panel.
-	// The key behavior: when locked, if hovering over a specific element, scroll to it;
-	// otherwise (no hover or generic hover), scroll to the locked element.
-	const displayFocusedElement = (): FocusedElement | null => {
-		if (lockedPosition() !== null) {
-			if (hoverPosition() === null || isWithinLockWindow()) {
-				// Mouse left the panel or is within lock window - scroll to locked element
-				return lockedElement();
-			}
-			// Mouse is outside lock window - scroll to hovered element if any,
-			// otherwise stay on locked element
-			return hoveredElement() ?? lockedElement();
-		}
-
-		return hoveredElement();
 	};
 
 	const selectionLeft = () => {
@@ -804,8 +750,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					</div>
 				</Show>
 
-				{/* Selection overlay */}
-				<Show when={selectionState()}>
+				{/* Selection overlay - only show when selection is meaningful */}
+				<Show
+					when={
+						selectionState() && selectionWidth() > MIN_SELECTION_DISPLAY_PERCENT
+					}
+				>
 					<div
 						class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
 						style={{
@@ -815,44 +765,46 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					/>
 				</Show>
 
-				{/* Locked position indicator */}
-				<Show when={lockedPosition()} keyed>
-					{(pos) => (
-						<div
-							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
-							style={{
-								left: `${pos * 100}%`,
-								width: "3px",
-								"margin-left": "-1px",
-							}}
-						/>
-					)}
-				</Show>
-
-				{/* Hover position indicator (when locked and outside lock window) */}
-				<Show
-					when={
-						hoverPosition() !== null &&
-						lockedPosition() !== null &&
-						!isWithinLockWindow()
-					}
-					keyed
-				>
-					<div
-						class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
-						style={{ left: `${hoverPosition()! * 100}%` }}
-					/>
-				</Show>
-
-				{/* Hover position indicator (when not locked) */}
-				<Show
-					when={hoverPosition() !== null && lockedPosition() === null}
-					keyed
-				>
+				{/* Position indicator - hover mode: thin blue line */}
+				<Show when={mode() === "hover" && hoverPosition() !== null}>
 					<div
 						class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
 						style={{ left: `${hoverPosition()! * 100}%` }}
 					/>
+				</Show>
+
+				{/* Position indicator - locked mode: thick blue line */}
+				<Show when={mode() === "locked" && lockedPosition() !== null}>
+					<div
+						class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
+						style={{
+							left: `${lockedPosition()! * 100}%`,
+							width: "3px",
+							"margin-left": "-1px",
+						}}
+					/>
+				</Show>
+
+				{/* Position indicator - search-override mode: both lines */}
+				<Show when={mode() === "search-override"}>
+					{/* Locked position - thick blue line */}
+					<Show when={lockedPosition() !== null}>
+						<div
+							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
+							style={{
+								left: `${lockedPosition()! * 100}%`,
+								width: "3px",
+								"margin-left": "-1px",
+							}}
+						/>
+					</Show>
+					{/* Search hover position - thin lighter blue line */}
+					<Show when={hoverPosition() !== null}>
+						<div
+							class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
+							style={{ left: `${hoverPosition()! * 100}%` }}
+						/>
+					</Show>
 				</Show>
 			</div>
 		</div>
