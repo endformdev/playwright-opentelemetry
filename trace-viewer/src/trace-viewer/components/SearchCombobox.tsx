@@ -90,9 +90,9 @@ export function SearchCombobox(props: SearchComboboxProps) {
 	// Sync external query changes (e.g., when cleared externally)
 	createEffect(() => setLocalValue(props.query));
 
-	// Auto-open when there's text and results, but allow manual close
+	// Auto-open when there's text (to show results or "No results found"), but allow manual close
 	createEffect(() => {
-		if (localValue().length > 0 && props.results.length > 0) {
+		if (localValue().length > 0) {
 			setIsOpen(true);
 		} else {
 			setIsOpen(false);
@@ -216,13 +216,15 @@ export function SearchCombobox(props: SearchComboboxProps) {
 				</Show>
 
 				<Show when={localValue()}>
-					<Combobox.ClearTrigger
+					<button
+						type="button"
 						onClick={handleClear}
 						class="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 rounded"
 						title="Clear search"
+						data-testid="search-clear-button"
 					>
 						<X size={14} class="text-gray-500" />
-					</Combobox.ClearTrigger>
+					</button>
 				</Show>
 			</Combobox.Control>
 
