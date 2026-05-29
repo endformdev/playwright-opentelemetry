@@ -4,9 +4,13 @@ export default async function globalSetup() {
 	console.log("Running reporter e2e tests to generate trace data...");
 
 	try {
+		const env = { ...process.env };
+		// The nested reporter run only generates fixture data; keep debug mode on the outer trace-viewer run.
+		delete env.PWDEBUG;
+
 		const stdout = execSync("pnpm --filter ../reporter test:e2e", {
 			env: {
-				...process.env,
+				...env,
 				// Configure the reporter to send traces to our test trace-api-server
 				PLAYWRIGHT_TRACE_API_ENDPOINT: "http://localhost:9295",
 				// Clear OTLP endpoint to avoid conflicts
