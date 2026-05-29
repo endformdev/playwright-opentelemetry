@@ -36,7 +36,7 @@
 		"@ark-ui/solid": "^5.30.0",
 		"@leeoniya/ufuzzy": "^1.0.19",
 		"@playwright-opentelemetry/trace-api": "workspace:*",
-		"@playwright/test": "^1.57.0",
+		"@playwright/test": "catalog:",
 		"@tailwindcss/vite": "^4.1.18",
 		"@types/node": "^25.0.3",
 		"@zip.js/zip.js": "^2.8.11",
