@@ -8,8 +8,8 @@
 		"release": "pnpx bumpp reporter/package.json trace-viewer/package.json trace-api/package.json --commit --tag --push"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "catalog:",
 		"typescript": "catalog:",
-		"@biomejs/biome": "2.3.10",
 		"vitest": "catalog:"
 	}
 }

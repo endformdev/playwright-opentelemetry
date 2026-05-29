@@ -7,11 +7,7 @@
 		"jsxImportSource": "solid-js",
 		"types": ["solid-js"],
 		"allowJs": true,
-		"noEmit": true,
-		"baseUrl": ".",
-		"paths": {
-			"~/*": ["./src/*"]
-		}
+		"noEmit": true
 	},
 	"include": ["src/**/*"]
 }

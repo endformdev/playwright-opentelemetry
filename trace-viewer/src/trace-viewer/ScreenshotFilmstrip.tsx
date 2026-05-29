@@ -7,7 +7,7 @@ import {
 	Show,
 } from "solid-js";
 
-import type { ScreenshotInfo } from "~/trace-info-loader";
+import type { ScreenshotInfo } from "../trace-info-loader";
 
 import {
 	type Screenshot,
