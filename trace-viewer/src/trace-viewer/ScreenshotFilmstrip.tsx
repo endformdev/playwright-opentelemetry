@@ -102,7 +102,8 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		<div
 			ref={contentRef}
 			class="h-full bg-gray-50 overflow-hidden p-2"
-			data-testid="screenshot-filmstrip"
+			role="region"
+			aria-label="Screenshots"
 		>
 			<div class="flex gap-2 h-full">
 				<Show
@@ -142,6 +143,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 									{(s) => (
 										<div
 											class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm"
+											data-screenshot-timestamp={s().timestamp}
 											onMouseEnter={() => props.onScreenshotHover?.(s().url)}
 											onMouseLeave={() => props.onScreenshotHover?.(null)}
 										>
@@ -151,7 +153,6 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 												class="w-full h-full object-contain select-none"
 												loading="lazy"
 												draggable={false}
-												data-testid="screenshot-filmstrip-image"
 											/>
 										</div>
 									)}

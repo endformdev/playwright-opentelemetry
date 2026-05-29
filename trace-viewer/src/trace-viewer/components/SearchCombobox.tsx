@@ -220,8 +220,8 @@ export function SearchCombobox(props: SearchComboboxProps) {
 						type="button"
 						onClick={handleClear}
 						class="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 rounded"
+						aria-label="Clear search"
 						title="Clear search"
-						data-testid="search-clear-button"
 					>
 						<X size={14} class="text-gray-500" />
 					</button>

@@ -64,7 +64,11 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 	const isEmpty = () => props.spans.length === 0;
 
 	return (
-		<div class="h-full flex flex-col bg-gray-50 overflow-hidden">
+		<div
+			class="h-full flex flex-col bg-gray-50 overflow-hidden"
+			role="region"
+			aria-label="External Spans"
+		>
 			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
 				External Spans
 			</div>
@@ -76,7 +80,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 					</div>
 				}
 			>
-				<div class="flex-1 overflow-y-auto overflow-x-hidden p-3">
+				<div class="flex-1 overflow-y-auto overflow-x-hidden p-3" role="list">
 					<div class="relative" style={{ height: `${containerHeight()}px` }}>
 						<For each={visibleSpans()}>
 							{(packedSpan: PackedSpan) => {

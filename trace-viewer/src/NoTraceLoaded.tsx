@@ -88,14 +88,12 @@ export function NoTraceLoaded(props: { setTraceSource: TraceSourceSetter }) {
 						value={apiUrl()}
 						onInput={(e) => setApiUrl(e.currentTarget.value)}
 						onKeyDown={handleApiKeyDown}
-						data-testid="api-url-input"
 					/>
 					<button
 						type="button"
 						class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed"
 						onClick={handleApiLoad}
 						disabled={!apiUrl().trim()}
-						data-testid="load-api-button"
 					>
 						Load
 					</button>

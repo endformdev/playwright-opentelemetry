@@ -105,6 +105,14 @@ export function SpanBar(props: SpanBarProps) {
 
 	return (
 		<div
+			role="listitem"
+			aria-label={props.name}
+			data-span-id={props.id}
+			data-span-name={props.name}
+			data-span-start-ms={props.startOffset}
+			data-span-duration-ms={props.duration}
+			data-span-end-ms={props.startOffset + props.duration}
+			data-span-row={props.row}
 			class="absolute h-6 rounded-xs text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
 			classList={{
 				"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),

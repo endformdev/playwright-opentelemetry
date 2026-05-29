@@ -352,7 +352,7 @@ export async function loadTrace(
 ): Promise<void> {
 	await page.goto("/");
 	await page
-		.getByTestId("api-url-input")
+		.getByPlaceholder("Enter API URL...")
 		.fill(`${TRACE_API_URL}/otel-trace-viewer/${traceIdHex}`);
-	await page.getByTestId("load-api-button").click();
+	await page.getByRole("button", { name: "Load" }).click();
 }

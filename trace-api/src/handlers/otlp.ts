@@ -72,7 +72,7 @@ export function createOtlpHandler(config: TraceApiHandlerConfig): EventHandler {
 				}
 			}
 
-			// Process each span and group by traceId
+			// Process each span and group by traceId, preserving its resource attributes.
 			for (const scopeSpan of resourceSpan.scopeSpans || []) {
 				// Group spans within this scopeSpan by traceId
 				const spansByTrace = new Map<
@@ -94,30 +94,27 @@ export function createOtlpHandler(config: TraceApiHandlerConfig): EventHandler {
 
 					const spanId = spans[0]?.spanId || "unknown";
 
+					const filteredResourceSpan = {
+						resource: resourceSpan.resource,
+						scopeSpans: [
+							{
+								...scopeSpan,
+								spans,
+							},
+						],
+					};
+
 					if (!traceGroups.has(traceId)) {
 						traceGroups.set(traceId, {
 							serviceName,
 							spanId,
-							resourceSpans: [
-								{
-									resource: resourceSpan.resource,
-									scopeSpans: [
-										{
-											...scopeSpan,
-											spans,
-										},
-									],
-								},
-							],
+							resourceSpans: [filteredResourceSpan],
 						});
 					} else {
-						// Append to existing trace group
+						// Append to existing trace group without collapsing resource attributes.
 						const group = traceGroups.get(traceId);
-						if (group?.resourceSpans?.[0]?.scopeSpans) {
-							group.resourceSpans[0].scopeSpans.push({
-								...scopeSpan,
-								spans,
-							});
+						if (group?.resourceSpans) {
+							group.resourceSpans.push(filteredResourceSpan);
 						}
 					}
 				}

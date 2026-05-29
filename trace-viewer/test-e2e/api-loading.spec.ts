@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
-
-const TRACE_API_URL = "http://localhost:9295";
+import {
+	TRACE_API_URL,
+	TraceViewerPage,
+} from "./page-objects/trace-viewer-page";
 
 test("loads trace from API and displays test info and spans", async ({
 	page,
@@ -195,37 +197,50 @@ test("loads trace from API and displays test info and spans", async ({
 	});
 
 	// Step 3: Load the trace in the viewer (note the /otel-trace-viewer prefix)
-	await page.goto("/");
-
-	await page
-		.getByTestId("api-url-input")
-		.fill(`${TRACE_API_URL}/otel-trace-viewer/${traceIdHex}`);
-	await page.getByTestId("load-api-button").click();
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceIdHex);
 
 	// Test name should be visible in header
-	await expect(page.getByTestId("test-name")).toHaveText("Example login test");
+	await expect(viewer.header.testName).toHaveText("Example login test");
 
 	// Describe path should be visible
-	await expect(page.getByText("Authentication")).toBeVisible();
-	await expect(page.getByText("Login flow")).toBeVisible();
+	await expect(viewer.header.describes).toContainText("Authentication");
+	await expect(viewer.header.describes).toContainText("Login flow");
 
 	// File location should be visible
-	await expect(page.getByText("auth/login.spec.ts:15")).toBeVisible();
+	await expect(viewer.header.fileLocation).toHaveText("auth/login.spec.ts:15");
 
 	// Status should show passed
-	await expect(page.getByText("passed")).toBeVisible();
+	await expect(viewer.header.status).toHaveText("passed");
 
 	// Step spans should be visible in Steps Timeline
-	await expect(page.getByText("Navigate to login page")).toBeVisible();
-	await expect(page.getByText("Fill login form")).toBeVisible();
+	await expect(viewer.steps.spanByName("Navigate to login page")).toBeVisible();
+	await expect(viewer.steps.spanByName("Fill login form")).toBeVisible();
+	expect(await viewer.steps.spanTiming("Navigate to login page")).toEqual({
+		startMs: 100,
+		durationMs: 400,
+		endMs: 500,
+	});
+	expect(await viewer.steps.spanTiming("Fill login form")).toEqual({
+		startMs: 600,
+		durationMs: 600,
+		endMs: 1200,
+	});
 
 	// Browser spans should be visible
-	await expect(page.getByText("HTTP GET /login")).toBeVisible();
-	await expect(page.getByText("HTTP POST /api/auth")).toBeVisible();
+	await expect(viewer.browserSpans.spanByName("HTTP GET /login")).toBeVisible();
+	await expect(
+		viewer.browserSpans.spanByName("HTTP POST /api/auth"),
+	).toBeVisible();
 
 	// External spans should be visible (use exact match to avoid matching "HTTP POST /api/auth")
-	await expect(page.getByText("POST /api/auth", { exact: true })).toBeVisible();
-	await expect(page.getByText("DB query users")).toBeVisible();
+	await expect(viewer.externalSpans.spanByName("POST /api/auth")).toBeVisible();
+	await expect(viewer.externalSpans.spanByName("DB query users")).toBeVisible();
+	expect(await viewer.externalSpans.spanTiming("POST /api/auth")).toEqual({
+		startMs: 750,
+		durationMs: 300,
+		endMs: 1050,
+	});
 });
 
 test("can load trace via URL query parameter", async ({ page, request }) => {
@@ -293,11 +308,10 @@ test("can load trace via URL query parameter", async ({ page, request }) => {
 		},
 	});
 
-	// Navigate directly with the traceSource query parameter
-	const apiUrl = `${TRACE_API_URL}/otel-trace-viewer/${traceIdHex}`;
-	await page.goto(`/?traceSource=${encodeURIComponent(apiUrl)}`);
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromUrlParam(traceIdHex);
 
 	// Test should load directly without needing to use the input
-	await expect(page.getByTestId("test-name")).toHaveText("URL param test");
-	await expect(page.getByText("param.spec.ts:5")).toBeVisible();
+	await expect(viewer.header.testName).toHaveText("URL param test");
+	await expect(viewer.header.fileLocation).toHaveText("param.spec.ts:5");
 });

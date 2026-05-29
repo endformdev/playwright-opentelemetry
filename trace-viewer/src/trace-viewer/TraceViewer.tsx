@@ -686,6 +686,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			<div
 				ref={contentAreaRef}
 				class="flex-1 min-h-0 relative flex flex-col"
+				role="region"
+				aria-label="Trace timeline"
 				style={{ cursor: selectionState() ? "crosshair" : undefined }}
 				onMouseDown={handleMouseDown}
 				onMouseMove={handleMouseMove}
@@ -811,7 +813,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	);
 
 	return (
-		<div class="flex flex-col h-full w-full bg-white text-gray-900">
+		<main
+			class="flex flex-col h-full w-full bg-white text-gray-900"
+			aria-label="Trace viewer"
+		>
 			<TraceViewerHeader
 				testInfo={props.traceInfo.testInfo}
 				hoverTimeMs={displayTimeMs}
@@ -837,6 +842,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					}
 				/>
 			</div>
-		</div>
+		</main>
 	);
 }

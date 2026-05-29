@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
-
-const TRACE_API_URL = "http://localhost:9295";
+import {
+	TRACE_API_URL,
+	TraceViewerPage,
+} from "./page-objects/trace-viewer-page";
 
 test.describe("reporter, trace-api, trace-viewer flow", () => {
 	test("loads and displays a real trace from reporter e2e tests", async ({
@@ -20,29 +22,29 @@ test.describe("reporter, trace-api, trace-viewer flow", () => {
 
 		// Load the first trace in the viewer
 		const traceId = traceIds[0];
-		await page.goto("/");
-
-		await page
-			.getByTestId("api-url-input")
-			.fill(`${TRACE_API_URL}/otel-trace-viewer/${traceId}`);
-		await page.getByTestId("load-api-button").click();
+		const viewer = new TraceViewerPage(page);
+		await viewer.loadTraceFromApi(traceId);
 
 		// Wait for the trace to load
-		await expect(page.getByTestId("test-name")).toBeVisible({ timeout: 10000 });
+		await expect(viewer.header.root).toBeVisible({ timeout: 10000 });
 
 		// Verify we can see the test name (should be from reporter/test-e2e/example.spec.ts)
-		const testName = await page.getByTestId("test-name").textContent();
+		const testName = await viewer.header.root.textContent();
 		expect(testName).toBeTruthy();
 
-		const passedLocator = page.getByText("passed");
-		await expect(passedLocator).toBeVisible();
+		await expect(viewer.header.status).toHaveText("passed");
+
+		// Browser spans should be rendered in the Browser Spans section, not just anywhere on the page.
+		await expect(viewer.browserSpans.root).toBeVisible({ timeout: 10000 });
+		await expect(viewer.browserSpans.spans().first()).toBeVisible({
+			timeout: 10000,
+		});
 
 		// Verify screenshots are displayed in the filmstrip
-		const filmstrip = page.getByTestId("screenshot-filmstrip");
-		await expect(filmstrip).toBeVisible();
+		await expect(viewer.screenshots.root).toBeVisible();
 
 		// Verify at least one screenshot image exists and has a valid src
-		const screenshotImages = page.getByTestId("screenshot-filmstrip-image");
+		const screenshotImages = viewer.screenshots.images();
 		await expect(screenshotImages.first()).toBeVisible({ timeout: 10000 });
 
 		// Verify the screenshot has a valid src URL (should point to a screenshot endpoint)

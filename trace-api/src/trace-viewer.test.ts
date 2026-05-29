@@ -238,6 +238,116 @@ describe("Trace Viewer", () => {
 		}
 	});
 
+	it("preserves multiple resource spans from a single OTLP request", async () => {
+		const app = createTestHarness();
+		const traceId = generateTraceId();
+
+		const otlpPayload = {
+			resourceSpans: [
+				{
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "playwright-tests" },
+							},
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "playwright-opentelemetry" },
+							spans: [
+								{
+									traceId,
+									spanId: "testspan00000001",
+									name: "playwright.test",
+									startTimeUnixNano: "1766927492000000000",
+									endTimeUnixNano: "1766927493000000000",
+									status: { code: 1 },
+								},
+							],
+						},
+					],
+				},
+				{
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "playwright-browser" },
+							},
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "playwright-browser" },
+							spans: [
+								{
+									traceId,
+									spanId: "browserspan0001",
+									name: "HTTP GET",
+									kind: 3,
+									startTimeUnixNano: "1766927492100000000",
+									endTimeUnixNano: "1766927492200000000",
+									status: { code: 1 },
+								},
+							],
+						},
+					],
+				},
+			],
+		};
+
+		await app.fetch(
+			new Request("http://localhost/v1/traces", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(otlpPayload),
+			}),
+		);
+
+		const listOtlpResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
+			),
+		);
+		expect(listOtlpResponse.status).toBe(200);
+		const otlpFiles = (await listOtlpResponse.json()) as {
+			jsonFiles: string[];
+		};
+		expect(otlpFiles.jsonFiles).toHaveLength(1);
+
+		const getOtlpResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
+			),
+		);
+		expect(getOtlpResponse.status).toBe(200);
+		const data = (await getOtlpResponse.json()) as typeof otlpPayload;
+
+		expect(data.resourceSpans).toHaveLength(2);
+
+		const testResourceSpan = data.resourceSpans.find((resourceSpan) =>
+			resourceSpan.resource.attributes.some(
+				(attribute) =>
+					attribute.key === "service.name" &&
+					attribute.value.stringValue === "playwright-tests",
+			),
+		);
+		const browserResourceSpan = data.resourceSpans.find((resourceSpan) =>
+			resourceSpan.resource.attributes.some(
+				(attribute) =>
+					attribute.key === "service.name" &&
+					attribute.value.stringValue === "playwright-browser",
+			),
+		);
+
+		expect(testResourceSpan?.scopeSpans[0]?.spans[0]?.name).toBe(
+			"playwright.test",
+		);
+		expect(browserResourceSpan?.scopeSpans[0]?.spans[0]?.name).toBe("HTTP GET");
+	});
+
 	it("loads screenshots for filmstrip display", async () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();

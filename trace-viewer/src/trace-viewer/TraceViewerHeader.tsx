@@ -84,7 +84,10 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 	};
 
 	return (
-		<div class="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-3">
+		<header
+			class="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-3"
+			data-testid="trace-viewer-header"
+		>
 			<div class="flex items-center gap-4">
 				{/* Status Icon */}
 				<span class={`text-xl ${statusColor()}`}>{statusIcon()}</span>
@@ -93,25 +96,30 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 				<div class="flex-1 min-w-0">
 					<div class="flex items-baseline gap-2">
 						{testInfo.describes.length > 0 && (
-							<span class="text-gray-500 text-sm truncate">
+							<span
+								class="text-gray-500 text-sm truncate"
+								data-testid="test-describes"
+							>
 								{testInfo.describes.join(" › ")}{" "}
 								<span class="text-gray-400">›</span>
 							</span>
 						)}
 						<span
-							data-testid="test-name"
 							class="font-semibold text-gray-900 truncate"
+							data-testid="test-name"
 						>
 							{testInfo.name}
 						</span>
 					</div>
 					<div class="flex items-center gap-3 text-xs text-gray-500">
-						<span class="font-mono truncate">
+						<span class="font-mono truncate" data-testid="test-file-location">
 							{testInfo.file}:{testInfo.line}
 						</span>
 						<span class="text-gray-300">|</span>
 						<span class="font-mono">{duration()}ms</span>
-						<span class={statusColor()}>{testInfo.status}</span>
+						<span class={statusColor()} data-testid="test-status">
+							{testInfo.status}
+						</span>
 					</div>
 				</div>
 
@@ -151,6 +159,6 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 					</Show>
 				</div>
 			</div>
-		</div>
+		</header>
 	);
 }
