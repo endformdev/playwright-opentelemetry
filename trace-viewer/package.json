@@ -31,7 +31,6 @@
 		"type": "git",
 		"url": "https://github.com/endformdev/playwright-opentelemetry"
 	},
-	"packageManager": "pnpm@10.10.0",
 	"devDependencies": {
 		"@ark-ui/solid": "^5.37.0",
 		"@leeoniya/ufuzzy": "^1.0.19",

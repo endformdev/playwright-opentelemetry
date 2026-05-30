@@ -1,6 +1,6 @@
 {
 	"name": "playwright-opentelemetry",
-	"packageManager": "pnpm@10.10.0",
+	"packageManager": "pnpm@11.5.0",
 	"scripts": {
 		"format": "biome format --write",
 		"test": "vitest",

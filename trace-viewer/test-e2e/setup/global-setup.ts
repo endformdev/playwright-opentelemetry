@@ -1,14 +1,12 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 export default async function globalSetup() {
-	console.log("Running reporter e2e tests to generate trace data...");
-
 	try {
 		const env = { ...process.env };
 		// The nested reporter run only generates fixture data; keep debug mode on the outer trace-viewer run.
 		delete env.PWDEBUG;
 
-		const stdout = execSync("pnpm --filter ../reporter test:e2e", {
+		execFileSync("pnpm", ["--filter", "../reporter", "test:e2e"], {
 			env: {
 				...env,
 				// Configure the reporter to send traces to our test trace-api-server
@@ -17,13 +15,8 @@ export default async function globalSetup() {
 				OTEL_EXPORTER_OTLP_ENDPOINT: "",
 				OTEL_EXPORTER_OTLP_HEADERS: "",
 			},
-			stdio: "inherit",
+			stdio: "pipe",
 		});
-
-		console.log("Reporter e2e tests completed successfully");
-		if (stdout) {
-			console.log(stdout);
-		}
 
 		// Verify traces were created
 		const traceIdsResponse = await fetch("http://localhost:9295/trace-ids");
@@ -34,9 +27,6 @@ export default async function globalSetup() {
 		const { traceIds } = (await traceIdsResponse.json()) as {
 			traceIds: string[];
 		};
-		console.log(
-			`Generated ${traceIds.length} trace(s): ${traceIds.join(", ")}`,
-		);
 
 		if (traceIds.length === 0) {
 			console.warn(
@@ -44,7 +34,27 @@ export default async function globalSetup() {
 			);
 		}
 	} catch (error) {
-		console.error("Failed to run reporter e2e tests:", error);
+		console.error("Failed to generate reporter trace data:");
+		if (isExecError(error)) {
+			const stdout = error.stdout?.toString().trim();
+			const stderr = error.stderr?.toString().trim();
+
+			if (stdout) console.error(stdout);
+			if (stderr) console.error(stderr);
+		} else {
+			console.error(error);
+		}
 		throw error;
 	}
+}
+
+function isExecError(error: unknown): error is {
+	stdout?: Buffer;
+	stderr?: Buffer;
+} {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		("stdout" in error || "stderr" in error)
+	);
 }
