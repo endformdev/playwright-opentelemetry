@@ -356,8 +356,16 @@ export function buildTestResult(
 		startTime,
 		duration,
 		steps,
-		attachments: def?.attachments ?? [],
+		attachments: def?.attachments ?? [retainedTraceAttachment()],
 	} as Partial<TestResult> as TestResult;
+}
+
+export function retainedTraceAttachment() {
+	return {
+		name: "trace",
+		contentType: "application/zip",
+		path: "/tmp/playwright-trace.zip",
+	};
 }
 
 function buildSteps(

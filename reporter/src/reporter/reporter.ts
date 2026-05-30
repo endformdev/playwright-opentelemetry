@@ -136,13 +136,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const traceId = getOrCreateTraceId(outputDir, testId);
 		this.testTraceIds.set(testId, traceId);
 
-		// Attach trace ID for downstream reporters to consume
-		result.attachments.push({
-			name: "playwright-opentelemetry-trace-id",
-			contentType: "text/plain",
-			body: Buffer.from(traceId, "utf-8"),
-		});
-
 		const testSpanId = generateSpanId();
 		this.testSpans.set(testId, testSpanId);
 
@@ -191,6 +184,17 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const testSpanId = this.testSpans.get(testId);
 		if (!traceId || !testSpanId) {
 			throw new Error(`Test ${testId} not found`);
+		}
+
+		const traceAttachment = result.attachments.find(
+			(attachment) =>
+				attachment.name === "trace" &&
+				attachment.contentType === "application/zip" &&
+				attachment.path,
+		);
+
+		if (!traceAttachment?.path) {
+			return;
 		}
 
 		const attributes: Record<string, string | number | boolean> = {};
@@ -283,6 +287,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Build the final spans array with test span first
 		const testSpans: Span[] = [span, ...stepSpans, ...networkSpans];
 
+		// Attach trace ID for downstream reporters to consume only when publishing.
+		result.attachments.push({
+			name: "playwright-opentelemetry-trace-id",
+			contentType: "text/plain",
+			body: Buffer.from(traceId, "utf-8"),
+		});
+
 		// Add all test spans to the global spans array
 		this.spans.push(...testSpans);
 
@@ -293,17 +304,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				: (test.location?.file ?? "");
 		const computedDuration = maxEndTime.getTime() - minStartTime.getTime();
 
-		// Extract screenshots from Playwright's trace ZIP if available
-		// The trace attachment is created by Playwright when tracing is enabled
-		let screenshots = new Map<string, Blob>();
-		const traceAttachment = result.attachments.find(
-			(a) => a.name === "trace" && a.contentType === "application/zip",
+		// Extract screenshots from Playwright's retained trace ZIP.
+		const screenshots = await extractScreenshotsFromPlaywrightTrace(
+			traceAttachment.path,
 		);
-		if (traceAttachment?.path) {
-			screenshots = await extractScreenshotsFromPlaywrightTrace(
-				traceAttachment.path,
-			);
-		}
 
 		// If storeTraceZip is enabled, create zip file for this test
 		if (this.options.storeTraceZip) {
@@ -338,7 +342,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	async onEnd(_result: FullResult) {
 		// Send spans to OTLP endpoint if configured
-		if (this.resolvedEndpoint) {
+		if (this.resolvedEndpoint && this.spans.length > 0) {
 			await sendSpans(this.spans, {
 				tracesEndpoint: this.resolvedEndpoint,
 				headers: this.resolvedHeaders,
@@ -349,7 +353,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 
 		// Send spans to trace API endpoint if configured
-		if (this.resolvedTraceApiEndpoint) {
+		if (this.resolvedTraceApiEndpoint && this.spans.length > 0) {
 			await sendSpans(this.spans, {
 				tracesEndpoint: `${this.resolvedTraceApiEndpoint}/v1/traces`,
 				headers: this.resolvedTraceApiHeaders,
