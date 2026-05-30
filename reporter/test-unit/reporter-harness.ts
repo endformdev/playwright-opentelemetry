@@ -11,6 +11,12 @@ import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
 import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
 import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
 import PlaywrightOpentelemetryReporter from "../src/reporter";
+import {
+	generateSpanId,
+	getCurrentSpanId,
+	getOrCreateTraceId,
+	writeBrowserPageSpan,
+} from "../src/shared/trace-files";
 
 export interface TestHarnessOptions {
 	reporterOptions?: Partial<PlaywrightOpentelemetryReporterOptions>;
@@ -70,6 +76,17 @@ export interface NetworkAction {
 	duration?: number;
 	/** Content-Type response header - used for resource type detection */
 	contentType?: string;
+	/** Override parent span ID, used when a request belongs under browser.page */
+	parentSpanId?: string;
+}
+
+export interface BrowserPageAction {
+	type: "document" | "same-document";
+	url: string;
+	previousUrl?: string;
+	pageId?: string;
+	startTime: Date;
+	networkActions?: NetworkAction[];
 }
 
 export interface StepDefinition {
@@ -85,6 +102,7 @@ export interface StepDefinition {
 		column?: number;
 	};
 	networkActions?: NetworkAction[];
+	browserPageActions?: BrowserPageAction[];
 }
 
 export const DEFAULT_ROOT_DIR = "/Users/test/project/test-e2e";
@@ -445,6 +463,7 @@ export async function simulateNetworkRequest(
 		request,
 		testId,
 		outputDir,
+		parentSpanId: networkAction.parentSpanId,
 	});
 
 	// 2. Request/Response capture via page "response" event
@@ -479,6 +498,12 @@ async function executeStepHooks(
 			}
 		}
 
+		if (stepDef?.browserPageActions) {
+			for (const browserPageAction of stepDef.browserPageActions) {
+				await simulateBrowserPageAction(browserPageAction, test.id, outputDir);
+			}
+		}
+
 		// Process nested steps (depth-first)
 		if (step.steps && step.steps.length > 0) {
 			await executeStepHooks(
@@ -493,6 +518,51 @@ async function executeStepHooks(
 
 		// Call onStepEnd
 		await reporter.onStepEnd(test, result, step);
+	}
+}
+
+async function simulateBrowserPageAction(
+	browserPageAction: BrowserPageAction,
+	testId: string,
+	outputDir: string,
+): Promise<void> {
+	const traceId = getOrCreateTraceId(outputDir, testId);
+	const spanId = generateSpanId();
+	const parentSpanId = getCurrentSpanId(outputDir, testId);
+	const parsedUrl = new URL(browserPageAction.url);
+	const attributes: Record<string, string | number | boolean> = {
+		"browser.page.id": browserPageAction.pageId ?? "page-1",
+		"browser.page.navigation.type": browserPageAction.type,
+		"url.full": browserPageAction.url,
+		"url.path": parsedUrl.pathname,
+	};
+
+	if (parsedUrl.search) {
+		attributes["url.query"] = parsedUrl.search.slice(1);
+	}
+
+	if (browserPageAction.previousUrl) {
+		attributes["browser.page.previous_url"] = browserPageAction.previousUrl;
+	}
+
+	writeBrowserPageSpan(outputDir, testId, {
+		traceId,
+		spanId,
+		parentSpanId,
+		name: "browser.page",
+		startTime: browserPageAction.startTime,
+		endTime: browserPageAction.startTime,
+		attributes,
+		status: { code: 0 },
+		serviceName: "playwright-browser",
+	});
+
+	for (const networkAction of browserPageAction.networkActions ?? []) {
+		await simulateNetworkRequest(
+			{ ...networkAction, parentSpanId: spanId },
+			testId,
+			outputDir,
+		);
 	}
 }
 

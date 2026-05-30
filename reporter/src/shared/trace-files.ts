@@ -23,6 +23,19 @@ export interface NetworkSpan {
 	serviceName?: string;
 }
 
+export interface BrowserPageSpan {
+	traceId: string;
+	spanId: string;
+	parentSpanId: string;
+	name: string;
+	kind?: number;
+	startTime: Date;
+	endTime: Date;
+	status: { code: number };
+	attributes: Record<string, string | number | boolean>;
+	serviceName?: string;
+}
+
 export function getOrCreateTraceId(outputDir: string, testId: string): string {
 	const tracePath = getTracePath(outputDir, testId);
 
@@ -68,6 +81,7 @@ export function getCurrentSpanId(outputDir: string, testId: string): string {
 export function createNetworkDirs(outputDir: string, testId: string): void {
 	mkdirSync(getNetworkParentDir(outputDir, testId), { recursive: true });
 	mkdirSync(getNetworkSpanDir(outputDir, testId), { recursive: true });
+	mkdirSync(getBrowserPageSpanDir(outputDir, testId), { recursive: true });
 }
 
 export function writeNetworkSpanParent({
@@ -117,6 +131,92 @@ export function writeNetworkSpan(
 	};
 
 	writeFileSync(networkSpanPath, JSON.stringify(serialized));
+}
+
+export function writeBrowserPageSpan(
+	outputDir: string,
+	testId: string,
+	span: BrowserPageSpan,
+) {
+	const pageSpanPath = getBrowserPageSpanPath(outputDir, testId, span.spanId);
+	const serialized = {
+		...span,
+		startTime: span.startTime.toISOString(),
+		endTime: span.endTime.toISOString(),
+	};
+
+	writeFileSync(pageSpanPath, JSON.stringify(serialized));
+}
+
+export async function collectBrowserPageSpans(
+	outputDir: string,
+	testId: string,
+	networkSpans: NetworkSpan[],
+	fallbackEndTime: Date,
+): Promise<BrowserPageSpan[]> {
+	const pageSpanDir = getBrowserPageSpanDir(outputDir, testId);
+
+	try {
+		const files = await fs.readdir(pageSpanDir);
+		const spans: BrowserPageSpan[] = [];
+
+		for (const file of files) {
+			const content = await fs.readFile(path.join(pageSpanDir, file), "utf-8");
+			const parsed = JSON.parse(content);
+			spans.push({
+				...parsed,
+				startTime: new Date(parsed.startTime),
+				endTime: new Date(parsed.endTime),
+			});
+		}
+
+		return finalizeBrowserPageSpanEndTimes(spans, networkSpans, fallbackEndTime);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+			return [];
+		}
+		throw err;
+	}
+}
+
+function finalizeBrowserPageSpanEndTimes(
+	spans: BrowserPageSpan[],
+	networkSpans: NetworkSpan[],
+	fallbackEndTime: Date,
+): BrowserPageSpan[] {
+	const spansByPageId = new Map<string, BrowserPageSpan[]>();
+
+	for (const span of spans) {
+		const pageId = span.attributes["browser.page.id"];
+		if (typeof pageId !== "string") {
+			span.endTime = fallbackEndTime;
+			continue;
+		}
+
+		const pageSpans = spansByPageId.get(pageId) ?? [];
+		pageSpans.push(span);
+		spansByPageId.set(pageId, pageSpans);
+	}
+
+	for (const pageSpans of spansByPageId.values()) {
+		pageSpans.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+		for (let i = 0; i < pageSpans.length; i++) {
+			const span = pageSpans[i];
+			const nextSpan = pageSpans[i + 1];
+			span.endTime = nextSpan?.startTime ?? fallbackEndTime;
+		}
+	}
+
+	for (const networkSpan of networkSpans) {
+		const parentPageSpan = spans.find(
+			(span) => span.spanId === networkSpan.parentSpanId,
+		);
+		if (parentPageSpan && networkSpan.endTime > parentPageSpan.endTime) {
+			parentPageSpan.endTime = networkSpan.endTime;
+		}
+	}
+
+	return spans.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 }
 
 /**
@@ -201,6 +301,12 @@ export async function cleanupTestFiles(
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
 	}
+
+	try {
+		await fs.rm(getBrowserPageSpanDir(outputDir, testId), { recursive: true });
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+	}
 }
 
 // Helper functions
@@ -229,6 +335,14 @@ function getNetworkSpanDir(outputDir: string, testId: string): string {
 	);
 }
 
+function getBrowserPageSpanDir(outputDir: string, testId: string): string {
+	return path.join(
+		outputDir,
+		PW_OTEL_DIR,
+		`${sanitizeTestId(testId)}-browser-page-spans`,
+	);
+}
+
 function getNetworkParentPath(
 	outputDir: string,
 	testId: string,
@@ -243,6 +357,14 @@ function getNetworkSpanPath(
 	traceHeader: string,
 ): string {
 	return path.join(getNetworkSpanDir(outputDir, testId), traceHeader);
+}
+
+function getBrowserPageSpanPath(
+	outputDir: string,
+	testId: string,
+	spanId: string,
+): string {
+	return path.join(getBrowserPageSpanDir(outputDir, testId), spanId);
 }
 
 /**

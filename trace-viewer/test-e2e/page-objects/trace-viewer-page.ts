@@ -62,8 +62,16 @@ export class SpanSection {
 		return this.root.getByRole("listitem", { name, exact: true });
 	}
 
+	spanById(id: string): Locator {
+		return this.root.locator(`[data-span-id="${id}"]`);
+	}
+
 	async spanData(name: string): Promise<SpanBarData> {
 		return this.dataFor(this.spanByName(name).first());
+	}
+
+	async spanDataById(id: string): Promise<SpanBarData> {
+		return this.dataFor(this.spanById(id).first());
 	}
 
 	async spanTiming(

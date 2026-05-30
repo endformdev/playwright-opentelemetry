@@ -6,7 +6,13 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "../src/reporter/reporter-attributes";
-import { runReporterTest } from "./reporter-harness";
+import { collectNetworkSpans, createNetworkDirs } from "../src/shared/trace-files";
+import {
+	createMockNetworkObjects,
+	fixtureCaptureRequestResponse,
+	getUniqueOutputDir,
+	runReporterTest,
+} from "./reporter-harness";
 
 // Mock the sender module
 vi.mock("../src/reporter/sender", () => ({
@@ -51,6 +57,27 @@ const SPAN_STATUS_CODE_ERROR = 2;
 describe("PlaywrightOpentelemetryReporter - Fixture Integration (HTTP Client Spans)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+	});
+
+	it("skips fulfilled routed requests when no traceparent header was injected", async () => {
+		const testId = "test-route-fulfill-without-traceparent";
+		const outputDir = getUniqueOutputDir(testId);
+		createNetworkDirs(outputDir, testId);
+		const { request, response } = createMockNetworkObjects(
+			"GET",
+			"https://example.com/fulfilled-by-user-route",
+			{
+				statusCode: 200,
+				startTime: new Date("2025-11-06T10:00:00.200Z"),
+				duration: 50,
+			},
+		);
+
+		await expect(
+			fixtureCaptureRequestResponse({ request, response, testId, outputDir }),
+		).resolves.toBeUndefined();
+
+		await expect(collectNetworkSpans(outputDir, testId)).resolves.toEqual([]);
 	});
 
 	it("creates an HTTP client span as child of step when fixture propagator is called", async () => {

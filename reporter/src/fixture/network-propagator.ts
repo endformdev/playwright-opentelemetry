@@ -11,6 +11,7 @@ export interface PlaywrightFixturePropagatorOptions {
 	request: Request;
 	testId: string;
 	outputDir: string;
+	parentSpanId?: string;
 }
 
 /**
@@ -32,12 +33,13 @@ export async function fixtureOtelHeaderPropagator({
 	request,
 	testId,
 	outputDir,
+	parentSpanId: parentSpanIdOverride,
 }: PlaywrightFixturePropagatorOptions): Promise<void> {
 	// Get or create trace ID for this test
 	const traceId = getOrCreateTraceId(outputDir, testId);
 
 	// Get current parent span ID - must exist since test span is always created first
-	const parentSpanId = getCurrentSpanId(outputDir, testId);
+	const parentSpanId = parentSpanIdOverride ?? getCurrentSpanId(outputDir, testId);
 
 	// Generate a new span ID for this HTTP request
 	const spanId = generateSpanId();
@@ -57,8 +59,8 @@ export async function fixtureOtelHeaderPropagator({
 	// Continue the request with trace propagation headers
 	await route.fallback({
 		headers: {
-			traceparent: traceHeader,
 			...request.headers(),
+			traceparent: traceHeader,
 		},
 	});
 }
