@@ -10,5 +10,6 @@ catalog:
   "@zip.js/zip.js": ^2.8.26
   h3: 2.0.1-rc.22
   tsdown: ^0.22.1
+  tsx: ^4.22.3
   typescript: 6.0.3
   vitest: 4.1.7

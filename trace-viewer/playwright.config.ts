@@ -24,7 +24,8 @@ export default defineConfig({
 			url: "http://localhost:9294",
 		},
 		{
-			command: "npx tsx test-e2e/trace-api-server.ts",
+			command:
+				"pnpm --filter @playwright-opentelemetry/trace-api build && pnpm exec tsx test-e2e/trace-api-server.ts",
 			url: "http://localhost:9295/health",
 		},
 	],
