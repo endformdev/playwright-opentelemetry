@@ -185,6 +185,7 @@ function finalizeBrowserPageSpanEndTimes(
 	fallbackEndTime: Date,
 ): BrowserPageSpan[] {
 	const spansByPageId = new Map<string, BrowserPageSpan[]>();
+	const nextSpanBySpanId = new Map<string, BrowserPageSpan>();
 
 	for (const span of spans) {
 		const pageId = span.attributes["browser.page.id"];
@@ -203,6 +204,9 @@ function finalizeBrowserPageSpanEndTimes(
 		for (let i = 0; i < pageSpans.length; i++) {
 			const span = pageSpans[i];
 			const nextSpan = pageSpans[i + 1];
+			if (nextSpan) {
+				nextSpanBySpanId.set(span.spanId, nextSpan);
+			}
 			span.endTime = nextSpan?.startTime ?? fallbackEndTime;
 		}
 	}
@@ -211,7 +215,12 @@ function finalizeBrowserPageSpanEndTimes(
 		const parentPageSpan = spans.find(
 			(span) => span.spanId === networkSpan.parentSpanId,
 		);
-		if (parentPageSpan && networkSpan.endTime > parentPageSpan.endTime) {
+
+		if (
+			parentPageSpan &&
+			!nextSpanBySpanId.has(parentPageSpan.spanId) &&
+			networkSpan.endTime > parentPageSpan.endTime
+		) {
 			parentPageSpan.endTime = networkSpan.endTime;
 		}
 	}

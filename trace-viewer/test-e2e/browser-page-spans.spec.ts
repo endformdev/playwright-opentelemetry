@@ -154,6 +154,28 @@ test("renders browser.page spans with nested network requests from reporter outp
 		),
 	).toBeFalsy();
 
+	const browserPageSpansByPageId = new Map<string, OtlpSpan[]>();
+	for (const span of browserPageSpans) {
+		const pageId = attributes(span)["browser.page.id"];
+		if (typeof pageId !== "string") continue;
+
+		browserPageSpansByPageId.set(pageId, [
+			...(browserPageSpansByPageId.get(pageId) ?? []),
+			span,
+		]);
+	}
+
+	for (const pageSpans of browserPageSpansByPageId.values()) {
+		pageSpans.sort((a, b) =>
+			BigInt(a.startTimeUnixNano) > BigInt(b.startTimeUnixNano) ? 1 : -1,
+		);
+		for (let i = 0; i < pageSpans.length - 1; i++) {
+			expect(BigInt(pageSpans[i].endTimeUnixNano)).toBeLessThanOrEqual(
+				BigInt(pageSpans[i + 1].startTimeUnixNano),
+			);
+		}
+	}
+
 	const browserPageSpanIds = new Set(browserPageSpans.map((span) => span.spanId));
 	const nestedNetworkSpans = spans.filter(
 		(span) =>
@@ -171,6 +193,7 @@ test("renders browser.page spans with nested network requests from reporter outp
 	for (const browserPageSpan of browserPageSpans) {
 		await expect(viewer.browserSpans.spanById(browserPageSpan.spanId)).toBeVisible();
 	}
+	await expect(viewer.browserSpans.spanByName("/docs/intro")).toBeVisible();
 
 	for (const childSpan of nestedNetworkSpans.slice(0, 5)) {
 		const parentSpan = browserPageSpans.find(
@@ -184,6 +207,6 @@ test("renders browser.page spans with nested network requests from reporter outp
 		const childData = await viewer.browserSpans.spanDataById(childSpan.spanId);
 		expect(childData.row).toBeGreaterThan(parentData.row);
 		expect(childData.startMs).toBeGreaterThanOrEqual(parentData.startMs);
-		expect(childData.endMs).toBeLessThanOrEqual(parentData.endMs);
+		expect(childData.startMs).toBeLessThanOrEqual(parentData.endMs);
 	}
 });

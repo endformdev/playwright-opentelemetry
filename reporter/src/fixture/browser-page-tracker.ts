@@ -122,6 +122,7 @@ function pageAttributes(
 	previousUrl?: string,
 ): Record<string, string | number | boolean> {
 	const attributes: Record<string, string | number | boolean> = {
+		"browser.resource.type": "page",
 		"browser.page.id": pageId,
 		"browser.page.navigation.type": navigationType,
 		"url.full": url,

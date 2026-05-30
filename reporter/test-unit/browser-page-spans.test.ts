@@ -98,6 +98,7 @@ describe("PlaywrightOpentelemetryReporter - Browser page spans", () => {
 				serviceName: BROWSER_SERVICE_NAME,
 				startTime: new Date("2025-11-06T10:00:00.150Z"),
 				attributes: expect.objectContaining({
+					"browser.resource.type": "page",
 					"url.full": "https://example.com/docs",
 					"url.path": "/docs",
 					"browser.page.navigation.type": "document",
@@ -237,6 +238,51 @@ describe("PlaywrightOpentelemetryReporter - Browser page spans", () => {
 							type: "document",
 							url: "https://example.com/products",
 							startTime: new Date("2025-11-06T10:00:00.150Z"),
+						},
+						{
+							type: "document",
+							url: "https://example.com/cart",
+							startTime: new Date("2025-11-06T10:00:00.600Z"),
+						},
+					],
+				},
+			],
+		});
+
+		const pageSpans = sentSpans().filter(
+			(span: { name: string; serviceName?: string }) =>
+				span.name === BROWSER_PAGE_SPAN_NAME &&
+				span.serviceName === BROWSER_SERVICE_NAME,
+		);
+
+		expect(pageSpans[0]).toEqual(
+			expect.objectContaining({
+				endTime: new Date("2025-11-06T10:00:00.600Z"),
+			}),
+		);
+	});
+
+	it("does not extend a browser.page span past the next page span for late network responses", async () => {
+		await runBrowserPageScenario({
+			steps: [
+				{
+					title: "Navigate between pages with late network response",
+					startTime: new Date("2025-11-06T10:00:00.100Z"),
+					duration: 1000,
+					browserPageActions: [
+						{
+							type: "document",
+							url: "https://example.com/products",
+							startTime: new Date("2025-11-06T10:00:00.150Z"),
+							networkActions: [
+								{
+									method: "GET",
+									url: "https://example.com/slow-products.json",
+									statusCode: 200,
+									startTime: new Date("2025-11-06T10:00:00.500Z"),
+									duration: 300,
+								},
+							],
 						},
 						{
 							type: "document",

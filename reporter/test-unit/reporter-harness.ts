@@ -531,6 +531,7 @@ async function simulateBrowserPageAction(
 	const parentSpanId = getCurrentSpanId(outputDir, testId);
 	const parsedUrl = new URL(browserPageAction.url);
 	const attributes: Record<string, string | number | boolean> = {
+		"browser.resource.type": "page",
 		"browser.page.id": browserPageAction.pageId ?? "page-1",
 		"browser.page.navigation.type": browserPageAction.type,
 		"url.full": browserPageAction.url,
