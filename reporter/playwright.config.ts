@@ -2,7 +2,8 @@ import fs from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 import type { PlaywrightOpentelemetryReporterOptions } from "./dist/reporter.mjs";
 
-const browserPageSpansTraceIdFile = process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
+const browserPageSpansTraceIdFile =
+	process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
 
 loadEnv();
 

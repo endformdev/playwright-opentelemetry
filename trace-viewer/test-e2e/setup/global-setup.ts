@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
 export const BROWSER_PAGE_SPANS_TRACE_ID_FILE = path.resolve(
-	"test-e2e/.generated/browser-page-spans-trace-id.txt",
+	"test-results/browser-page-spans-trace-id.txt",
 );
 
 export default async function globalSetup() {
@@ -11,7 +11,9 @@ export default async function globalSetup() {
 		const env = { ...process.env };
 		// The nested reporter run only generates fixture data; keep debug mode on the outer trace-viewer run.
 		delete env.PWDEBUG;
-		mkdirSync(path.dirname(BROWSER_PAGE_SPANS_TRACE_ID_FILE), { recursive: true });
+		mkdirSync(path.dirname(BROWSER_PAGE_SPANS_TRACE_ID_FILE), {
+			recursive: true,
+		});
 		rmSync(BROWSER_PAGE_SPANS_TRACE_ID_FILE, { force: true });
 
 		execFileSync("pnpm", ["--filter", "../reporter", "test:e2e"], {
@@ -26,6 +28,12 @@ export default async function globalSetup() {
 			},
 			stdio: "pipe",
 		});
+
+		if (!existsSync(BROWSER_PAGE_SPANS_TRACE_ID_FILE)) {
+			throw new Error(
+				`Reporter e2e run did not write ${BROWSER_PAGE_SPANS_TRACE_ID_FILE}`,
+			);
+		}
 
 		// Verify traces were created
 		const traceIdsResponse = await fetch("http://localhost:9295/trace-ids");

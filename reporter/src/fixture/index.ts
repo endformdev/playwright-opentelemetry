@@ -36,19 +36,16 @@ export const test = base.extend<{
 		{ context, testTraceInfo: { testId, outputDir }, browserPageTracker },
 		use,
 	) => {
-		context.route(
-			"**",
-			async (route, request) => {
-				browserPageTracker.startDocumentNavigation(request);
-				await fixtureOtelHeaderPropagator({
-					route,
-					request,
-					testId,
-					outputDir,
-					parentSpanId: browserPageTracker.getActivePageSpanId(request) ?? null,
-				});
-			},
-		);
+		context.route("**", async (route, request) => {
+			browserPageTracker.startDocumentNavigation(request);
+			await fixtureOtelHeaderPropagator({
+				route,
+				request,
+				testId,
+				outputDir,
+				parentSpanId: browserPageTracker.getActivePageSpanId(request) ?? null,
+			});
+		});
 		await use(context);
 	},
 	page: async (

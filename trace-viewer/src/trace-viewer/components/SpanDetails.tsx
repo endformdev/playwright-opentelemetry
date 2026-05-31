@@ -106,6 +106,7 @@ export function SpanDetails(props: SpanDetailsProps) {
 							<span class="text-gray-500">Parent:</span>
 							<button
 								type="button"
+								data-parent-span-id={parent!.span.id}
 								onClick={handleParentClick}
 								class="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-opacity hover:opacity-80"
 								style={{ "background-color": parentColor(), color: "white" }}

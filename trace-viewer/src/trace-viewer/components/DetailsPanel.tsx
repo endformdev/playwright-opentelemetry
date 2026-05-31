@@ -114,7 +114,11 @@ export function DetailsPanel(props: DetailsPanelProps) {
 	});
 
 	return (
-		<div ref={containerRef} class="h-full overflow-auto bg-white">
+		<div
+			ref={containerRef}
+			data-testid="trace-details-panel"
+			class="h-full overflow-auto bg-white"
+		>
 			<Show
 				when={props.hoveredElements}
 				fallback={

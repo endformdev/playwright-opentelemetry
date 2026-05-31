@@ -170,7 +170,11 @@ export async function collectBrowserPageSpans(
 			});
 		}
 
-		return finalizeBrowserPageSpanEndTimes(spans, networkSpans, fallbackEndTime);
+		return finalizeBrowserPageSpanEndTimes(
+			spans,
+			networkSpans,
+			fallbackEndTime,
+		);
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
 			return [];

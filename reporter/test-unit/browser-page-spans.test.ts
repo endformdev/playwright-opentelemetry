@@ -33,7 +33,12 @@ async function runBrowserPageScenario(_scenario: BrowserPageScenario) {
 	return runReporterTest({
 		test: {
 			title: "browser page span scenario",
-			titlePath: ["", "chromium", "browser-page.spec.ts", "browser page span scenario"],
+			titlePath: [
+				"",
+				"chromium",
+				"browser-page.spec.ts",
+				"browser page span scenario",
+			],
 		},
 		result: {
 			steps: _scenario.steps.map((step) => ({
@@ -41,15 +46,18 @@ async function runBrowserPageScenario(_scenario: BrowserPageScenario) {
 				startTime: step.startTime,
 				duration: step.duration,
 				browserPageActions: step.browserPageActions,
-				networkActions: step.browserPageActions.length === 0 ? [
-					{
-						method: "GET",
-						url: "https://example.com/bootstrap.json",
-						statusCode: 200,
-						startTime: new Date("2025-11-06T10:00:00.200Z"),
-						duration: 100,
-					},
-				] : undefined,
+				networkActions:
+					step.browserPageActions.length === 0
+						? [
+								{
+									method: "GET",
+									url: "https://example.com/bootstrap.json",
+									statusCode: 200,
+									startTime: new Date("2025-11-06T10:00:00.200Z"),
+									duration: 100,
+								},
+							]
+						: undefined,
 			})),
 		},
 	});

@@ -198,6 +198,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			return;
 		}
 
+		// Attach trace ID early so other reporters can consume it during onTestEnd.
+		result.attachments.push({
+			name: "playwright-opentelemetry-trace-id",
+			contentType: "text/plain",
+			body: Buffer.from(traceId, "utf-8"),
+		});
+
 		const attributes: Record<string, string | number | boolean> = {};
 
 		// titlePath format: ['', 'project', 'filename', ...describes, 'testname']
@@ -301,13 +308,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			...browserPageSpans,
 			...networkSpans,
 		];
-
-		// Attach trace ID for downstream reporters to consume only when publishing.
-		result.attachments.push({
-			name: "playwright-opentelemetry-trace-id",
-			contentType: "text/plain",
-			body: Buffer.from(traceId, "utf-8"),
-		});
 
 		// Add all test spans to the global spans array
 		this.spans.push(...testSpans);

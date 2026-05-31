@@ -6,7 +6,10 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "../src/reporter/reporter-attributes";
-import { collectNetworkSpans, createNetworkDirs } from "../src/shared/trace-files";
+import {
+	collectNetworkSpans,
+	createNetworkDirs,
+} from "../src/shared/trace-files";
 import {
 	createMockNetworkObjects,
 	fixtureCaptureRequestResponse,

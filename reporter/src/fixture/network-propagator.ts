@@ -39,7 +39,8 @@ export async function fixtureOtelHeaderPropagator({
 	const traceId = getOrCreateTraceId(outputDir, testId);
 
 	// Get current parent span ID - must exist since test span is always created first
-	const parentSpanId = parentSpanIdOverride ?? getCurrentSpanId(outputDir, testId);
+	const parentSpanId =
+		parentSpanIdOverride ?? getCurrentSpanId(outputDir, testId);
 
 	// Generate a new span ID for this HTTP request
 	const spanId = generateSpanId();
