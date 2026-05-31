@@ -1,10 +1,18 @@
 import { execFileSync } from "node:child_process";
+import { mkdirSync, rmSync } from "node:fs";
+import path from "node:path";
+
+export const BROWSER_PAGE_SPANS_TRACE_ID_FILE = path.resolve(
+	"test-e2e/.generated/browser-page-spans-trace-id.txt",
+);
 
 export default async function globalSetup() {
 	try {
 		const env = { ...process.env };
 		// The nested reporter run only generates fixture data; keep debug mode on the outer trace-viewer run.
 		delete env.PWDEBUG;
+		mkdirSync(path.dirname(BROWSER_PAGE_SPANS_TRACE_ID_FILE), { recursive: true });
+		rmSync(BROWSER_PAGE_SPANS_TRACE_ID_FILE, { force: true });
 
 		execFileSync("pnpm", ["--filter", "../reporter", "test:e2e"], {
 			env: {
@@ -14,6 +22,7 @@ export default async function globalSetup() {
 				// Clear OTLP endpoint to avoid conflicts
 				OTEL_EXPORTER_OTLP_ENDPOINT: "",
 				OTEL_EXPORTER_OTLP_HEADERS: "",
+				BROWSER_PAGE_SPANS_TRACE_ID_FILE,
 			},
 			stdio: "pipe",
 		});

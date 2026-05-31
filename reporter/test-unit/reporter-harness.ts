@@ -77,7 +77,7 @@ export interface NetworkAction {
 	/** Content-Type response header - used for resource type detection */
 	contentType?: string;
 	/** Override parent span ID, used when a request belongs under browser.page */
-	parentSpanId?: string;
+	parentSpanId?: string | null;
 }
 
 export interface BrowserPageAction {
@@ -106,7 +106,7 @@ export interface StepDefinition {
 }
 
 export const DEFAULT_ROOT_DIR = "/Users/test/project/test-e2e";
-export const DEFAULT_OUTPUT_DIR = "/tmp/playwright-test-output";
+export const DEFAULT_OUTPUT_DIR = "reporter/test-results/unit-output";
 export const DEFAULT_VERSION = "1.56.1";
 export const DEFAULT_START_TIME = new Date("2025-11-06T10:00:00.000Z");
 
@@ -463,7 +463,7 @@ export async function simulateNetworkRequest(
 		request,
 		testId,
 		outputDir,
-		parentSpanId: networkAction.parentSpanId,
+		parentSpanId: networkAction.parentSpanId ?? null,
 	});
 
 	// 2. Request/Response capture via page "response" event

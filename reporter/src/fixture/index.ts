@@ -45,7 +45,7 @@ export const test = base.extend<{
 					request,
 					testId,
 					outputDir,
-					parentSpanId: browserPageTracker.getActivePageSpanId(request),
+					parentSpanId: browserPageTracker.getActivePageSpanId(request) ?? null,
 				});
 			},
 		);

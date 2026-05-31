@@ -150,8 +150,12 @@ function isMainFrameNavigationRequest(request: Request): boolean {
 		return false;
 	}
 
-	const frame = request.frame();
-	return frame === frame.page().mainFrame();
+	try {
+		const frame = request.frame();
+		return frame === frame.page().mainFrame();
+	} catch {
+		return false;
+	}
 }
 
 function pageForRequest(request: Request): Page | undefined {

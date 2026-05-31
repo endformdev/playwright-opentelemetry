@@ -1,6 +1,14 @@
+import type { Request } from "@playwright/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { shouldCreateSameDocumentPageSpan } from "../src/fixture/browser-page-tracker";
-import { type BrowserPageAction, runReporterTest } from "./reporter-harness";
+import {
+	BrowserPageTracker,
+	shouldCreateSameDocumentPageSpan,
+} from "../src/fixture/browser-page-tracker";
+import {
+	type BrowserPageAction,
+	getUniqueOutputDir,
+	runReporterTest,
+} from "./reporter-harness";
 
 vi.mock("../src/reporter/sender", () => ({
 	sendSpans: vi.fn(),
@@ -204,6 +212,21 @@ describe("PlaywrightOpentelemetryReporter - Browser page spans", () => {
 				"https://example.com/docs#getting-started",
 			),
 		).toBe(false);
+	});
+
+	it("ignores navigation requests when Playwright has not created a frame yet", () => {
+		const tracker = new BrowserPageTracker(
+			"test-navigation-without-frame",
+			getUniqueOutputDir("navigation-without-frame"),
+		);
+		const request = {
+			isNavigationRequest: () => true,
+			frame: () => {
+				throw new Error("Frame is not available for navigation request");
+			},
+		} as unknown as Request;
+
+		expect(() => tracker.startDocumentNavigation(request)).not.toThrow();
 	});
 
 	it("falls back to the current Playwright step when no active browser.page span exists", async () => {

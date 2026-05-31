@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
+import { BROWSER_PAGE_SPANS_TRACE_ID_FILE } from "./setup/global-setup";
 
 const TEST_NAME = "playwright.dev browser page navigation trace";
 
@@ -60,49 +62,6 @@ function flattenSpans(exports: OtlpExport[]): OtlpSpan[] {
 	);
 }
 
-async function findTraceIdForTest(
-	request: import("@playwright/test").APIRequestContext,
-): Promise<string> {
-	const traceIdsResponse = await request.get(`${TRACE_API_URL}/trace-ids`);
-	expect(traceIdsResponse.ok()).toBeTruthy();
-
-	const { traceIds } = (await traceIdsResponse.json()) as { traceIds: string[] };
-	const matches: Array<{ traceId: string; startTimeUnixNano: bigint }> = [];
-
-	for (const traceId of traceIds) {
-		const testInfoResponse = await request.get(
-			`${TRACE_API_URL}/otel-trace-viewer/${traceId}/test.json`,
-		);
-		if (!testInfoResponse.ok()) continue;
-
-		const testInfo = (await testInfoResponse.json()) as {
-			name?: string;
-			status?: string;
-			startTimeUnixNano?: string;
-		};
-		if (testInfo.name === TEST_NAME && testInfo.status === "passed") {
-			matches.push({
-				traceId,
-				startTimeUnixNano: BigInt(testInfo.startTimeUnixNano ?? "0"),
-			});
-		}
-	}
-
-	matches.sort((a, b) =>
-		a.startTimeUnixNano > b.startTimeUnixNano
-			? -1
-			: a.startTimeUnixNano < b.startTimeUnixNano
-				? 1
-				: 0,
-	);
-
-	if (matches[0]) {
-		return matches[0].traceId;
-	}
-
-	throw new Error(`Could not find trace for ${TEST_NAME}`);
-}
-
 async function loadTraceSpans(
 	request: import("@playwright/test").APIRequestContext,
 	traceId: string,
@@ -130,7 +89,7 @@ test("renders browser.page spans with nested network requests from reporter outp
 	page,
 	request,
 }) => {
-	const traceId = await findTraceIdForTest(request);
+	const traceId = readFileSync(BROWSER_PAGE_SPANS_TRACE_ID_FILE, "utf-8").trim();
 	const spans = await loadTraceSpans(request, traceId);
 	const browserPageSpans = spans.filter((span) => span.name === "browser.page");
 
