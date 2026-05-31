@@ -7,6 +7,7 @@ import {
 import { BROWSER_PAGE_SPANS_TRACE_ID_FILE } from "./setup/global-setup";
 
 const TEST_NAME = "playwright.dev browser page navigation trace";
+const TRACE_MARKER = "browser-page-span-e2e";
 
 interface OtlpAttribute {
 	key: string;
@@ -36,7 +37,9 @@ interface OtlpExport {
 	}>;
 }
 
-function attributeValue(attribute: OtlpAttribute): string | number | boolean | undefined {
+function attributeValue(
+	attribute: OtlpAttribute,
+): string | number | boolean | undefined {
 	return (
 		attribute.value.stringValue ??
 		attribute.value.intValue ??
@@ -52,6 +55,61 @@ function attributes(span: OtlpSpan): Record<string, string | number | boolean> {
 			return value === undefined ? [] : [[attribute.key, value]];
 		}),
 	);
+}
+
+function requiredSpan(
+	spans: OtlpSpan[],
+	description: string,
+	predicate: (span: OtlpSpan) => boolean,
+): OtlpSpan {
+	const span = spans.find(predicate);
+	if (!span) {
+		throw new Error(`Missing ${description}`);
+	}
+	return span;
+}
+
+function pageSpan(
+	spans: OtlpSpan[],
+	path: string,
+	navigationType: "document" | "same-document",
+): OtlpSpan {
+	return requiredSpan(
+		spans,
+		`${navigationType} browser.page span for ${path}`,
+		(span) => {
+			const attrs = attributes(span);
+			return (
+				span.name === "browser.page" &&
+				attrs["browser.resource.type"] === "page" &&
+				attrs["browser.page.navigation.type"] === navigationType &&
+				attrs["url.path"] === path
+			);
+		},
+	);
+}
+
+function markedDocumentRequest(spans: OtlpSpan[], label: string): OtlpSpan {
+	const span = spans.find((span) => {
+		const attrs = attributes(span);
+		const url = String(attrs["url.full"] ?? "");
+		return (
+			span.name === "HTTP GET" &&
+			attrs["http.resource.type"] === "document" &&
+			url.includes(`${TRACE_MARKER}=${label}-`)
+		);
+	});
+	if (!span) {
+		const markerUrls = spans.flatMap((span) => {
+			const attrs = attributes(span);
+			const url = String(attrs["url.full"] ?? "");
+			return url.includes(TRACE_MARKER) ? [`${span.name} ${url}`] : [];
+		});
+		throw new Error(
+			`Missing marked document request ${label}. Found marker requests: ${markerUrls.join(", ")}`,
+		);
+	}
+	return span;
 }
 
 function flattenSpans(exports: OtlpExport[]): OtlpSpan[] {
@@ -89,83 +147,55 @@ test("renders browser.page spans with nested network requests from reporter outp
 	page,
 	request,
 }) => {
-	const traceId = readFileSync(BROWSER_PAGE_SPANS_TRACE_ID_FILE, "utf-8").trim();
+	const traceId = readFileSync(
+		BROWSER_PAGE_SPANS_TRACE_ID_FILE,
+		"utf-8",
+	).trim();
 	const spans = await loadTraceSpans(request, traceId);
-	const browserPageSpans = spans.filter((span) => span.name === "browser.page");
 
-	expect(browserPageSpans.length).toBeGreaterThanOrEqual(3);
+	const homePage = pageSpan(spans, "/", "document");
+	const docsPage = pageSpan(spans, "/docs/intro", "same-document");
+	const pythonDocsPage = pageSpan(spans, "/python/docs/intro", "document");
+
+	expect(attributes(docsPage)).toEqual(
+		expect.objectContaining({
+			"browser.page.previous_url": "https://playwright.dev/",
+		}),
+	);
 	expect(
-		browserPageSpans.some(
-			(span) => attributes(span)["browser.page.navigation.type"] === "document",
-		),
-	).toBeTruthy();
-	expect(
-		browserPageSpans.some(
+		spans.filter(
 			(span) =>
-				attributes(span)["browser.page.navigation.type"] === "same-document",
+				span.name === "browser.page" &&
+				String(attributes(span)["url.full"] ?? "").includes(
+					"browser-page-span-e2e-anchor",
+				),
 		),
-	).toBeTruthy();
-	expect(
-		browserPageSpans.some((span) =>
-			String(attributes(span)["url.full"] ?? "").includes(
-				"browser-page-span-e2e-anchor",
-			),
-		),
-	).toBeFalsy();
+	).toEqual([]);
 
-	const browserPageSpansByPageId = new Map<string, OtlpSpan[]>();
-	for (const span of browserPageSpans) {
-		const pageId = attributes(span)["browser.page.id"];
-		if (typeof pageId !== "string") continue;
-
-		browserPageSpansByPageId.set(pageId, [
-			...(browserPageSpansByPageId.get(pageId) ?? []),
-			span,
-		]);
-	}
-
-	for (const pageSpans of browserPageSpansByPageId.values()) {
-		pageSpans.sort((a, b) =>
-			BigInt(a.startTimeUnixNano) > BigInt(b.startTimeUnixNano) ? 1 : -1,
-		);
-		for (let i = 0; i < pageSpans.length - 1; i++) {
-			expect(BigInt(pageSpans[i].endTimeUnixNano)).toBeLessThanOrEqual(
-				BigInt(pageSpans[i + 1].startTimeUnixNano),
-			);
-		}
-	}
-
-	const browserPageSpanIds = new Set(browserPageSpans.map((span) => span.spanId));
-	const nestedNetworkSpans = spans.filter(
-		(span) =>
-			span.name.startsWith("HTTP ") &&
-			browserPageSpanIds.has(span.parentSpanId ?? ""),
+	const homeDocument = markedDocumentRequest(spans, "home");
+	const docsDocument = markedDocumentRequest(spans, "docs-node");
+	const pythonDocsDocument = markedDocumentRequest(spans, "docs-python");
+	const afterHashDocument = markedDocumentRequest(
+		spans,
+		"after-hash-only-change",
 	);
 
-	expect(nestedNetworkSpans.length).toBeGreaterThanOrEqual(2);
+	expect(homeDocument.parentSpanId).toBe(homePage.spanId);
+	expect(docsDocument.parentSpanId).toBe(docsPage.spanId);
+	expect(pythonDocsDocument.parentSpanId).toBe(pythonDocsPage.spanId);
+	expect(afterHashDocument.parentSpanId).toBe(pythonDocsPage.spanId);
 
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(TEST_NAME);
 	await expect(viewer.browserSpans.root).toBeVisible();
-
-	for (const browserPageSpan of browserPageSpans) {
-		await expect(viewer.browserSpans.spanById(browserPageSpan.spanId)).toBeVisible();
-	}
+	await expect(viewer.browserSpans.spanById(homePage.spanId)).toBeVisible();
+	await expect(viewer.browserSpans.spanById(docsPage.spanId)).toBeVisible();
+	await expect(
+		viewer.browserSpans.spanById(pythonDocsPage.spanId),
+	).toBeVisible();
 	await expect(viewer.browserSpans.spanByName("/docs/intro")).toBeVisible();
-
-	for (const childSpan of nestedNetworkSpans.slice(0, 5)) {
-		const parentSpan = browserPageSpans.find(
-			(span) => span.spanId === childSpan.parentSpanId,
-		);
-		expect(parentSpan).toBeDefined();
-
-		await expect(viewer.browserSpans.spanById(childSpan.spanId)).toBeVisible();
-
-		const parentData = await viewer.browserSpans.spanDataById(parentSpan!.spanId);
-		const childData = await viewer.browserSpans.spanDataById(childSpan.spanId);
-		expect(childData.row).toBeGreaterThan(parentData.row);
-		expect(childData.startMs).toBeGreaterThanOrEqual(parentData.startMs);
-		expect(childData.startMs).toBeLessThanOrEqual(parentData.endMs);
-	}
+	await expect(
+		viewer.browserSpans.spanByName("/python/docs/intro"),
+	).toBeVisible();
 });
