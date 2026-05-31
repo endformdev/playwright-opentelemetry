@@ -2,6 +2,7 @@
 	"name": "playwright-opentelemetry",
 	"packageManager": "pnpm@11.5.0",
 	"scripts": {
+		"build": "pnpm --recursive build",
 		"format": "biome format --write",
 		"test": "vitest",
 		"tsc": "tsc --build",

@@ -13,7 +13,7 @@
 		"build": "tsc && vite build",
 		"preview": "vite preview",
 		"test:e2e": "playwright test",
-		"deploy": "pnpx wrangler deploy"
+		"deploy": "wrangler deploy"
 	},
 	"keywords": [
 		"playwright",
@@ -50,6 +50,7 @@
 		"vite-plugin-solid": "^2.11.12",
 		"vitest": "catalog:",
 		"workbox-build": "^7.4.1",
-		"workbox-window": "^7.4.1"
+		"workbox-window": "^7.4.1",
+		"wrangler": "^4.95.0"
 	}
 }
