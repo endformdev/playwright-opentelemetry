@@ -147,6 +147,7 @@ function extractAttributeValue(
 	if (value.intValue !== undefined) return value.intValue;
 	if (value.doubleValue !== undefined) return value.doubleValue;
 	if (value.boolValue !== undefined) return value.boolValue;
+	if (value.arrayValue !== undefined) return undefined;
 	return undefined;
 }
 

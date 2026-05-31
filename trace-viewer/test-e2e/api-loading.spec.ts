@@ -44,6 +44,29 @@ test("loads trace from API and displays test info and spans", async ({
 											key: "test.case.title",
 											value: { stringValue: "Example login test" },
 										},
+										{
+											key: "playwright.test.describes",
+											value: {
+												arrayValue: {
+													values: [
+														{ stringValue: "Authentication" },
+														{ stringValue: "Login flow" },
+													],
+												},
+											},
+										},
+										{
+											key: "playwright.test.status",
+											value: { stringValue: "passed" },
+										},
+										{
+											key: "code.file.path",
+											value: { stringValue: "auth/login.spec.ts" },
+										},
+										{
+											key: "code.line.number",
+											value: { intValue: 15 },
+										},
 									],
 									status: { code: 1 },
 									events: [],
@@ -179,24 +202,7 @@ test("loads trace from API and displays test info and spans", async ({
 		},
 	});
 
-	// Step 2: Send test.json via PUT /otel-playwright-reporter/test.json
-	await request.put(`${TRACE_API_URL}/otel-playwright-reporter/test.json`, {
-		headers: {
-			"X-Trace-Id": traceIdHex,
-		},
-		data: {
-			name: "Example login test",
-			describes: ["Authentication", "Login flow"],
-			file: "auth/login.spec.ts",
-			line: 15,
-			status: "passed",
-			traceId: traceIdHex,
-			startTimeUnixNano: `${testStartTime}000000`,
-			endTimeUnixNano: `${testEndTime}000000`,
-		},
-	});
-
-	// Step 3: Load the trace in the viewer (note the /otel-trace-viewer prefix)
+	// Step 2: Load the trace in the viewer (note the /otel-trace-viewer prefix)
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceIdHex);
 
@@ -278,6 +284,18 @@ test("can load trace via URL query parameter", async ({ page, request }) => {
 											key: "test.case.title",
 											value: { stringValue: "URL param test" },
 										},
+										{
+											key: "playwright.test.status",
+											value: { stringValue: "passed" },
+										},
+										{
+											key: "code.file.path",
+											value: { stringValue: "param.spec.ts" },
+										},
+										{
+											key: "code.line.number",
+											value: { intValue: 5 },
+										},
 									],
 									status: { code: 1 },
 									events: [],
@@ -288,23 +306,6 @@ test("can load trace via URL query parameter", async ({ page, request }) => {
 					],
 				},
 			],
-		},
-	});
-
-	// Send test.json
-	await request.put(`${TRACE_API_URL}/otel-playwright-reporter/test.json`, {
-		headers: {
-			"X-Trace-Id": traceIdHex,
-		},
-		data: {
-			name: "URL param test",
-			describes: [],
-			file: "param.spec.ts",
-			line: 5,
-			status: "passed",
-			traceId: traceIdHex,
-			startTimeUnixNano: `${testStartTime}000000`,
-			endTimeUnixNano: `${testEndTime}000000`,
 		},
 	});
 

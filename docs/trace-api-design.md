@@ -14,7 +14,6 @@ Single directory structure with lifecycle-based retention:
 s3://bucket/
 └── traces/
     └── {traceId}/
-        ├── test.json
         ├── opentelemetry-protocol/
         │   ├── playwright-opentelemetry.json
         │   └── {source}.json
@@ -24,7 +23,7 @@ s3://bucket/
 
 All data writes directly to `traces/{traceId}/`. A lifecycle rule expires traces after a configurable retention period (default: 30 days).
 
-**Orphan spans** (OTLP data from services where no test.json ever arrives) will accumulate until the lifecycle rule cleans them up. This is an acceptable trade-off for the simplicity of not needing existence checks, conditional routing, or promotion logic.
+**Orphan spans** (OTLP data without a root `playwright.test` span) will accumulate until the lifecycle rule cleans them up. This is an acceptable trade-off for the simplicity of not needing existence checks, conditional routing, or promotion logic.
 
 ## Library Architecture
 
@@ -258,16 +257,6 @@ Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, cus
 ### Playwright-Specific Endpoints
 
 ```
-PUT /otel-playwright-reporter/test.json
-X-Trace-Id: {traceId}
-
-Body: test.json content
-```
-
-**Backend logic:**
-1. Write to `traces/{traceId}/test.json`
-
-```
 PUT /otel-playwright-reporter/screenshots/{filename}
 X-Trace-Id: {traceId}
 
@@ -282,7 +271,6 @@ Body: JPEG image data
 Serves the format expected by the trace viewer:
 
 ```
-GET /otel-trace-viewer/{traceId}/test.json
 GET /otel-trace-viewer/{traceId}/opentelemetry-protocol
   -> { "jsonFiles": ["playwright-opentelemetry.json", "backend.json"] }
 GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
@@ -387,7 +375,7 @@ export type { TraceApiConfig, StorageConfig, TraceStorage } from './types';
 ## Lifecycle and Garbage Collection
 
 - **All traces**: S3 lifecycle rule expires objects in `traces/` after the configured retention period (recommended: 30 days)
-- **Orphan spans**: Traces without `test.json` are cleaned up by the same lifecycle rule
+- **Orphan spans**: Traces without a root `playwright.test` span are cleaned up by the same lifecycle rule
 
 This approach accepts that some orphan data may exist temporarily, trading perfect cleanup for operational simplicity.
 
@@ -499,6 +487,5 @@ export default {
 
 This results in storage paths like:
 ```
-traces/orgs/{orgId}/traces/{traceId}/test.json
 traces/orgs/{orgId}/traces/{traceId}/opentelemetry-protocol/...
 ```

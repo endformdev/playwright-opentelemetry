@@ -1,9 +1,10 @@
 import type { Entry, FileEntry } from "@zip.js/zip.js";
 import { BlobReader, BlobWriter, TextWriter, ZipReader } from "@zip.js/zip.js";
 import type { ScreenshotMeta } from "../../service-worker/register";
+import type { OtlpExport } from "../../trace-data-loader";
 import type { TestInfo } from "../TraceInfoLoader";
+import { deriveTestInfoFromOtlpExports } from "../deriveTestInfo";
 
-const TEST_JSON_PATH = "test.json";
 const OTEL_PROTOCOL_DIR = "opentelemetry-protocol/";
 const SCREENSHOTS_DIR = "screenshots/";
 
@@ -62,18 +63,6 @@ export async function parseZipEntries(
 ): Promise<ZipLoadResult> {
 	const { entries } = zipEntries;
 
-	// Find and parse test.json
-	const testJsonEntry = entries.get(TEST_JSON_PATH);
-	if (!testJsonEntry) {
-		throw new Error(
-			`Test info not found at ${TEST_JSON_PATH}. ` +
-				"Make sure you're loading a valid Playwright OpenTelemetry trace ZIP.",
-		);
-	}
-
-	const testJsonText = await readEntryAsText(testJsonEntry);
-	const testInfo: TestInfo = JSON.parse(testJsonText);
-
 	// Find all JSON files in opentelemetry-protocol directory
 	const traceFiles: OpentelemetryProtocolJsonFile[] = [];
 	for (const [filename, entry] of entries) {
@@ -98,6 +87,10 @@ export async function parseZipEntries(
 				"Make sure you're loading a valid Playwright OpenTelemetry trace ZIP.",
 		);
 	}
+
+	const testInfo: TestInfo = deriveTestInfoFromOtlpExports(
+		traceFiles.map((file) => file.content as OtlpExport),
+	);
 
 	// Collect screenshots with their metadata
 	const screenshots = new Map<string, Blob>();

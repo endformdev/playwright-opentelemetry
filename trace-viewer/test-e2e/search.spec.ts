@@ -14,7 +14,12 @@ test.describe("Search Functionality", () => {
 		const builder = new TraceDataBuilder(traceId, startTime);
 
 		builder
-			.addTestSpan("Search functionality test")
+			.addTestSpan("Search functionality test", 3000, {
+				status: "passed",
+				describes: ["Search", "Basic Search"],
+				file: "search/basic-search.spec.ts",
+				line: 10,
+			})
 			.addStepSpan("Navigate to login page")
 			.addStepSpan("Fill login form")
 			.addStepSpan("Submit credentials")
@@ -26,13 +31,6 @@ test.describe("Search Functionality", () => {
 			.addDbSpan("DB query users", "postgresql");
 
 		await builder.send(request);
-		await builder.sendTestJson(request, {
-			name: "Search functionality test",
-			status: "passed",
-			describes: ["Search", "Basic Search"],
-			file: "search/basic-search.spec.ts",
-			line: 10,
-		});
 	});
 
 	test("complete search interaction flow", async ({ page }) => {

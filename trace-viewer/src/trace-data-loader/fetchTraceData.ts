@@ -7,11 +7,23 @@ import { otlpExportToSpans } from "./exportToSpans";
  * @see https://opentelemetry.io/docs/specs/otlp/
  */
 
+const OtlpArrayValueSchema = v.object({
+	values: v.array(
+		v.object({
+			stringValue: v.optional(v.string()),
+			intValue: v.optional(v.number()),
+			doubleValue: v.optional(v.number()),
+			boolValue: v.optional(v.boolean()),
+		}),
+	),
+});
+
 const OtlpAttributeValueSchema = v.object({
 	stringValue: v.optional(v.string()),
 	intValue: v.optional(v.number()),
 	doubleValue: v.optional(v.number()),
 	boolValue: v.optional(v.boolean()),
+	arrayValue: v.optional(OtlpArrayValueSchema),
 });
 
 const OtlpAttributeSchema = v.object({

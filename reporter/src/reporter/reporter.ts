@@ -55,7 +55,7 @@ export type Span = {
 	name: string;
 	startTime: Date;
 	endTime: Date;
-	attributes: Record<string, string | number | boolean>;
+	attributes: Record<string, string | number | boolean | string[]>;
 	status: { code: number };
 	kind?: number;
 	/** Service name for this span (if different from default) */
@@ -197,7 +197,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			return;
 		}
 
-		const attributes: Record<string, string | number | boolean> = {};
+		const attributes: Record<string, string | number | boolean | string[]> = {};
 
 		// titlePath format: ['', 'project', 'filename', ...describes, 'testname']
 		// We want: [...describes, 'testname'] joined with ' > '
@@ -208,8 +208,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_TEST_CASE_NAME] = caseName;
 		}
 
+		const describes = titlePath.length > 4 ? titlePath.slice(3, -1) : [];
+
 		attributes[ATTR_TEST_CASE_TITLE] = test.title;
-		attributes[ATTR_TEST_CASE_RESULT_STATUS] = result.status;
+		attributes[ATTR_TEST_CASE_RESULT_STATUS] =
+			result.status === "passed" ? "pass" : "fail";
+		attributes["playwright.test.status"] = result.status;
+		attributes["playwright.test.describes"] = describes;
 
 		if (test.location) {
 			const { file, line } = test.location;
@@ -326,15 +331,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			});
 		}
 
-		// If trace API is configured, send test.json and screenshots
+		// If trace API is configured, send screenshots. Test metadata lives on the root span.
 		if (this.resolvedTraceApiEndpoint) {
-			await this.sendTestJsonToTraceApi({
-				test,
-				result,
+			await this.sendScreenshotsToTraceApi({
 				traceId,
-				relativeFilePath,
-				startTime: minStartTime,
-				computedDuration,
 				screenshots,
 			});
 		}
@@ -463,7 +463,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			return;
 		}
 
-		const attributes: Record<string, string | number | boolean> = {};
+		const attributes: Record<string, string | number | boolean | string[]> = {};
 
 		// Add step name (full path from test case to this step)
 		attributes[ATTR_TEST_STEP_NAME] = currentTitlePath.join(" > ");
@@ -540,58 +540,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		return outputDir;
 	}
 
-	private async sendTestJsonToTraceApi(params: {
-		test: TestCase;
-		result: TestResult;
+	private async sendScreenshotsToTraceApi(params: {
 		traceId: string;
-		relativeFilePath: string;
-		startTime: Date;
-		computedDuration: number;
 		screenshots: Map<string, Blob>;
 	}): Promise<void> {
-		const {
-			test,
-			result,
-			traceId,
-			relativeFilePath,
-			startTime,
-			computedDuration,
-			screenshots,
-		} = params;
-
-		// Build test.json content
-		const titlePath = test.titlePath();
-		const describes = titlePath.length > 4 ? titlePath.slice(3, -1) : [];
-		const line = test.location?.line ?? 0;
-
-		const startTimeUnixNano = (startTime.getTime() * 1_000_000).toString();
-		const endTimeUnixNano = (
-			(startTime.getTime() + computedDuration) *
-			1_000_000
-		).toString();
-
-		const testJson = {
-			name: test.title,
-			describes,
-			file: relativeFilePath,
-			line,
-			status: result.status,
-			traceId,
-			startTimeUnixNano,
-			endTimeUnixNano,
-		};
-
-		// Send test.json
-		const testJsonUrl = `${this.resolvedTraceApiEndpoint}/otel-playwright-reporter/test.json`;
-		await fetch(testJsonUrl, {
-			method: "PUT",
-			headers: {
-				"content-type": "application/json",
-				"x-trace-id": traceId,
-				...this.resolvedTraceApiHeaders,
-			},
-			body: JSON.stringify(testJson),
-		});
+		const { traceId, screenshots } = params;
 
 		// Send screenshots concurrently
 		await Promise.all(

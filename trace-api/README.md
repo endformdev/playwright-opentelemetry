@@ -4,7 +4,7 @@ H3-based API library for storing and serving Playwright OpenTelemetry traces in 
 
 ## Introduction
 
-The Trace API is a customizable library that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers. It provides endpoints for writing OTLP trace data and Playwright test artifacts, and serves them in a format compatible with the trace viewer.
+The Trace API is a customizable library that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers. It provides endpoints for writing OTLP trace data and Playwright screenshots, and serves them in a format compatible with the trace viewer. Test metadata is stored on the root `playwright.test` span.
 
 ## Usage
 
@@ -140,14 +140,6 @@ Body: Standard OTLP JSON payload
 Writes OTLP spans to `traces/{traceId}/opentelemetry-protocol/{serviceName}.json`.
 
 ```
-PUT /otel-playwright-reporter/test.json
-X-Trace-Id: {traceId}
-Body: test.json content
-```
-
-Writes test metadata to `traces/{traceId}/test.json`.
-
-```
 PUT /otel-playwright-reporter/screenshots/{filename}
 X-Trace-Id: {traceId}
 Body: JPEG image data
@@ -158,7 +150,6 @@ Writes screenshots to `traces/{traceId}/screenshots/{filename}`.
 **Read Endpoints:**
 
 ```
-GET /otel-trace-viewer/{traceId}/test.json
 GET /otel-trace-viewer/{traceId}/opentelemetry-protocol
 GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
 GET /otel-trace-viewer/{traceId}/screenshots
@@ -203,7 +194,6 @@ wrangler r2 bucket lifecycle set my-traces --rules '[{
 s3://bucket/
 └── traces/
     └── {traceId}/
-        ├── test.json
         ├── opentelemetry-protocol/
         │   ├── playwright-opentelemetry.json
         │   └── {serviceName}.json

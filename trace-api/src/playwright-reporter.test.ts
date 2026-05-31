@@ -49,7 +49,7 @@ describe("Playwright Reporter", () => {
 		);
 		expect(otlpResponse.status).toBe(200);
 
-		// Step 2: Send test.json
+		// Step 2: Legacy test.json is rejected
 		const testJson = createTestJson({
 			traceId,
 			name: "should complete successfully",
@@ -67,7 +67,7 @@ describe("Playwright Reporter", () => {
 				body: JSON.stringify(testJson),
 			}),
 		);
-		expect(testJsonResponse.status).toBe(200);
+		expect(testJsonResponse.status).toBe(404);
 
 		// Step 3: Send screenshots
 		const screenshots = [
@@ -99,12 +99,11 @@ describe("Playwright Reporter", () => {
 		}
 
 		// Verification: Read back complete trace
-		// 1. Get test.json
+		// 1. test.json is no longer exposed
 		const getTestJsonResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
 		);
-		expect(getTestJsonResponse.status).toBe(200);
-		expect(await getTestJsonResponse.json()).toEqual(testJson);
+		expect(getTestJsonResponse.status).toBe(404);
 
 		// 2. List and get OTLP files
 		const listOtlpResponse = await app.fetch(
@@ -208,20 +207,11 @@ describe("Playwright Reporter", () => {
 			}),
 		);
 
-		// Verify error information is preserved
+		// Verify legacy test.json is not exposed
 		const getTestJsonResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
 		);
-		expect(getTestJsonResponse.status).toBe(200);
-		const retrievedTestJson = (await getTestJsonResponse.json()) as {
-			status: string;
-			error: { message: string; stack: string };
-		};
-		expect(retrievedTestJson.status).toBe("failed");
-		expect(retrievedTestJson.error).toEqual({
-			message: "Expected element to be visible",
-			stack: "Error: Expected element to be visible\n    at test.spec.ts:15:20",
-		});
+		expect(getTestJsonResponse.status).toBe(404);
 	});
 
 	it("reports a test with no screenshots", async () => {
@@ -461,18 +451,14 @@ describe("Playwright Reporter", () => {
 				`http://localhost/otel-trace-viewer/${test1TraceId}/test.json`,
 			),
 		);
-		expect(test1Response.status).toBe(200);
-		const test1Data = (await test1Response.json()) as { name: string };
-		expect(test1Data.name).toBe("first test");
+		expect(test1Response.status).toBe(404);
 
 		const test2Response = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${test2TraceId}/test.json`,
 			),
 		);
-		expect(test2Response.status).toBe(200);
-		const test2Data = (await test2Response.json()) as { name: string };
-		expect(test2Data.name).toBe("second test");
+		expect(test2Response.status).toBe(404);
 
 		// Verify OTLP files don't interfere
 		const otlp1Response = await app.fetch(

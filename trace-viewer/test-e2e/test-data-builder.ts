@@ -17,7 +17,12 @@ type SpanKindType = (typeof SpanKind)[keyof typeof SpanKind];
 
 interface Attribute {
 	key: string;
-	value: { stringValue?: string; intValue?: number; boolValue?: boolean };
+	value: {
+		stringValue?: string;
+		intValue?: number;
+		boolValue?: boolean;
+		arrayValue?: { values: Array<{ stringValue: string }> };
+	};
 }
 
 interface SpanData {
@@ -65,7 +70,6 @@ export function generateTraceId(prefix: string): string {
  *   .addDbSpan("SELECT * FROM users", "postgresql");
  *
  * await builder.send(request);
- * await builder.sendTestJson(request, { name: "My test name", status: "passed" });
  * ```
  */
 export class TraceDataBuilder {
@@ -144,13 +148,43 @@ export class TraceDataBuilder {
 	/**
 	 * Add a Playwright test span (root span for the test)
 	 */
-	addTestSpan(title: string, durationMs = 3000): this {
+	addTestSpan(
+		title: string,
+		durationMs = 3000,
+		metadata: {
+			status?: "passed" | "failed" | "skipped";
+			describes?: string[];
+			file?: string;
+			line?: number;
+		} = {},
+	): this {
 		this.testSpanId = this.addSpan(
 			"playwright-tests",
 			"playwright",
 			"playwright.test",
 			SpanKind.INTERNAL,
-			[{ key: "test.case.title", value: { stringValue: title } }],
+			[
+				{ key: "test.case.title", value: { stringValue: title } },
+				{
+					key: "playwright.test.status",
+					value: { stringValue: metadata.status ?? "passed" },
+				},
+				{
+					key: "playwright.test.describes",
+					value: {
+						arrayValue: {
+							values: (metadata.describes ?? []).map((value) => ({
+								stringValue: value,
+							})),
+						},
+					},
+				},
+				{
+					key: "code.file.path",
+					value: { stringValue: metadata.file ?? "test.spec.ts" },
+				},
+				{ key: "code.line.number", value: { intValue: metadata.line ?? 1 } },
+			],
 			{ durationMs },
 		);
 		return this;
@@ -301,37 +335,6 @@ export class TraceDataBuilder {
 	async send(request: APIRequestContext): Promise<void> {
 		await request.post(`${TRACE_API_URL}/v1/traces`, {
 			data: this.build(),
-		});
-	}
-
-	/**
-	 * Send the test.json metadata to the trace API server
-	 */
-	async sendTestJson(
-		request: APIRequestContext,
-		options: {
-			name: string;
-			status?: "passed" | "failed" | "skipped";
-			describes?: string[];
-			file?: string;
-			line?: number;
-		},
-	): Promise<void> {
-		const endTime = this.startTime + this.timeOffset;
-		await request.put(`${TRACE_API_URL}/otel-playwright-reporter/test.json`, {
-			headers: {
-				"X-Trace-Id": this.traceId,
-			},
-			data: {
-				name: options.name,
-				describes: options.describes ?? [],
-				file: options.file ?? "test.spec.ts",
-				line: options.line ?? 1,
-				status: options.status ?? "passed",
-				traceId: this.traceId,
-				startTimeUnixNano: `${this.startTime}000000`,
-				endTimeUnixNano: `${endTime}000000`,
-			},
 		});
 	}
 

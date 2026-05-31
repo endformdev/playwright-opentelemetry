@@ -72,7 +72,7 @@ describe("Backend Instrumentation", () => {
 			}),
 		);
 
-		// Playwright sends test.json
+		// Legacy test.json is rejected
 		const testJson = createTestJson({
 			traceId,
 			name: "should load users",
@@ -259,11 +259,11 @@ describe("Backend Instrumentation", () => {
 			}),
 		);
 
-		// Verify both are present in final trace
+		// Verify OTLP data is present in final trace and test.json is absent
 		const getTestJsonResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
 		);
-		expect(getTestJsonResponse.status).toBe(200);
+		expect(getTestJsonResponse.status).toBe(404);
 
 		const listOtlpResponse = await app.fetch(
 			new Request(

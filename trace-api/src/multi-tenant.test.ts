@@ -61,7 +61,7 @@ describe("Multi-Tenant Storage", () => {
 		);
 		expect(orgAOtlpResponse.status).toBe(200);
 
-		// Tenant A: Write test.json
+		// Tenant A: legacy test.json is rejected
 		const orgATestJson = createTestJson({
 			traceId,
 			name: "org A test",
@@ -79,7 +79,7 @@ describe("Multi-Tenant Storage", () => {
 				body: JSON.stringify(orgATestJson),
 			}),
 		);
-		expect(orgATestJsonResponse.status).toBe(200);
+		expect(orgATestJsonResponse.status).toBe(404);
 
 		// Tenant B: Write OTLP data with SAME traceId
 		const orgBOtlpPayload = createOtlpPayload({
@@ -106,7 +106,7 @@ describe("Multi-Tenant Storage", () => {
 		);
 		expect(orgBOtlpResponse.status).toBe(200);
 
-		// Tenant B: Write test.json
+		// Tenant B: legacy test.json is rejected
 		const orgBTestJson = createTestJson({
 			traceId,
 			name: "org B test",
@@ -124,9 +124,9 @@ describe("Multi-Tenant Storage", () => {
 				body: JSON.stringify(orgBTestJson),
 			}),
 		);
-		expect(orgBTestJsonResponse.status).toBe(200);
+		expect(orgBTestJsonResponse.status).toBe(404);
 
-		// Verification: Tenant A can read their own data
+		// Verification: Tenant A cannot read legacy test.json
 		const orgAGetResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`, {
 				headers: {
@@ -134,11 +134,9 @@ describe("Multi-Tenant Storage", () => {
 				},
 			}),
 		);
-		expect(orgAGetResponse.status).toBe(200);
-		const orgARetrieved = (await orgAGetResponse.json()) as { name: string };
-		expect(orgARetrieved.name).toBe("org A test");
+		expect(orgAGetResponse.status).toBe(404);
 
-		// Verification: Tenant B can read their own data
+		// Verification: Tenant B cannot read legacy test.json
 		const orgBGetResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`, {
 				headers: {
@@ -146,9 +144,7 @@ describe("Multi-Tenant Storage", () => {
 				},
 			}),
 		);
-		expect(orgBGetResponse.status).toBe(200);
-		const orgBRetrieved = (await orgBGetResponse.json()) as { name: string };
-		expect(orgBRetrieved.name).toBe("org B test");
+		expect(orgBGetResponse.status).toBe(404);
 
 		// Verification: OTLP files are isolated
 		const orgAOtlpListResponse = await app.fetch(
@@ -314,7 +310,7 @@ describe("Multi-Tenant Storage", () => {
 		);
 		expect(backendOtlpResponse.status).toBe(200);
 
-		// Step 3: Send test.json
+		// Step 3: legacy test.json is rejected
 		const testJson = createTestJson({
 			traceId,
 			name: "complete user journey",
@@ -333,7 +329,7 @@ describe("Multi-Tenant Storage", () => {
 				body: JSON.stringify(testJson),
 			}),
 		);
-		expect(testJsonResponse.status).toBe(200);
+		expect(testJsonResponse.status).toBe(404);
 
 		// Step 4: Send screenshots
 		const screenshots = [
@@ -368,7 +364,7 @@ describe("Multi-Tenant Storage", () => {
 		// Verification: Read back complete trace via viewer API
 		// All reads should go through the same resolvePath transformation
 
-		// 1. Verify test.json
+		// 1. Verify test.json is absent
 		const getTestJsonResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`, {
 				headers: {
@@ -376,9 +372,7 @@ describe("Multi-Tenant Storage", () => {
 				},
 			}),
 		);
-		expect(getTestJsonResponse.status).toBe(200);
-		const retrievedTestJson = await getTestJsonResponse.json();
-		expect(retrievedTestJson).toEqual(testJson);
+		expect(getTestJsonResponse.status).toBe(404);
 
 		// 2. Verify OTLP files (should have both playwright and backend-api)
 		const listOtlpResponse = await app.fetch(

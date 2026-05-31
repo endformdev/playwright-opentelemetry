@@ -82,12 +82,11 @@ describe("Trace Viewer", () => {
 		}
 
 		// Viewer flow: Load complete trace
-		// 1. Get test.json for metadata
+		// 1. test.json is no longer exposed
 		const getTestJsonResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
 		);
-		expect(getTestJsonResponse.status).toBe(200);
-		expect(await getTestJsonResponse.json()).toEqual(testJson);
+		expect(getTestJsonResponse.status).toBe(404);
 
 		// 2. List OTLP files
 		const listOtlpResponse = await app.fetch(
@@ -592,11 +591,11 @@ describe("Trace Viewer", () => {
 			}),
 		);
 
-		// Viewer: test.json exists
+		// Viewer: test.json is absent
 		const getTestJsonResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
 		);
-		expect(getTestJsonResponse.status).toBe(200);
+		expect(getTestJsonResponse.status).toBe(404);
 
 		// Viewer: Verify empty jsonFiles array
 		const listOtlpResponse = await app.fetch(

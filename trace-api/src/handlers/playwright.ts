@@ -1,14 +1,13 @@
 import type { EventHandler } from "h3";
-import { defineEventHandler, getRouterParam, readBody } from "h3";
+import { createError, defineEventHandler, getRouterParam, readBody } from "h3";
 import { applyCors } from "../cors";
 import type { TraceApiHandlerConfig } from "../createTraceApi";
 
 /**
  * Create a handler for Playwright-specific trace data.
  *
- * Receives test.json and screenshots at PUT /otel-playwright-reporter/*,
+ * Receives screenshots at PUT /otel-playwright-reporter/*,
  * using X-Trace-Id header to determine storage location:
- * - PUT /otel-playwright-reporter/test.json -> traces/{traceId}/test.json
  * - PUT /otel-playwright-reporter/screenshots/{filename} -> traces/{traceId}/screenshots/{filename}
  *
  * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
@@ -44,6 +43,13 @@ export function createPlaywrightHandler(
 		const path = getRouterParam(event, "_");
 		if (!path) {
 			throw new Error("Path is required");
+		}
+		if (path === "test.json") {
+			throw createError({
+				statusCode: 404,
+				message:
+					"test.json is no longer supported; test metadata is stored on the playwright.test span",
+			});
 		}
 
 		// Determine content type based on the path

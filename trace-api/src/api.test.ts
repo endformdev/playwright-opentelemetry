@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createTestHarness } from "./testHarness";
 
 describe("Trace API integration", () => {
-	it("should store OTLP data and test.json, then retrieve them", async () => {
+	it("should store OTLP data and reject legacy test.json", async () => {
 		const app = createTestHarness();
 
 		const traceId = "7709187832dca84f02f413a312421586";
@@ -51,18 +51,7 @@ describe("Trace API integration", () => {
 
 		expect(otlpResponse.status).toBe(200);
 
-		// Step 2: PUT test.json to /otel-playwright-reporter/test.json
-		const testJson = {
-			name: "should complete successfully",
-			describes: ["User API", "GET endpoint"],
-			file: "tests/api.spec.ts",
-			line: 42,
-			status: "passed",
-			traceId,
-			startTimeUnixNano: "1766927492000000000",
-			endTimeUnixNano: "1766927493000000000",
-		};
-
+		// Step 2: legacy test.json is no longer accepted.
 		const testJsonResponse = await app.fetch(
 			new Request("http://localhost/otel-playwright-reporter/test.json", {
 				method: "PUT",
@@ -70,22 +59,20 @@ describe("Trace API integration", () => {
 					"Content-Type": "application/json",
 					"X-Trace-Id": traceId,
 				},
-				body: JSON.stringify(testJson),
+				body: JSON.stringify({ traceId }),
 			}),
 		);
 
-		expect(testJsonResponse.status).toBe(200);
+		expect(testJsonResponse.status).toBe(404);
 
-		// Step 3: GET test.json back via viewer API
+		// Step 3: test.json is not exposed through the viewer API.
 		const getTestJsonResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`, {
 				method: "GET",
 			}),
 		);
 
-		expect(getTestJsonResponse.status).toBe(200);
-		const retrievedTestJson = await getTestJsonResponse.json();
-		expect(retrievedTestJson).toEqual(testJson);
+		expect(getTestJsonResponse.status).toBe(404);
 
 		// Step 4: GET OTLP data back via viewer API
 		// First, list available OTLP files

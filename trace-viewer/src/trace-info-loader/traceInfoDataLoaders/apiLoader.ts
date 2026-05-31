@@ -1,6 +1,7 @@
-import type { ScreenshotInfo, TestInfo, TraceInfo } from "../TraceInfoLoader";
+import type { OtlpExport } from "../../trace-data-loader";
+import { deriveTestInfoFromOtlpExports } from "../deriveTestInfo";
+import type { ScreenshotInfo, TraceInfo } from "../TraceInfoLoader";
 
-const TEST_JSON_PATH = "test.json";
 const OTEL_PROTOCOL_PATH = "opentelemetry-protocol";
 const SCREENSHOTS_PATH = "screenshots";
 
@@ -19,16 +20,6 @@ export async function loadRemoteApi(baseUrl: string): Promise<TraceInfo> {
 	// Normalize base URL (remove trailing slash)
 	const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
 
-	// Fetch test.json (required)
-	const testJsonUrl = `${normalizedBaseUrl}/${TEST_JSON_PATH}`;
-	const testResponse = await fetch(testJsonUrl);
-	if (!testResponse.ok) {
-		throw new Error(
-			`Failed to fetch test info from ${testJsonUrl}: ${testResponse.statusText}`,
-		);
-	}
-	const testInfo: TestInfo = await testResponse.json();
-
 	// Fetch list of trace files from the opentelemetry-protocol endpoint
 	const otelListUrl = `${normalizedBaseUrl}/${OTEL_PROTOCOL_PATH}`;
 	let traceDataUrls: string[] = [];
@@ -45,6 +36,19 @@ export async function loadRemoteApi(baseUrl: string): Promise<TraceInfo> {
 	traceDataUrls = otelList.jsonFiles.map(
 		(file) => `${normalizedBaseUrl}/${OTEL_PROTOCOL_PATH}/${file}`,
 	);
+	const otlpExports = await Promise.all(
+		traceDataUrls.map(async (url) => {
+			const response = await fetch(url);
+			if (!response.ok) {
+				const body = await response.text();
+				throw new Error(
+					`Failed to fetch trace data from ${url}: ${response.status} ${body}`,
+				);
+			}
+			return (await response.json()) as OtlpExport;
+		}),
+	);
+	const testInfo = deriveTestInfoFromOtlpExports(otlpExports);
 
 	// Fetch the list of screenshots
 	const screenshotsListUrl = `${normalizedBaseUrl}/${SCREENSHOTS_PATH}`;

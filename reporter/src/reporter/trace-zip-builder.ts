@@ -2,37 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { TestCase, TestStatus } from "@playwright/test/reporter";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
-import {
-	BlobReader,
-	BlobWriter,
-	TextReader,
-	ZipReader,
-	ZipWriter,
-} from "@zip.js/zip.js";
+import { BlobReader, BlobWriter, ZipReader, ZipWriter } from "@zip.js/zip.js";
 import type { Span } from "./reporter";
 import { buildOtlpRequest } from "./sender";
-
-/**
- * Test metadata stored in test.json at the root of the trace zip.
- */
-export interface TestInfo {
-	/** Test name (from test.title) */
-	name: string;
-	/** Describe blocks containing this test (from titlePath, excluding root/project/file/test) */
-	describes: string[];
-	/** Relative file path to the test file */
-	file: string;
-	/** Line number where the test is defined */
-	line: number;
-	/** Test result status */
-	status: TestStatus;
-	/** OpenTelemetry trace ID for this test */
-	traceId: string;
-	/** Start time in nanoseconds since Unix epoch (as string to preserve precision) */
-	startTimeUnixNano: string;
-	/** End time in nanoseconds since Unix epoch (as string to preserve precision) */
-	endTimeUnixNano: string;
-}
 
 /**
  * Get the zip filename based on test location and ID.
@@ -133,43 +105,7 @@ export interface CreateTraceZipOptions {
 }
 
 /**
- * Build the TestInfo object for test.json.
- */
-export function buildTestInfo(
-	options: CreateTraceZipOptions,
-	traceId: string,
-): TestInfo {
-	const { test, relativeFilePath, status, startTime, duration } = options;
-
-	// titlePath format: ['', 'project', 'filename', ...describes, 'testname']
-	// We want the describes (everything between filename and testname)
-	const titlePath = test.titlePath();
-	const describes = titlePath.length > 4 ? titlePath.slice(3, -1) : [];
-
-	// Line number from location, fallback to 0 if not available
-	const line = test.location?.line ?? 0;
-
-	// Convert times to nanoseconds (as strings to preserve precision)
-	const startTimeUnixNano = (startTime.getTime() * 1_000_000).toString();
-	const endTimeUnixNano = (
-		(startTime.getTime() + duration) *
-		1_000_000
-	).toString();
-
-	return {
-		name: test.title,
-		describes,
-		file: relativeFilePath,
-		line,
-		status,
-		traceId,
-		startTimeUnixNano,
-		endTimeUnixNano,
-	};
-}
-
-/**
- * Create a zip file containing the OTLP trace JSON, test.json, and screenshots for a test.
+ * Create a zip file containing the OTLP trace JSON and screenshots for a test.
  */
 export async function createTraceZip(
 	options: CreateTraceZipOptions,
@@ -187,23 +123,14 @@ export async function createTraceZip(
 	const otlpRequest = buildOtlpRequest(spans, serviceName, playwrightVersion);
 	const traceJson = JSON.stringify(otlpRequest, null, 2);
 
-	// Get traceId from the test span (first span should be the test span)
-	const testSpan = spans.find((s) => s.name === "playwright.test");
-	const traceId = testSpan?.traceId ?? "";
-
-	// Build test.json content
-	const testInfo = buildTestInfo(options, traceId);
-	const testInfoJson = JSON.stringify(testInfo, null, 2);
-
 	// Create zip file
 	const blobWriter = new BlobWriter("application/zip");
 	const zipWriter = new ZipWriter(blobWriter);
 
-	// Add test.json and trace JSON first
-	await zipWriter.add("test.json", new TextReader(testInfoJson));
+	// Add trace JSON first
 	await zipWriter.add(
 		"opentelemetry-protocol/playwright-opentelemetry.json",
-		new TextReader(traceJson),
+		new Blob([traceJson]).stream(),
 	);
 
 	// Add screenshots concurrently by streaming directly from input blobs
