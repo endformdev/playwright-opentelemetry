@@ -62,8 +62,16 @@ export class SpanSection {
 		return this.root.getByRole("listitem", { name, exact: true });
 	}
 
+	spanById(id: string): Locator {
+		return this.root.locator(`[data-span-id="${id}"]`);
+	}
+
 	async spanData(name: string): Promise<SpanBarData> {
 		return this.dataFor(this.spanByName(name).first());
+	}
+
+	async spanDataById(id: string): Promise<SpanBarData> {
+		return this.dataFor(this.spanById(id).first());
 	}
 
 	async spanTiming(
@@ -102,6 +110,31 @@ export class SpanSection {
 		}
 
 		return { id, name, startMs, durationMs, endMs, row };
+	}
+}
+
+export class DetailsPanel {
+	readonly root: Locator;
+
+	constructor(page: Page) {
+		this.root = page.getByTestId("trace-details-panel");
+	}
+
+	spanDetailsById(id: string): Locator {
+		return this.root.locator(`[data-span-id="${id}"]`);
+	}
+
+	parentButtonForSpan(spanId: string, parentName: string): Locator {
+		return this.spanDetailsById(spanId).getByRole("button", {
+			name: parentName,
+			exact: true,
+		});
+	}
+
+	parentButtonForSpanId(spanId: string, parentSpanId: string): Locator {
+		return this.spanDetailsById(spanId).locator(
+			`button[data-parent-span-id="${parentSpanId}"]`,
+		);
 	}
 }
 
@@ -150,6 +183,7 @@ export class TraceViewerPage {
 	readonly steps: SpanSection;
 	readonly browserSpans: SpanSection;
 	readonly externalSpans: SpanSection;
+	readonly details: DetailsPanel;
 	readonly search: SearchComponent;
 
 	constructor(page: Page) {
@@ -161,6 +195,7 @@ export class TraceViewerPage {
 		this.steps = new SpanSection(page, "Steps Timeline");
 		this.browserSpans = new SpanSection(page, "Browser Spans");
 		this.externalSpans = new SpanSection(page, "External Spans");
+		this.details = new DetailsPanel(page);
 		this.search = new SearchComponent(page);
 	}
 

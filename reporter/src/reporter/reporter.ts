@@ -11,6 +11,7 @@ import type {
 } from "@playwright/test/reporter";
 import {
 	cleanupTestFiles,
+	collectBrowserPageSpans,
 	collectNetworkSpans,
 	createNetworkDirs,
 	generateSpanId,
@@ -197,6 +198,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			return;
 		}
 
+		// Attach trace ID early so other reporters can consume it during onTestEnd.
+		result.attachments.push({
+			name: "playwright-opentelemetry-trace-id",
+			contentType: "text/plain",
+			body: Buffer.from(traceId, "utf-8"),
+		});
+
 		const attributes: Record<string, string | number | boolean> = {};
 
 		// titlePath format: ['', 'project', 'filename', ...describes, 'testname']
@@ -246,8 +254,17 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			}
 		}
 
-		// Collect network spans
+		// Collect browser page and network spans
 		const networkSpans = await collectNetworkSpans(outputDir, testId);
+		const reportedTestEndTime = new Date(
+			result.startTime.getTime() + result.duration,
+		);
+		const browserPageSpans = await collectBrowserPageSpans(
+			outputDir,
+			testId,
+			networkSpans,
+			reportedTestEndTime,
+		);
 
 		// Calculate test span timing to encompass all child spans
 		// Start with Playwright's reported timing as the baseline
@@ -265,12 +282,12 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 
 		// Expand bounds based on network spans
-		for (const networkSpan of networkSpans) {
-			if (networkSpan.startTime < minStartTime) {
-				minStartTime = networkSpan.startTime;
+		for (const browserSpan of [...browserPageSpans, ...networkSpans]) {
+			if (browserSpan.startTime < minStartTime) {
+				minStartTime = browserSpan.startTime;
 			}
-			if (networkSpan.endTime > maxEndTime) {
-				maxEndTime = networkSpan.endTime;
+			if (browserSpan.endTime > maxEndTime) {
+				maxEndTime = browserSpan.endTime;
 			}
 		}
 
@@ -285,14 +302,12 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		};
 
 		// Build the final spans array with test span first
-		const testSpans: Span[] = [span, ...stepSpans, ...networkSpans];
-
-		// Attach trace ID for downstream reporters to consume only when publishing.
-		result.attachments.push({
-			name: "playwright-opentelemetry-trace-id",
-			contentType: "text/plain",
-			body: Buffer.from(traceId, "utf-8"),
-		});
+		const testSpans: Span[] = [
+			span,
+			...stepSpans,
+			...browserPageSpans,
+			...networkSpans,
+		];
 
 		// Add all test spans to the global spans array
 		this.spans.push(...testSpans);

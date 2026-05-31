@@ -243,14 +243,14 @@ export async function fixtureCaptureRequestResponse({
 	const traceHeader = await request.headerValue("traceparent");
 
 	if (!traceHeader) {
-		throw new Error(`No traceparent header found for request ${request.url()}`);
+		return;
 	}
 
 	// Read the parent span ID from the parent file
 	const parentSpanId = readNetworkSpanParent(outputDir, testId, traceHeader);
 
 	if (!parentSpanId) {
-		throw new Error(`No parent span ID found for trace header ${traceHeader}`);
+		return;
 	}
 
 	// Parse the traceparent header to extract traceId and spanId

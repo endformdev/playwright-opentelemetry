@@ -5,12 +5,14 @@ import File from "lucide-solid/icons/file";
 import FileText from "lucide-solid/icons/file-text";
 import Film from "lucide-solid/icons/film";
 import Image from "lucide-solid/icons/image";
+import PanelTop from "lucide-solid/icons/panel-top";
 import Type from "lucide-solid/icons/type";
 
 import type { JSX } from "solid-js";
 import type { Span } from "../../trace-data-loader/exportToSpans";
 
 export type ResourceType =
+	| "page"
 	| "document"
 	| "stylesheet"
 	| "image"
@@ -23,6 +25,10 @@ export type ResourceType =
 export function getResourceDisplayName(span: Span): string {
 	const urlPath = span.attributes["url.path"];
 	if (typeof urlPath === "string") {
+		if (getResourceType(span) === "page") {
+			return urlPath;
+		}
+
 		const segments = urlPath.split("/").filter(Boolean);
 		return segments[segments.length - 1] || urlPath;
 	}
@@ -30,6 +36,10 @@ export function getResourceDisplayName(span: Span): string {
 }
 
 export function getResourceType(span: Span): ResourceType {
+	if (span.attributes["browser.resource.type"] === "page") {
+		return "page";
+	}
+
 	const resourceType = span.attributes["http.resource.type"];
 	if (typeof resourceType === "string") {
 		switch (resourceType) {
@@ -58,6 +68,7 @@ export function getResourceType(span: Span): ResourceType {
 export function getResourceColor(resourceType: ResourceType): string {
 	// chrome devtools style colors
 	const colors: Record<ResourceType, string> = {
+		page: "#7c8cf8", // Soft periwinkle
 		document: "#4285f4", // Blue
 		stylesheet: "#34a853", // Green
 		image: "#9c27b0", // Purple
@@ -76,6 +87,8 @@ export function getResourceIcon(
 ): JSX.Element {
 	const iconProps = { size, class: "flex-shrink-0" };
 	switch (resourceType) {
+		case "page":
+			return <PanelTop {...iconProps} />;
 		case "document":
 			return <FileText {...iconProps} />;
 		case "stylesheet":

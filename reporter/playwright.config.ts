@@ -2,6 +2,9 @@ import fs from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 import type { PlaywrightOpentelemetryReporterOptions } from "./dist/reporter.mjs";
 
+const browserPageSpansTraceIdFile =
+	process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
+
 loadEnv();
 
 // Allow either OTEL_EXPORTER_OTLP_ENDPOINT or PLAYWRIGHT_TRACE_API_ENDPOINT to be set
@@ -50,6 +53,9 @@ export default defineConfig({
 				}),
 			} satisfies PlaywrightOpentelemetryReporterOptions,
 		],
+		...(browserPageSpansTraceIdFile
+			? ([["./test-e2e/browser-page-spans-trace-id-file-reporter.ts"]] as const)
+			: []),
 	],
 	/* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
 	use: {

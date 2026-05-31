@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { Request, Response } from "@playwright/test";
 import { test as base } from "@playwright/test";
+import { BrowserPageTracker } from "./browser-page-tracker";
 import { fixtureOtelHeaderPropagator } from "./network-propagator";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
 
@@ -11,6 +12,7 @@ type TestTraceInfo = {
 
 export const test = base.extend<{
 	testTraceInfo: TestTraceInfo;
+	browserPageTracker: BrowserPageTracker;
 }>({
 	testTraceInfo: [
 		// biome-ignore lint/correctness/noUnusedFunctionParameters: playwright fails if object not used
@@ -24,20 +26,39 @@ export const test = base.extend<{
 		},
 		{ auto: true },
 	],
-	context: async ({ context, testTraceInfo: { testId, outputDir } }, use) => {
-		context.route(
-			"**",
-			async (route, request) =>
-				await fixtureOtelHeaderPropagator({
-					route,
-					request,
-					testId,
-					outputDir,
-				}),
-		);
+	browserPageTracker: [
+		async ({ testTraceInfo: { testId, outputDir } }, use) => {
+			await use(new BrowserPageTracker(testId, outputDir));
+		},
+		{ auto: true },
+	],
+	context: async (
+		{ context, testTraceInfo: { testId, outputDir }, browserPageTracker },
+		use,
+	) => {
+		context.route("**", async (route, request) => {
+			browserPageTracker.startDocumentNavigation(request);
+			await fixtureOtelHeaderPropagator({
+				route,
+				request,
+				testId,
+				outputDir,
+				parentSpanId: browserPageTracker.getActivePageSpanId(request) ?? null,
+			});
+		});
 		await use(context);
 	},
-	page: async ({ page, testTraceInfo: { testId, outputDir } }, use) => {
+	page: async (
+		{ page, testTraceInfo: { testId, outputDir }, browserPageTracker },
+		use,
+	) => {
+		browserPageTracker.registerPage(page);
+		page.on("framenavigated", (frame) => {
+			if (frame === page.mainFrame()) {
+				browserPageTracker.handleFrameNavigated(page, frame.url());
+			}
+		});
+
 		// Two-phase capture approach:
 		// 1. On 'response': Store the Response object (available synchronously)
 		// 2. On 'requestfinished': Use stored response + accurate timing
