@@ -25,7 +25,13 @@ export interface TestHarnessConfig {
 
 export function createTestHarness(config?: TestHarnessConfig): H3 {
 	const storage = createInMemoryStorage();
+	return createTestHarnessWithStorage(storage, config);
+}
 
+export function createTestHarnessWithStorage(
+	storage: TraceStorage,
+	config?: TestHarnessConfig,
+): H3 {
 	const app = new H3();
 
 	const apiConfig: TraceApiHandlerConfig = {
