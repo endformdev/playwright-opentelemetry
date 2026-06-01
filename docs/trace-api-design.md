@@ -14,17 +14,15 @@ Single directory structure with lifecycle-based retention:
 s3://bucket/
 └── traces/
     └── {traceId}/
-        ├── test.json
-        ├── opentelemetry-protocol/
-        │   ├── playwright-opentelemetry.json
-        │   └── {source}.json
+        ├── traces/
+        │   └── {requestId}.json
         └── screenshots/
             └── {pageId}-{timestamp}.jpeg
 ```
 
 All data writes directly to `traces/{traceId}/`. A lifecycle rule expires traces after a configurable retention period (default: 30 days).
 
-**Orphan spans** (OTLP data from services where no test.json ever arrives) will accumulate until the lifecycle rule cleans them up. This is an acceptable trade-off for the simplicity of not needing existence checks, conditional routing, or promotion logic.
+**Orphan spans** (OTLP data without a root `playwright.test` span) will accumulate until the lifecycle rule cleans them up. This is an acceptable trade-off for the simplicity of not needing existence checks, conditional routing, or promotion logic.
 
 ## Library Architecture
 
@@ -46,7 +44,7 @@ npm install @playwright-opentelemetry/trace-api
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
 const api = createTraceApi({
-  storage: {
+  storageConfig: {
     bucket: 'my-traces',
     endpoint: 'https://xxx.r2.cloudflarestorage.com',
     accessKeyId: env.R2_ACCESS_KEY_ID,
@@ -70,7 +68,7 @@ import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 import { getHeader, createError } from 'h3';
 
 const api = createTraceApi({
-  storage: {
+  storageConfig: {
     bucket: 'my-traces',
     endpoint: env.R2_ENDPOINT,
     accessKeyId: env.R2_ACCESS_KEY_ID,
@@ -86,16 +84,16 @@ api.use('/v1/traces', async (event) => {
   }
 });
 
-api.use('/otel-playwright-reporter/**', async (event) => {
+api.use('/playwright-otel-reporter/**', async (event) => {
   const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
   if (!await validateToken(token)) {
     throw createError({ statusCode: 401, message: 'Unauthorized' });
   }
 });
 
-// Read endpoints (/otel-trace-viewer/**) are public by default
+// Read endpoints (/playwright-otel-trace-viewer/**) are public by default
 // Add auth if needed:
-// api.use('/otel-trace-viewer/**', readAuthMiddleware);
+// api.use('/playwright-otel-trace-viewer/**', readAuthMiddleware);
 
 // Add custom routes
 api.get('/health', () => ({ status: 'ok' }));
@@ -109,8 +107,11 @@ export default {
 
 ```typescript
 interface TraceApiConfig {
-  // S3-compatible storage configuration (required)
-  storage: {
+  // Custom storage implementation. Use this or storageConfig, not both.
+  storage?: TraceStorage;
+
+  // S3-compatible storage configuration. Use this or storage, not both.
+  storageConfig?: {
     bucket: string;
     endpoint: string;
     accessKeyId: string;
@@ -147,9 +148,9 @@ const storage = createS3Storage({
 const app = new H3();
 
 // Add only the handlers you need
-app.post('/v1/traces', createOtlpHandler(storage));
-app.put('/otel-playwright-reporter/**', createPlaywrightHandler(storage));
-app.get('/otel-trace-viewer/**', createViewerHandler(storage));
+app.post('/v1/traces', createOtlpHandler({ storage }));
+app.put('/playwright-otel-reporter/**', createPlaywrightHandler({ storage }));
+app.get('/playwright-otel-trace-viewer/**', createViewerHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -176,8 +177,8 @@ const app = new H3();
 app.use(authMiddleware);
 
 // Write endpoints only
-app.post('/v1/traces', createOtlpHandler(storage));
-app.put('/otel-playwright-reporter/**', createPlaywrightHandler(storage));
+app.post('/v1/traces', createOtlpHandler({ storage }));
+app.put('/playwright-otel-reporter/**', createPlaywrightHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -197,7 +198,7 @@ const storage = createS3Storage({ ... });
 const app = new H3();
 
 // Read endpoints only - could be public or with different auth
-app.get('/otel-trace-viewer/**', createViewerHandler(storage));
+app.get('/playwright-otel-trace-viewer/**', createViewerHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -210,7 +211,7 @@ export default {
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storageConfig: { ... } });
 
 Deno.serve({ port: 3000 }, api.fetch);
 ```
@@ -219,7 +220,7 @@ Deno.serve({ port: 3000 }, api.fetch);
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storageConfig: { ... } });
 
 export default {
   port: 3000,
@@ -232,7 +233,7 @@ export default {
 import { serve } from 'h3/node';
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storageConfig: { ... } });
 
 serve(api, { port: 3000 });
 ```
@@ -250,25 +251,17 @@ Body: Standard OTLP JSON payload
 
 **Backend logic:**
 1. Parse `traceId` from each span in the payload
-2. Extract `service.name` from resource attributes for the filename
-3. Write to `traces/{traceId}/opentelemetry-protocol/{serviceName}.json`
+2. Partition the OTLP export by trace ID
+3. Write one OTLP-shaped fragment per trace ID to `traces/{traceId}/traces/{requestId}.json`
+
+The fragment filename is a unique request ID, not a service name or span ID. OTLP payloads can contain spans for multiple traces, so storing trace-scoped fragments keeps reads efficient without exposing object layout through the public API.
 
 Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, custom instrumentation, etc.).
 
 ### Playwright-Specific Endpoints
 
 ```
-PUT /otel-playwright-reporter/test.json
-X-Trace-Id: {traceId}
-
-Body: test.json content
-```
-
-**Backend logic:**
-1. Write to `traces/{traceId}/test.json`
-
-```
-PUT /otel-playwright-reporter/screenshots/{filename}
+PUT /playwright-otel-reporter/screenshots/{filename}
 X-Trace-Id: {traceId}
 
 Body: JPEG image data
@@ -282,18 +275,16 @@ Body: JPEG image data
 Serves the format expected by the trace viewer:
 
 ```
-GET /otel-trace-viewer/{traceId}/test.json
-GET /otel-trace-viewer/{traceId}/opentelemetry-protocol
-  -> { "jsonFiles": ["playwright-opentelemetry.json", "backend.json"] }
-GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
-GET /otel-trace-viewer/{traceId}/screenshots
+GET /playwright-otel-trace-viewer/{traceId}/traces
+  -> { "resourceSpans": [...] }
+GET /playwright-otel-trace-viewer/{traceId}/screenshots
   -> { "screenshots": [{ "timestamp": 1767539662401, "file": "page@abc-1767539662401.jpeg" }] }
-GET /otel-trace-viewer/{traceId}/screenshots/{filename}
+GET /playwright-otel-trace-viewer/{traceId}/screenshots/{filename}
 ```
 
 Screenshot timestamps are in **milliseconds since Unix epoch** (13 digits). The timestamp is extracted from the filename format `{pageId}-{timestampMs}.jpeg`.
 
-The listing endpoints (`/opentelemetry-protocol` and `/screenshots`) call S3 ListObjects and format the response.
+The trace endpoint merges all stored OTLP fragments for a trace ID by concatenating `resourceSpans`. If no trace fragments exist, it returns `404` instead of an empty OTLP export. The screenshots list endpoint calls S3 ListObjects and formats the response. If no screenshots exist, it returns `{ "screenshots": [] }`; missing individual screenshots return `404`.
 
 ## Bucket Setup (Required)
 
@@ -356,8 +347,8 @@ trace-api/
 │   ├── createTraceApi.ts     # High-level factory function
 │   ├── handlers/
 │   │   ├── otlp.ts           # createOtlpHandler - POST /v1/traces
-│   │   ├── playwright.ts     # createPlaywrightHandler - PUT /otel-playwright-reporter/*
-│   │   └── viewer.ts         # createViewerHandler - GET /otel-trace-viewer/*
+│   │   ├── playwright.ts     # createPlaywrightHandler - PUT /playwright-otel-reporter/*
+│   │   └── viewer.ts         # createViewerHandler - GET /playwright-otel-trace-viewer/*
 │   ├── storage/
 │   │   ├── types.ts          # Storage interface
 │   │   └── s3.ts             # createS3Storage - S3 implementation using aws4fetch
@@ -387,7 +378,7 @@ export type { TraceApiConfig, StorageConfig, TraceStorage } from './types';
 ## Lifecycle and Garbage Collection
 
 - **All traces**: S3 lifecycle rule expires objects in `traces/` after the configured retention period (recommended: 30 days)
-- **Orphan spans**: Traces without `test.json` are cleaned up by the same lifecycle rule
+- **Orphan spans**: Traces without a root `playwright.test` span are cleaned up by the same lifecycle rule
 
 This approach accepts that some orphan data may exist temporarily, trading perfect cleanup for operational simplicity.
 
@@ -450,7 +441,7 @@ interface Env {
 export default {
   fetch: (request: Request, env: Env) => {
     const api = createTraceApi({
-      storage: {
+      storageConfig: {
         bucket: 'traces',
         endpoint: env.R2_ENDPOINT,
         accessKeyId: env.R2_ACCESS_KEY_ID,
@@ -487,10 +478,10 @@ export default {
 
     // Apply auth to write endpoints
     api.use('/v1/traces', authMiddleware);
-    api.use('/otel-playwright-reporter/**', authMiddleware);
+    api.use('/playwright-otel-reporter/**', authMiddleware);
 
     // Read endpoints could use different auth or be public
-    // api.use('/otel-trace-viewer/**', readAuthMiddleware);
+    // api.use('/playwright-otel-trace-viewer/**', readAuthMiddleware);
 
     return api.fetch(request);
   },
@@ -499,6 +490,5 @@ export default {
 
 This results in storage paths like:
 ```
-traces/orgs/{orgId}/traces/{traceId}/test.json
-traces/orgs/{orgId}/traces/{traceId}/opentelemetry-protocol/...
+orgs/{orgId}/traces/{traceId}/traces/...
 ```

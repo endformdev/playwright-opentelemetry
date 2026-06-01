@@ -11,13 +11,13 @@ describe("Trace API Integration", () => {
 		mockFetch.mockResolvedValue({ ok: true, status: 200 });
 	});
 
-	it("sends test.json, screenshots, and OTLP spans to trace API endpoint", async () => {
+	it("sends OTLP spans with test metadata to trace API endpoint", async () => {
 		/**
 		 * Full integration test: A complete test run with steps and network activity
 		 * should send all data to the trace API:
 		 * 1. OTLP spans to POST {endpoint}/v1/traces
-		 * 2. test.json to PUT {endpoint}/otel-playwright-reporter/test.json
-		 * 3. Screenshots to PUT {endpoint}/otel-playwright-reporter/screenshots/{filename}
+		 * 2. Test metadata as root playwright.test span attributes
+		 * 3. Screenshots to PUT {endpoint}/playwright-otel-reporter/screenshots/{filename}
 		 *
 		 * All requests should include:
 		 * - X-Trace-Id header with the test's traceId
@@ -118,40 +118,30 @@ describe("Trace API Integration", () => {
 		const traceId = otlpBody.resourceSpans[0].scopeSpans[0].spans[0].traceId;
 		expect(traceId).toMatch(/^[0-9a-f]{32}$/);
 
-		// Verify test.json was sent
-		const testJsonCalls = mockFetch.mock.calls.filter(
-			(call) =>
-				call[0] ===
-					"https://traces.example.com/otel-playwright-reporter/test.json" &&
-				call[1]?.method === "PUT",
+		const testSpan = otlpBody.resourceSpans[0].scopeSpans[0].spans.find(
+			(span: { name: string }) => span.name === "playwright.test",
 		);
-		expect(testJsonCalls).toHaveLength(1);
-
-		const testJsonCall = testJsonCalls[0];
-		expect(testJsonCall[1].headers).toMatchObject({
-			"content-type": "application/json",
-			"x-trace-id": traceId,
-			Authorization: "Bearer test-token",
-		});
-
-		const testJson = JSON.parse(testJsonCall[1].body);
-		expect(testJson).toMatchObject({
-			name: "should complete checkout flow",
-			describes: ["E2E Tests", "Checkout"],
-			file: "checkout.spec.ts",
-			line: 42,
-			status: "passed",
-			traceId,
-		});
-		expect(testJson.startTimeUnixNano).toMatch(/^\d+$/);
-		expect(testJson.endTimeUnixNano).toMatch(/^\d+$/);
+		expect(testSpan.attributes).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					key: "test.case.title",
+					value: { stringValue: "should complete checkout flow" },
+				}),
+				expect.objectContaining({
+					key: "playwright.test.status",
+					value: { stringValue: "passed" },
+				}),
+				expect.objectContaining({
+					key: "playwright.test.describes",
+				}),
+			]),
+		);
 	});
 
 	it("sends data to both OTLP endpoint and trace API endpoint when both configured", async () => {
 		/**
 		 * When both otlpEndpoint and playwrightTraceApiEndpoint are configured,
-		 * spans should be sent to both endpoints, and test.json/screenshots
-		 * should only go to the trace API endpoint.
+		 * spans should be sent to both endpoints, and screenshots should only go to the trace API endpoint.
 		 */
 		const options: PlaywrightOpentelemetryReporterOptions = {
 			otlpEndpoint: "https://otel-collector.example.com/v1/traces",
@@ -222,23 +212,6 @@ describe("Trace API Integration", () => {
 			Authorization: "Bearer trace-api-token",
 		});
 
-		// Verify test.json sent only to trace API (not to OTLP collector)
-		const testJsonCalls = mockFetch.mock.calls.filter(
-			(call) =>
-				call[0] ===
-					"https://traces.example.com/otel-playwright-reporter/test.json" &&
-				call[1]?.method === "PUT",
-		);
-		expect(testJsonCalls).toHaveLength(1);
-
-		// Verify OTLP collector did NOT receive test.json
-		const otelTestJsonCalls = mockFetch.mock.calls.filter(
-			(call) =>
-				call[0].includes("otel-collector.example.com") &&
-				call[0].includes("otel-playwright-reporter"),
-		);
-		expect(otelTestJsonCalls).toHaveLength(0);
-
 		// Verify both OTLP payloads have the same traceId
 		const otelBody = JSON.parse(otelCollectorCalls[0][1].body);
 		const traceApiBody = JSON.parse(traceApiOtlpCalls[0][1].body);
@@ -248,8 +221,6 @@ describe("Trace API Integration", () => {
 			traceApiBody.resourceSpans[0].scopeSpans[0].spans[0].traceId;
 		expect(otelTraceId).toBe(traceApiTraceId);
 
-		// Verify test.json has matching traceId
-		const testJson = JSON.parse(testJsonCalls[0][1].body);
-		expect(testJson.traceId).toBe(otelTraceId);
+		expect(traceApiTraceId).toBe(otelTraceId);
 	});
 });

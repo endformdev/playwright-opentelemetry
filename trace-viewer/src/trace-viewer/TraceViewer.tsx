@@ -667,10 +667,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const MainPanelContent = () => (
 		<div class="flex flex-col h-full relative">
 			<Show when={props.traceData.isLoading()}>
-				<LoadingOverlay
-					loaded={props.traceData.progress().loaded}
-					total={props.traceData.progress().total}
-				/>
+				<LoadingOverlay />
 			</Show>
 
 			<TimelineRuler

@@ -1,12 +1,11 @@
 import {
-	getScreenshotUrl,
-	getTraceFileUrl,
+	getTraceViewerApiUrl,
 	loadTraceInServiceWorker,
 	registerServiceWorker,
 	unloadTraceFromServiceWorker,
 } from "../../service-worker/register";
-import type { ScreenshotInfo, TraceInfo } from "../TraceInfoLoader";
-import { loadZipFile } from "./zips";
+import type { TraceInfo } from "../TraceInfoLoader";
+import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
 
 let swRegistrationPromise: Promise<ServiceWorkerRegistration> | null = null;
 
@@ -14,78 +13,32 @@ export async function loadLocalZip(file: File): Promise<TraceInfo> {
 	await ensureServiceWorker();
 	await unloadCurrentTrace();
 
-	const zipResult = await loadZipFile(file);
-
-	// Send all data to service worker
-	await loadTraceInServiceWorker({
-		testInfo: zipResult.testInfo,
-		traceFiles: zipResult.traceFiles,
-		screenshots: Array.from(zipResult.screenshots.entries()).map(
-			([name, blob]) => ({ name, blob }),
-		),
-		screenshotMetas: zipResult.screenshotMetas,
-	});
-
-	// Build trace data URLs from trace file names
-	const traceDataUrls = zipResult.traceFiles.map((tf) =>
-		getTraceFileUrl(tf.name),
-	);
-
-	// Build screenshot infos with URLs
-	const screenshots: ScreenshotInfo[] = zipResult.screenshotMetas.map(
-		(meta) => ({
-			timestamp: meta.timestamp,
-			url: getScreenshotUrl(meta.file),
-		}),
-	);
-
-	return {
-		testInfo: zipResult.testInfo,
-		traceDataUrls,
-		screenshots,
-	};
+	return loadZipBlob(file);
 }
 
 export async function loadRemoteZip(url: string): Promise<TraceInfo> {
-	await unloadCurrentTrace();
 	await ensureServiceWorker();
+	await unloadCurrentTrace();
 
 	const response = await fetch(url);
 	if (!response.ok) {
 		throw new Error(`Failed to fetch ZIP from ${url}: ${response.statusText}`);
 	}
 
-	const blob = await response.blob();
+	return loadZipBlob(await response.blob());
+}
 
-	const zipResult = await loadZipFile(blob);
-
-	// Send all data to service worker
-	await loadTraceInServiceWorker({
-		testInfo: zipResult.testInfo,
-		traceFiles: zipResult.traceFiles,
-		screenshots: Array.from(zipResult.screenshots.entries()).map(
-			([name, blob]) => ({ name, blob }),
-		),
-		screenshotMetas: zipResult.screenshotMetas,
-	});
-
-	// Build trace data URLs from trace file names
-	const traceDataUrls = zipResult.traceFiles.map((tf) =>
-		getTraceFileUrl(tf.name),
-	);
-
-	// Build screenshot infos with URLs
-	const screenshots: ScreenshotInfo[] = zipResult.screenshotMetas.map(
-		(meta) => ({
-			timestamp: meta.timestamp,
-			url: getScreenshotUrl(meta.file),
-		}),
-	);
+async function loadZipBlob(zip: Blob): Promise<TraceInfo> {
+	const loadedTrace = await loadTraceInServiceWorker({ zip });
+	const baseUrl = getTraceViewerApiUrl(loadedTrace.traceId);
 
 	return {
-		testInfo: zipResult.testInfo,
-		traceDataUrls,
-		screenshots,
+		testInfo: deriveTestInfoFromOtlpExport(loadedTrace.traceData),
+		traceData: loadedTrace.traceData,
+		screenshots: loadedTrace.screenshotMetas.map((screenshot) => ({
+			timestamp: screenshot.timestamp,
+			url: `${baseUrl}/screenshots/${screenshot.file}`,
+		})),
 	};
 }
 

@@ -58,6 +58,7 @@ describe("searchIndex", () => {
 				"http.method": "GET",
 				"http.url": "/api/users",
 				"http.status_code": 200,
+				"playwright.test.describes": ["API", "Users"],
 			},
 			serviceName: "api-service",
 		},
@@ -98,11 +99,11 @@ describe("searchIndex", () => {
 		it("indexes all span attributes", () => {
 			const index = buildSearchIndex(mockSpans);
 
-			// span1 has 3 attributes + 4 special fields = 7 entries
+			// span1 has 4 attributes + 4 special fields = 8 entries
 			// span2 has 2 attributes + 4 special fields = 6 entries
 			// span3 has 3 attributes + 4 special fields = 7 entries
-			// Total: 20 entries
-			expect(index.length).toBe(20);
+			// Total: 21 entries
+			expect(index.length).toBe(21);
 		});
 
 		it("normalizes keys in search text", () => {
@@ -114,6 +115,20 @@ describe("searchIndex", () => {
 
 			expect(httpStatusEntry).toBeDefined();
 			expect(httpStatusEntry?.searchText).toBe("http status code 200");
+		});
+
+		it("indexes string array attributes", () => {
+			const index = buildSearchIndex(mockSpans);
+
+			const describesEntry = index.find(
+				(entry) =>
+					entry.key === "playwright.test.describes" && entry.spanId === "span1",
+			);
+
+			expect(describesEntry?.value).toBe("API,Users");
+			expect(describesEntry?.searchText).toBe(
+				"playwright test describes api,users",
+			);
 		});
 
 		it("includes special fields", () => {

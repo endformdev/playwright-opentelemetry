@@ -1,16 +1,14 @@
 import { type Accessor, createEffect, on, onCleanup } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import type { TraceInfo } from "../trace-info-loader";
-import { mergeSpans } from "./categorizeSpans";
+import { categorizeSpans } from "./categorizeSpans";
 import type { Span } from "./exportToSpans";
-import { fetchTraceData } from "./fetchTraceData";
+import { otlpExportToSpans } from "./exportToSpans";
 
 export type LoadStatus = "idle" | "loading" | "loaded" | "error";
 
 interface TraceDataStore {
 	status: LoadStatus;
-	loadedUrls: number;
-	totalUrls: number;
 	steps: Span[];
 	browserSpans: Span[];
 	externalSpans: Span[];
@@ -20,7 +18,6 @@ interface TraceDataStore {
 
 export interface TraceDataLoaderResult {
 	status: Accessor<LoadStatus>;
-	progress: Accessor<{ loaded: number; total: number }>;
 	isLoading: Accessor<boolean>;
 	steps: Accessor<Span[]>;
 	browserSpans: Accessor<Span[]>;
@@ -60,13 +57,10 @@ export function useTraceDataLoader(
 			// Calculate values we need
 			const testStartTimeMs = nanoToMs(info.testInfo.startTimeUnixNano);
 			const totalDurationMs = calculateDuration(info);
-			const urls = info.traceDataUrls;
 
 			// Initialize store for loading
 			setStore({
 				status: "loading",
-				loadedUrls: 0,
-				totalUrls: urls.length,
 				steps: [],
 				browserSpans: [],
 				externalSpans: [],
@@ -74,14 +68,7 @@ export function useTraceDataLoader(
 				error: undefined,
 			});
 
-			// If no URLs, we're done
-			if (urls.length === 0) {
-				setStore("status", "loaded");
-				return;
-			}
-
-			// Fetch all URLs in parallel, updating store incrementally
-			loadAllUrls(urls, testStartTimeMs, signal, setStore);
+			loadTraceData(info, testStartTimeMs, signal, setStore);
 		}),
 	);
 
@@ -95,7 +82,6 @@ export function useTraceDataLoader(
 	// Return reactive accessors
 	return {
 		status: () => store.status,
-		progress: () => ({ loaded: store.loadedUrls, total: store.totalUrls }),
 		isLoading: () => store.status === "loading",
 		steps: () => store.steps,
 		browserSpans: () => store.browserSpans,
@@ -105,56 +91,28 @@ export function useTraceDataLoader(
 	};
 }
 
-async function loadAllUrls(
-	urls: string[],
+async function loadTraceData(
+	traceInfo: TraceInfo,
 	testStartTimeMs: number,
 	signal: AbortSignal,
 	setStore: ReturnType<typeof createStore<TraceDataStore>>[1],
 ): Promise<void> {
-	// Create a promise for each URL that updates the store when done
-	const fetchPromises = urls.map(async (url) => {
-		// Check if aborted before starting
-		if (signal.aborted) {
-			return;
-		}
+	try {
+		if (signal.aborted) return;
 
-		const result = await fetchTraceData(url, testStartTimeMs);
+		const spans = otlpExportToSpans(traceInfo.traceData, testStartTimeMs);
+		const result = categorizeSpans(spans);
 
-		// Check if aborted after fetch
-		if (signal.aborted) {
-			return;
-		}
+		if (signal.aborted) return;
 
-		// Update store with new spans (merge and increment counter)
 		setStore(
 			produce((state) => {
-				const merged = mergeSpans(
-					{
-						steps: state.steps,
-						browserSpans: state.browserSpans,
-						externalSpans: state.externalSpans,
-					},
-					result,
-				);
-				state.steps = merged.steps;
-				state.browserSpans = merged.browserSpans;
-				state.externalSpans = merged.externalSpans;
-				state.loadedUrls += 1;
+				state.steps = result.steps;
+				state.browserSpans = result.browserSpans;
+				state.externalSpans = result.externalSpans;
+				state.status = "loaded";
 			}),
 		);
-	});
-
-	try {
-		// Wait for all fetches to complete
-		await Promise.all(fetchPromises);
-
-		// Check if aborted before marking complete
-		if (signal.aborted) {
-			return;
-		}
-
-		// All done
-		setStore("status", "loaded");
 	} catch (error) {
 		// Check if aborted
 		if (signal.aborted) {
@@ -177,8 +135,6 @@ async function loadAllUrls(
 function createInitialTraceDataStore(): TraceDataStore {
 	return {
 		status: "idle",
-		loadedUrls: 0,
-		totalUrls: 0,
 		steps: [],
 		browserSpans: [],
 		externalSpans: [],

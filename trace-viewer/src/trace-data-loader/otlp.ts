@@ -1,17 +1,22 @@
 import * as v from "valibot";
-import { type CategorizedSpans, categorizeSpans } from "./categorizeSpans";
-import { otlpExportToSpans } from "./exportToSpans";
 
-/**
- * Valibot schema for OpenTelemetry Protocol (OTLP) JSON Export format.
- * @see https://opentelemetry.io/docs/specs/otlp/
- */
+const OtlpArrayValueSchema = v.object({
+	values: v.array(
+		v.object({
+			stringValue: v.optional(v.string()),
+			intValue: v.optional(v.number()),
+			doubleValue: v.optional(v.number()),
+			boolValue: v.optional(v.boolean()),
+		}),
+	),
+});
 
 const OtlpAttributeValueSchema = v.object({
 	stringValue: v.optional(v.string()),
 	intValue: v.optional(v.number()),
 	doubleValue: v.optional(v.number()),
 	boolValue: v.optional(v.boolean()),
+	arrayValue: v.optional(OtlpArrayValueSchema),
 });
 
 const OtlpAttributeSchema = v.object({
@@ -71,22 +76,12 @@ export type OtlpSpan = v.InferOutput<typeof OtlpSpanSchema>;
 export type OtlpAttribute = v.InferOutput<typeof OtlpAttributeSchema>;
 export type OtlpAttributeValue = v.InferOutput<typeof OtlpAttributeValueSchema>;
 
-export async function fetchTraceData(
-	url: string,
-	testStartTimeMs: number,
-): Promise<CategorizedSpans> {
-	const response = await fetch(url);
+export function parseOtlpExport(json: unknown): OtlpExport {
+	return v.parse(OtlpExportSchema, json);
+}
 
-	if (!response.ok) {
-		const body = await response.text();
-		throw new Error(
-			`Failed to fetch trace data from ${url}: ${response.status} ${body}`,
-		);
-	}
-
-	const json: unknown = await response.json();
-	const otlpExport = v.parse(OtlpExportSchema, json);
-	const spans = otlpExportToSpans(otlpExport, testStartTimeMs);
-
-	return categorizeSpans(spans);
+export function mergeOtlpExports(exports: OtlpExport[]): OtlpExport {
+	return {
+		resourceSpans: exports.flatMap((otlpExport) => otlpExport.resourceSpans),
+	};
 }

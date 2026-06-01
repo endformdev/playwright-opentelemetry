@@ -96,40 +96,24 @@ When running the reporter with `storeTraceZip: true`, a local copy of trace data
 
 ```
 {file.spec}:{linenumber}-{testId}-pw-otel.zip
-- test.json <-- Base test information
-- opentelemetry-protocol/
-  - playwright-opentelemetry.json <-- the otlp request body of all trace data collected by the reporter related to this test.
+- traces/
+  - playwright-opentelemetry.json <-- the OTLP request body of all trace data collected by the reporter related to this test. Test metadata is stored on the root `playwright.test` span.
 - screenshots/ <-- any screenshots collected during the test run
   - {page}@{pageId}-{timestamp}.jpeg
 ```
 
 ### Trace API
 
-The trace viewer can also load traces from APIs that respond to the following endpoints:
+The trace viewer can also load traces from a trace-specific API base URL, for example `/playwright-otel-trace-viewer/{traceId}`. That base URL must respond to the following endpoints:
 
-- `GET {baseUrl}/test.json` - Base test information
-- `GET {baseUrl}/opentelemetry-protocol` - list OpenTelemetry traces
-	- Response format `{ "jsonFiles": ["playwright-opentelemetry.json", "other-file.json"] }`
-- `GET {baseUrl}/opentelemetry-protocol/playwright-opentelemetry.json` - Traces captured by playwright opentelemetry reporter
-- `GET {baseUrl}/opentelemetry-protocol/{traceFile}` - Other traces captured during the test run
+- `GET {baseUrl}/traces` - merged OTLP trace export response
+	- Response format `{ "resourceSpans": [...] }`
+	- Returns `404` when the trace does not exist
 - `GET {baseUrl}/screenshots` - List screenshots
 	- Response format `{ "screenshots": [ { "timestamp": 1766929201038, "file": "page@xxxbbb-1766929201038.jpeg" }] }`
 - `GET {baseUrl}/screenshots/{filename}` - Individual screenshots
 
-#### `test.json`
-
-```json
-{
-	"name": "User can log in to the homepage",
-	"describes": ["When a user is logged out"],
-	"file": "homepage/login.spec.ts",
-	"line": 9,
-	"status": "passed",
-	"traceId": "7709187832dca84f02f413a312421586",
-	"startTimeUnixNano": "1766927492260000000",
-	"endTimeUnixNano": "1766927493119000000",
-}
-```
+The trace viewer derives base test information from the root `playwright.test` span attributes, including `test.case.title`, `playwright.test.describes`, `playwright.test.status`, `code.file.path`, and `code.line.number`.
 
 ### Deploying Your Own Trace API
 

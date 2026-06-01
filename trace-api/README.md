@@ -4,7 +4,7 @@ H3-based API library for storing and serving Playwright OpenTelemetry traces in 
 
 ## Introduction
 
-The Trace API is a customizable library that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers. It provides endpoints for writing OTLP trace data and Playwright test artifacts, and serves them in a format compatible with the trace viewer.
+The Trace API is a customizable library that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers. It provides endpoints for writing OTLP trace data and Playwright screenshots, and serves them in a format compatible with the trace viewer. Test metadata is stored on the root `playwright.test` span.
 
 ## Usage
 
@@ -14,7 +14,7 @@ The Trace API is a customizable library that can be deployed to Cloudflare Worke
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
 const api = createTraceApi({
-  storage: {
+  storageConfig: {
     bucket: 'my-traces',
     endpoint: 'https://xxx.r2.cloudflarestorage.com',
     accessKeyId: env.R2_ACCESS_KEY_ID,
@@ -67,11 +67,11 @@ app.use(PLAYWRIGHT_REPORTER_WRITE_PATH, authMiddleware);
 
 // Add handlers
 // /v1/traces/
-app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(storage));
-// /otel-playwright-reporter/**
-app.put(PLAYWRIGHT_REPORTER_WRITE_PATH, createPlaywrightHandler(storage));
-// /otel-trace-viewer/**
-app.get(TRACE_VIEWER_READ_PATH, createViewerHandler(storage));
+app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler({ storage }));
+// /playwright-otel-reporter/**
+app.put(PLAYWRIGHT_REPORTER_WRITE_PATH, createPlaywrightHandler({ storage }));
+// /playwright-otel-trace-viewer/**
+app.get(TRACE_VIEWER_READ_PATH, createViewerHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -84,7 +84,7 @@ export default {
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storageConfig: { ... } });
 
 Deno.serve({ port: 3000 }, api.fetch);
 ```
@@ -93,7 +93,7 @@ Deno.serve({ port: 3000 }, api.fetch);
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storageConfig: { ... } });
 
 export default {
   port: 3000,
@@ -106,7 +106,7 @@ export default {
 import { serve } from 'h3/node';
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storageConfig: { ... } });
 
 serve(api, { port: 3000 });
 ```
@@ -117,15 +117,20 @@ serve(api, { port: 3000 });
 
 ```typescript
 interface TraceApiConfig {
-  storage: {
+  storage?: TraceStorage;
+  storageConfig?: {
     bucket: string;
     endpoint: string;
     accessKeyId: string;
     secretAccessKey: string;
     region?: string; // Default: 'auto'
   };
+  resolvePath?: (event: H3Event, path: string) => Promise<string> | string;
+  corsOrigin?: string | false;
 }
 ```
+
+Provide either `storage` for a custom `TraceStorage` implementation or `storageConfig` to create the built-in S3-compatible storage.
 
 ### Endpoints
 
@@ -137,18 +142,10 @@ Content-Type: application/json
 Body: Standard OTLP JSON payload
 ```
 
-Writes OTLP spans to `traces/{traceId}/opentelemetry-protocol/{serviceName}.json`.
+Partitions OTLP spans by trace ID and writes OTLP-shaped fragments to `traces/{traceId}/traces/{requestId}.json`. The fragment filename is a unique request ID, not a service name or span ID.
 
 ```
-PUT /otel-playwright-reporter/test.json
-X-Trace-Id: {traceId}
-Body: test.json content
-```
-
-Writes test metadata to `traces/{traceId}/test.json`.
-
-```
-PUT /otel-playwright-reporter/screenshots/{filename}
+PUT /playwright-otel-reporter/screenshots/{filename}
 X-Trace-Id: {traceId}
 Body: JPEG image data
 ```
@@ -158,14 +155,12 @@ Writes screenshots to `traces/{traceId}/screenshots/{filename}`.
 **Read Endpoints:**
 
 ```
-GET /otel-trace-viewer/{traceId}/test.json
-GET /otel-trace-viewer/{traceId}/opentelemetry-protocol
-GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
-GET /otel-trace-viewer/{traceId}/screenshots
-GET /otel-trace-viewer/{traceId}/screenshots/{filename}
+GET /playwright-otel-trace-viewer/{traceId}/traces
+GET /playwright-otel-trace-viewer/{traceId}/screenshots
+GET /playwright-otel-trace-viewer/{traceId}/screenshots/{filename}
 ```
 
-Serves trace data in the format expected by the trace viewer.
+Serves merged OTLP trace data and screenshot data in the format expected by the trace viewer. The trace endpoint returns `404` when no trace fragments exist. The screenshots list endpoint returns `{ "screenshots": [] }` when a trace has no screenshots, while missing individual screenshots return `404`.
 
 ## Storage Setup
 
@@ -203,10 +198,8 @@ wrangler r2 bucket lifecycle set my-traces --rules '[{
 s3://bucket/
 └── traces/
     └── {traceId}/
-        ├── test.json
-        ├── opentelemetry-protocol/
-        │   ├── playwright-opentelemetry.json
-        │   └── {serviceName}.json
+        ├── traces/
+        │   └── {requestId}.json
         └── screenshots/
             └── {pageId}-{timestamp}.jpeg
 ```

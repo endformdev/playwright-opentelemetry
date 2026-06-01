@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { otlpExportToSpans, otlpSpanToSpan } from "./exportToSpans";
-import type { OtlpExport, OtlpSpan } from "./fetchTraceData";
+import type { OtlpExport, OtlpSpan } from "./otlp";
 
 describe("otlpSpanToSpan", () => {
 	it("extracts basic span properties", () => {
@@ -121,6 +121,14 @@ describe("otlpSpanToSpan", () => {
 				{ key: "int.attr", value: { intValue: 42 } },
 				{ key: "double.attr", value: { doubleValue: 3.14 } },
 				{ key: "bool.attr", value: { boolValue: true } },
+				{
+					key: "array.attr",
+					value: {
+						arrayValue: {
+							values: [{ stringValue: "first" }, { stringValue: "second" }],
+						},
+					},
+				},
 			],
 		});
 
@@ -130,6 +138,7 @@ describe("otlpSpanToSpan", () => {
 		expect(result.attributes["int.attr"]).toBe(42);
 		expect(result.attributes["double.attr"]).toBe(3.14);
 		expect(result.attributes["bool.attr"]).toBe(true);
+		expect(result.attributes["array.attr"]).toEqual(["first", "second"]);
 	});
 
 	it("includes serviceName in result", () => {

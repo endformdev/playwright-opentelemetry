@@ -1,5 +1,5 @@
 import { getBasePath, resolveBasePath } from "../basePath";
-import type { TestInfo } from "../trace-info-loader/TraceInfoLoader";
+import type { OtlpExport } from "../trace-data-loader";
 
 export interface ServiceWorkerState {
 	registration: ServiceWorkerRegistration | null;
@@ -19,13 +19,12 @@ export interface ScreenshotMeta {
  * Data to send to the service worker when loading a trace
  */
 export interface TraceLoadData {
-	/** Base test information from test.json */
-	testInfo: TestInfo;
-	/** Trace files with name and JSON content */
-	traceFiles: Array<{ name: string; content: unknown }>;
-	/** Screenshots with name and blob */
-	screenshots: Array<{ name: string; blob: Blob }>;
-	/** Screenshot metadata for list endpoint */
+	zip: Blob;
+}
+
+export interface TraceLoadedData {
+	traceId: string;
+	traceData: OtlpExport;
 	screenshotMetas: ScreenshotMeta[];
 }
 
@@ -38,7 +37,7 @@ export type ServiceWorkerMessage =
 	| { type: "PING" };
 
 export type ServiceWorkerResponse =
-	| { type: "TRACE_LOADED" }
+	| { type: "TRACE_LOADED"; data: TraceLoadedData }
 	| { type: "TRACE_LOAD_ERROR"; error: string }
 	| { type: "PONG" };
 
@@ -132,7 +131,7 @@ async function pingServiceWorker(worker: ServiceWorker): Promise<void> {
  */
 export async function loadTraceInServiceWorker(
 	data: TraceLoadData,
-): Promise<void> {
+): Promise<TraceLoadedData> {
 	const registration = await navigator.serviceWorker.ready;
 	const worker = registration.active;
 
@@ -150,7 +149,7 @@ export async function loadTraceInServiceWorker(
 			if (event.data?.type === "TRACE_LOADED") {
 				clearTimeout(timeout);
 				navigator.serviceWorker.removeEventListener("message", handleMessage);
-				resolve();
+				resolve(event.data.data);
 			} else if (event.data?.type === "TRACE_LOAD_ERROR") {
 				clearTimeout(timeout);
 				navigator.serviceWorker.removeEventListener("message", handleMessage);
@@ -183,20 +182,8 @@ export async function unloadTraceFromServiceWorker(): Promise<void> {
 	}
 }
 
-/**
- * Generate URLs for trace API endpoints.
- * These URLs will be intercepted by the service worker.
- */
-export function getTraceApiUrl(path: string): string {
-	return resolveBasePath(path);
-}
-
-export function getScreenshotUrl(filename: string): string {
-	return resolveBasePath(`screenshots/${filename}`);
-}
-
-export function getTraceFileUrl(filename: string): string {
-	return resolveBasePath(`opentelemetry-protocol/${filename}`);
+export function getTraceViewerApiUrl(traceId: string): string {
+	return resolveBasePath(`playwright-otel-trace-viewer/${traceId}`);
 }
 
 function getServiceWorkerUrl(): string {

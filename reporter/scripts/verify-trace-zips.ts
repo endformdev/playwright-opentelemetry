@@ -19,33 +19,29 @@ interface VerificationResult {
 	passed: boolean;
 	spanCount?: number;
 	screenshotCount?: number;
-	testInfo?: TestInfo;
+	testSpan?: OtlpSpan;
 	errors: string[];
-}
-
-interface TestInfo {
-	name: string;
-	describes: string[];
-	file: string;
-	line: number;
-	status: string;
-	traceId: string;
-	startTimeUnixNano: string;
-	endTimeUnixNano: string;
 }
 
 interface OtlpTrace {
 	resourceSpans?: Array<{
 		scopeSpans?: Array<{
-			spans?: Array<unknown>;
+			spans?: OtlpSpan[];
 		}>;
 	}>;
+}
+
+interface OtlpSpan {
+	name?: string;
+	traceId?: string;
+	startTimeUnixNano?: string;
+	endTimeUnixNano?: string;
+	attributes?: Array<{ key?: string; value?: unknown }>;
 }
 
 async function main() {
 	console.log("=== Trace Zip E2E Verification ===\n");
 
-	// Step 1: Clean up existing test results
 	console.log("1. Cleaning up existing test results...");
 	try {
 		await rm(TEST_RESULTS_DIR, { recursive: true, force: true });
@@ -54,16 +50,13 @@ async function main() {
 		console.log("   No existing test results to clean up\n");
 	}
 
-	// Step 2: Run e2e tests
 	console.log("2. Running e2e tests...");
 	try {
 		await $`pnpm test:e2e`.cwd(path.join(import.meta.dirname, ".."));
 	} catch {
-		// Tests might fail but we still want to check the zip files
 		console.log("   Tests completed (with possible failures)\n");
 	}
 
-	// Step 3: Find generated zip files
 	console.log("3. Finding generated zip files...");
 	const zipFiles = await findZipFiles(TEST_RESULTS_DIR);
 
@@ -74,7 +67,6 @@ async function main() {
 
 	console.log(`   Found ${zipFiles.length} zip file(s)\n`);
 
-	// Step 4: Verify each zip file
 	console.log("4. Verifying zip contents...\n");
 	const results: VerificationResult[] = [];
 
@@ -89,17 +81,15 @@ async function main() {
 			console.log(
 				`     Spans: ${result.spanCount}, Screenshots: ${result.screenshotCount}`,
 			);
-			if (result.testInfo) {
+			if (result.testSpan) {
+				const attrs = attributesByKey(result.testSpan.attributes ?? []);
 				console.log(
-					`     Test: "${result.testInfo.name}" (${result.testInfo.status})`,
+					`     Test: "${stringAttribute(attrs, "test.case.title") ?? result.testSpan.name}" (${stringAttribute(attrs, "playwright.test.status") ?? "unknown"})`,
 				);
-				console.log(
-					`     File: ${result.testInfo.file}:${result.testInfo.line}`,
-				);
-				if (result.testInfo.describes.length > 0) {
-					console.log(
-						`     Describes: ${result.testInfo.describes.join(" > ")}`,
-					);
+				const file = stringAttribute(attrs, "code.file.path");
+				const line = numberAttribute(attrs, "code.line.number");
+				if (file) {
+					console.log(`     File: ${file}${line ? `:${line}` : ""}`);
 				}
 			}
 		} else {
@@ -110,7 +100,6 @@ async function main() {
 		console.log();
 	}
 
-	// Summary
 	const passed = results.filter((r) => r.passed).length;
 	const failed = results.filter((r) => !r.passed).length;
 
@@ -153,77 +142,16 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 	const errors: string[] = [];
 	let spanCount = 0;
 	let screenshotCount = 0;
-	let testInfo: TestInfo | undefined;
+	let testSpan: OtlpSpan | undefined;
 
-	// Create a temporary directory to extract the zip
 	const tempDir = await mkdtemp(path.join(tmpdir(), "verify-trace-"));
 
 	try {
-		// Extract the zip file using native unzip command
 		await $`unzip -q ${zipPath} -d ${tempDir}`;
 
-		// Check for test.json at root
-		const testJsonPath = path.join(tempDir, "test.json");
-		try {
-			const testJsonContent = await readFile(testJsonPath, "utf-8");
-			testInfo = JSON.parse(testJsonContent) as TestInfo;
-
-			// Validate required fields
-			if (typeof testInfo.name !== "string" || !testInfo.name) {
-				errors.push("test.json: missing or invalid 'name' field");
-			}
-			if (!Array.isArray(testInfo.describes)) {
-				errors.push(
-					"test.json: missing or invalid 'describes' field (should be array)",
-				);
-			}
-			if (typeof testInfo.file !== "string" || !testInfo.file) {
-				errors.push("test.json: missing or invalid 'file' field");
-			}
-			if (typeof testInfo.line !== "number") {
-				errors.push(
-					"test.json: missing or invalid 'line' field (should be number)",
-				);
-			}
-			if (typeof testInfo.status !== "string" || !testInfo.status) {
-				errors.push("test.json: missing or invalid 'status' field");
-			}
-			if (
-				typeof testInfo.traceId !== "string" ||
-				!/^[0-9a-f]{32}$/.test(testInfo.traceId)
-			) {
-				errors.push(
-					"test.json: missing or invalid 'traceId' field (should be 32-char hex)",
-				);
-			}
-			if (
-				typeof testInfo.startTimeUnixNano !== "string" ||
-				!/^\d+$/.test(testInfo.startTimeUnixNano)
-			) {
-				errors.push(
-					"test.json: missing or invalid 'startTimeUnixNano' field (should be numeric string)",
-				);
-			}
-			if (
-				typeof testInfo.endTimeUnixNano !== "string" ||
-				!/^\d+$/.test(testInfo.endTimeUnixNano)
-			) {
-				errors.push(
-					"test.json: missing or invalid 'endTimeUnixNano' field (should be numeric string)",
-				);
-			}
-		} catch (err) {
-			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-				errors.push("Missing test.json at root of zip");
-			} else {
-				errors.push(`Failed to parse test.json: ${err}`);
-			}
-		}
-
-		// Check for OTLP trace file
 		const tracePath = path.join(
 			tempDir,
-			"opentelemetry-protocol",
+			"traces",
 			"playwright-opentelemetry.json",
 		);
 
@@ -234,12 +162,14 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 			if (!traceData.resourceSpans || !Array.isArray(traceData.resourceSpans)) {
 				errors.push("Invalid OTLP structure: missing resourceSpans array");
 			} else {
-				// Count spans
 				for (const rs of traceData.resourceSpans) {
 					if (rs.scopeSpans) {
 						for (const ss of rs.scopeSpans) {
 							if (ss.spans) {
 								spanCount += ss.spans.length;
+								testSpan ??= ss.spans.find(
+									(span) => span.name === "playwright.test",
+								);
 							}
 						}
 					}
@@ -248,18 +178,20 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 				if (spanCount === 0) {
 					errors.push("OTLP trace contains no spans");
 				}
+				if (!testSpan) {
+					errors.push("OTLP trace is missing root playwright.test span");
+				} else {
+					validateTestSpan(testSpan, errors);
+				}
 			}
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-				errors.push(
-					"Missing opentelemetry-protocol/playwright-opentelemetry.json",
-				);
+				errors.push("Missing traces/playwright-opentelemetry.json");
 			} else {
 				errors.push(`Failed to parse trace JSON: ${err}`);
 			}
 		}
 
-		// Check for screenshots
 		const screenshotsDir = path.join(tempDir, "screenshots");
 		let screenshotFiles: string[] = [];
 
@@ -269,7 +201,7 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 				(name) => name.endsWith(".jpeg") || name.endsWith(".jpg"),
 			);
 		} catch {
-			// Directory doesn't exist
+			// Directory doesn't exist.
 		}
 
 		screenshotCount = screenshotFiles.length;
@@ -277,7 +209,6 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 		if (screenshotCount === 0) {
 			errors.push("No screenshots found in screenshots/ directory");
 		} else {
-			// Validate screenshot naming convention: {page}@{pageGuid}-{timestamp}.jpeg
 			const screenshotPattern = /^[^@]+@[^-]+-\d+\.jpeg$/;
 
 			for (const name of screenshotFiles) {
@@ -289,7 +220,6 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 	} catch (error) {
 		errors.push(`Failed to read zip file: ${error}`);
 	} finally {
-		// Cleanup temp directory
 		await rm(tempDir, { recursive: true, force: true });
 	}
 
@@ -298,9 +228,89 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 		passed: errors.length === 0,
 		spanCount,
 		screenshotCount,
-		testInfo,
+		testSpan,
 		errors,
 	};
+}
+
+function validateTestSpan(span: OtlpSpan, errors: string[]): void {
+	if (
+		typeof span.traceId !== "string" ||
+		!/^[0-9a-f]{32}$/.test(span.traceId)
+	) {
+		errors.push("playwright.test span: missing or invalid traceId");
+	}
+	if (
+		typeof span.startTimeUnixNano !== "string" ||
+		!/^[0-9]+$/.test(span.startTimeUnixNano)
+	) {
+		errors.push("playwright.test span: missing or invalid startTimeUnixNano");
+	}
+	if (
+		typeof span.endTimeUnixNano !== "string" ||
+		!/^[0-9]+$/.test(span.endTimeUnixNano)
+	) {
+		errors.push("playwright.test span: missing or invalid endTimeUnixNano");
+	}
+
+	const attrs = attributesByKey(span.attributes ?? []);
+	for (const key of ["test.case.title", "playwright.test.status"]) {
+		if (!stringAttribute(attrs, key)) {
+			errors.push(`playwright.test span: missing ${key} attribute`);
+		}
+	}
+}
+
+function attributesByKey(
+	attributes: Array<{ key?: string; value?: unknown }>,
+): Map<string, unknown> {
+	const result = new Map<string, unknown>();
+	for (const attribute of attributes) {
+		if (attribute.key) {
+			result.set(attribute.key, attribute.value);
+		}
+	}
+	return result;
+}
+
+function stringAttribute(
+	attributes: Map<string, unknown>,
+	key: string,
+): string | undefined {
+	const value = attributes.get(key);
+	if (isOtlpStringValue(value)) {
+		return value.stringValue;
+	}
+	return undefined;
+}
+
+function numberAttribute(
+	attributes: Map<string, unknown>,
+	key: string,
+): number | undefined {
+	const value = attributes.get(key);
+	if (isOtlpIntValue(value)) {
+		return value.intValue;
+	}
+	return undefined;
+}
+
+function isOtlpStringValue(value: unknown): value is { stringValue: string } {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"stringValue" in value &&
+		typeof value.stringValue === "string"
+	);
+}
+
+function isOtlpIntValue(value: unknown): value is { intValue: number } {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"intValue" in value &&
+		typeof value.intValue === "number"
+	);
 }
 
 main();
