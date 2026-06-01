@@ -1,89 +1,65 @@
 /**
- * Service Worker for serving trace data from ZIP files.
+ * Service Worker for extracting ZIP traces and serving screenshots lazily.
  *
- * This service worker intercepts fetch requests and serves trace data
- * as if it were coming from a remote API. It implements the Trace API:
- *
- * - GET /opentelemetry-protocol - List of trace files
- * - GET /opentelemetry-protocol/{file} - Individual trace file
- * - GET /screenshots - List of screenshots
- * - GET /screenshots/{filename} - Individual screenshot
+ * OTLP trace data is returned to the page during LOAD_TRACE. Screenshots stay
+ * cached here and are exposed through the screenshot read API only.
  */
 
-// TypeScript needs this triple-slash directive for service worker types
 /// <reference lib="webworker" />
 
-// Cast self to ServiceWorkerGlobalScope for proper typing
+import type { Entry, FileEntry } from "@zip.js/zip.js";
+import { BlobReader, BlobWriter, TextWriter, ZipReader } from "@zip.js/zip.js";
+import {
+	mergeOtlpExports,
+	parseOtlpExport,
+	type OtlpExport,
+} from "../trace-data-loader/otlp";
+
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
-/**
- * Screenshot metadata for the /screenshots list endpoint
- */
 interface ScreenshotMeta {
 	timestamp: number;
 	file: string;
 }
 
-/**
- * Currently loaded trace data (only one trace at a time)
- */
+interface ZipLoadResult {
+	traceId: string;
+	traceData: OtlpExport;
+	screenshotMetas: ScreenshotMeta[];
+	screenshotFiles: Set<string>;
+}
+
 interface LoadedTrace {
-	/** Map of filename -> JSON content for trace files */
-	traceFiles: Map<string, unknown>;
-	/** Map of filename -> Blob for screenshots */
-	screenshots: Map<string, Blob>;
-	/** Screenshot metadata for list endpoint */
+	traceId: string;
+	zip: Blob;
+	screenshotFiles: Set<string>;
+	screenshotBlobs: Map<string, Blob>;
+	screenshotLoads: Map<string, Promise<Blob>>;
 	screenshotMetas: ScreenshotMeta[];
 }
 
 let currentTrace: LoadedTrace | null = null;
 
-/**
- * Gets the base path from the build-time environment variable.
- * Always returns an absolute path with trailing slash.
- */
 function getBasePath(): string {
 	const base = import.meta.env.VITE_TRACE_VIEWER_BASE ?? "/";
 	return base.endsWith("/") ? base : `${base}/`;
 }
 
-// Install event - skip waiting to activate immediately
 sw.addEventListener("install", () => {
 	sw.skipWaiting();
 });
 
-// Activate event - claim all clients
 sw.addEventListener("activate", (event: ExtendableEvent) => {
 	event.waitUntil(sw.clients.claim());
 });
 
-// Message handler for loading trace data
 sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 	const { type, data } = event.data;
 	const client = event.source as Client | null;
 
 	switch (type) {
 		case "LOAD_TRACE": {
-			try {
-				// Store trace data (replacing any previously loaded trace)
-				currentTrace = {
-					traceFiles: deserializeTraceFiles(data.traceFiles),
-					screenshots: deserializeScreenshots(data.screenshots),
-					screenshotMetas: data.screenshotMetas,
-				};
-
-				// Notify the client that loading is complete
-				client?.postMessage({
-					type: "TRACE_LOADED",
-				});
-			} catch (error) {
-				// Send error back to client so it doesn't hang waiting for TRACE_LOADED
-				const message = error instanceof Error ? error.message : String(error);
-				client?.postMessage({
-					type: "TRACE_LOAD_ERROR",
-					error: message,
-				});
-			}
+			event.waitUntil(loadTrace(data.zip, client));
 			break;
 		}
 
@@ -99,84 +75,186 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 	}
 });
 
-// Fetch handler - intercept trace API requests
+async function loadTrace(zip: Blob, client: Client | null): Promise<void> {
+	try {
+		const result = await loadZip(zip);
+		currentTrace = {
+			traceId: result.traceId,
+			zip,
+			screenshotFiles: result.screenshotFiles,
+			screenshotBlobs: new Map(),
+			screenshotLoads: new Map(),
+			screenshotMetas: result.screenshotMetas,
+		};
+
+		client?.postMessage({
+			type: "TRACE_LOADED",
+			data: {
+				traceId: result.traceId,
+				traceData: result.traceData,
+				screenshotMetas: result.screenshotMetas,
+			},
+		});
+	} catch (error) {
+		client?.postMessage({
+			type: "TRACE_LOAD_ERROR",
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
 sw.addEventListener("fetch", (event: FetchEvent) => {
 	const url = new URL(event.request.url);
-	const pathname = url.pathname;
 
-	// Only handle requests when we have trace data loaded
 	if (!currentTrace) {
 		return;
 	}
 
-	// Helper to check if pathname matches a base-relative path
-	const matchesPath = (relativePath: string): boolean => {
-		const normalizedBase = getBasePath();
-		const fullPath = normalizedBase + relativePath.replace(/^\//, "");
-		return pathname === fullPath || pathname === fullPath.replace(/\/$/, "");
-	};
-
-	// Helper to extract filename from a base-relative prefix
-	const extractFilename = (relativePrefix: string): string | null => {
-		const normalizedBase = getBasePath();
-		const fullPrefix = normalizedBase + relativePrefix.replace(/^\//, "");
-		if (pathname.startsWith(fullPrefix)) {
-			return pathname.slice(fullPrefix.length);
-		}
-		return null;
-	};
-
-	// GET /opentelemetry-protocol (list trace files)
-	if (matchesPath("opentelemetry-protocol")) {
-		const jsonFiles = Array.from(currentTrace.traceFiles.keys());
-		event.respondWith(jsonResponse({ jsonFiles }));
+	const apiPrefix = `${getBasePath()}playwright-otel-trace-viewer/${currentTrace.traceId}/`;
+	if (!url.pathname.startsWith(apiPrefix)) {
 		return;
 	}
 
-	// GET /opentelemetry-protocol/{file}
-	const traceFilename = extractFilename("opentelemetry-protocol/");
-	if (traceFilename) {
-		const traceData = currentTrace.traceFiles.get(traceFilename);
+	const apiPath = url.pathname.slice(apiPrefix.length);
+	const parts = apiPath.split("/").filter(Boolean);
 
-		if (traceData) {
-			event.respondWith(jsonResponse(traceData));
-		} else {
-			event.respondWith(
-				notFoundResponse(`Trace file not found: ${traceFilename}`),
-			);
-		}
+	if (parts.length === 1 && parts[0] === "screenshots") {
+		event.respondWith(jsonResponse({ screenshots: currentTrace.screenshotMetas }));
 		return;
 	}
 
-	// GET /screenshots (list screenshots)
-	if (matchesPath("screenshots")) {
-		event.respondWith(
-			jsonResponse({ screenshots: currentTrace.screenshotMetas }),
-		);
+	if (parts.length === 2 && parts[0] === "screenshots") {
+		const screenshotFilename = parts[1];
+		event.respondWith(screenshotResponse(currentTrace, screenshotFilename));
 		return;
 	}
 
-	// GET /screenshots/{filename}
-	const screenshotFilename = extractFilename("screenshots/");
-	if (screenshotFilename) {
-		const screenshot = currentTrace.screenshots.get(screenshotFilename);
-
-		if (screenshot) {
-			event.respondWith(blobResponse(screenshot));
-		} else {
-			event.respondWith(
-				notFoundResponse(`Screenshot not found: ${screenshotFilename}`),
-			);
-		}
-		return;
-	}
-
-	// Let other requests pass through
+	event.respondWith(notFoundResponse(`Unsupported trace API path: ${apiPath}`));
 });
 
-/**
- * Create a JSON response
- */
+async function loadZip(zip: Blob): Promise<ZipLoadResult> {
+	const zipReader = new ZipReader(new BlobReader(zip));
+	try {
+		return await parseZipEntries(await zipReader.getEntries());
+	} finally {
+		await zipReader.close();
+	}
+}
+
+async function parseZipEntries(entries: Entry[]): Promise<ZipLoadResult> {
+	const traceExports: OtlpExport[] = [];
+	const screenshotMetas: ScreenshotMeta[] = [];
+	const screenshotFiles = new Set<string>();
+
+	for (const entry of entries) {
+		if (!isFileEntry(entry)) continue;
+
+		if (entry.filename.startsWith("traces/") && entry.filename.endsWith(".json")) {
+			const name = entry.filename.slice("traces/".length);
+			if (name && !name.includes("/")) {
+				const text = await entry.getData(new TextWriter());
+				traceExports.push(parseOtlpExport(JSON.parse(text)));
+			}
+		}
+
+		if (entry.filename.startsWith("screenshots/")) {
+			const name = entry.filename.slice("screenshots/".length);
+			if (name) {
+				screenshotFiles.add(name);
+				screenshotMetas.push({
+					timestamp: extractTimestampFromFilename(name),
+					file: name,
+				});
+			}
+		}
+	}
+
+	if (traceExports.length === 0) {
+		throw new Error(
+			"No trace files found in traces/. Make sure you're loading a valid Playwright OpenTelemetry trace ZIP.",
+		);
+	}
+
+	const traceData = mergeOtlpExports(traceExports);
+	const traceId = findTraceId(traceData);
+	if (!traceId) {
+		throw new Error("Unable to load ZIP trace: no traceId found in OTLP trace data");
+	}
+
+	screenshotMetas.sort((a, b) => a.timestamp - b.timestamp);
+
+	return { traceId, traceData, screenshotMetas, screenshotFiles };
+}
+
+async function screenshotResponse(
+	trace: LoadedTrace,
+	filename: string,
+): Promise<Response> {
+	if (!trace.screenshotFiles.has(filename)) {
+		return notFoundResponse(`Screenshot not found: ${filename}`);
+	}
+
+	try {
+		return blobResponse(await getScreenshotBlob(trace, filename));
+	} catch (error) {
+		return new Response(
+			error instanceof Error ? error.message : String(error),
+			{ status: 500 },
+		);
+	}
+}
+
+async function getScreenshotBlob(
+	trace: LoadedTrace,
+	filename: string,
+): Promise<Blob> {
+	const cached = trace.screenshotBlobs.get(filename);
+	if (cached) return cached;
+
+	const existingLoad = trace.screenshotLoads.get(filename);
+	if (existingLoad) return existingLoad;
+
+	const load = extractScreenshotBlob(trace.zip, filename)
+		.then((blob) => {
+			trace.screenshotBlobs.set(filename, blob);
+			return blob;
+		})
+		.finally(() => {
+			trace.screenshotLoads.delete(filename);
+		});
+
+	trace.screenshotLoads.set(filename, load);
+	return load;
+}
+
+async function extractScreenshotBlob(zip: Blob, filename: string): Promise<Blob> {
+	const zipReader = new ZipReader(new BlobReader(zip));
+	try {
+		const entry = (await zipReader.getEntries()).find(
+			(entry): entry is FileEntry =>
+				isFileEntry(entry) && entry.filename === `screenshots/${filename}`,
+		);
+
+		if (!entry) {
+			throw new Error(`Screenshot not found in ZIP: ${filename}`);
+		}
+
+		return entry.getData(new BlobWriter(getMimeType(filename)));
+	} finally {
+		await zipReader.close();
+	}
+}
+
+function findTraceId(traceData: OtlpExport): string | undefined {
+	for (const resourceSpans of traceData.resourceSpans) {
+		for (const scopeSpans of resourceSpans.scopeSpans) {
+			const span = scopeSpans.spans.find((span) => span.traceId);
+			if (span) return span.traceId;
+		}
+	}
+	return undefined;
+}
+
 function jsonResponse(data: unknown): Response {
 	return new Response(JSON.stringify(data), {
 		status: 200,
@@ -187,9 +265,6 @@ function jsonResponse(data: unknown): Response {
 	});
 }
 
-/**
- * Create a blob response (for screenshots)
- */
 function blobResponse(blob: Blob): Response {
 	return new Response(blob, {
 		status: 200,
@@ -200,35 +275,36 @@ function blobResponse(blob: Blob): Response {
 	});
 }
 
-/**
- * Create a 404 response
- */
 function notFoundResponse(message: string): Response {
 	return new Response(message, { status: 404 });
 }
 
-/**
- * Deserialize trace files from the transferred format
- */
-function deserializeTraceFiles(
-	data: Array<{ name: string; content: unknown }>,
-): Map<string, unknown> {
-	const map = new Map<string, unknown>();
-	for (const { name, content } of data) {
-		map.set(name, content);
-	}
-	return map;
+function extractTimestampFromFilename(filename: string): number {
+	const lastDashIndex = filename.lastIndexOf("-");
+	if (lastDashIndex === -1) return 0;
+
+	const timestamp = Number.parseInt(
+		filename.slice(lastDashIndex + 1).replace(/\.[^.]+$/, ""),
+		10,
+	);
+	return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
-/**
- * Deserialize screenshots from the transferred format
- */
-function deserializeScreenshots(
-	data: Array<{ name: string; blob: Blob }>,
-): Map<string, Blob> {
-	const map = new Map<string, Blob>();
-	for (const { name, blob } of data) {
-		map.set(name, blob);
+function getMimeType(filename: string): string {
+	const ext = filename.split(".").pop()?.toLowerCase();
+	switch (ext) {
+		case "png":
+			return "image/png";
+		case "jpg":
+		case "jpeg":
+			return "image/jpeg";
+		case "webp":
+			return "image/webp";
+		default:
+			return "application/octet-stream";
 	}
-	return map;
+}
+
+function isFileEntry(entry: Entry): entry is FileEntry {
+	return !entry.directory;
 }

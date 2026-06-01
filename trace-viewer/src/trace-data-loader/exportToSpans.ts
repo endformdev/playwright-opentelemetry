@@ -1,4 +1,4 @@
-import type { OtlpAttribute, OtlpExport, OtlpSpan } from "./fetchTraceData";
+import type { OtlpAttribute, OtlpExport, OtlpSpan } from "./otlp";
 
 /**
  * A span with timing relative to test start.

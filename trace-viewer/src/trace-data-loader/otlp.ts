@@ -1,11 +1,4 @@
 import * as v from "valibot";
-import { type CategorizedSpans, categorizeSpans } from "./categorizeSpans";
-import { otlpExportToSpans } from "./exportToSpans";
-
-/**
- * Valibot schema for OpenTelemetry Protocol (OTLP) JSON Export format.
- * @see https://opentelemetry.io/docs/specs/otlp/
- */
 
 const OtlpArrayValueSchema = v.object({
 	values: v.array(
@@ -91,24 +84,4 @@ export function mergeOtlpExports(exports: OtlpExport[]): OtlpExport {
 	return {
 		resourceSpans: exports.flatMap((otlpExport) => otlpExport.resourceSpans),
 	};
-}
-
-export async function fetchTraceData(
-	url: string,
-	testStartTimeMs: number,
-): Promise<CategorizedSpans> {
-	const response = await fetch(url);
-
-	if (!response.ok) {
-		const body = await response.text();
-		throw new Error(
-			`Failed to fetch trace data from ${url}: ${response.status} ${body}`,
-		);
-	}
-
-	const json: unknown = await response.json();
-	const otlpExport = parseOtlpExport(json);
-	const spans = otlpExportToSpans(otlpExport, testStartTimeMs);
-
-	return categorizeSpans(spans);
 }

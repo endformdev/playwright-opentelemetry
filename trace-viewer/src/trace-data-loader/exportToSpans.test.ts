@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { otlpExportToSpans, otlpSpanToSpan } from "./exportToSpans";
-import type { OtlpExport, OtlpSpan } from "./fetchTraceData";
+import type { OtlpExport, OtlpSpan } from "./otlp";
 
 describe("otlpSpanToSpan", () => {
 	it("extracts basic span properties", () => {

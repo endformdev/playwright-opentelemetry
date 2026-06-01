@@ -3,8 +3,8 @@ import type { TestInfo, TestStatus } from "./TraceInfoLoader";
 
 const TEST_SPAN_NAME = "playwright.test";
 
-export function deriveTestInfoFromOtlpExports(exports: OtlpExport[]): TestInfo {
-	const testSpans = exports.flatMap((otlpExport) => findTestSpans(otlpExport));
+export function deriveTestInfoFromOtlpExport(otlpExport: OtlpExport): TestInfo {
+	const testSpans = findTestSpans(otlpExport);
 	const testSpan = chooseRootTestSpan(testSpans);
 
 	if (!testSpan) {
@@ -27,7 +27,6 @@ export function deriveTestInfoFromOtlpExports(exports: OtlpExport[]): TestInfo {
 		endTimeUnixNano: testSpan.endTimeUnixNano,
 	};
 }
-
 function findTestSpans(otlpExport: OtlpExport): OtlpSpan[] {
 	return otlpExport.resourceSpans.flatMap((resourceSpans) =>
 		resourceSpans.scopeSpans.flatMap((scopeSpans) =>

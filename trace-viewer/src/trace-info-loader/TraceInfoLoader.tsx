@@ -7,6 +7,7 @@ import {
 	Switch,
 } from "solid-js";
 import type { TraceSource } from "../trace-source";
+import type { OtlpExport } from "../trace-data-loader";
 import { loadRemoteApi } from "./traceInfoDataLoaders/apiLoader";
 import {
 	loadLocalZip,
@@ -16,7 +17,7 @@ import {
 
 export interface TraceInfo {
 	testInfo: TestInfo;
-	traceDataUrls: string[];
+	traceData: OtlpExport;
 	screenshots: ScreenshotInfo[];
 }
 
