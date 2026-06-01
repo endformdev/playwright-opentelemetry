@@ -356,6 +356,6 @@ export async function loadTrace(
 	await page.goto("/");
 	await page
 		.getByPlaceholder("Enter API URL...")
-		.fill(`${TRACE_API_URL}/otel-trace-viewer/${traceIdHex}`);
+		.fill(`${TRACE_API_URL}/playwright-otel-trace-viewer/${traceIdHex}`);
 	await page.getByRole("button", { name: "Load" }).click();
 }

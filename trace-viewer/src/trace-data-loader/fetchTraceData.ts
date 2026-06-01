@@ -83,6 +83,16 @@ export type OtlpSpan = v.InferOutput<typeof OtlpSpanSchema>;
 export type OtlpAttribute = v.InferOutput<typeof OtlpAttributeSchema>;
 export type OtlpAttributeValue = v.InferOutput<typeof OtlpAttributeValueSchema>;
 
+export function parseOtlpExport(json: unknown): OtlpExport {
+	return v.parse(OtlpExportSchema, json);
+}
+
+export function mergeOtlpExports(exports: OtlpExport[]): OtlpExport {
+	return {
+		resourceSpans: exports.flatMap((otlpExport) => otlpExport.resourceSpans),
+	};
+}
+
 export async function fetchTraceData(
 	url: string,
 	testStartTimeMs: number,
@@ -97,7 +107,7 @@ export async function fetchTraceData(
 	}
 
 	const json: unknown = await response.json();
-	const otlpExport = v.parse(OtlpExportSchema, json);
+	const otlpExport = parseOtlpExport(json);
 	const spans = otlpExportToSpans(otlpExport, testStartTimeMs);
 
 	return categorizeSpans(spans);

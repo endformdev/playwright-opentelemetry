@@ -1,16 +1,16 @@
 import type { EventHandler } from "h3";
-import { createError, defineEventHandler, getRouterParam } from "h3";
+import { defineEventHandler, getRouterParam, HTTPError } from "h3";
 import { applyCors } from "../cors";
 import type { TraceApiHandlerConfig } from "../createTraceApi";
+import { type OtlpExport, mergeOtlpExports } from "../otlp";
 
 /**
  * Create a handler for the trace viewer read API.
  *
  * Serves trace data in the format expected by the trace viewer:
- * - GET /otel-trace-viewer/{traceId}/opentelemetry-protocol -> { jsonFiles: [...] }
- * - GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
- * - GET /otel-trace-viewer/{traceId}/screenshots -> { screenshots: [...] }
- * - GET /otel-trace-viewer/{traceId}/screenshots/{filename}
+ * - GET /playwright-otel-trace-viewer/{traceId}/traces -> { resourceSpans: [...] }
+ * - GET /playwright-otel-trace-viewer/{traceId}/screenshots -> { screenshots: [...] }
+ * - GET /playwright-otel-trace-viewer/{traceId}/screenshots/{filename}
  *
  * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
@@ -20,7 +20,7 @@ import type { TraceApiHandlerConfig } from "../createTraceApi";
  * import { TRACE_VIEWER_READ_PATH } from '@playwright-opentelemetry/trace-api';
  *
  * const router = createRouter();
- * // TRACE_VIEWER_READ_PATH = '/otel-trace-viewer/**'
+ * // TRACE_VIEWER_READ_PATH = '/playwright-otel-trace-viewer/**'
  * router.get(TRACE_VIEWER_READ_PATH, createViewerHandler({ storage }));
  * ```
  */
@@ -35,25 +35,17 @@ export function createViewerHandler(
 		if (corsResponse) {
 			return corsResponse;
 		}
-		// Get the full path after /otel-trace-viewer/
+		// Get the full path after /playwright-otel-trace-viewer/
 		const path = getRouterParam(event, "_");
 		if (!path) {
-			throw new Error("Path is required");
+			throw new HTTPError({ statusCode: 404, message: "Path is required" });
 		}
 
-		// Parse the path to determine what to return
-		// Expected format: {traceId}/... or {traceId}/opentelemetry-protocol or {traceId}/opentelemetry-protocol/{file}
 		const parts = path.split("/");
 		const traceId = parts[0];
 
-		if (parts.length === 1) {
-			// GET /otel-trace-viewer/{traceId} - not implemented yet
-			throw new Error("Trace listing not implemented");
-		}
-
-		if (parts.length === 2 && parts[1] === "opentelemetry-protocol") {
-			// List all JSON files in opentelemetry-protocol directory
-			const prefix = `traces/${traceId}/opentelemetry-protocol/`;
+		if (parts.length === 2 && parts[1] === "traces") {
+			const prefix = `traces/${traceId}/traces/`;
 
 			// Apply path resolution if configured
 			let resolvedPrefix = prefix;
@@ -61,14 +53,32 @@ export function createViewerHandler(
 				resolvedPrefix = await config.resolvePath(event, prefix);
 			}
 
-			const files = await storage.list(resolvedPrefix);
+			const files = (await storage.list(resolvedPrefix)).filter((file) =>
+				file.endsWith(".json"),
+			);
 
-			// Extract just the filenames (remove prefix)
-			const jsonFiles = files
-				.map((file) => file.replace(resolvedPrefix, ""))
-				.filter((file) => file.endsWith(".json"));
+			if (files.length === 0) {
+				throw new HTTPError({
+					statusCode: 404,
+					message: `Trace not found: ${traceId}`,
+				});
+			}
 
-			return { jsonFiles };
+			const payloads = await Promise.all(
+				files.map(async (file) => {
+					const data = await storage.get(file);
+					if (!data) {
+						throw new HTTPError({
+							statusCode: 500,
+							message: `Listed trace fragment could not be loaded: ${file}`,
+						});
+					}
+					const text = new TextDecoder().decode(data);
+					return JSON.parse(text) as OtlpExport;
+				}),
+			);
+
+			return mergeOtlpExports(payloads);
 		}
 
 		if (parts.length === 2 && parts[1] === "screenshots") {
@@ -99,26 +109,23 @@ export function createViewerHandler(
 			return { screenshots };
 		}
 
-		// Otherwise, it's a direct file request
-		let storagePath = `traces/${path}`;
+		if (parts.length === 3 && parts[1] === "screenshots") {
+			let storagePath = `traces/${traceId}/screenshots/${parts[2]}`;
 
-		// Apply path resolution if configured
-		if (config.resolvePath) {
-			storagePath = await config.resolvePath(event, storagePath);
-		}
+			// Apply path resolution if configured
+			if (config.resolvePath) {
+				storagePath = await config.resolvePath(event, storagePath);
+			}
 
-		const data = await storage.get(storagePath);
+			const data = await storage.get(storagePath);
 
-		if (!data) {
-			throw createError({
-				statusCode: 404,
-				message: `File not found: ${storagePath}`,
-			});
-		}
+			if (!data) {
+				throw new HTTPError({
+					statusCode: 404,
+					message: `File not found: ${storagePath}`,
+				});
+			}
 
-		// If it's a screenshot, return as binary with caching
-		if (path.includes("/screenshots/")) {
-			// Return raw binary data with 10 minute cache
 			return new Response(data, {
 				headers: {
 					"Content-Type": "image/jpeg",
@@ -127,8 +134,9 @@ export function createViewerHandler(
 			});
 		}
 
-		// Otherwise parse JSON and return it
-		const text = new TextDecoder().decode(data);
-		return JSON.parse(text);
+		throw new HTTPError({
+			statusCode: 404,
+			message: `Unsupported path: ${path}`,
+		});
 	});
 }

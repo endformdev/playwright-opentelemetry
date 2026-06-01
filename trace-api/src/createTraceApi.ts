@@ -60,8 +60,8 @@ export interface TraceApiHandlerConfig {
  *
  * Returns an H3 app with all endpoints configured:
  * - POST /v1/traces - OTLP trace ingestion
- * - PUT /otel-playwright-reporter/** - Playwright test data
- * - GET /otel-trace-viewer/** - Trace viewer read API
+ * - PUT /playwright-otel-reporter/** - Playwright test data
+ * - GET /playwright-otel-trace-viewer/** - Trace viewer read API
  *
  */
 export function createTraceApi(config: TraceApiConfig): H3 {

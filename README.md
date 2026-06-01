@@ -96,7 +96,7 @@ When running the reporter with `storeTraceZip: true`, a local copy of trace data
 
 ```
 {file.spec}:{linenumber}-{testId}-pw-otel.zip
-- opentelemetry-protocol/
+- traces/
   - playwright-opentelemetry.json <-- the OTLP request body of all trace data collected by the reporter related to this test. Test metadata is stored on the root `playwright.test` span.
 - screenshots/ <-- any screenshots collected during the test run
   - {page}@{pageId}-{timestamp}.jpeg
@@ -106,10 +106,8 @@ When running the reporter with `storeTraceZip: true`, a local copy of trace data
 
 The trace viewer can also load traces from APIs that respond to the following endpoints:
 
-- `GET {baseUrl}/opentelemetry-protocol` - list OpenTelemetry traces
-	- Response format `{ "jsonFiles": ["playwright-opentelemetry.json", "other-file.json"] }`
-- `GET {baseUrl}/opentelemetry-protocol/playwright-opentelemetry.json` - Traces captured by playwright opentelemetry reporter
-- `GET {baseUrl}/opentelemetry-protocol/{traceFile}` - Other traces captured during the test run
+- `GET {baseUrl}/traces` - merged OTLP trace export response
+	- Response format `{ "resourceSpans": [...] }`
 - `GET {baseUrl}/screenshots` - List screenshots
 	- Response format `{ "screenshots": [ { "timestamp": 1766929201038, "file": "page@xxxbbb-1766929201038.jpeg" }] }`
 - `GET {baseUrl}/screenshots/{filename}` - Individual screenshots

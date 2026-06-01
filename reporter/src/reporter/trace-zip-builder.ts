@@ -129,7 +129,7 @@ export async function createTraceZip(
 
 	// Add trace JSON first
 	await zipWriter.add(
-		"opentelemetry-protocol/playwright-opentelemetry.json",
+		"traces/playwright-opentelemetry.json",
 		new Blob([traceJson]).stream(),
 	);
 

@@ -17,7 +17,7 @@ describe("Trace API Integration", () => {
 		 * should send all data to the trace API:
 		 * 1. OTLP spans to POST {endpoint}/v1/traces
 		 * 2. Test metadata as root playwright.test span attributes
-		 * 3. Screenshots to PUT {endpoint}/otel-playwright-reporter/screenshots/{filename}
+		 * 3. Screenshots to PUT {endpoint}/playwright-otel-reporter/screenshots/{filename}
 		 *
 		 * All requests should include:
 		 * - X-Trace-Id header with the test's traceId

@@ -151,7 +151,7 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 
 		const tracePath = path.join(
 			tempDir,
-			"opentelemetry-protocol",
+			"traces",
 			"playwright-opentelemetry.json",
 		);
 
@@ -186,9 +186,7 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 			}
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-				errors.push(
-					"Missing opentelemetry-protocol/playwright-opentelemetry.json",
-				);
+				errors.push("Missing traces/playwright-opentelemetry.json");
 			} else {
 				errors.push(`Failed to parse trace JSON: ${err}`);
 			}

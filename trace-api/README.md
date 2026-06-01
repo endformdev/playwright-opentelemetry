@@ -68,9 +68,9 @@ app.use(PLAYWRIGHT_REPORTER_WRITE_PATH, authMiddleware);
 // Add handlers
 // /v1/traces/
 app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler(storage));
-// /otel-playwright-reporter/**
+// /playwright-otel-reporter/**
 app.put(PLAYWRIGHT_REPORTER_WRITE_PATH, createPlaywrightHandler(storage));
-// /otel-trace-viewer/**
+// /playwright-otel-trace-viewer/**
 app.get(TRACE_VIEWER_READ_PATH, createViewerHandler(storage));
 
 export default {
@@ -137,10 +137,10 @@ Content-Type: application/json
 Body: Standard OTLP JSON payload
 ```
 
-Writes OTLP spans to `traces/{traceId}/opentelemetry-protocol/{serviceName}.json`.
+Partitions OTLP spans by trace ID and writes fragments to `traces/{traceId}/traces/{requestId}.json`.
 
 ```
-PUT /otel-playwright-reporter/screenshots/{filename}
+PUT /playwright-otel-reporter/screenshots/{filename}
 X-Trace-Id: {traceId}
 Body: JPEG image data
 ```
@@ -150,13 +150,12 @@ Writes screenshots to `traces/{traceId}/screenshots/{filename}`.
 **Read Endpoints:**
 
 ```
-GET /otel-trace-viewer/{traceId}/opentelemetry-protocol
-GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
-GET /otel-trace-viewer/{traceId}/screenshots
-GET /otel-trace-viewer/{traceId}/screenshots/{filename}
+GET /playwright-otel-trace-viewer/{traceId}/traces
+GET /playwright-otel-trace-viewer/{traceId}/screenshots
+GET /playwright-otel-trace-viewer/{traceId}/screenshots/{filename}
 ```
 
-Serves trace data in the format expected by the trace viewer.
+Serves merged OTLP trace data and screenshot data in the format expected by the trace viewer.
 
 ## Storage Setup
 
@@ -194,9 +193,8 @@ wrangler r2 bucket lifecycle set my-traces --rules '[{
 s3://bucket/
 └── traces/
     └── {traceId}/
-        ├── opentelemetry-protocol/
-        │   ├── playwright-opentelemetry.json
-        │   └── {serviceName}.json
+        ├── traces/
+        │   └── {requestId}.json
         └── screenshots/
             └── {pageId}-{timestamp}.jpeg
 ```

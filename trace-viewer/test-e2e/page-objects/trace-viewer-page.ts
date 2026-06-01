@@ -207,12 +207,12 @@ export class TraceViewerPage {
 		await this.goto();
 		await this.page
 			.getByPlaceholder("Enter API URL...")
-			.fill(`${TRACE_API_URL}/otel-trace-viewer/${traceIdHex}`);
+			.fill(`${TRACE_API_URL}/playwright-otel-trace-viewer/${traceIdHex}`);
 		await this.page.getByRole("button", { name: "Load" }).click();
 	}
 
 	async loadTraceFromUrlParam(traceIdHex: string): Promise<void> {
-		const apiUrl = `${TRACE_API_URL}/otel-trace-viewer/${traceIdHex}`;
+		const apiUrl = `${TRACE_API_URL}/playwright-otel-trace-viewer/${traceIdHex}`;
 		await this.page.goto(`/?traceSource=${encodeURIComponent(apiUrl)}`);
 	}
 }

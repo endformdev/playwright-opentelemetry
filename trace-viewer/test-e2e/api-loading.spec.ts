@@ -202,7 +202,7 @@ test("loads trace from API and displays test info and spans", async ({
 		},
 	});
 
-	// Step 2: Load the trace in the viewer (note the /otel-trace-viewer prefix)
+	// Step 2: Load the trace in the viewer (note the /playwright-otel-trace-viewer prefix)
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceIdHex);
 

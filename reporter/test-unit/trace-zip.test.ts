@@ -289,9 +289,9 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			// Read and verify zip contents
 			const zipEntries = await readZipEntries(expectedZipPath);
 
-			// Verify opentelemetry-protocol/playwright-opentelemetry.json exists
+			// Verify traces/playwright-opentelemetry.json exists
 			const traceContent = zipEntries.get(
-				"opentelemetry-protocol/playwright-opentelemetry.json",
+				"traces/playwright-opentelemetry.json",
 			) as string;
 			expect(traceContent).toBeDefined();
 
@@ -396,9 +396,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			const zipEntries = await readZipEntries(expectedZipPath);
 
 			// Should have trace JSON, but no screenshots
-			expect(
-				zipEntries.has("opentelemetry-protocol/playwright-opentelemetry.json"),
-			).toBe(true);
+			expect(zipEntries.has("traces/playwright-opentelemetry.json")).toBe(true);
 
 			// No screenshots should be present
 			const screenshotFiles = Array.from(zipEntries.keys()).filter((f) =>
@@ -469,7 +467,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			const zipEntries = await readZipEntries(expectedZipPath);
 
 			const traceContent = zipEntries.get(
-				"opentelemetry-protocol/playwright-opentelemetry.json",
+				"traces/playwright-opentelemetry.json",
 			) as string;
 			const traceData = JSON.parse(traceContent);
 			const testSpan = traceData.resourceSpans[0].scopeSpans[0].spans.find(
@@ -543,7 +541,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			const zipEntries = await readZipEntries(expectedZipPath);
 
 			const traceContent = zipEntries.get(
-				"opentelemetry-protocol/playwright-opentelemetry.json",
+				"traces/playwright-opentelemetry.json",
 			) as string;
 			const traceData = JSON.parse(traceContent);
 			const testSpan = traceData.resourceSpans[0].scopeSpans[0].spans.find(
@@ -710,7 +708,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Verify trace file for test 1
 			const trace1Content = zip1Entries.get(
-				"opentelemetry-protocol/playwright-opentelemetry.json",
+				"traces/playwright-opentelemetry.json",
 			) as string;
 			expect(trace1Content).toBeDefined();
 
@@ -745,7 +743,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			// Verify trace file for test 2
 			const trace2Content = zip2Entries.get(
-				"opentelemetry-protocol/playwright-opentelemetry.json",
+				"traces/playwright-opentelemetry.json",
 			) as string;
 			expect(trace2Content).toBeDefined();
 
