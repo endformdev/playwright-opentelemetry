@@ -4,7 +4,6 @@
  * This service worker intercepts fetch requests and serves trace data
  * as if it were coming from a remote API. It implements the Trace API:
  *
- * - GET /test.json - Base test information
  * - GET /opentelemetry-protocol - List of trace files
  * - GET /opentelemetry-protocol/{file} - Individual trace file
  * - GET /screenshots - List of screenshots
@@ -29,8 +28,6 @@ interface ScreenshotMeta {
  * Currently loaded trace data (only one trace at a time)
  */
 interface LoadedTrace {
-	/** Base test information from test.json */
-	testInfo: unknown;
 	/** Map of filename -> JSON content for trace files */
 	traceFiles: Map<string, unknown>;
 	/** Map of filename -> Blob for screenshots */
@@ -70,7 +67,6 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 			try {
 				// Store trace data (replacing any previously loaded trace)
 				currentTrace = {
-					testInfo: data.testInfo,
 					traceFiles: deserializeTraceFiles(data.traceFiles),
 					screenshots: deserializeScreenshots(data.screenshots),
 					screenshotMetas: data.screenshotMetas,
@@ -129,12 +125,6 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
 		}
 		return null;
 	};
-
-	// GET /test.json (relative to base)
-	if (matchesPath("test.json")) {
-		event.respondWith(jsonResponse(currentTrace.testInfo));
-		return;
-	}
 
 	// GET /opentelemetry-protocol (list trace files)
 	if (matchesPath("opentelemetry-protocol")) {

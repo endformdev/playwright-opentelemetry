@@ -16,10 +16,19 @@ function dateToNanoseconds(date: Date): string {
 
 // Convert simple attributes to OTLP format
 function toOtlpAttributes(
-	attributes: Record<string, string | number | boolean>,
+	attributes: Record<string, string | number | boolean | string[]>,
 ) {
 	return Object.entries(attributes).map(([key, value]) => {
-		if (typeof value === "number") {
+		if (Array.isArray(value)) {
+			return {
+				key,
+				value: {
+					arrayValue: {
+						values: value.map((item) => ({ stringValue: item })),
+					},
+				},
+			};
+		} else if (typeof value === "number") {
 			return {
 				key,
 				value: Number.isInteger(value)

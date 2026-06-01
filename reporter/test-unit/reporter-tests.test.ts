@@ -41,13 +41,15 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 					name: TEST_SPAN_NAME,
 					startTime: new Date("2025-11-06T10:00:00.000Z"),
 					endTime: new Date("2025-11-06T10:00:01.500Z"),
-					attributes: {
+					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]: "example test",
 						[ATTR_TEST_CASE_TITLE]: "example test",
-						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
+						[ATTR_TEST_CASE_RESULT_STATUS]: "pass",
+						"playwright.test.status": "passed",
+						"playwright.test.describes": [],
 						[ATTR_CODE_FILE_PATH]: "example.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 3,
-					},
+					}),
 					status: { code: 1 }, // OK - status matches expected
 					traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
 					spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
@@ -109,7 +111,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]: "nested test",
-						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
+						[ATTR_TEST_CASE_RESULT_STATUS]: "pass",
 						[ATTR_CODE_FILE_PATH]: "sub/dir/nested.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 10,
 					}),
@@ -149,7 +151,8 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]: "described tests > get started link",
-						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
+						[ATTR_TEST_CASE_RESULT_STATUS]: "pass",
+						"playwright.test.describes": ["described tests"],
 						[ATTR_CODE_FILE_PATH]: "example.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 11,
 					}),
@@ -193,7 +196,8 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]:
 							"Feature A > Scenario 1 > Case B > should work correctly",
-						[ATTR_TEST_CASE_RESULT_STATUS]: "passed",
+						[ATTR_TEST_CASE_RESULT_STATUS]: "pass",
+						"playwright.test.describes": ["Feature A", "Scenario 1", "Case B"],
 						[ATTR_CODE_FILE_PATH]: "feature.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 20,
 					}),
@@ -229,7 +233,8 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]: "failing test",
-						[ATTR_TEST_CASE_RESULT_STATUS]: "failed",
+						[ATTR_TEST_CASE_RESULT_STATUS]: "fail",
+						"playwright.test.status": "failed",
 						[ATTR_CODE_FILE_PATH]: "test.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 5,
 					}),
@@ -266,7 +271,8 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_NAME]: "expected to fail",
-						[ATTR_TEST_CASE_RESULT_STATUS]: "failed",
+						[ATTR_TEST_CASE_RESULT_STATUS]: "fail",
+						"playwright.test.status": "failed",
 						[ATTR_CODE_FILE_PATH]: "test.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 10,
 					}),

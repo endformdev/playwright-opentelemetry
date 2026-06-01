@@ -64,8 +64,13 @@ interface CreateOtlpPayloadOptions {
 		name: string;
 		spanId?: string;
 		parentSpanId?: string;
+		kind?: number;
 		startTimeUnixNano: string;
 		endTimeUnixNano: string;
+		attributes?: Array<{
+			key: string;
+			value: Record<string, unknown>;
+		}>;
 	}>;
 }
 
@@ -91,55 +96,16 @@ export function createOtlpPayload(options: CreateOtlpPayloadOptions) {
 							spanId: span.spanId || generateSpanId(),
 							parentSpanId: span.parentSpanId,
 							name: span.name,
+							kind: span.kind ?? 1,
 							startTimeUnixNano: span.startTimeUnixNano,
 							endTimeUnixNano: span.endTimeUnixNano,
+							attributes: span.attributes ?? [],
 							status: { code: 1 },
 						})),
 					},
 				],
 			},
 		],
-	};
-}
-
-interface CreateTestJsonOptions {
-	traceId: string;
-	name: string;
-	status: "passed" | "failed" | "timedOut" | "skipped";
-	file?: string;
-	line?: number;
-	describes?: string[];
-	startTimeUnixNano?: string;
-	endTimeUnixNano?: string;
-	error?: {
-		message: string;
-		stack: string;
-	};
-}
-
-export function createTestJson(options: CreateTestJsonOptions) {
-	const {
-		traceId,
-		name,
-		status,
-		file = "tests/example.spec.ts",
-		line = 10,
-		describes = [],
-		startTimeUnixNano = "1766927492000000000",
-		endTimeUnixNano = "1766927493000000000",
-		error,
-	} = options;
-
-	return {
-		name,
-		describes,
-		file,
-		line,
-		status,
-		traceId,
-		startTimeUnixNano,
-		endTimeUnixNano,
-		...(error && { error }),
 	};
 }
 

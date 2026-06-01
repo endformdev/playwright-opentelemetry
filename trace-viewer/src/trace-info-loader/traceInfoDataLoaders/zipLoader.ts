@@ -18,7 +18,6 @@ export async function loadLocalZip(file: File): Promise<TraceInfo> {
 
 	// Send all data to service worker
 	await loadTraceInServiceWorker({
-		testInfo: zipResult.testInfo,
 		traceFiles: zipResult.traceFiles,
 		screenshots: Array.from(zipResult.screenshots.entries()).map(
 			([name, blob]) => ({ name, blob }),
@@ -61,7 +60,6 @@ export async function loadRemoteZip(url: string): Promise<TraceInfo> {
 
 	// Send all data to service worker
 	await loadTraceInServiceWorker({
-		testInfo: zipResult.testInfo,
 		traceFiles: zipResult.traceFiles,
 		screenshots: Array.from(zipResult.screenshots.entries()).map(
 			([name, blob]) => ({ name, blob }),

@@ -1,5 +1,4 @@
 import { getBasePath, resolveBasePath } from "../basePath";
-import type { TestInfo } from "../trace-info-loader/TraceInfoLoader";
 
 export interface ServiceWorkerState {
 	registration: ServiceWorkerRegistration | null;
@@ -19,8 +18,6 @@ export interface ScreenshotMeta {
  * Data to send to the service worker when loading a trace
  */
 export interface TraceLoadData {
-	/** Base test information from test.json */
-	testInfo: TestInfo;
 	/** Trace files with name and JSON content */
 	traceFiles: Array<{ name: string; content: unknown }>;
 	/** Screenshots with name and blob */

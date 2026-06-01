@@ -7,7 +7,6 @@ import type { TraceApiHandlerConfig } from "../createTraceApi";
  * Create a handler for the trace viewer read API.
  *
  * Serves trace data in the format expected by the trace viewer:
- * - GET /otel-trace-viewer/{traceId}/test.json
  * - GET /otel-trace-viewer/{traceId}/opentelemetry-protocol -> { jsonFiles: [...] }
  * - GET /otel-trace-viewer/{traceId}/opentelemetry-protocol/{file}.json
  * - GET /otel-trace-viewer/{traceId}/screenshots -> { screenshots: [...] }
