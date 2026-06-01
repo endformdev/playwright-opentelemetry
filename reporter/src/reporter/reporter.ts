@@ -565,7 +565,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		await Promise.all(
 			Array.from(screenshots.entries()).map(async ([filename, blob]) => {
 				const screenshotUrl = `${this.resolvedTraceApiEndpoint}/playwright-otel-reporter/screenshots/${filename}`;
-				await fetch(screenshotUrl, {
+				const response = await fetch(screenshotUrl, {
 					method: "PUT",
 					headers: {
 						"content-type": "image/jpeg",
@@ -574,6 +574,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					},
 					body: blob,
 				});
+
+				if (!response.ok) {
+					const error = await response.text();
+					throw new Error(
+						`Failed to send screenshot ${filename}: ${response.status} ${response.statusText}, ${error}`,
+					);
+				}
 			}),
 		);
 	}

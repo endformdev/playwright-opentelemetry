@@ -44,7 +44,7 @@ npm install @playwright-opentelemetry/trace-api
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
 const api = createTraceApi({
-  storage: {
+  storageConfig: {
     bucket: 'my-traces',
     endpoint: 'https://xxx.r2.cloudflarestorage.com',
     accessKeyId: env.R2_ACCESS_KEY_ID,
@@ -68,7 +68,7 @@ import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 import { getHeader, createError } from 'h3';
 
 const api = createTraceApi({
-  storage: {
+  storageConfig: {
     bucket: 'my-traces',
     endpoint: env.R2_ENDPOINT,
     accessKeyId: env.R2_ACCESS_KEY_ID,
@@ -107,8 +107,11 @@ export default {
 
 ```typescript
 interface TraceApiConfig {
-  // S3-compatible storage configuration (required)
-  storage: {
+  // Custom storage implementation. Use this or storageConfig, not both.
+  storage?: TraceStorage;
+
+  // S3-compatible storage configuration. Use this or storage, not both.
+  storageConfig?: {
     bucket: string;
     endpoint: string;
     accessKeyId: string;
@@ -145,9 +148,9 @@ const storage = createS3Storage({
 const app = new H3();
 
 // Add only the handlers you need
-app.post('/v1/traces', createOtlpHandler(storage));
-app.put('/playwright-otel-reporter/**', createPlaywrightHandler(storage));
-app.get('/playwright-otel-trace-viewer/**', createViewerHandler(storage));
+app.post('/v1/traces', createOtlpHandler({ storage }));
+app.put('/playwright-otel-reporter/**', createPlaywrightHandler({ storage }));
+app.get('/playwright-otel-trace-viewer/**', createViewerHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -174,8 +177,8 @@ const app = new H3();
 app.use(authMiddleware);
 
 // Write endpoints only
-app.post('/v1/traces', createOtlpHandler(storage));
-app.put('/playwright-otel-reporter/**', createPlaywrightHandler(storage));
+app.post('/v1/traces', createOtlpHandler({ storage }));
+app.put('/playwright-otel-reporter/**', createPlaywrightHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -195,7 +198,7 @@ const storage = createS3Storage({ ... });
 const app = new H3();
 
 // Read endpoints only - could be public or with different auth
-app.get('/playwright-otel-trace-viewer/**', createViewerHandler(storage));
+app.get('/playwright-otel-trace-viewer/**', createViewerHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -208,7 +211,7 @@ export default {
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storageConfig: { ... } });
 
 Deno.serve({ port: 3000 }, api.fetch);
 ```
@@ -217,7 +220,7 @@ Deno.serve({ port: 3000 }, api.fetch);
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storageConfig: { ... } });
 
 export default {
   port: 3000,
@@ -230,7 +233,7 @@ export default {
 import { serve } from 'h3/node';
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
-const api = createTraceApi({ storage: { ... } });
+const api = createTraceApi({ storageConfig: { ... } });
 
 serve(api, { port: 3000 });
 ```
@@ -248,8 +251,10 @@ Body: Standard OTLP JSON payload
 
 **Backend logic:**
 1. Parse `traceId` from each span in the payload
-2. Extract `service.name` from resource attributes for the filename
-3. Write to `traces/{traceId}/traces/{requestId}.json`
+2. Partition the OTLP export by trace ID
+3. Write one OTLP-shaped fragment per trace ID to `traces/{traceId}/traces/{requestId}.json`
+
+The fragment filename is a unique request ID, not a service name or span ID. OTLP payloads can contain spans for multiple traces, so storing trace-scoped fragments keeps reads efficient without exposing object layout through the public API.
 
 Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, custom instrumentation, etc.).
 
@@ -279,7 +284,7 @@ GET /playwright-otel-trace-viewer/{traceId}/screenshots/{filename}
 
 Screenshot timestamps are in **milliseconds since Unix epoch** (13 digits). The timestamp is extracted from the filename format `{pageId}-{timestampMs}.jpeg`.
 
-The trace endpoint merges all stored OTLP fragments for a trace ID. The screenshots list endpoint calls S3 ListObjects and formats the response.
+The trace endpoint merges all stored OTLP fragments for a trace ID by concatenating `resourceSpans`. If no trace fragments exist, it returns `404` instead of an empty OTLP export. The screenshots list endpoint calls S3 ListObjects and formats the response. If no screenshots exist, it returns `{ "screenshots": [] }`; missing individual screenshots return `404`.
 
 ## Bucket Setup (Required)
 
@@ -436,7 +441,7 @@ interface Env {
 export default {
   fetch: (request: Request, env: Env) => {
     const api = createTraceApi({
-      storage: {
+      storageConfig: {
         bucket: 'traces',
         endpoint: env.R2_ENDPOINT,
         accessKeyId: env.R2_ACCESS_KEY_ID,
@@ -485,5 +490,5 @@ export default {
 
 This results in storage paths like:
 ```
-traces/orgs/{orgId}/traces/{traceId}/traces/...
+orgs/{orgId}/traces/{traceId}/traces/...
 ```

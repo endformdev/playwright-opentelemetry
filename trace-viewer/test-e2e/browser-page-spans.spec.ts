@@ -124,23 +124,12 @@ async function loadTraceSpans(
 	request: import("@playwright/test").APIRequestContext,
 	traceId: string,
 ): Promise<OtlpSpan[]> {
-	const listResponse = await request.get(
-		`${TRACE_API_URL}/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
+	const response = await request.get(
+		`${TRACE_API_URL}/playwright-otel-trace-viewer/${traceId}/traces`,
 	);
-	expect(listResponse.ok()).toBeTruthy();
+	expect(response.ok()).toBeTruthy();
 
-	const { jsonFiles } = (await listResponse.json()) as { jsonFiles: string[] };
-	const exports = await Promise.all(
-		jsonFiles.map(async (jsonFile) => {
-			const response = await request.get(
-				`${TRACE_API_URL}/otel-trace-viewer/${traceId}/opentelemetry-protocol/${jsonFile}`,
-			);
-			expect(response.ok()).toBeTruthy();
-			return (await response.json()) as OtlpExport;
-		}),
-	);
-
-	return flattenSpans(exports);
+	return flattenSpans([(await response.json()) as OtlpExport]);
 }
 
 test("renders browser.page spans with nested network requests from reporter output", async ({
