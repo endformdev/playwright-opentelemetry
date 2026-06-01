@@ -3,7 +3,6 @@ import {
 	createOtlpPayload,
 	createScreenshotBuffer,
 	createTestHarness,
-	createTestJson,
 	generateTraceId,
 } from "./testHarness";
 
@@ -43,23 +42,6 @@ describe("Trace Viewer", () => {
 			}),
 		);
 
-		const testJson = createTestJson({
-			traceId,
-			name: "complete trace",
-			status: "passed",
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
-
 		const screenshots = [
 			{ filename: "page@abc-1766927492200000000.jpeg" },
 			{ filename: "page@abc-1766927492500000000.jpeg" },
@@ -82,14 +64,7 @@ describe("Trace Viewer", () => {
 		}
 
 		// Viewer flow: Load complete trace
-		// 1. Get test.json for metadata
-		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
-		);
-		expect(getTestJsonResponse.status).toBe(200);
-		expect(await getTestJsonResponse.json()).toEqual(testJson);
-
-		// 2. List OTLP files
+		// 1. List OTLP files
 		const listOtlpResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
@@ -101,7 +76,7 @@ describe("Trace Viewer", () => {
 		};
 		expect(otlpFiles.jsonFiles).toHaveLength(1);
 
-		// 3. Fetch each OTLP file
+		// 2. Fetch each OTLP file
 		const getOtlpResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
@@ -110,7 +85,7 @@ describe("Trace Viewer", () => {
 		expect(getOtlpResponse.status).toBe(200);
 		expect(await getOtlpResponse.json()).toEqual(otlpPayload);
 
-		// 4. List screenshots
+		// 3. List screenshots
 		const listScreenshotsResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/screenshots`),
 		);
@@ -120,7 +95,7 @@ describe("Trace Viewer", () => {
 		};
 		expect(screenshotsList.screenshots).toHaveLength(2);
 
-		// 5. Fetch screenshots for filmstrip
+		// 4. Fetch screenshots for filmstrip
 		const getScreenshotResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${traceId}/screenshots/${screenshots[0].filename}`,
@@ -193,23 +168,6 @@ describe("Trace Viewer", () => {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(dbOtlp),
-			}),
-		);
-
-		const testJson = createTestJson({
-			traceId,
-			name: "multi-service trace",
-			status: "passed",
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
 			}),
 		);
 
@@ -352,24 +310,6 @@ describe("Trace Viewer", () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
 
-		// Setup
-		const testJson = createTestJson({
-			traceId,
-			name: "screenshot test",
-			status: "passed",
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
-
 		// Upload screenshots with timestamps in order
 		const screenshots = [
 			{ filename: "page@abc-1766927492100000000.jpeg", timestamp: 100 },
@@ -434,14 +374,6 @@ describe("Trace Viewer", () => {
 		const app = createTestHarness();
 		const nonExistentTraceId = generateTraceId();
 
-		// Attempt to load a trace that doesn't exist
-		const getTestJsonResponse = await app.fetch(
-			new Request(
-				`http://localhost/otel-trace-viewer/${nonExistentTraceId}/test.json`,
-			),
-		);
-		expect(getTestJsonResponse.status).toBe(404);
-
 		const listOtlpResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${nonExistentTraceId}/opentelemetry-protocol`,
@@ -465,7 +397,7 @@ describe("Trace Viewer", () => {
 		expect(screenshotsList.screenshots).toEqual([]);
 	});
 
-	it("handles partial trace (OTLP only, no test.json)", async () => {
+	it("handles backend-only OTLP trace", async () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
 
@@ -509,12 +441,6 @@ describe("Trace Viewer", () => {
 		);
 		expect(getOtlpResponse.status).toBe(200);
 		expect(await getOtlpResponse.json()).toEqual(backendOtlp);
-
-		// test.json doesn't exist
-		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
-		);
-		expect(getTestJsonResponse.status).toBe(404);
 	});
 
 	it("handles trace with no screenshots", async () => {
@@ -542,23 +468,6 @@ describe("Trace Viewer", () => {
 			}),
 		);
 
-		const testJson = createTestJson({
-			traceId,
-			name: "no screenshots",
-			status: "passed",
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
-
 		// Viewer: Verify empty screenshots array
 		const listScreenshotsResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/screenshots`),
@@ -570,33 +479,9 @@ describe("Trace Viewer", () => {
 		expect(screenshotsList.screenshots).toEqual([]);
 	});
 
-	it("handles trace with no OTLP files", async () => {
+	it("handles empty trace storage", async () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
-
-		// Edge case: test.json exists but no OTLP yet
-		const testJson = createTestJson({
-			traceId,
-			name: "no OTLP",
-			status: "passed",
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
-
-		// Viewer: test.json exists
-		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
-		);
-		expect(getTestJsonResponse.status).toBe(200);
 
 		// Viewer: Verify empty jsonFiles array
 		const listOtlpResponse = await app.fetch(

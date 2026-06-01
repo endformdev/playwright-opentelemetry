@@ -71,6 +71,7 @@ interface CreateOtlpPayloadOptions {
 			key: string;
 			value: Record<string, unknown>;
 		}>;
+		status?: { code: number; message?: string };
 	}>;
 }
 
@@ -100,7 +101,7 @@ export function createOtlpPayload(options: CreateOtlpPayloadOptions) {
 							startTimeUnixNano: span.startTimeUnixNano,
 							endTimeUnixNano: span.endTimeUnixNano,
 							attributes: span.attributes ?? [],
-							status: { code: 1 },
+							status: span.status ?? { code: 1 },
 						})),
 					},
 				],

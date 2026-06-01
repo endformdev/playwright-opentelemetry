@@ -2,13 +2,92 @@ import { describe, expect, it } from "vitest";
 import { createTestHarness } from "./testHarness";
 
 describe("Trace API integration", () => {
-	it("should store OTLP data and test.json, then retrieve them", async () => {
+	it("should store OTLP test metadata, backend spans, and screenshots", async () => {
 		const app = createTestHarness();
 
 		const traceId = "7709187832dca84f02f413a312421586";
 
-		// Step 1: POST OTLP data to /v1/traces
-		const otlpPayload = {
+		const playwrightOtlpPayload = {
+			resourceSpans: [
+				{
+					resource: {
+						attributes: [
+							{
+								key: "service.name",
+								value: { stringValue: "playwright-tests" },
+							},
+						],
+					},
+					scopeSpans: [
+						{
+							scope: { name: "playwright-opentelemetry" },
+							spans: [
+								{
+									traceId,
+									spanId: "testspan0000001",
+									name: "playwright.test",
+									kind: 1,
+									startTimeUnixNano: "1766927492000000000",
+									endTimeUnixNano: "1766927493000000000",
+									attributes: [
+										{
+											key: "test.case.title",
+											value: { stringValue: "should complete successfully" },
+										},
+										{
+											key: "test.case.result.status",
+											value: { stringValue: "pass" },
+										},
+										{
+											key: "playwright.test.status",
+											value: { stringValue: "passed" },
+										},
+										{
+											key: "playwright.test.describes",
+											value: {
+												arrayValue: {
+													values: [
+														{ stringValue: "User API" },
+														{ stringValue: "GET endpoint" },
+													],
+												},
+											},
+										},
+										{
+											key: "code.file.path",
+											value: { stringValue: "tests/api.spec.ts" },
+										},
+										{
+											key: "code.line.number",
+											value: { intValue: 42 },
+										},
+									],
+									status: { code: 1 },
+								},
+								{
+									traceId,
+									spanId: "stepspan00000001",
+									parentSpanId: "testspan0000001",
+									name: "playwright.test.step",
+									kind: 1,
+									startTimeUnixNano: "1766927492100000000",
+									endTimeUnixNano: "1766927492200000000",
+									attributes: [
+										{
+											key: "test.step.title",
+											value: { stringValue: "load users" },
+										},
+									],
+									status: { code: 1 },
+								},
+							],
+						},
+					],
+				},
+			],
+		};
+
+		const backendOtlpPayload = {
 			resourceSpans: [
 				{
 					resource: {
@@ -28,8 +107,19 @@ describe("Trace API integration", () => {
 									spanId: "abc123def456",
 									parentSpanId: "parent123",
 									name: "HTTP GET /api/users",
+									kind: 2,
 									startTimeUnixNano: "1766927492260000000",
 									endTimeUnixNano: "1766927492300000000",
+									attributes: [
+										{
+											key: "http.request.method",
+											value: { stringValue: "GET" },
+										},
+										{
+											key: "http.route",
+											value: { stringValue: "/api/users" },
+										},
+									],
 									status: { code: 1 },
 								},
 							],
@@ -39,56 +129,47 @@ describe("Trace API integration", () => {
 			],
 		};
 
-		const otlpResponse = await app.fetch(
+		const playwrightOtlpResponse = await app.fetch(
 			new Request("http://localhost/v1/traces", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify(otlpPayload),
+				body: JSON.stringify(playwrightOtlpPayload),
 			}),
 		);
 
-		expect(otlpResponse.status).toBe(200);
+		expect(playwrightOtlpResponse.status).toBe(200);
 
-		// Step 2: PUT test.json to /otel-playwright-reporter/test.json
-		const testJson = {
-			name: "should complete successfully",
-			describes: ["User API", "GET endpoint"],
-			file: "tests/api.spec.ts",
-			line: 42,
-			status: "passed",
-			traceId,
-			startTimeUnixNano: "1766927492000000000",
-			endTimeUnixNano: "1766927493000000000",
-		};
-
-		const testJsonResponse = await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
+		const backendOtlpResponse = await app.fetch(
+			new Request("http://localhost/v1/traces", {
+				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
 				},
-				body: JSON.stringify(testJson),
+				body: JSON.stringify(backendOtlpPayload),
 			}),
 		);
 
-		expect(testJsonResponse.status).toBe(200);
+		expect(backendOtlpResponse.status).toBe(200);
 
-		// Step 3: GET test.json back via viewer API
-		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`, {
-				method: "GET",
-			}),
+		const screenshotResponse = await app.fetch(
+			new Request(
+				"http://localhost/otel-playwright-reporter/screenshots/page@abc-1766927492500000000.jpeg",
+				{
+					method: "PUT",
+					headers: {
+						"Content-Type": "image/jpeg",
+						"X-Trace-Id": traceId,
+					},
+					body: new TextEncoder().encode("fake screenshot").buffer,
+				},
+			),
 		);
 
-		expect(getTestJsonResponse.status).toBe(200);
-		const retrievedTestJson = await getTestJsonResponse.json();
-		expect(retrievedTestJson).toEqual(testJson);
+		expect(screenshotResponse.status).toBe(200);
 
-		// Step 4: GET OTLP data back via viewer API
-		// First, list available OTLP files
+		// Step 2: GET OTLP data back via viewer API.
 		const listOtlpResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
@@ -99,13 +180,51 @@ describe("Trace API integration", () => {
 		);
 
 		expect(listOtlpResponse.status).toBe(200);
-		const otlpFiles = await listOtlpResponse.json();
+		const otlpFiles = (await listOtlpResponse.json()) as {
+			jsonFiles: string[];
+		};
 		expect(otlpFiles).toEqual({
-			jsonFiles: ["backend-api-abc123def456.json"],
+			jsonFiles: [
+				"backend-api-abc123def456.json",
+				"playwright-tests-testspan0000001.json",
+			],
 		});
 
-		// Then, get the specific OTLP file
-		const getOtlpResponse = await app.fetch(
+		const getPlaywrightOtlpResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol/playwright-tests-testspan0000001.json`,
+				{
+					method: "GET",
+				},
+			),
+		);
+
+		expect(getPlaywrightOtlpResponse.status).toBe(200);
+		const retrievedPlaywrightOtlp = await getPlaywrightOtlpResponse.json();
+		expect(retrievedPlaywrightOtlp).toEqual(playwrightOtlpPayload);
+		expect(
+			retrievedPlaywrightOtlp.resourceSpans[0].scopeSpans[0].spans[0],
+		).toMatchObject({
+			name: "playwright.test",
+			startTimeUnixNano: "1766927492000000000",
+			endTimeUnixNano: "1766927493000000000",
+			attributes: expect.arrayContaining([
+				expect.objectContaining({
+					key: "test.case.title",
+					value: { stringValue: "should complete successfully" },
+				}),
+				expect.objectContaining({
+					key: "playwright.test.status",
+					value: { stringValue: "passed" },
+				}),
+				expect.objectContaining({
+					key: "code.file.path",
+					value: { stringValue: "tests/api.spec.ts" },
+				}),
+			]),
+		});
+
+		const getBackendOtlpResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol/backend-api-abc123def456.json`,
 				{
@@ -114,8 +233,38 @@ describe("Trace API integration", () => {
 			),
 		);
 
-		expect(getOtlpResponse.status).toBe(200);
-		const retrievedOtlp = await getOtlpResponse.json();
-		expect(retrievedOtlp).toEqual(otlpPayload);
+		expect(getBackendOtlpResponse.status).toBe(200);
+		const retrievedBackendOtlp = await getBackendOtlpResponse.json();
+		expect(retrievedBackendOtlp).toEqual(backendOtlpPayload);
+
+		const listScreenshotsResponse = await app.fetch(
+			new Request(`http://localhost/otel-trace-viewer/${traceId}/screenshots`, {
+				method: "GET",
+			}),
+		);
+
+		expect(listScreenshotsResponse.status).toBe(200);
+		expect(await listScreenshotsResponse.json()).toEqual({
+			screenshots: [
+				{
+					file: "page@abc-1766927492500000000.jpeg",
+					timestamp: 1766927492500000000,
+				},
+			],
+		});
+
+		const getScreenshotResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/screenshots/page@abc-1766927492500000000.jpeg`,
+				{
+					method: "GET",
+				},
+			),
+		);
+
+		expect(getScreenshotResponse.status).toBe(200);
+		expect(getScreenshotResponse.headers.get("content-type")).toBe(
+			"image/jpeg",
+		);
 	});
 });

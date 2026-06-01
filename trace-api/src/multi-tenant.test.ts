@@ -4,7 +4,6 @@ import {
 	createOtlpPayload,
 	createScreenshotBuffer,
 	createTestHarness,
-	createTestJson,
 	generateTraceId,
 } from "./testHarness";
 
@@ -61,26 +60,6 @@ describe("Multi-Tenant Storage", () => {
 		);
 		expect(orgAOtlpResponse.status).toBe(200);
 
-		// Tenant A: Write test.json
-		const orgATestJson = createTestJson({
-			traceId,
-			name: "org A test",
-			status: "passed",
-		});
-
-		const orgATestJsonResponse = await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-					"X-Org-Id": "org-a",
-				},
-				body: JSON.stringify(orgATestJson),
-			}),
-		);
-		expect(orgATestJsonResponse.status).toBe(200);
-
 		// Tenant B: Write OTLP data with SAME traceId
 		const orgBOtlpPayload = createOtlpPayload({
 			traceId,
@@ -106,50 +85,6 @@ describe("Multi-Tenant Storage", () => {
 		);
 		expect(orgBOtlpResponse.status).toBe(200);
 
-		// Tenant B: Write test.json
-		const orgBTestJson = createTestJson({
-			traceId,
-			name: "org B test",
-			status: "passed",
-		});
-
-		const orgBTestJsonResponse = await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-					"X-Org-Id": "org-b",
-				},
-				body: JSON.stringify(orgBTestJson),
-			}),
-		);
-		expect(orgBTestJsonResponse.status).toBe(200);
-
-		// Verification: Tenant A can read their own data
-		const orgAGetResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`, {
-				headers: {
-					"X-Org-Id": "org-a",
-				},
-			}),
-		);
-		expect(orgAGetResponse.status).toBe(200);
-		const orgARetrieved = (await orgAGetResponse.json()) as { name: string };
-		expect(orgARetrieved.name).toBe("org A test");
-
-		// Verification: Tenant B can read their own data
-		const orgBGetResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`, {
-				headers: {
-					"X-Org-Id": "org-b",
-				},
-			}),
-		);
-		expect(orgBGetResponse.status).toBe(200);
-		const orgBRetrieved = (await orgBGetResponse.json()) as { name: string };
-		expect(orgBRetrieved.name).toBe("org B test");
-
 		// Verification: OTLP files are isolated
 		const orgAOtlpListResponse = await app.fetch(
 			new Request(
@@ -165,7 +100,11 @@ describe("Multi-Tenant Storage", () => {
 		const orgAOtlpFiles = (await orgAOtlpListResponse.json()) as {
 			jsonFiles: string[];
 		};
-		expect(orgAOtlpFiles.jsonFiles.length).toBeGreaterThan(0);
+		expect(orgAOtlpFiles.jsonFiles).toEqual([
+			"org-a-service-" +
+				orgAOtlpPayload.resourceSpans[0].scopeSpans[0].spans[0].spanId +
+				".json",
+		]);
 
 		const orgBOtlpListResponse = await app.fetch(
 			new Request(
@@ -181,7 +120,11 @@ describe("Multi-Tenant Storage", () => {
 		const orgBOtlpFiles = (await orgBOtlpListResponse.json()) as {
 			jsonFiles: string[];
 		};
-		expect(orgBOtlpFiles.jsonFiles.length).toBeGreaterThan(0);
+		expect(orgBOtlpFiles.jsonFiles).toEqual([
+			"org-b-service-" +
+				orgBOtlpPayload.resourceSpans[0].scopeSpans[0].spans[0].spanId +
+				".json",
+		]);
 
 		// Retrieve and verify the OTLP data is different for each tenant
 		const orgAOtlpDataResponse = await app.fetch(
@@ -201,6 +144,8 @@ describe("Multi-Tenant Storage", () => {
 				};
 			}>;
 		};
+		expect(orgAOtlpDataResponse.status).toBe(200);
+		expect(orgAOtlpData).toEqual(orgAOtlpPayload);
 		const orgAServiceName =
 			orgAOtlpData.resourceSpans[0].resource.attributes.find(
 				(attr) => attr.key === "service.name",
@@ -224,11 +169,25 @@ describe("Multi-Tenant Storage", () => {
 				};
 			}>;
 		};
+		expect(orgBOtlpDataResponse.status).toBe(200);
+		expect(orgBOtlpData).toEqual(orgBOtlpPayload);
 		const orgBServiceName =
 			orgBOtlpData.resourceSpans[0].resource.attributes.find(
 				(attr) => attr.key === "service.name",
 			)?.value.stringValue;
 		expect(orgBServiceName).toBe("org-b-service");
+
+		const orgAWrongTenantResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol/${orgBOtlpFiles.jsonFiles[0]}`,
+				{
+					headers: {
+						"X-Org-Id": "org-a",
+					},
+				},
+			),
+		);
+		expect(orgAWrongTenantResponse.status).toBe(404);
 	});
 
 	it("handles complete multi-tenant workflow with screenshots", async () => {
@@ -255,9 +214,19 @@ describe("Multi-Tenant Storage", () => {
 			serviceName: "playwright",
 			spans: [
 				{
-					name: "test: complete user journey",
+					name: "playwright.test",
 					startTimeUnixNano: "1766927492000000000",
 					endTimeUnixNano: "1766927495000000000",
+					attributes: [
+						{
+							key: "test.case.title",
+							value: { stringValue: "complete user journey" },
+						},
+						{
+							key: "playwright.test.status",
+							value: { stringValue: "passed" },
+						},
+					],
 				},
 				{
 					name: "page.goto",
@@ -314,28 +283,7 @@ describe("Multi-Tenant Storage", () => {
 		);
 		expect(backendOtlpResponse.status).toBe(200);
 
-		// Step 3: Send test.json
-		const testJson = createTestJson({
-			traceId,
-			name: "complete user journey",
-			status: "passed",
-			describes: ["User flows", "E2E tests"],
-		});
-
-		const testJsonResponse = await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-					"X-Org-Id": "tenant-123",
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
-		expect(testJsonResponse.status).toBe(200);
-
-		// Step 4: Send screenshots
+		// Step 3: Send screenshots
 		const screenshots = [
 			{
 				filename: "page@abc-1766927492300000000.jpeg",
@@ -368,19 +316,7 @@ describe("Multi-Tenant Storage", () => {
 		// Verification: Read back complete trace via viewer API
 		// All reads should go through the same resolvePath transformation
 
-		// 1. Verify test.json
-		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`, {
-				headers: {
-					"X-Org-Id": "tenant-123",
-				},
-			}),
-		);
-		expect(getTestJsonResponse.status).toBe(200);
-		const retrievedTestJson = await getTestJsonResponse.json();
-		expect(retrievedTestJson).toEqual(testJson);
-
-		// 2. Verify OTLP files (should have both playwright and backend-api)
+		// 1. Verify OTLP files (should have both playwright and backend-api)
 		const listOtlpResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
@@ -414,6 +350,21 @@ describe("Multi-Tenant Storage", () => {
 		expect(getPlaywrightOtlpResponse.status).toBe(200);
 		const retrievedPlaywrightOtlp = await getPlaywrightOtlpResponse.json();
 		expect(retrievedPlaywrightOtlp).toEqual(playwrightOtlp);
+		expect(
+			retrievedPlaywrightOtlp.resourceSpans[0].scopeSpans[0].spans[0],
+		).toMatchObject({
+			name: "playwright.test",
+			attributes: expect.arrayContaining([
+				expect.objectContaining({
+					key: "test.case.title",
+					value: { stringValue: "complete user journey" },
+				}),
+				expect.objectContaining({
+					key: "playwright.test.status",
+					value: { stringValue: "passed" },
+				}),
+			]),
+		});
 
 		const getBackendOtlpResponse = await app.fetch(
 			new Request(

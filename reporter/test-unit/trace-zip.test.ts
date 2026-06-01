@@ -289,26 +289,6 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			// Read and verify zip contents
 			const zipEntries = await readZipEntries(expectedZipPath);
 
-			// Verify test.json exists at root
-			const testInfoContent = zipEntries.get("test.json") as string;
-			expect(testInfoContent).toBeDefined();
-
-			// Verify test.json structure
-			const testInfo = JSON.parse(testInfoContent);
-			expect(testInfo.name).toBe("example test with screenshot");
-			expect(testInfo.describes).toEqual([]);
-			expect(testInfo.file).toBe("example.spec.ts");
-			expect(testInfo.line).toBe(10);
-			expect(testInfo.status).toBe("passed");
-			expect(testInfo.traceId).toMatch(/^[0-9a-f]{32}$/);
-			expect(testInfo.startTimeUnixNano).toMatch(/^\d+$/);
-			expect(testInfo.endTimeUnixNano).toMatch(/^\d+$/);
-
-			// Verify timing - endTime should be startTime + duration (2000ms = 2000000000ns)
-			const startNano = BigInt(testInfo.startTimeUnixNano);
-			const endNano = BigInt(testInfo.endTimeUnixNano);
-			expect(endNano - startNano).toBe(BigInt(2000 * 1_000_000));
-
 			// Verify opentelemetry-protocol/playwright-opentelemetry.json exists
 			const traceContent = zipEntries.get(
 				"opentelemetry-protocol/playwright-opentelemetry.json",
@@ -334,8 +314,18 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(testSpan).toBeDefined();
 			expect(testSpan.traceId).toMatch(/^[0-9a-f]{32}$/);
 
-			// Verify test.json traceId matches the test span's traceId
-			expect(testInfo.traceId).toBe(testSpan.traceId);
+			expect(testSpan.attributes).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						key: "test.case.title",
+						value: { stringValue: "example test with screenshot" },
+					}),
+					expect.objectContaining({
+						key: "playwright.test.status",
+						value: { stringValue: "passed" },
+					}),
+				]),
+			);
 
 			// Verify screenshots folder exists with correct files
 			const screenshotFiles = Array.from(zipEntries.keys()).filter((f) =>
@@ -405,8 +395,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			// Read and verify zip contents
 			const zipEntries = await readZipEntries(expectedZipPath);
 
-			// Should have test.json and trace JSON, but no screenshots
-			expect(zipEntries.has("test.json")).toBe(true);
+			// Should have trace JSON, but no screenshots
 			expect(
 				zipEntries.has("opentelemetry-protocol/playwright-opentelemetry.json"),
 			).toBe(true);
@@ -418,7 +407,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(screenshotFiles).toHaveLength(0);
 		});
 
-		it("creates test.json with describes array from titlePath", async () => {
+		it("stores describes array on the root test span", async () => {
 			outputDir = createTestOutputDir("test-with-describes");
 
 			const testId = "describe-test-123";
@@ -479,22 +468,24 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			const zipEntries = await readZipEntries(expectedZipPath);
 
-			// Verify test.json
-			const testInfoContent = zipEntries.get("test.json") as string;
-			expect(testInfoContent).toBeDefined();
-
-			const testInfo = JSON.parse(testInfoContent);
-			expect(testInfo.name).toBe("User can log in to the homepage");
-			expect(testInfo.describes).toEqual([
-				"Authentication",
-				"When a user is logged out",
-			]);
-			expect(testInfo.file).toBe("homepage/login.spec.ts");
-			expect(testInfo.line).toBe(9);
-			expect(testInfo.status).toBe("passed");
+			const traceContent = zipEntries.get(
+				"opentelemetry-protocol/playwright-opentelemetry.json",
+			) as string;
+			const traceData = JSON.parse(traceContent);
+			const testSpan = traceData.resourceSpans[0].scopeSpans[0].spans.find(
+				(s: { name: string }) => s.name === "playwright.test",
+			);
+			expect(testSpan.attributes).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ key: "test.case.title" }),
+					expect.objectContaining({ key: "playwright.test.describes" }),
+					expect.objectContaining({ key: "code.file.path" }),
+					expect.objectContaining({ key: "code.line.number" }),
+				]),
+			);
 		});
 
-		it("creates test.json with failed status for failed tests", async () => {
+		it("stores failed status on the root test span", async () => {
 			outputDir = createTestOutputDir("test-failed");
 
 			const testId = "failed-test-123";
@@ -551,10 +542,21 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			const zipEntries = await readZipEntries(expectedZipPath);
 
-			// Verify test.json has failed status
-			const testInfoContent = zipEntries.get("test.json") as string;
-			const testInfo = JSON.parse(testInfoContent);
-			expect(testInfo.status).toBe("failed");
+			const traceContent = zipEntries.get(
+				"opentelemetry-protocol/playwright-opentelemetry.json",
+			) as string;
+			const traceData = JSON.parse(traceContent);
+			const testSpan = traceData.resourceSpans[0].scopeSpans[0].spans.find(
+				(s: { name: string }) => s.name === "playwright.test",
+			);
+			expect(testSpan.attributes).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						key: "playwright.test.status",
+						value: { stringValue: "failed" },
+					}),
+				]),
+			);
 		});
 	});
 

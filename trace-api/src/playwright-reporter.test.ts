@@ -3,7 +3,6 @@ import {
 	createOtlpPayload,
 	createScreenshotBuffer,
 	createTestHarness,
-	createTestJson,
 	generateTraceId,
 } from "./testHarness";
 
@@ -23,9 +22,23 @@ describe("Playwright Reporter", () => {
 			serviceName: "playwright",
 			spans: [
 				{
-					name: "test: should complete successfully",
+					name: "playwright.test",
 					startTimeUnixNano: "1766927492000000000",
 					endTimeUnixNano: "1766927493000000000",
+					attributes: [
+						{
+							key: "test.case.title",
+							value: { stringValue: "should complete successfully" },
+						},
+						{
+							key: "test.case.result.status",
+							value: { stringValue: "pass" },
+						},
+						{
+							key: "playwright.test.status",
+							value: { stringValue: "passed" },
+						},
+					],
 				},
 				{
 					name: "page.goto",
@@ -49,27 +62,7 @@ describe("Playwright Reporter", () => {
 		);
 		expect(otlpResponse.status).toBe(200);
 
-		// Step 2: Send test.json
-		const testJson = createTestJson({
-			traceId,
-			name: "should complete successfully",
-			status: "passed",
-			describes: ["Example suite"],
-		});
-
-		const testJsonResponse = await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
-		expect(testJsonResponse.status).toBe(200);
-
-		// Step 3: Send screenshots
+		// Step 2: Send screenshots
 		const screenshots = [
 			{
 				filename: "page@123-1766927492200000000.jpeg",
@@ -99,14 +92,7 @@ describe("Playwright Reporter", () => {
 		}
 
 		// Verification: Read back complete trace
-		// 1. Get test.json
-		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
-		);
-		expect(getTestJsonResponse.status).toBe(200);
-		expect(await getTestJsonResponse.json()).toEqual(testJson);
-
-		// 2. List and get OTLP files
+		// 1. List and get OTLP files
 		const listOtlpResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
@@ -124,9 +110,27 @@ describe("Playwright Reporter", () => {
 			),
 		);
 		expect(getOtlpResponse.status).toBe(200);
-		expect(await getOtlpResponse.json()).toEqual(otlpPayload);
+		const retrievedOtlp = await getOtlpResponse.json();
+		expect(retrievedOtlp).toEqual(otlpPayload);
+		expect(retrievedOtlp.resourceSpans[0].scopeSpans[0].spans[0]).toMatchObject(
+			{
+				name: "playwright.test",
+				startTimeUnixNano: "1766927492000000000",
+				endTimeUnixNano: "1766927493000000000",
+				attributes: expect.arrayContaining([
+					expect.objectContaining({
+						key: "test.case.title",
+						value: { stringValue: "should complete successfully" },
+					}),
+					expect.objectContaining({
+						key: "playwright.test.status",
+						value: { stringValue: "passed" },
+					}),
+				]),
+			},
+		);
 
-		// 3. List and get screenshots
+		// 2. List and get screenshots
 		const listScreenshotsResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/screenshots`),
 		);
@@ -146,7 +150,7 @@ describe("Playwright Reporter", () => {
 			},
 		]);
 
-		// 4. Fetch individual screenshot
+		// 3. Fetch individual screenshot
 		const getScreenshotResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${traceId}/screenshots/${screenshots[0].filename}`,
@@ -159,7 +163,7 @@ describe("Playwright Reporter", () => {
 		);
 	});
 
-	it("reports a failing test with error information", async () => {
+	it("reports a failing test OTLP payload", async () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
 
@@ -169,9 +173,24 @@ describe("Playwright Reporter", () => {
 			serviceName: "playwright",
 			spans: [
 				{
-					name: "test: should handle errors",
+					name: "playwright.test",
 					startTimeUnixNano: "1766927492000000000",
 					endTimeUnixNano: "1766927492500000000",
+					attributes: [
+						{
+							key: "test.case.title",
+							value: { stringValue: "should handle errors" },
+						},
+						{
+							key: "test.case.result.status",
+							value: { stringValue: "fail" },
+						},
+						{
+							key: "playwright.test.status",
+							value: { stringValue: "failed" },
+						},
+					],
+					status: { code: 2, message: "Expected element to be visible" },
 				},
 			],
 		});
@@ -184,44 +203,37 @@ describe("Playwright Reporter", () => {
 			}),
 		);
 
-		// Send test.json with error
-		const testJson = createTestJson({
-			traceId,
-			name: "should handle errors",
-			status: "failed",
-			describes: ["Error handling suite"],
-			error: {
-				message: "Expected element to be visible",
-				stack:
-					"Error: Expected element to be visible\n    at test.spec.ts:15:20",
-			},
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
+		const listOtlpResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
+			),
 		);
-
-		// Verify error information is preserved
-		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
-		);
-		expect(getTestJsonResponse.status).toBe(200);
-		const retrievedTestJson = (await getTestJsonResponse.json()) as {
-			status: string;
-			error: { message: string; stack: string };
+		expect(listOtlpResponse.status).toBe(200);
+		const otlpFiles = (await listOtlpResponse.json()) as {
+			jsonFiles: string[];
 		};
-		expect(retrievedTestJson.status).toBe("failed");
-		expect(retrievedTestJson.error).toEqual({
-			message: "Expected element to be visible",
-			stack: "Error: Expected element to be visible\n    at test.spec.ts:15:20",
-		});
+		expect(otlpFiles.jsonFiles).toHaveLength(1);
+
+		const getOtlpResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol/${otlpFiles.jsonFiles[0]}`,
+			),
+		);
+		expect(getOtlpResponse.status).toBe(200);
+		const retrievedOtlp = await getOtlpResponse.json();
+		expect(retrievedOtlp).toEqual(otlpPayload);
+		expect(retrievedOtlp.resourceSpans[0].scopeSpans[0].spans[0]).toMatchObject(
+			{
+				name: "playwright.test",
+				status: { code: 2, message: "Expected element to be visible" },
+				attributes: expect.arrayContaining([
+					expect.objectContaining({
+						key: "playwright.test.status",
+						value: { stringValue: "failed" },
+					}),
+				]),
+			},
+		);
 	});
 
 	it("reports a test with no screenshots", async () => {
@@ -249,24 +261,6 @@ describe("Playwright Reporter", () => {
 			}),
 		);
 
-		const testJson = createTestJson({
-			traceId,
-			name: "API endpoint test",
-			status: "passed",
-			describes: ["API tests"],
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
-
 		// Verify screenshots list is empty
 		const listScreenshotsResponse = await app.fetch(
 			new Request(`http://localhost/otel-trace-viewer/${traceId}/screenshots`),
@@ -276,6 +270,17 @@ describe("Playwright Reporter", () => {
 			screenshots: string[];
 		};
 		expect(screenshotsList.screenshots).toEqual([]);
+
+		const listOtlpResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
+			),
+		);
+		expect(listOtlpResponse.status).toBe(200);
+		const otlpFiles = (await listOtlpResponse.json()) as {
+			jsonFiles: string[];
+		};
+		expect(otlpFiles.jsonFiles).toHaveLength(1);
 	});
 
 	it("reports a test with multiple browser pages", async () => {
@@ -300,24 +305,6 @@ describe("Playwright Reporter", () => {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(otlpPayload),
-			}),
-		);
-
-		// Send test.json
-		const testJson = createTestJson({
-			traceId,
-			name: "multi-page test",
-			status: "passed",
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
 			}),
 		);
 
@@ -401,23 +388,6 @@ describe("Playwright Reporter", () => {
 			}),
 		);
 
-		const testJson1 = createTestJson({
-			traceId: test1TraceId,
-			name: "first test",
-			status: "passed",
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": test1TraceId,
-				},
-				body: JSON.stringify(testJson1),
-			}),
-		);
-
 		// Test 2
 		const otlp2 = createOtlpPayload({
 			traceId: test2TraceId,
@@ -438,42 +408,7 @@ describe("Playwright Reporter", () => {
 			}),
 		);
 
-		const testJson2 = createTestJson({
-			traceId: test2TraceId,
-			name: "second test",
-			status: "passed",
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": test2TraceId,
-				},
-				body: JSON.stringify(testJson2),
-			}),
-		);
-
 		// Verify traces are isolated
-		const test1Response = await app.fetch(
-			new Request(
-				`http://localhost/otel-trace-viewer/${test1TraceId}/test.json`,
-			),
-		);
-		expect(test1Response.status).toBe(200);
-		const test1Data = (await test1Response.json()) as { name: string };
-		expect(test1Data.name).toBe("first test");
-
-		const test2Response = await app.fetch(
-			new Request(
-				`http://localhost/otel-trace-viewer/${test2TraceId}/test.json`,
-			),
-		);
-		expect(test2Response.status).toBe(200);
-		const test2Data = (await test2Response.json()) as { name: string };
-		expect(test2Data.name).toBe("second test");
-
 		// Verify OTLP files don't interfere
 		const otlp1Response = await app.fetch(
 			new Request(
@@ -482,6 +417,13 @@ describe("Playwright Reporter", () => {
 		);
 		const otlp1Files = (await otlp1Response.json()) as { jsonFiles: string[] };
 		expect(otlp1Files.jsonFiles).toHaveLength(1);
+		const otlp1DataResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${test1TraceId}/opentelemetry-protocol/${otlp1Files.jsonFiles[0]}`,
+			),
+		);
+		expect(otlp1DataResponse.status).toBe(200);
+		expect(await otlp1DataResponse.json()).toEqual(otlp1);
 
 		const otlp2Response = await app.fetch(
 			new Request(
@@ -490,6 +432,13 @@ describe("Playwright Reporter", () => {
 		);
 		const otlp2Files = (await otlp2Response.json()) as { jsonFiles: string[] };
 		expect(otlp2Files.jsonFiles).toHaveLength(1);
+		const otlp2DataResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${test2TraceId}/opentelemetry-protocol/${otlp2Files.jsonFiles[0]}`,
+			),
+		);
+		expect(otlp2DataResponse.status).toBe(200);
+		expect(await otlp2DataResponse.json()).toEqual(otlp2);
 	});
 
 	it("reports a test with many spans", async () => {
@@ -560,24 +509,6 @@ describe("Playwright Reporter", () => {
 			}),
 		);
 		expect(otlpResponse.status).toBe(200);
-
-		// Send test.json
-		const testJson = createTestJson({
-			traceId,
-			name: "complex user journey",
-			status: "passed",
-		});
-
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
 
 		// Verify large OTLP payload is handled correctly
 		const listOtlpResponse = await app.fetch(

@@ -17,10 +17,12 @@ export interface Span {
 	/** Duration in milliseconds */
 	durationMs: number;
 	kind: SpanKind;
-	attributes: Record<string, string | number | boolean>;
+	attributes: Record<string, AttributeValue>;
 	/** Service name from resource attributes (e.g., "playwright-browser") */
 	serviceName: string;
 }
+
+export type AttributeValue = string | number | boolean | string[];
 
 export type SpanKind =
 	| "internal"
@@ -128,8 +130,8 @@ const TITLE_ATTRIBUTES = [
 
 function flattenAttributes(
 	attrs: OtlpAttribute[],
-): Record<string, string | number | boolean> {
-	const result: Record<string, string | number | boolean> = {};
+): Record<string, AttributeValue> {
+	const result: Record<string, AttributeValue> = {};
 	for (const attr of attrs) {
 		const value = extractAttributeValue(attr);
 		if (value !== undefined) {
@@ -141,17 +143,22 @@ function flattenAttributes(
 
 function extractAttributeValue(
 	attr: OtlpAttribute,
-): string | number | boolean | undefined {
+): AttributeValue | undefined {
 	const { value } = attr;
 	if (value.stringValue !== undefined) return value.stringValue;
 	if (value.intValue !== undefined) return value.intValue;
 	if (value.doubleValue !== undefined) return value.doubleValue;
 	if (value.boolValue !== undefined) return value.boolValue;
+	if (value.arrayValue !== undefined) {
+		return value.arrayValue.values.flatMap((item) =>
+			item.stringValue === undefined ? [] : [item.stringValue],
+		);
+	}
 	return undefined;
 }
 
 function extractTitle(
-	attrs: Record<string, string | number | boolean>,
+	attrs: Record<string, AttributeValue>,
 	spanName: string,
 ): string {
 	for (const key of TITLE_ATTRIBUTES) {

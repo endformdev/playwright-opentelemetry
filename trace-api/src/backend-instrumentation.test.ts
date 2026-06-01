@@ -3,7 +3,6 @@ import {
 	createOtlpPayload,
 	createScreenshotBuffer,
 	createTestHarness,
-	createTestJson,
 	generateSpanId,
 	generateTraceId,
 } from "./testHarness";
@@ -72,25 +71,6 @@ describe("Backend Instrumentation", () => {
 			}),
 		);
 
-		// Playwright sends test.json
-		const testJson = createTestJson({
-			traceId,
-			name: "should load users",
-			status: "passed",
-			describes: ["Backend integration"],
-			file: "tests/backend.spec.ts",
-		});
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
-
 		// Verify both Playwright and backend spans appear in the trace
 		const listOtlpResponse = await app.fetch(
 			new Request(
@@ -102,12 +82,31 @@ describe("Backend Instrumentation", () => {
 			jsonFiles: string[];
 		};
 		expect(otlpFiles.jsonFiles).toHaveLength(2);
-		expect(otlpFiles.jsonFiles.some((f) => f.includes("backend-api"))).toBe(
-			true,
+
+		const backendFile = otlpFiles.jsonFiles.find((file) =>
+			file.includes("backend-api"),
 		);
-		expect(otlpFiles.jsonFiles.some((f) => f.includes("playwright"))).toBe(
-			true,
+		const playwrightFile = otlpFiles.jsonFiles.find((file) =>
+			file.includes("playwright"),
 		);
+		expect(backendFile).toBeDefined();
+		expect(playwrightFile).toBeDefined();
+
+		const backendTraceResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol/${backendFile}`,
+			),
+		);
+		expect(backendTraceResponse.status).toBe(200);
+		expect(await backendTraceResponse.json()).toEqual(backendOtlp);
+
+		const playwrightTraceResponse = await app.fetch(
+			new Request(
+				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol/${playwrightFile}`,
+			),
+		);
+		expect(playwrightTraceResponse.status).toBe(200);
+		expect(await playwrightTraceResponse.json()).toEqual(playwrightOtlp);
 	});
 
 	it("multiple services in a request chain", async () => {
@@ -176,25 +175,6 @@ describe("Backend Instrumentation", () => {
 			}),
 		);
 
-		// Playwright sends test.json
-		const testJson = createTestJson({
-			traceId,
-			name: "test with backend instrumentation",
-			status: "passed",
-			describes: ["Backend integration"],
-			file: "tests/backend.spec.ts",
-		});
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
-			}),
-		);
-
 		// Verify all three services appear in OTLP file listing
 		const listOtlpResponse = await app.fetch(
 			new Request(
@@ -240,31 +220,37 @@ describe("Backend Instrumentation", () => {
 			}),
 		);
 
-		// Playwright sends test.json
-		const testJson = createTestJson({
+		const playwrightOtlp = createOtlpPayload({
 			traceId,
-			name: "test with backend instrumentation",
-			status: "passed",
-			describes: ["Backend integration"],
-			file: "tests/backend.spec.ts",
-		});
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
+			serviceName: "playwright",
+			spans: [
+				{
+					name: "playwright.test",
+					startTimeUnixNano: "1766927492000000000",
+					endTimeUnixNano: "1766927493000000000",
+					attributes: [
+						{
+							key: "test.case.title",
+							value: { stringValue: "test with backend instrumentation" },
+						},
+						{
+							key: "playwright.test.status",
+							value: { stringValue: "passed" },
+						},
+					],
 				},
-				body: JSON.stringify(testJson),
+			],
+		});
+
+		await app.fetch(
+			new Request("http://localhost/v1/traces", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(playwrightOtlp),
 			}),
 		);
 
-		// Verify both are present in final trace
-		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
-		);
-		expect(getTestJsonResponse.status).toBe(200);
-
+		// Verify OTLP data is present in final trace
 		const listOtlpResponse = await app.fetch(
 			new Request(
 				`http://localhost/otel-trace-viewer/${traceId}/opentelemetry-protocol`,
@@ -274,7 +260,11 @@ describe("Backend Instrumentation", () => {
 		const otlpFiles = (await listOtlpResponse.json()) as {
 			jsonFiles: string[];
 		};
+		expect(otlpFiles.jsonFiles).toHaveLength(2);
 		expect(otlpFiles.jsonFiles.some((f) => f.includes("backend-api"))).toBe(
+			true,
+		);
+		expect(otlpFiles.jsonFiles.some((f) => f.includes("playwright"))).toBe(
 			true,
 		);
 	});
@@ -301,24 +291,6 @@ describe("Backend Instrumentation", () => {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(playwrightOtlp),
-			}),
-		);
-
-		const testJson = createTestJson({
-			traceId,
-			name: "delayed backend processing",
-			status: "passed",
-			describes: ["Backend integration"],
-			file: "tests/backend.spec.ts",
-		});
-		await app.fetch(
-			new Request("http://localhost/otel-playwright-reporter/test.json", {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Trace-Id": traceId,
-				},
-				body: JSON.stringify(testJson),
 			}),
 		);
 
@@ -374,6 +346,19 @@ describe("Backend Instrumentation", () => {
 		expect(otlpFiles.jsonFiles.some((f) => f.includes("playwright"))).toBe(
 			true,
 		);
+
+		const screenshotsResponse = await app.fetch(
+			new Request(`http://localhost/otel-trace-viewer/${traceId}/screenshots`),
+		);
+		expect(screenshotsResponse.status).toBe(200);
+		expect(await screenshotsResponse.json()).toEqual({
+			screenshots: [
+				{
+					file: "page@123-1766927492500000000.jpeg",
+					timestamp: 1766927492500000000,
+				},
+			],
+		});
 	});
 
 	it("multiple OTLP batches from same service", async () => {
@@ -465,7 +450,7 @@ describe("Backend Instrumentation", () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
 
-		// Backend sends OTLP but no Playwright test.json ever arrives
+		// Backend sends OTLP without a Playwright root span.
 		const backendOtlp = createOtlpPayload({
 			traceId,
 			serviceName: "backend-api",
@@ -497,12 +482,6 @@ describe("Backend Instrumentation", () => {
 			jsonFiles: string[];
 		};
 		expect(otlpFiles.jsonFiles).toHaveLength(1);
-
-		// test.json should not exist
-		const getTestJsonResponse = await app.fetch(
-			new Request(`http://localhost/otel-trace-viewer/${traceId}/test.json`),
-		);
-		expect(getTestJsonResponse.status).toBe(404);
 	});
 
 	it("single OTLP post with spans from multiple traces", async () => {
