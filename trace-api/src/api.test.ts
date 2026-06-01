@@ -6,8 +6,8 @@ import {
 	generateTraceId,
 } from "./testHarness";
 
-const VIEWER_PATH = "/playwright-otel-trace-viewer";
-const REPORTER_PATH = "/playwright-otel-reporter";
+const VIEWER_PATH = "/playwright-otel-trace-viewer/v1";
+const REPORTER_PATH = "/playwright-otel-reporter/v1";
 
 describe("Trace API", () => {
 	it("stores and returns merged OTLP traces by trace ID", async () => {

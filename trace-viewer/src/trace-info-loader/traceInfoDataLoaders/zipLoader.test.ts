@@ -6,7 +6,7 @@ const serviceWorker = vi.hoisted(() => ({
 	loadTraceInServiceWorker: vi.fn(),
 	unloadTraceFromServiceWorker: vi.fn(async () => undefined),
 	getTraceViewerApiUrl: vi.fn(
-		(traceId: string) => `/playwright-otel-trace-viewer/${traceId}`,
+		(traceId: string) => `/playwright-otel-trace-viewer/v1/${traceId}`,
 	),
 }));
 
@@ -43,7 +43,7 @@ describe("loading ZIP traces", () => {
 		expect(traceInfo.screenshots).toEqual([
 			{
 				timestamp: 1766927492300,
-				url: `/playwright-otel-trace-viewer/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
+				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
 			},
 		]);
 	});

@@ -7,8 +7,8 @@ import {
 	generateTraceId,
 } from "./testHarness";
 
-const REPORTER_PATH = "/playwright-otel-reporter";
-const VIEWER_PATH = "/playwright-otel-trace-viewer";
+const REPORTER_PATH = "/playwright-otel-reporter/v1";
+const VIEWER_PATH = "/playwright-otel-trace-viewer/v1";
 
 describe("multi-tenant trace API flows", () => {
 	it("keeps two tenants with the same trace ID from seeing each other's traces or screenshots", async () => {

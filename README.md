@@ -104,7 +104,7 @@ When running the reporter with `storeTraceZip: true`, a local copy of trace data
 
 ### Trace API
 
-The trace viewer can also load traces from a trace-specific API base URL, for example `/playwright-otel-trace-viewer/{traceId}`. That base URL must respond to the following endpoints:
+The trace viewer can also load traces from a trace-specific API base URL, for example `/playwright-otel-trace-viewer/v1/{traceId}`. That base URL must respond to the following endpoints:
 
 - `GET {baseUrl}/traces` - merged OTLP trace export response
 	- Response format `{ "resourceSpans": [...] }`

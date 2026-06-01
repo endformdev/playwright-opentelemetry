@@ -68,9 +68,9 @@ app.use(PLAYWRIGHT_REPORTER_WRITE_PATH, authMiddleware);
 // Add handlers
 // /v1/traces/
 app.post(OTLP_TRACES_WRITE_PATH, createOtlpHandler({ storage }));
-// /playwright-otel-reporter/**
+// /playwright-otel-reporter/v1/**
 app.put(PLAYWRIGHT_REPORTER_WRITE_PATH, createPlaywrightHandler({ storage }));
-// /playwright-otel-trace-viewer/**
+// /playwright-otel-trace-viewer/v1/**
 app.get(TRACE_VIEWER_READ_PATH, createViewerHandler({ storage }));
 
 export default {
@@ -145,7 +145,7 @@ Body: Standard OTLP JSON payload
 Partitions OTLP spans by trace ID and writes OTLP-shaped fragments to `traces/{traceId}/traces/{requestId}.json`. The fragment filename is a unique request ID, not a service name or span ID.
 
 ```
-PUT /playwright-otel-reporter/screenshots/{filename}
+PUT /playwright-otel-reporter/v1/screenshots/{filename}
 X-Trace-Id: {traceId}
 Body: JPEG image data
 ```
@@ -155,9 +155,9 @@ Writes screenshots to `traces/{traceId}/screenshots/{filename}`.
 **Read Endpoints:**
 
 ```
-GET /playwright-otel-trace-viewer/{traceId}/traces
-GET /playwright-otel-trace-viewer/{traceId}/screenshots
-GET /playwright-otel-trace-viewer/{traceId}/screenshots/{filename}
+GET /playwright-otel-trace-viewer/v1/{traceId}/traces
+GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots
+GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots/{filename}
 ```
 
 Serves merged OTLP trace data and screenshot data in the format expected by the trace viewer. The trace endpoint returns `404` when no trace fragments exist. The screenshots list endpoint returns `{ "screenshots": [] }` when a trace has no screenshots, while missing individual screenshots return `404`.

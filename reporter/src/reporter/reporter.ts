@@ -564,7 +564,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Send screenshots concurrently
 		await Promise.all(
 			Array.from(screenshots.entries()).map(async ([filename, blob]) => {
-				const screenshotUrl = `${this.resolvedTraceApiEndpoint}/playwright-otel-reporter/screenshots/${filename}`;
+				const screenshotUrl = `${this.resolvedTraceApiEndpoint}/playwright-otel-reporter/v1/screenshots/${filename}`;
 				const response = await fetch(screenshotUrl, {
 					method: "PUT",
 					headers: {

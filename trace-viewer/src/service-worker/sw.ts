@@ -110,7 +110,7 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
 		return;
 	}
 
-	const apiPrefix = `${getBasePath()}playwright-otel-trace-viewer/${currentTrace.traceId}/`;
+	const apiPrefix = `${getBasePath()}playwright-otel-trace-viewer/v1/${currentTrace.traceId}/`;
 	if (!url.pathname.startsWith(apiPrefix)) {
 		return;
 	}

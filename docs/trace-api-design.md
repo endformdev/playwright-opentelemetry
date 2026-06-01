@@ -84,16 +84,16 @@ api.use('/v1/traces', async (event) => {
   }
 });
 
-api.use('/playwright-otel-reporter/**', async (event) => {
+api.use('/playwright-otel-reporter/v1/**', async (event) => {
   const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
   if (!await validateToken(token)) {
     throw createError({ statusCode: 401, message: 'Unauthorized' });
   }
 });
 
-// Read endpoints (/playwright-otel-trace-viewer/**) are public by default
+// Read endpoints (/playwright-otel-trace-viewer/v1/**) are public by default
 // Add auth if needed:
-// api.use('/playwright-otel-trace-viewer/**', readAuthMiddleware);
+// api.use('/playwright-otel-trace-viewer/v1/**', readAuthMiddleware);
 
 // Add custom routes
 api.get('/health', () => ({ status: 'ok' }));
@@ -149,8 +149,8 @@ const app = new H3();
 
 // Add only the handlers you need
 app.post('/v1/traces', createOtlpHandler({ storage }));
-app.put('/playwright-otel-reporter/**', createPlaywrightHandler({ storage }));
-app.get('/playwright-otel-trace-viewer/**', createViewerHandler({ storage }));
+app.put('/playwright-otel-reporter/v1/**', createPlaywrightHandler({ storage }));
+app.get('/playwright-otel-trace-viewer/v1/**', createViewerHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -178,7 +178,7 @@ app.use(authMiddleware);
 
 // Write endpoints only
 app.post('/v1/traces', createOtlpHandler({ storage }));
-app.put('/playwright-otel-reporter/**', createPlaywrightHandler({ storage }));
+app.put('/playwright-otel-reporter/v1/**', createPlaywrightHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -198,7 +198,7 @@ const storage = createS3Storage({ ... });
 const app = new H3();
 
 // Read endpoints only - could be public or with different auth
-app.get('/playwright-otel-trace-viewer/**', createViewerHandler({ storage }));
+app.get('/playwright-otel-trace-viewer/v1/**', createViewerHandler({ storage }));
 
 export default {
   fetch: app.fetch,
@@ -261,7 +261,7 @@ Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, cus
 ### Playwright-Specific Endpoints
 
 ```
-PUT /playwright-otel-reporter/screenshots/{filename}
+PUT /playwright-otel-reporter/v1/screenshots/{filename}
 X-Trace-Id: {traceId}
 
 Body: JPEG image data
@@ -275,11 +275,11 @@ Body: JPEG image data
 Serves the format expected by the trace viewer:
 
 ```
-GET /playwright-otel-trace-viewer/{traceId}/traces
+GET /playwright-otel-trace-viewer/v1/{traceId}/traces
   -> { "resourceSpans": [...] }
-GET /playwright-otel-trace-viewer/{traceId}/screenshots
+GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots
   -> { "screenshots": [{ "timestamp": 1767539662401, "file": "page@abc-1767539662401.jpeg" }] }
-GET /playwright-otel-trace-viewer/{traceId}/screenshots/{filename}
+GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots/{filename}
 ```
 
 Screenshot timestamps are in **milliseconds since Unix epoch** (13 digits). The timestamp is extracted from the filename format `{pageId}-{timestampMs}.jpeg`.
@@ -347,8 +347,8 @@ trace-api/
 │   ├── createTraceApi.ts     # High-level factory function
 │   ├── handlers/
 │   │   ├── otlp.ts           # createOtlpHandler - POST /v1/traces
-│   │   ├── playwright.ts     # createPlaywrightHandler - PUT /playwright-otel-reporter/*
-│   │   └── viewer.ts         # createViewerHandler - GET /playwright-otel-trace-viewer/*
+│   │   ├── playwright.ts     # createPlaywrightHandler - PUT /playwright-otel-reporter/v1/*
+│   │   └── viewer.ts         # createViewerHandler - GET /playwright-otel-trace-viewer/v1/*
 │   ├── storage/
 │   │   ├── types.ts          # Storage interface
 │   │   └── s3.ts             # createS3Storage - S3 implementation using aws4fetch
@@ -478,10 +478,10 @@ export default {
 
     // Apply auth to write endpoints
     api.use('/v1/traces', authMiddleware);
-    api.use('/playwright-otel-reporter/**', authMiddleware);
+    api.use('/playwright-otel-reporter/v1/**', authMiddleware);
 
     // Read endpoints could use different auth or be public
-    // api.use('/playwright-otel-trace-viewer/**', readAuthMiddleware);
+    // api.use('/playwright-otel-trace-viewer/v1/**', readAuthMiddleware);
 
     return api.fetch(request);
   },

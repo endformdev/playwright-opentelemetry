@@ -6,9 +6,9 @@ import type { TraceApiHandlerConfig } from "../createTraceApi";
 /**
  * Create a handler for Playwright-specific trace data.
  *
- * Receives screenshots at PUT /playwright-otel-reporter/*,
+ * Receives screenshots at PUT /playwright-otel-reporter/v1/*,
  * using X-Trace-Id header to determine storage location:
- * - PUT /playwright-otel-reporter/screenshots/{filename} -> traces/{traceId}/screenshots/{filename}
+ * - PUT /playwright-otel-reporter/v1/screenshots/{filename} -> traces/{traceId}/screenshots/{filename}
  *
  * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
@@ -18,7 +18,7 @@ import type { TraceApiHandlerConfig } from "../createTraceApi";
  * import { PLAYWRIGHT_REPORTER_WRITE_PATH } from '@playwright-opentelemetry/trace-api';
  *
  * const router = createRouter();
- * // PLAYWRIGHT_REPORTER_WRITE_PATH = '/playwright-otel-reporter/**'
+ * // PLAYWRIGHT_REPORTER_WRITE_PATH = '/playwright-otel-reporter/v1/**'
  * router.put(PLAYWRIGHT_REPORTER_WRITE_PATH, createPlaywrightHandler({ storage }));
  * ```
  */
@@ -39,7 +39,7 @@ export function createPlaywrightHandler(
 			throw new Error("X-Trace-Id header is required");
 		}
 
-		// Get the path after /playwright-otel-reporter/
+		// Get the path after /playwright-otel-reporter/v1/
 		const path = getRouterParam(event, "_");
 		if (!path) {
 			throw new Error("Path is required");

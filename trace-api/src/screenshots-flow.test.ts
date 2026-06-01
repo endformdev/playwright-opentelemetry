@@ -5,8 +5,8 @@ import {
 	generateTraceId,
 } from "./testHarness";
 
-const REPORTER_PATH = "/playwright-otel-reporter";
-const VIEWER_PATH = "/playwright-otel-trace-viewer";
+const REPORTER_PATH = "/playwright-otel-reporter/v1";
+const VIEWER_PATH = "/playwright-otel-trace-viewer/v1";
 
 describe("reading screenshots through the viewer API", () => {
 	it("shows screenshots uploaded by the reporter in filmstrip order", async () => {

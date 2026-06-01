@@ -8,9 +8,9 @@ import { type OtlpExport, mergeOtlpExports } from "../otlp";
  * Create a handler for the trace viewer read API.
  *
  * Serves trace data in the format expected by the trace viewer:
- * - GET /playwright-otel-trace-viewer/{traceId}/traces -> { resourceSpans: [...] }
- * - GET /playwright-otel-trace-viewer/{traceId}/screenshots -> { screenshots: [...] }
- * - GET /playwright-otel-trace-viewer/{traceId}/screenshots/{filename}
+ * - GET /playwright-otel-trace-viewer/v1/{traceId}/traces -> { resourceSpans: [...] }
+ * - GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots -> { screenshots: [...] }
+ * - GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots/{filename}
  *
  * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
@@ -20,7 +20,7 @@ import { type OtlpExport, mergeOtlpExports } from "../otlp";
  * import { TRACE_VIEWER_READ_PATH } from '@playwright-opentelemetry/trace-api';
  *
  * const router = createRouter();
- * // TRACE_VIEWER_READ_PATH = '/playwright-otel-trace-viewer/**'
+ * // TRACE_VIEWER_READ_PATH = '/playwright-otel-trace-viewer/v1/**'
  * router.get(TRACE_VIEWER_READ_PATH, createViewerHandler({ storage }));
  * ```
  */
@@ -35,7 +35,7 @@ export function createViewerHandler(
 		if (corsResponse) {
 			return corsResponse;
 		}
-		// Get the full path after /playwright-otel-trace-viewer/
+		// Get the full path after /playwright-otel-trace-viewer/v1/
 		const path = getRouterParam(event, "_");
 		if (!path) {
 			throw new HTTPError({ statusCode: 404, message: "Path is required" });

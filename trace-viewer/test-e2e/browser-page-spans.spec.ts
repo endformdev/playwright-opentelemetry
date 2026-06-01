@@ -125,7 +125,7 @@ async function loadTraceSpans(
 	traceId: string,
 ): Promise<OtlpSpan[]> {
 	const response = await request.get(
-		`${TRACE_API_URL}/playwright-otel-trace-viewer/${traceId}/traces`,
+		`${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceId}/traces`,
 	);
 	expect(response.ok()).toBeTruthy();
 

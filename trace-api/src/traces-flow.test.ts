@@ -7,7 +7,7 @@ import {
 	generateTraceId,
 } from "./testHarness";
 
-const VIEWER_PATH = "/playwright-otel-trace-viewer";
+const VIEWER_PATH = "/playwright-otel-trace-viewer/v1";
 
 describe("reading trace data through the viewer API", () => {
 	it("shows Playwright and backend spans that arrive in separate OTLP batches", async () => {

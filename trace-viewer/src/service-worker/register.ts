@@ -183,7 +183,7 @@ export async function unloadTraceFromServiceWorker(): Promise<void> {
 }
 
 export function getTraceViewerApiUrl(traceId: string): string {
-	return resolveBasePath(`playwright-otel-trace-viewer/${traceId}`);
+	return resolveBasePath(`playwright-otel-trace-viewer/v1/${traceId}`);
 }
 
 function getServiceWorkerUrl(): string {

@@ -14,7 +14,7 @@ To boot the trace viewer on `localhost:9294`:
 npx @playwright-opentelemetry/trace-viewer
 ```
 
-The viewer can load a local trace zip or a trace-specific API base URL such as `/playwright-otel-trace-viewer/{traceId}`. Remote API loading fetches `{baseUrl}/traces` once for the merged OTLP export, derives test metadata from the root `playwright.test` span, then fetches `{baseUrl}/screenshots` for screenshot metadata.
+The viewer can load a local trace zip or a trace-specific API base URL such as `/playwright-otel-trace-viewer/v1/{traceId}`. Remote API loading fetches `{baseUrl}/traces` once for the merged OTLP export, derives test metadata from the root `playwright.test` span, then fetches `{baseUrl}/screenshots` for screenshot metadata.
 
 The remote API contract is:
 
