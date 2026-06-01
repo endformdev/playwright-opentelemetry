@@ -13,7 +13,12 @@ export function formatDuration(ms: number): string {
 	return `${minutes}m ${seconds}s`;
 }
 
-export function formatAttributeValue(value: string | number | boolean): string {
+export function formatAttributeValue(
+	value: string | number | boolean | string[],
+): string {
+	if (Array.isArray(value)) {
+		return value.join(", ");
+	}
 	if (typeof value === "boolean") {
 		return value ? "true" : "false";
 	}
