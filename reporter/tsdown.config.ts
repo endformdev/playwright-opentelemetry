@@ -8,5 +8,8 @@ export default defineConfig({
 		index: "./src/index",
 		reporter: "./src/reporter",
 		fixture: "./src/fixture",
+		"fixture/factory": "./src/fixture/factory",
 	},
+	fixedExtension: true,
+	format: ["esm", "cjs"],
 });

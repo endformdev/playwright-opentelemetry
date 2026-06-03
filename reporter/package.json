@@ -29,14 +29,26 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.cjs",
 			"default": "./dist/index.mjs"
 		},
 		"./fixture": {
 			"types": "./dist/fixture.d.mts",
+			"import": "./dist/fixture.mjs",
+			"require": "./dist/fixture.cjs",
 			"default": "./dist/fixture.mjs"
+		},
+		"./fixture/factory": {
+			"types": "./dist/fixture/factory.d.mts",
+			"import": "./dist/fixture/factory.mjs",
+			"require": "./dist/fixture/factory.cjs",
+			"default": "./dist/fixture/factory.mjs"
 		},
 		"./reporter": {
 			"types": "./dist/reporter.d.mts",
+			"import": "./dist/reporter.mjs",
+			"require": "./dist/reporter.cjs",
 			"default": "./dist/reporter.mjs"
 		},
 		"./package.json": "./package.json"
