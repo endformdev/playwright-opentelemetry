@@ -11,12 +11,11 @@ import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
 import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
 import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
 import PlaywrightOpentelemetryReporter from "../src/reporter";
+import { generateSpanId, generateTraceId } from "../src/shared/otel";
 import {
-	generateSpanId,
-	getCurrentSpanId,
-	getOrCreateTraceId,
-	writeBrowserPageSpan,
-} from "../src/shared/trace-files";
+	TRACE_CONTEXT_ATTACHMENT_NAME,
+	type TestTraceContext,
+} from "../src/fixture/trace-context";
 
 export interface TestHarnessOptions {
 	reporterOptions?: Partial<PlaywrightOpentelemetryReporterOptions>;
@@ -187,6 +186,17 @@ export async function runReporterTest({
 	const outputDir = config?.outputDir ?? getUniqueOutputDir(testId);
 	const testCase = buildTestCase(test, outputDir);
 	const testResult = buildTestResult(result, DEFAULT_START_TIME);
+	const traceContext = createHarnessTraceContext();
+	testResult.attachments.push({
+		name: TRACE_CONTEXT_ATTACHMENT_NAME,
+		contentType: "application/json",
+		body: Buffer.from(
+			JSON.stringify({
+				traceId: traceContext.traceId,
+				rootSpanId: traceContext.rootSpanId,
+			}),
+		),
+	});
 
 	// Create mock suite that returns the test case
 	const mockSuite = {
@@ -206,6 +216,7 @@ export async function runReporterTest({
 			testResult.steps,
 			result?.steps ?? [],
 			outputDir,
+			traceContext,
 		);
 	}
 
@@ -445,6 +456,7 @@ export async function simulateNetworkRequest(
 	networkAction: NetworkAction,
 	testId: string,
 	outputDir: string,
+	traceContext = createHarnessTraceContext(),
 ): Promise<void> {
 	const { route, request, response } = createMockNetworkObjects(
 		networkAction.method,
@@ -461,9 +473,9 @@ export async function simulateNetworkRequest(
 	await fixtureOtelHeaderPropagator({
 		route,
 		request,
-		testId,
-		outputDir,
-		parentSpanId: networkAction.parentSpanId ?? null,
+		traceContext,
+		parentSpanId: networkAction.parentSpanId ?? traceContext.rootSpanId,
+		routeAssociation: networkAction.parentSpanId ? "active-page" : "root",
 	});
 
 	// 2. Request/Response capture via page "response" event
@@ -471,8 +483,7 @@ export async function simulateNetworkRequest(
 	await fixtureCaptureRequestResponse({
 		request,
 		response,
-		testId,
-		outputDir,
+		traceContext,
 	});
 }
 
@@ -483,6 +494,7 @@ async function executeStepHooks(
 	steps: TestStep[],
 	stepDefs: StepDefinition[],
 	outputDir: string,
+	traceContext: TestTraceContext,
 ) {
 	for (let i = 0; i < steps.length; i++) {
 		const step = steps[i];
@@ -494,13 +506,23 @@ async function executeStepHooks(
 		// Execute network actions if present (simulating fixture calls during step)
 		if (stepDef?.networkActions) {
 			for (const networkAction of stepDef.networkActions) {
-				await simulateNetworkRequest(networkAction, test.id, outputDir);
+				await simulateNetworkRequest(
+					networkAction,
+					test.id,
+					outputDir,
+					traceContext,
+				);
 			}
 		}
 
 		if (stepDef?.browserPageActions) {
 			for (const browserPageAction of stepDef.browserPageActions) {
-				await simulateBrowserPageAction(browserPageAction, test.id, outputDir);
+				await simulateBrowserPageAction(
+					browserPageAction,
+					test.id,
+					outputDir,
+					traceContext,
+				);
 			}
 		}
 
@@ -513,6 +535,7 @@ async function executeStepHooks(
 				step.steps,
 				stepDef?.steps ?? [],
 				outputDir,
+				traceContext,
 			);
 		}
 
@@ -525,10 +548,10 @@ async function simulateBrowserPageAction(
 	browserPageAction: BrowserPageAction,
 	testId: string,
 	outputDir: string,
+	traceContext: TestTraceContext,
 ): Promise<void> {
-	const traceId = getOrCreateTraceId(outputDir, testId);
 	const spanId = generateSpanId();
-	const parentSpanId = getCurrentSpanId(outputDir, testId);
+	const parentSpanId = traceContext.rootSpanId;
 	const parsedUrl = new URL(browserPageAction.url);
 	const attributes: Record<string, string | number | boolean> = {
 		"browser.resource.type": "page",
@@ -546,8 +569,8 @@ async function simulateBrowserPageAction(
 		attributes["browser.page.previous_url"] = browserPageAction.previousUrl;
 	}
 
-	writeBrowserPageSpan(outputDir, testId, {
-		traceId,
+	traceContext.addSpan({
+		traceId: traceContext.traceId,
 		spanId,
 		parentSpanId,
 		name: "browser.page",
@@ -563,8 +586,21 @@ async function simulateBrowserPageAction(
 			{ ...networkAction, parentSpanId: spanId },
 			testId,
 			outputDir,
+			traceContext,
 		);
 	}
+}
+
+function createHarnessTraceContext(): TestTraceContext {
+	return {
+		traceId: generateTraceId(),
+		rootSpanId: generateSpanId(),
+		spans: [],
+		requestContexts: new WeakMap(),
+		addSpan(span) {
+			this.spans.push(span);
+		},
+	};
 }
 
 export interface TestHarnessResult {

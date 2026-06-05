@@ -3,6 +3,11 @@ import type { Request, Response, test as base } from "@playwright/test";
 import { BrowserPageTracker } from "./browser-page-tracker";
 import { fixtureOtelHeaderPropagator } from "./network-propagator";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
+import {
+	createTestTraceContext,
+	flushFixtureSpans,
+	type TestTraceContext,
+} from "./trace-context";
 
 type TestTraceInfo = {
 	testId: string;
@@ -12,6 +17,7 @@ type TestTraceInfo = {
 export function createPlaywrightOtelTest(testBase: typeof base): typeof base {
 	return testBase.extend<{
 		testTraceInfo: TestTraceInfo;
+		testTraceContext: TestTraceContext;
 		browserPageTracker: BrowserPageTracker;
 	}>({
 		testTraceInfo: [
@@ -26,33 +32,39 @@ export function createPlaywrightOtelTest(testBase: typeof base): typeof base {
 			},
 			{ auto: true },
 		],
-		browserPageTracker: [
-			async ({ testTraceInfo: { testId, outputDir } }, use) => {
-				await use(new BrowserPageTracker(testId, outputDir));
+		testTraceContext: [
+			async ({}, use, testInfo) => {
+				const traceContext = await createTestTraceContext(testInfo);
+				await use(traceContext);
+				await flushFixtureSpans(traceContext);
 			},
 			{ auto: true },
 		],
-		context: async (
-			{ context, testTraceInfo: { testId, outputDir }, browserPageTracker },
-			use,
-		) => {
+		browserPageTracker: [
+			async ({ testTraceContext }, use) => {
+				const tracker = new BrowserPageTracker(testTraceContext);
+				await use(tracker);
+				tracker.finishAll();
+			},
+			{ auto: true },
+		],
+		context: async ({ context, testTraceContext, browserPageTracker }, use) => {
 			context.route("**", async (route, request) => {
 				browserPageTracker.startDocumentNavigation(request);
+				const networkParent = browserPageTracker.getNetworkParent(request);
 				await fixtureOtelHeaderPropagator({
 					route,
 					request,
-					testId,
-					outputDir,
-					parentSpanId: browserPageTracker.getActivePageSpanId(request) ?? null,
+					traceContext: testTraceContext,
+					parentSpanId: networkParent.spanId,
+					routeAssociation: networkParent.routeAssociation,
 				});
 			});
 			await use(context);
 		},
-		page: async (
-			{ page, testTraceInfo: { testId, outputDir }, browserPageTracker },
-			use,
-		) => {
+		page: async ({ page, testTraceContext, browserPageTracker }, use) => {
 			browserPageTracker.registerPage(page);
+			page.on("close", () => browserPageTracker.unregisterPage(page));
 			page.on("framenavigated", (frame) => {
 				if (frame === page.mainFrame()) {
 					browserPageTracker.handleFrameNavigated(page, frame.url());
@@ -89,8 +101,7 @@ export function createPlaywrightOtelTest(testBase: typeof base): typeof base {
 				await fixtureCaptureRequestResponse({
 					request,
 					response,
-					testId,
-					outputDir,
+					traceContext: testTraceContext,
 				});
 			});
 

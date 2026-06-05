@@ -1,6 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { generateTraceId } from "./otel";
+
+export { generateSpanId, generateTraceId } from "./otel";
 
 export const PW_OTEL_DIR = "playwright-opentelemetry";
 
@@ -386,22 +389,4 @@ function getBrowserPageSpanPath(
  */
 function sanitizeTestId(testId: string): string {
 	return testId.replace(/[<>:"/\\|?*]/g, "_");
-}
-
-/**
- * Generate a random 32-character hex trace ID.
- */
-export function generateTraceId(): string {
-	return Array.from({ length: 32 }, () =>
-		Math.floor(Math.random() * 16).toString(16),
-	).join("");
-}
-
-/**
- * Generate a random 16-character hex span ID.
- */
-export function generateSpanId(): string {
-	return Array.from({ length: 16 }, () =>
-		Math.floor(Math.random() * 16).toString(16),
-	).join("");
 }

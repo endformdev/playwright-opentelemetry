@@ -13,6 +13,7 @@ import type { Span } from "../../trace-data-loader/exportToSpans";
 
 export type ResourceType =
 	| "page"
+	| "route"
 	| "document"
 	| "stylesheet"
 	| "image"
@@ -25,7 +26,7 @@ export type ResourceType =
 export function getResourceDisplayName(span: Span): string {
 	const urlPath = span.attributes["url.path"];
 	if (typeof urlPath === "string") {
-		if (getResourceType(span) === "page") {
+		if (getResourceType(span) === "page" || getResourceType(span) === "route") {
 			return urlPath;
 		}
 
@@ -38,6 +39,9 @@ export function getResourceDisplayName(span: Span): string {
 export function getResourceType(span: Span): ResourceType {
 	if (span.attributes["browser.resource.type"] === "page") {
 		return "page";
+	}
+	if (span.attributes["browser.resource.type"] === "route") {
+		return "route";
 	}
 
 	const resourceType = span.attributes["http.resource.type"];
@@ -69,6 +73,7 @@ export function getResourceColor(resourceType: ResourceType): string {
 	// chrome devtools style colors
 	const colors: Record<ResourceType, string> = {
 		page: "#7c8cf8", // Soft periwinkle
+		route: "#5b6ee1", // Indigo
 		document: "#4285f4", // Blue
 		stylesheet: "#34a853", // Green
 		image: "#9c27b0", // Purple
@@ -88,6 +93,7 @@ export function getResourceIcon(
 	const iconProps = { size, class: "flex-shrink-0" };
 	switch (resourceType) {
 		case "page":
+		case "route":
 			return <PanelTop {...iconProps} />;
 		case "document":
 			return <FileText {...iconProps} />;

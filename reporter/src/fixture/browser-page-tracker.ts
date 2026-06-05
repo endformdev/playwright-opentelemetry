@@ -1,38 +1,49 @@
 import type { Page, Request } from "@playwright/test";
-import {
-	type BrowserPageSpan,
-	generateSpanId,
-	getCurrentSpanId,
-	getOrCreateTraceId,
-	writeBrowserPageSpan,
-} from "../shared/trace-files";
+import { generateSpanId, type Span } from "../shared/otel";
+import type { TestTraceContext } from "./trace-context";
 
 const BROWSER_PAGE_SPAN_NAME = "browser.page";
+const BROWSER_ROUTE_SPAN_NAME = "browser.route";
 const BROWSER_SERVICE_NAME = "playwright-browser";
 const SPAN_STATUS_CODE_UNSET = 0;
 
 type NavigationType = "document" | "same-document";
 
-interface ActiveBrowserPageSpan {
+interface PageState {
 	pageId: string;
-	spanId: string;
+	lastUrl: string;
+	documentUrl?: string;
+	activeDocumentSpan?: ActiveBrowserSpan;
+	activeRouteSpan?: ActiveBrowserSpan;
+}
+
+interface ActiveBrowserSpan {
+	span: Span;
 	url: string;
 }
 
 export class BrowserPageTracker {
 	private nextPageId = 1;
-	private pageIds = new WeakMap<Page, string>();
-	private activePageSpans = new WeakMap<Page, ActiveBrowserPageSpan>();
-	private lastFrameUrls = new WeakMap<Page, string>();
+	private pageStates = new WeakMap<Page, PageState>();
+	private pages = new Set<Page>();
 
-	constructor(
-		private readonly testId: string,
-		private readonly outputDir: string,
-	) {}
+	constructor(private readonly traceContext: TestTraceContext) {}
 
 	registerPage(page: Page): void {
-		this.pageIdFor(page);
-		this.lastFrameUrls.set(page, page.url());
+		this.stateFor(page);
+		this.pages.add(page);
+	}
+
+	unregisterPage(page: Page, endTime = new Date()): void {
+		this.finishPageSpans(page, endTime);
+		this.pages.delete(page);
+	}
+
+	finishAll(endTime = new Date()): void {
+		for (const page of this.pages) {
+			this.finishPageSpans(page, endTime);
+		}
+		this.pages.clear();
 	}
 
 	startDocumentNavigation(request: Request): void {
@@ -45,84 +56,200 @@ export class BrowserPageTracker {
 			return;
 		}
 
-		this.startPageSpan(page, request.url(), "document");
+		this.startDocumentPageSpan(page, request.url(), new Date());
 	}
 
 	handleFrameNavigated(page: Page, url: string): void {
-		const previousUrl = this.lastFrameUrls.get(page);
-		this.lastFrameUrls.set(page, url);
+		const state = this.stateFor(page);
+		const previousUrl = state.lastUrl;
+		state.lastUrl = url;
 
 		if (!previousUrl || previousUrl === "about:blank") {
 			return;
 		}
 
-		const activeSpan = this.activePageSpans.get(page);
-		if (!shouldCreateSameDocumentPageSpan(previousUrl, url, activeSpan?.url)) {
+		if (
+			!shouldCreateSameDocumentPageSpan(
+				previousUrl,
+				url,
+				state.activeRouteSpan?.url,
+			)
+		) {
 			return;
 		}
 
-		this.startPageSpan(page, url, "same-document", previousUrl);
+		this.startRouteSpan(page, url, previousUrl, new Date());
 	}
 
-	getActivePageSpanId(request: Request): string | undefined {
+	getNetworkParent(request: Request): {
+		spanId: string;
+		routeAssociation: "active-route" | "active-page" | "root";
+	} {
 		const page = pageForRequest(request);
 		if (!page) {
-			return undefined;
+			return {
+				spanId: this.traceContext.rootSpanId,
+				routeAssociation: "root",
+			};
 		}
 
-		return this.activePageSpans.get(page)?.spanId;
+		const state = this.stateFor(page);
+		if (state.activeRouteSpan) {
+			return {
+				spanId: state.activeRouteSpan.span.spanId,
+				routeAssociation: "active-route",
+			};
+		}
+
+		if (state.activeDocumentSpan) {
+			return {
+				spanId: state.activeDocumentSpan.span.spanId,
+				routeAssociation: "active-page",
+			};
+		}
+
+		return {
+			spanId: this.traceContext.rootSpanId,
+			routeAssociation: "root",
+		};
 	}
 
-	private startPageSpan(
+	private startDocumentPageSpan(
 		page: Page,
 		url: string,
-		navigationType: NavigationType,
-		previousUrl?: string,
+		startTime: Date,
 	): void {
-		const pageId = this.pageIdFor(page);
-		const traceId = getOrCreateTraceId(this.outputDir, this.testId);
-		const spanId = generateSpanId();
-		const parentSpanId = getCurrentSpanId(this.outputDir, this.testId);
-		const startTime = new Date();
-		const attributes = pageAttributes(pageId, url, navigationType, previousUrl);
+		const state = this.stateFor(page);
+		this.finishPageSpans(page, startTime);
 
-		const span: BrowserPageSpan = {
-			traceId,
-			spanId,
-			parentSpanId,
+		const span = this.createBrowserSpan({
+			pageId: state.pageId,
 			name: BROWSER_PAGE_SPAN_NAME,
+			url,
+			navigationType: "document",
+			parentSpanId: this.traceContext.rootSpanId,
 			startTime,
-			endTime: startTime,
-			status: { code: SPAN_STATUS_CODE_UNSET },
-			attributes,
-			serviceName: BROWSER_SERVICE_NAME,
-		};
+		});
 
-		this.activePageSpans.set(page, { pageId, spanId, url });
-		this.lastFrameUrls.set(page, url);
-		writeBrowserPageSpan(this.outputDir, this.testId, span);
+		state.activeDocumentSpan = { span, url };
+		state.documentUrl = url;
+		state.lastUrl = url;
+		this.traceContext.addSpan(span);
 	}
 
-	private pageIdFor(page: Page): string {
-		const existing = this.pageIds.get(page);
+	private startRouteSpan(
+		page: Page,
+		url: string,
+		previousUrl: string,
+		startTime: Date,
+	): void {
+		const state = this.stateFor(page);
+		this.finishRouteSpan(state, startTime);
+
+		const span = this.createBrowserSpan({
+			pageId: state.pageId,
+			name: BROWSER_ROUTE_SPAN_NAME,
+			url,
+			navigationType: "same-document",
+			parentSpanId:
+				state.activeDocumentSpan?.span.spanId ?? this.traceContext.rootSpanId,
+			startTime,
+			previousUrl,
+			documentUrl: state.documentUrl,
+		});
+
+		state.activeRouteSpan = { span, url };
+		this.traceContext.addSpan(span);
+	}
+
+	private finishPageSpans(page: Page, endTime: Date): void {
+		const state = this.pageStates.get(page);
+		if (!state) {
+			return;
+		}
+
+		this.finishRouteSpan(state, endTime);
+		if (state.activeDocumentSpan) {
+			state.activeDocumentSpan.span.endTime = endTime;
+			state.activeDocumentSpan = undefined;
+		}
+	}
+
+	private finishRouteSpan(state: PageState, endTime: Date): void {
+		if (state.activeRouteSpan) {
+			state.activeRouteSpan.span.endTime = endTime;
+			state.activeRouteSpan = undefined;
+		}
+	}
+
+	private stateFor(page: Page): PageState {
+		const existing = this.pageStates.get(page);
 		if (existing) {
 			return existing;
 		}
 
-		const pageId = `page-${this.nextPageId++}`;
-		this.pageIds.set(page, pageId);
-		return pageId;
+		const state = {
+			pageId: `page-${this.nextPageId++}`,
+			lastUrl: page.url(),
+		};
+		this.pageStates.set(page, state);
+		return state;
+	}
+
+	private createBrowserSpan({
+		pageId,
+		name,
+		url,
+		navigationType,
+		parentSpanId,
+		startTime,
+		previousUrl,
+		documentUrl,
+	}: {
+		pageId: string;
+		name: string;
+		url: string;
+		navigationType: NavigationType;
+		parentSpanId: string;
+		startTime: Date;
+		previousUrl?: string;
+		documentUrl?: string;
+	}): Span {
+		return {
+			traceId: this.traceContext.traceId,
+			spanId: generateSpanId(),
+			parentSpanId,
+			name,
+			startTime,
+			endTime: startTime,
+			status: { code: SPAN_STATUS_CODE_UNSET },
+			attributes: pageAttributes({
+				pageId,
+				url,
+				navigationType,
+				previousUrl,
+				documentUrl,
+			}),
+			serviceName: BROWSER_SERVICE_NAME,
+		};
 	}
 }
 
-function pageAttributes(
-	pageId: string,
-	url: string,
-	navigationType: NavigationType,
-	previousUrl?: string,
-): Record<string, string | number | boolean> {
+function pageAttributes({
+	pageId,
+	url,
+	navigationType,
+	previousUrl,
+	documentUrl,
+}: {
+	pageId: string;
+	url: string;
+	navigationType: NavigationType;
+	previousUrl?: string;
+	documentUrl?: string;
+}): Record<string, string | number | boolean> {
 	const attributes: Record<string, string | number | boolean> = {
-		"browser.resource.type": "page",
+		"browser.resource.type": navigationType === "document" ? "page" : "route",
 		"browser.page.id": pageId,
 		"browser.page.navigation.type": navigationType,
 		"url.full": url,
@@ -139,7 +266,11 @@ function pageAttributes(
 	}
 
 	if (previousUrl) {
-		attributes["browser.page.previous_url"] = previousUrl;
+		attributes["browser.route.previous_url"] = previousUrl;
+	}
+
+	if (documentUrl) {
+		attributes["browser.document.url"] = documentUrl;
 	}
 
 	return attributes;

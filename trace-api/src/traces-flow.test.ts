@@ -36,12 +36,14 @@ describe("reading trace data through the viewer API", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(spanNames(await response.json())).toEqual([
-			"HTTP GET /api/users",
-			"database query",
-			"playwright.test",
-			"playwright.test.step",
-		]);
+		expect(spanNames(await response.json()).sort()).toEqual(
+			[
+				"HTTP GET /api/users",
+				"database query",
+				"playwright.test",
+				"playwright.test.step",
+			].sort(),
+		);
 	});
 
 	it("keeps traces isolated when a backend exporter batches multiple trace IDs together", async () => {

@@ -3,7 +3,7 @@ import path from "node:path";
 import type { TestCase, TestStatus } from "@playwright/test/reporter";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
 import { BlobReader, BlobWriter, ZipReader, ZipWriter } from "@zip.js/zip.js";
-import type { Span } from "./reporter";
+import type { Span } from "../shared/otel";
 import { buildOtlpRequest } from "./sender";
 
 /**

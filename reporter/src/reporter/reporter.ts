@@ -1,4 +1,3 @@
-import { mkdirSync } from "node:fs";
 import path from "node:path";
 import type {
 	FullConfig,
@@ -10,15 +9,12 @@ import type {
 	TestStep,
 } from "@playwright/test/reporter";
 import {
-	cleanupTestFiles,
-	collectBrowserPageSpans,
-	collectNetworkSpans,
-	createNetworkDirs,
 	generateSpanId,
-	getOrCreateTraceId,
-	PW_OTEL_DIR,
-	writeCurrentSpanId,
-} from "../shared/trace-files";
+	generateTraceId,
+	parseOtlpHeaders,
+	type Span,
+} from "../shared/otel";
+import { TRACE_CONTEXT_ATTACHMENT_NAME } from "../fixture/trace-context";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -49,19 +45,7 @@ export interface PlaywrightOpentelemetryReporterOptions {
 	debug?: boolean;
 }
 
-export type Span = {
-	traceId: string;
-	spanId: string;
-	parentSpanId?: string;
-	name: string;
-	startTime: Date;
-	endTime: Date;
-	attributes: Record<string, string | number | boolean | string[]>;
-	status: { code: number };
-	kind?: number;
-	/** Service name for this span (if different from default) */
-	serviceName?: string;
-};
+export type { Span } from "../shared/otel";
 
 export class PlaywrightOpentelemetryReporter implements Reporter {
 	private spans: Span[] = [];
@@ -76,12 +60,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	/** Maps test.id to its project's outputDir */
 	private testOutputDirs: Map<string, string> = new Map();
 
-	private testSpans: Map<string, string> = new Map();
-	private testTraceIds: Map<string, string> = new Map();
 	private stepSpanIds: Map<string, string> = new Map();
-
-	/** Tracks the span context stack per test for append-only file writes */
-	private spanContextStacks: Map<string, string[]> = new Map();
 
 	constructor(private options: PlaywrightOpentelemetryReporterOptions = {}) {
 		// Environment variables take priority over config options
@@ -123,69 +102,27 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			const project = test.parent.project();
 			if (project?.outputDir) {
 				this.testOutputDirs.set(test.id, project.outputDir);
-
-				const otelDir = path.join(project.outputDir, PW_OTEL_DIR);
-				mkdirSync(otelDir, { recursive: true });
 			}
 		}
 	}
 
-	onTestBegin(test: TestCase, result: TestResult) {
-		const testId = test.id;
-		const outputDir = this.getOutputDir(testId);
-
-		const traceId = getOrCreateTraceId(outputDir, testId);
-		this.testTraceIds.set(testId, traceId);
-
-		const testSpanId = generateSpanId();
-		this.testSpans.set(testId, testSpanId);
-
-		// Initialize the span context stack with the test span ID
-		this.spanContextStacks.set(testId, [testSpanId]);
-		writeCurrentSpanId(outputDir, testId, testSpanId);
-
-		createNetworkDirs(outputDir, testId);
-	}
+	onTestBegin(_test: TestCase, _result: TestResult) {}
 
 	async onStepBegin(test: TestCase, _result: TestResult, step: TestStep) {
-		const testId = test.id;
-		const outputDir = this.getOutputDir(testId);
 		const stepId = getStepId(test, step);
-
-		// Generate and track span ID for this step
-		const stepSpanId = generateSpanId();
-		this.stepSpanIds.set(stepId, stepSpanId);
-
-		// Push step span ID onto internal stack and write to file
-		const stack = this.spanContextStacks.get(testId);
-		if (stack) {
-			stack.push(stepSpanId);
-			writeCurrentSpanId(outputDir, testId, stepSpanId);
-		}
+		this.stepSpanIds.set(stepId, generateSpanId());
 	}
 
-	onStepEnd(test: TestCase, _result: TestResult, _step: TestStep) {
-		const testId = test.id;
-		const outputDir = this.getOutputDir(testId);
-
-		// Pop from internal stack and write the new current parent to file
-		const stack = this.spanContextStacks.get(testId);
-		if (stack && stack.length > 1) {
-			stack.pop();
-			const currentParent = stack[stack.length - 1];
-			writeCurrentSpanId(outputDir, testId, currentParent);
-		}
-	}
+	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
 
 	async onTestEnd(test: TestCase, result: TestResult) {
 		const testId = test.id;
 		const outputDir = this.getOutputDir(testId);
-
-		const traceId = this.testTraceIds.get(testId);
-		const testSpanId = this.testSpans.get(testId);
-		if (!traceId || !testSpanId) {
-			throw new Error(`Test ${testId} not found`);
-		}
+		const { traceId, rootSpanId: testSpanId } = readTraceContextAttachment(
+			result,
+			testId,
+			this.options.storeTraceZip === true,
+		);
 
 		const traceAttachment = result.attachments.find(
 			(attachment) =>
@@ -193,10 +130,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				attachment.contentType === "application/zip" &&
 				attachment.path,
 		);
-
-		if (!traceAttachment?.path) {
-			return;
-		}
 
 		// Attach trace ID early so other reporters can consume it during onTestEnd.
 		result.attachments.push({
@@ -259,18 +192,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			}
 		}
 
-		// Collect browser page and network spans
-		const networkSpans = await collectNetworkSpans(outputDir, testId);
-		const reportedTestEndTime = new Date(
-			result.startTime.getTime() + result.duration,
-		);
-		const browserPageSpans = await collectBrowserPageSpans(
-			outputDir,
-			testId,
-			networkSpans,
-			reportedTestEndTime,
-		);
-
 		// Calculate test span timing to encompass all child spans
 		// Start with Playwright's reported timing as the baseline
 		let minStartTime = result.startTime;
@@ -286,16 +207,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			}
 		}
 
-		// Expand bounds based on network spans
-		for (const browserSpan of [...browserPageSpans, ...networkSpans]) {
-			if (browserSpan.startTime < minStartTime) {
-				minStartTime = browserSpan.startTime;
-			}
-			if (browserSpan.endTime > maxEndTime) {
-				maxEndTime = browserSpan.endTime;
-			}
-		}
-
 		const span: Span = {
 			traceId,
 			spanId: testSpanId,
@@ -307,12 +218,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		};
 
 		// Build the final spans array with test span first
-		const testSpans: Span[] = [
-			span,
-			...stepSpans,
-			...browserPageSpans,
-			...networkSpans,
-		];
+		const testSpans: Span[] = [span, ...stepSpans];
 
 		// Add all test spans to the global spans array
 		this.spans.push(...testSpans);
@@ -325,9 +231,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const computedDuration = maxEndTime.getTime() - minStartTime.getTime();
 
 		// Extract screenshots from Playwright's retained trace ZIP.
-		const screenshots = await extractScreenshotsFromPlaywrightTrace(
-			traceAttachment.path,
-		);
+		const screenshots = traceAttachment?.path
+			? await extractScreenshotsFromPlaywrightTrace(traceAttachment.path)
+			: new Map<string, Blob>();
 
 		// If storeTraceZip is enabled, create zip file for this test
 		if (this.options.storeTraceZip) {
@@ -376,10 +282,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				playwrightVersion: this.playwrightVersion || "unknown",
 				debug: this.options.debug ?? false,
 			});
-		}
-
-		for (const [testId, outputDir] of this.testOutputDirs.entries()) {
-			await cleanupTestFiles(outputDir, testId);
 		}
 	}
 
@@ -586,17 +488,54 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 }
 
-function parseOtlpHeaders(headersString: string): Record<string, string> {
-	const headers: Record<string, string> = {};
-	// Headers are comma-separated key=value pairs
-	const pairs = headersString.split(",");
-	for (const pair of pairs) {
-		const [key, ...valueParts] = pair.split("=");
-		if (key && valueParts.length > 0) {
-			headers[key.trim()] = valueParts.join("=").trim();
+function readTraceContextAttachment(
+	result: TestResult,
+	testId: string,
+	allowReporterOnlyFallback: boolean,
+): { traceId: string; rootSpanId: string } {
+	const attachment = result.attachments.find(
+		(attachment) => attachment.name === TRACE_CONTEXT_ATTACHMENT_NAME,
+	);
+
+	if (!attachment?.body) {
+		if (allowReporterOnlyFallback) {
+			return { traceId: generateTraceId(), rootSpanId: generateSpanId() };
 		}
+
+		throw new Error(
+			`playwright-opentelemetry fixture missing for test ${testId}: expected ${TRACE_CONTEXT_ATTACHMENT_NAME} attachment. Import test from "playwright-opentelemetry/fixture" or wrap your base test with createPlaywrightOtelTest().`,
+		);
 	}
-	return headers;
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(attachment.body.toString("utf-8"));
+	} catch (error) {
+		throw new Error(
+			`Invalid ${TRACE_CONTEXT_ATTACHMENT_NAME} attachment for test ${testId}: ${error}`,
+		);
+	}
+
+	if (!isTraceContextAttachment(parsed)) {
+		throw new Error(
+			`Invalid ${TRACE_CONTEXT_ATTACHMENT_NAME} attachment for test ${testId}: expected { traceId, rootSpanId }`,
+		);
+	}
+
+	return parsed;
+}
+
+function isTraceContextAttachment(
+	value: unknown,
+): value is { traceId: string; rootSpanId: string } {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"traceId" in value &&
+		"rootSpanId" in value &&
+		typeof value.traceId === "string" &&
+		typeof value.rootSpanId === "string"
+	);
 }
 
 function getConfigurationErrorMessage(): string {
