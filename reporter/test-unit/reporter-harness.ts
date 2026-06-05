@@ -9,19 +9,20 @@ import type {
 } from "@playwright/test/reporter";
 import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
 import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
+import {
+	type TestTraceContext,
+	TRACE_CONTEXT_ATTACHMENT_NAME,
+} from "../src/fixture/trace-context";
 import PlaywrightOpentelemetryReporter from "../src/reporter";
 import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
 import { generateSpanId, generateTraceId } from "../src/shared/otel";
-import {
-	TRACE_CONTEXT_ATTACHMENT_NAME,
-	type TestTraceContext,
-} from "../src/fixture/trace-context";
 
 export interface TestHarnessOptions {
 	playwrightOpentelemetry?: Partial<PlaywrightOpentelemetryConfig>;
 	config?: ConfigDefinition;
 	test: TestDefinition;
 	result?: ResultDefinition;
+	includeTraceContextAttachment?: boolean;
 }
 
 export interface ConfigDefinition {
@@ -126,13 +127,13 @@ export const DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG: PlaywrightOpentelemetryCon
 		debug: true,
 	};
 
+export type { FullConfig, FullResult, Suite, TestCase, TestResult };
 // Re-export for convenience in tests
 export {
-	PlaywrightOpentelemetryReporter,
-	fixtureOtelHeaderPropagator,
 	fixtureCaptureRequestResponse,
+	fixtureOtelHeaderPropagator,
+	PlaywrightOpentelemetryReporter,
 };
-export type { FullConfig, FullResult, Suite, TestCase, TestResult };
 
 /**
  * Runs a reporter test with the given options, executing all hooks in the correct order.
@@ -167,6 +168,7 @@ export async function runReporterTest({
 	config,
 	test,
 	result,
+	includeTraceContextAttachment = true,
 }: TestHarnessOptions): Promise<TestHarnessResult> {
 	const mergedPlaywrightOpentelemetry: PlaywrightOpentelemetryConfig = {
 		...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
@@ -190,16 +192,18 @@ export async function runReporterTest({
 	);
 	const testResult = buildTestResult(result, DEFAULT_START_TIME);
 	const traceContext = createHarnessTraceContext();
-	testResult.attachments.push({
-		name: TRACE_CONTEXT_ATTACHMENT_NAME,
-		contentType: "application/json",
-		body: Buffer.from(
-			JSON.stringify({
-				traceId: traceContext.traceId,
-				rootSpanId: traceContext.rootSpanId,
-			}),
-		),
-	});
+	if (includeTraceContextAttachment) {
+		testResult.attachments.push({
+			name: TRACE_CONTEXT_ATTACHMENT_NAME,
+			contentType: "application/json",
+			body: Buffer.from(
+				JSON.stringify({
+					traceId: traceContext.traceId,
+					rootSpanId: traceContext.rootSpanId,
+				}),
+			),
+		});
+	}
 
 	// Create mock suite that returns the test case
 	const mockSuite = {

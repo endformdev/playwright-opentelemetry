@@ -6,7 +6,10 @@ import {
 	ATTR_TEST_CASE_RESULT_STATUS,
 	ATTR_TEST_CASE_TITLE,
 } from "../src/reporter/otel-attributes";
-import { TEST_SPAN_NAME } from "../src/reporter/reporter-attributes";
+import {
+	TEST_SPAN_NAME,
+	TEST_STEP_SPAN_NAME,
+} from "../src/reporter/reporter-attributes";
 import { runReporterTest } from "./reporter-harness";
 
 // Mock the sender module
@@ -62,6 +65,79 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				debug: true,
 			}),
 		);
+	});
+
+	it("exports test and step spans when the fixture trace context is missing", async () => {
+		const { testResult } = await runReporterTest({
+			includeTraceContextAttachment: false,
+			test: {
+				title: "reporter only test",
+				titlePath: ["", "chromium", "test.spec.ts", "reporter only test"],
+				location: {
+					file: "/Users/test/project/test-e2e/test.spec.ts",
+					line: 5,
+				},
+			},
+			result: {
+				steps: [
+					{
+						title: "Step without fixture",
+						category: "test.step",
+						duration: 250,
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const testSpan = spans.find(
+			(span: { name: string }) => span.name === TEST_SPAN_NAME,
+		);
+		const stepSpan = spans.find(
+			(span: { name: string }) => span.name === TEST_STEP_SPAN_NAME,
+		);
+		expect(testSpan).toEqual(
+			expect.objectContaining({
+				traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
+				spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
+			}),
+		);
+		expect(stepSpan).toEqual(
+			expect.objectContaining({
+				traceId: testSpan.traceId,
+				parentSpanId: testSpan.spanId,
+			}),
+		);
+
+		const traceIdAttachment = testResult.attachments.find(
+			(attachment) => attachment.name === "playwright-opentelemetry-trace-id",
+		);
+		expect(traceIdAttachment?.body?.toString("utf-8")).toBe(testSpan.traceId);
+	});
+
+	it("keeps invalid fixture trace context attachments as errors", async () => {
+		await expect(
+			runReporterTest({
+				includeTraceContextAttachment: false,
+				test: {
+					title: "invalid trace context",
+					titlePath: ["", "chromium", "test.spec.ts", "invalid trace context"],
+				},
+				result: {
+					attachments: [
+						{
+							name: "playwright-opentelemetry-trace-context",
+							contentType: "application/json",
+							body: Buffer.from(JSON.stringify({ traceId: "abc" })),
+						},
+					],
+				},
+			}),
+		).rejects.toThrow(
+			/Invalid playwright-opentelemetry-trace-context attachment .* expected \{ traceId, rootSpanId \}/,
+		);
+		expect(sendSpans).not.toHaveBeenCalled();
 	});
 
 	it("handles test without location information", async () => {

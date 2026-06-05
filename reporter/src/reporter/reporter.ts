@@ -9,10 +9,14 @@ import type {
 	TestStep,
 } from "@playwright/test/reporter";
 import {
-	resolvePlaywrightOpentelemetryConfig,
+	FIXTURE_SPANS_ATTACHMENT_NAME,
+	TRACE_CONTEXT_ATTACHMENT_NAME,
+} from "../fixture/trace-context";
+import {
 	type PlaywrightOpentelemetryConfig,
 	type PlaywrightOpentelemetryUseOptions,
 	type ResolvedPlaywrightOpentelemetryConfig,
+	resolvePlaywrightOpentelemetryConfig,
 } from "../shared/config";
 import {
 	generateSpanId,
@@ -20,10 +24,6 @@ import {
 	type SendSpansOptions,
 	type Span,
 } from "../shared/otel";
-import {
-	FIXTURE_SPANS_ATTACHMENT_NAME,
-	TRACE_CONTEXT_ATTACHMENT_NAME,
-} from "../fixture/trace-context";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -40,8 +40,8 @@ import {
 } from "./reporter-attributes";
 import { sendSpans } from "./sender";
 import {
-	createTraceZipBlob,
 	createScreenshotsZip,
+	createTraceZipBlob,
 	extractScreenshotsFromPlaywrightTrace,
 	writeTraceZip,
 } from "./trace-zip-builder";
@@ -69,9 +69,7 @@ type PrepareTraceArtifactOptions = {
 	playwrightVersion: string;
 };
 
-type PreparedTraceArtifactResult =
-	| { traceZipBlob?: Blob }
-	| { error: unknown };
+type PreparedTraceArtifactResult = { traceZipBlob?: Blob } | { error: unknown };
 
 type PreparedTraceArtifact = {
 	traceZipBlob?: Blob;
@@ -113,7 +111,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const { traceId, rootSpanId: testSpanId } = readTraceContextAttachment(
 			result,
 			testId,
-			config.storeTraceZip,
 		);
 
 		const traceAttachment = result.attachments.find(
@@ -241,7 +238,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			}
 
 			if (prepared.traceZipBlob) {
-				await writeTraceZip(artifact.outputDir, artifact.test, prepared.traceZipBlob);
+				await writeTraceZip(
+					artifact.outputDir,
+					artifact.test,
+					prepared.traceZipBlob,
+				);
 			}
 		}
 
@@ -517,8 +518,9 @@ function getTestConfig(test: TestCase): ResolvedPlaywrightOpentelemetryConfig {
 }
 
 function getTestOutputDir(test: TestCase): string {
-	const outputDir = (test.parent.project() as { outputDir?: string } | undefined)
-		?.outputDir;
+	const outputDir = (
+		test.parent.project() as { outputDir?: string } | undefined
+	)?.outputDir;
 	if (!outputDir) {
 		throw new Error(`No outputDir found for test "${test.id}"`);
 	}
@@ -543,20 +545,13 @@ function addDestinationSpans(
 function readTraceContextAttachment(
 	result: TestResult,
 	testId: string,
-	allowReporterOnlyFallback: boolean,
 ): { traceId: string; rootSpanId: string } {
 	const attachment = result.attachments.find(
 		(attachment) => attachment.name === TRACE_CONTEXT_ATTACHMENT_NAME,
 	);
 
 	if (!attachment?.body) {
-		if (allowReporterOnlyFallback) {
-			return { traceId: generateTraceId(), rootSpanId: generateSpanId() };
-		}
-
-		throw new Error(
-			`playwright-opentelemetry fixture missing for test ${testId}: expected ${TRACE_CONTEXT_ATTACHMENT_NAME} attachment. Import test from "playwright-opentelemetry/fixture" or wrap your base test with createPlaywrightOtelTest().`,
-		);
+		return { traceId: generateTraceId(), rootSpanId: generateSpanId() };
 	}
 
 	let parsed: unknown;

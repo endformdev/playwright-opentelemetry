@@ -138,6 +138,85 @@ describe("Trace API Integration", () => {
 		);
 	});
 
+	it("uses generated trace context for trace API export when the fixture is missing", async () => {
+		const options: PlaywrightOpentelemetryConfig = {
+			playwrightTraceApiEndpoint: "https://traces.example.com",
+			playwrightTraceApiHeaders: {
+				Authorization: "Bearer test-token",
+			},
+		};
+
+		const { testResult } = await runReporterTest({
+			includeTraceContextAttachment: false,
+			playwrightOpentelemetry: options,
+			test: {
+				title: "reporter only trace api test",
+				titlePath: [
+					"",
+					"chromium",
+					"trace-api.spec.ts",
+					"reporter only trace api test",
+				],
+				location: {
+					file: "/Users/test/project/test-e2e/trace-api.spec.ts",
+					line: 7,
+				},
+			},
+			result: {
+				steps: [
+					{
+						title: "Step without fixture",
+						category: "test.step",
+						duration: 100,
+					},
+				],
+			},
+		});
+
+		const otlpCall = mockFetch.mock.calls.find(
+			(call) =>
+				call[0] === "https://traces.example.com/v1/traces" &&
+				call[1]?.method === "POST",
+		);
+		if (!otlpCall) {
+			throw new Error("Expected trace API OTLP request");
+		}
+		const otlpBody = JSON.parse(otlpCall[1].body);
+		const spans = otlpBody.resourceSpans[0].scopeSpans[0].spans;
+		const testSpan = spans.find(
+			(span: { name: string }) => span.name === "playwright.test",
+		);
+		const stepSpan = spans.find(
+			(span: { name: string }) => span.name === "playwright.test.step",
+		);
+		expect(testSpan.traceId).toMatch(/^[0-9a-f]{32}$/);
+		expect(stepSpan).toEqual(
+			expect.objectContaining({
+				traceId: testSpan.traceId,
+				parentSpanId: testSpan.spanId,
+			}),
+		);
+
+		const screenshotsCall = mockFetch.mock.calls.find(
+			(call) =>
+				call[0] ===
+					"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip" &&
+				call[1]?.method === "PUT",
+		);
+		if (!screenshotsCall) {
+			throw new Error("Expected trace API screenshots request");
+		}
+		expect(screenshotsCall[1].headers).toMatchObject({
+			"x-trace-id": testSpan.traceId,
+			Authorization: "Bearer test-token",
+		});
+
+		const traceIdAttachment = testResult.attachments.find(
+			(attachment) => attachment.name === "playwright-opentelemetry-trace-id",
+		);
+		expect(traceIdAttachment?.body?.toString("utf-8")).toBe(testSpan.traceId);
+	});
+
 	it("sends data to both OTLP endpoint and trace API endpoint when both configured", async () => {
 		/**
 		 * When both otlpEndpoint and playwrightTraceApiEndpoint are configured,
