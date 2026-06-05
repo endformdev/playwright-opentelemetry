@@ -20,7 +20,7 @@ export default defineConfig({
 	],
 	webServer: [
 		{
-			command: "pnpm dev",
+			command: "pnpm build && pnpm preview --host localhost --port 9294",
 			url: "http://localhost:9294",
 		},
 		{

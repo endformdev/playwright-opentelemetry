@@ -61,12 +61,11 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 
 	const basePath = getBasePath();
 	const swUrl = getServiceWorkerUrl();
-	const swType = getServiceWorkerType();
 
 	// Register the service worker with scope matching the base path
 	const registration = await navigator.serviceWorker.register(swUrl, {
 		scope: basePath,
-		type: swType,
+		type: "module",
 	});
 
 	// Wait for the service worker to be ready
@@ -226,8 +225,4 @@ function getServiceWorkerUrl(): string {
 	return import.meta.env.MODE === "production"
 		? resolveBasePath("sw.js")
 		: resolveBasePath("dev-sw.js?dev-sw");
-}
-
-function getServiceWorkerType(): "module" | "classic" {
-	return import.meta.env.MODE === "production" ? "classic" : "module";
 }
