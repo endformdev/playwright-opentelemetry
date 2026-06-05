@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
+import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
 import { runReporterTest } from "./reporter-harness";
 
 const mockFetch = vi.fn();
@@ -23,7 +23,7 @@ describe("Trace API Integration", () => {
 		 * - X-Trace-Id header with the test's traceId
 		 * - Custom headers from playwrightTraceApiHeaders
 		 */
-		const options: PlaywrightOpentelemetryReporterOptions = {
+		const options: PlaywrightOpentelemetryConfig = {
 			playwrightTraceApiEndpoint: "https://traces.example.com",
 			playwrightTraceApiHeaders: {
 				Authorization: "Bearer test-token",
@@ -31,7 +31,7 @@ describe("Trace API Integration", () => {
 		};
 
 		await runReporterTest({
-			reporterOptions: options,
+			playwrightOpentelemetry: options,
 			test: {
 				title: "should complete checkout flow",
 				titlePath: [
@@ -143,7 +143,7 @@ describe("Trace API Integration", () => {
 		 * When both otlpEndpoint and playwrightTraceApiEndpoint are configured,
 		 * spans should be sent to both endpoints, and screenshots should only go to the trace API endpoint.
 		 */
-		const options: PlaywrightOpentelemetryReporterOptions = {
+		const options: PlaywrightOpentelemetryConfig = {
 			otlpEndpoint: "https://otel-collector.example.com/v1/traces",
 			otlpHeaders: {
 				"x-honeycomb-team": "honeycomb-api-key",
@@ -155,7 +155,7 @@ describe("Trace API Integration", () => {
 		};
 
 		await runReporterTest({
-			reporterOptions: options,
+			playwrightOpentelemetry: options,
 			test: {
 				title: "should login successfully",
 				titlePath: [

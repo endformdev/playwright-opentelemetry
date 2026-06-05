@@ -15,7 +15,7 @@ import {
 	buildConfig,
 	buildTestCase,
 	buildTestResult,
-	DEFAULT_REPORTER_OPTIONS,
+	DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
 	DEFAULT_ROOT_DIR,
 	DEFAULT_START_TIME,
 	PlaywrightOpentelemetryReporter,
@@ -33,6 +33,10 @@ vi.mock("../src/reporter/sender", async (importOriginal) => {
 
 import { sendSpans } from "../src/reporter/sender";
 import { extractScreenshotsFromPlaywrightTrace } from "../src/reporter/trace-zip-builder";
+import {
+	FIXTURE_SPANS_ATTACHMENT_NAME,
+	TRACE_CONTEXT_ATTACHMENT_NAME,
+} from "../src/fixture/trace-context";
 
 /**
  * Helper to create a unique test output directory
@@ -209,11 +213,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				{ pageGuid, timestamp: screenshotTimestamp2 },
 			]);
 
-			// Set up reporter with storeTraceZip enabled
-			const reporter = new PlaywrightOpentelemetryReporter({
-				...DEFAULT_REPORTER_OPTIONS,
+			const playwrightOpentelemetry = {
+				...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
 				storeTraceZip: true,
-			});
+			};
+			const reporter = new PlaywrightOpentelemetryReporter();
 
 			// Build test objects
 			const config = buildConfig({ rootDir: DEFAULT_ROOT_DIR });
@@ -230,6 +234,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					location: testLocation,
 				},
 				outputDir,
+				playwrightOpentelemetry,
 			);
 
 			// Build test result with trace attachment (this is what Playwright provides)
@@ -349,11 +354,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				line: 5,
 			};
 
-			// Set up reporter with storeTraceZip enabled
-			const reporter = new PlaywrightOpentelemetryReporter({
-				...DEFAULT_REPORTER_OPTIONS,
+			const playwrightOpentelemetry = {
+				...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
 				storeTraceZip: true,
-			});
+			};
+			const reporter = new PlaywrightOpentelemetryReporter();
 
 			// Build test objects - no trace attachment
 			const config = buildConfig({ rootDir: DEFAULT_ROOT_DIR });
@@ -365,6 +370,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					location: testLocation,
 				},
 				outputDir,
+				playwrightOpentelemetry,
 			);
 			const testResult = buildTestResult(
 				{
@@ -405,6 +411,127 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(screenshotFiles).toHaveLength(0);
 		});
 
+		it("includes fixture browser spans as a separate trace fragment", async () => {
+			outputDir = createTestOutputDir("fixture-browser-spans");
+
+			const testId = "fixture-browser-spans-123";
+			const traceId = "1234567890abcdef1234567890abcdef";
+			const rootSpanId = "1111111111111111";
+			const browserPageSpanId = "2222222222222222";
+			const testLocation = {
+				file: "/Users/test/project/test-e2e/browser.spec.ts",
+				line: 12,
+			};
+			const playwrightOpentelemetry = {
+				...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
+				storeTraceZip: true,
+			};
+			const reporter = new PlaywrightOpentelemetryReporter();
+			const config = buildConfig({ rootDir: DEFAULT_ROOT_DIR });
+			const testCase = buildTestCase(
+				{
+					id: testId,
+					title: "captures browser spans",
+					titlePath: [
+						"",
+						"chromium",
+						"browser.spec.ts",
+						"captures browser spans",
+					],
+					location: testLocation,
+				},
+				outputDir,
+				playwrightOpentelemetry,
+			);
+			const testResult = buildTestResult(
+				{
+					status: "passed",
+					duration: 1000,
+					steps: [],
+					attachments: [
+						{
+							name: TRACE_CONTEXT_ATTACHMENT_NAME,
+							contentType: "application/json",
+							body: Buffer.from(JSON.stringify({ traceId, rootSpanId })),
+						},
+						{
+							name: FIXTURE_SPANS_ATTACHMENT_NAME,
+							contentType: "application/json",
+							body: Buffer.from(
+								JSON.stringify({
+									spans: [
+										{
+											traceId,
+											spanId: browserPageSpanId,
+											parentSpanId: rootSpanId,
+											name: "browser.page",
+											startTime: DEFAULT_START_TIME.toISOString(),
+											endTime: new Date(
+												DEFAULT_START_TIME.getTime() + 500,
+											).toISOString(),
+											attributes: {
+												"browser.resource.type": "page",
+												"browser.page.navigation.type": "document",
+												"url.path": "/browser-spans",
+											},
+											status: { code: 0 },
+											serviceName: "playwright-browser",
+										},
+									],
+								}),
+							),
+						},
+					],
+				},
+				DEFAULT_START_TIME,
+			);
+			const mockSuite = {
+				allTests: () => [testCase],
+			} as Suite;
+
+			reporter.onBegin(config, mockSuite);
+			reporter.onTestBegin(testCase, testResult);
+			await reporter.onTestEnd(testCase, testResult);
+			await reporter.onEnd({} as FullResult);
+
+			const expectedZipName = `browser.spec.ts:12-${testId}-pw-otel.zip`;
+			const expectedZipPath = path.join(outputDir, expectedZipName);
+			expect(existsSync(expectedZipPath)).toBe(true);
+
+			const zipEntries = await readZipEntries(expectedZipPath);
+			expect(zipEntries.has("traces/playwright-opentelemetry.json")).toBe(true);
+			const browserTraceContent = zipEntries.get(
+				"traces/playwright-browser.json",
+			) as string;
+			expect(browserTraceContent).toBeDefined();
+
+			const browserTraceData = JSON.parse(browserTraceContent);
+			const browserResourceSpan = browserTraceData.resourceSpans.find(
+				(resourceSpan: {
+					resource: {
+						attributes: Array<{
+							key: string;
+							value: { stringValue?: string };
+						}>;
+					};
+				}) =>
+					resourceSpan.resource.attributes.some(
+						(attribute) =>
+							attribute.key === "service.name" &&
+							attribute.value.stringValue === "playwright-browser",
+					),
+			);
+			expect(browserResourceSpan).toBeDefined();
+			expect(browserResourceSpan.scopeSpans[0].spans).toEqual([
+				expect.objectContaining({
+					traceId,
+					spanId: browserPageSpanId,
+					parentSpanId: rootSpanId,
+					name: "browser.page",
+				}),
+			]);
+		});
+
 		it("stores describes array on the root test span", async () => {
 			outputDir = createTestOutputDir("test-with-describes");
 
@@ -414,11 +541,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				line: 9,
 			};
 
-			// Set up reporter with storeTraceZip enabled
-			const reporter = new PlaywrightOpentelemetryReporter({
-				...DEFAULT_REPORTER_OPTIONS,
+			const playwrightOpentelemetry = {
+				...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
 				storeTraceZip: true,
-			});
+			};
+			const reporter = new PlaywrightOpentelemetryReporter();
 
 			// Build test with describe blocks in titlePath
 			// titlePath format: ['', 'project', 'filename', ...describes, 'testname']
@@ -438,6 +565,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					location: testLocation,
 				},
 				outputDir,
+				playwrightOpentelemetry,
 			);
 			const testResult = buildTestResult(
 				{
@@ -492,11 +620,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				line: 15,
 			};
 
-			// Set up reporter with storeTraceZip enabled
-			const reporter = new PlaywrightOpentelemetryReporter({
-				...DEFAULT_REPORTER_OPTIONS,
+			const playwrightOpentelemetry = {
+				...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
 				storeTraceZip: true,
-			});
+			};
+			const reporter = new PlaywrightOpentelemetryReporter();
 
 			const config = buildConfig({ rootDir: DEFAULT_ROOT_DIR });
 			const testCase = buildTestCase(
@@ -512,6 +640,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					location: testLocation,
 				},
 				outputDir,
+				playwrightOpentelemetry,
 			);
 			const testResult = buildTestResult(
 				{
@@ -603,11 +732,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				{ pageGuid: test2.pageGuid, timestamp: screenshot2Timestamp3 },
 			]);
 
-			// Set up reporter with storeTraceZip enabled
-			const reporter = new PlaywrightOpentelemetryReporter({
-				...DEFAULT_REPORTER_OPTIONS,
+			const playwrightOpentelemetry = {
+				...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
 				storeTraceZip: true,
-			});
+			};
+			const reporter = new PlaywrightOpentelemetryReporter();
 
 			// Build test objects
 			const config = buildConfig({ rootDir: DEFAULT_ROOT_DIR });
@@ -620,6 +749,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					location: test1.location,
 				},
 				outputDir,
+				playwrightOpentelemetry,
 			);
 
 			const testCase2 = buildTestCase(
@@ -630,6 +760,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					location: test2.location,
 				},
 				outputDir,
+				playwrightOpentelemetry,
 			);
 
 			const testResult1 = buildTestResult(
@@ -796,11 +927,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				{ pageGuid: page2Guid, timestamp: popupScreenshot2 },
 			]);
 
-			// Set up reporter with storeTraceZip enabled
-			const reporter = new PlaywrightOpentelemetryReporter({
-				...DEFAULT_REPORTER_OPTIONS,
+			const playwrightOpentelemetry = {
+				...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
 				storeTraceZip: true,
-			});
+			};
+			const reporter = new PlaywrightOpentelemetryReporter();
 
 			// Build test objects
 			const config = buildConfig({ rootDir: DEFAULT_ROOT_DIR });
@@ -812,6 +943,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					location: testLocation,
 				},
 				outputDir,
+				playwrightOpentelemetry,
 			);
 			const testResult = buildTestResult(
 				{

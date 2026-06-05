@@ -1,5 +1,8 @@
 import { PlaywrightOpentelemetryReporter } from "./reporter/reporter";
 
-export type { PlaywrightOpentelemetryReporterOptions } from "./reporter";
+export type {
+	PlaywrightOpentelemetryConfig,
+	PlaywrightOpentelemetryUseOptions,
+} from "./shared/config";
 
 export default PlaywrightOpentelemetryReporter;

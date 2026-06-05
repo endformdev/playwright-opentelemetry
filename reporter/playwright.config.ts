@@ -1,21 +1,13 @@
 import fs from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
-import type { PlaywrightOpentelemetryReporterOptions } from "./dist/reporter.mjs";
-
-const browserPageSpansTraceIdFile =
-	process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
+import type { PlaywrightOpentelemetryUseOptions } from "./src/fixture";
 
 loadEnv();
 
-// Allow either OTEL_EXPORTER_OTLP_ENDPOINT or PLAYWRIGHT_TRACE_API_ENDPOINT to be set
-if (
-	!process.env.OTEL_EXPORTER_OTLP_ENDPOINT &&
-	!process.env.PLAYWRIGHT_TRACE_API_ENDPOINT
-) {
-	throw new Error(
-		"Either OTEL_EXPORTER_OTLP_ENDPOINT or PLAYWRIGHT_TRACE_API_ENDPOINT must be set",
-	);
-}
+const browserPageSpansTraceIdFile =
+	process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
+const browserPageSpansTraceZipPathFile =
+	process.env.BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE;
 
 // Only require OTLP headers if using OTLP endpoint
 if (
@@ -30,7 +22,7 @@ if (
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
-export default defineConfig({
+export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 	testDir: "./test-e2e",
 	/* Run tests in files in parallel */
 	fullyParallel: true,
@@ -42,23 +34,20 @@ export default defineConfig({
 	workers: process.env.CI ? 1 : undefined,
 	/* Reporter to use. See https://playwright.dev/docs/test-reporters */
 	reporter: [
-		[
-			"./dist/reporter.mjs",
-			{
-				debug: false,
-				storeTraceZip: true,
-				// Allow configuring trace API endpoint via environment variable
-				...(process.env.PLAYWRIGHT_TRACE_API_ENDPOINT && {
-					playwrightTraceApiEndpoint: process.env.PLAYWRIGHT_TRACE_API_ENDPOINT,
-				}),
-			} satisfies PlaywrightOpentelemetryReporterOptions,
-		],
-		...(browserPageSpansTraceIdFile
+		["./dist/reporter.mjs"],
+		...(browserPageSpansTraceIdFile || browserPageSpansTraceZipPathFile
 			? ([["./test-e2e/browser-page-spans-trace-id-file-reporter.ts"]] as const)
 			: []),
 	],
 	/* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
 	use: {
+		playwrightOpentelemetry: {
+			debug: false,
+			storeTraceZip: true,
+			...(process.env.PLAYWRIGHT_TRACE_API_ENDPOINT && {
+				playwrightTraceApiEndpoint: process.env.PLAYWRIGHT_TRACE_API_ENDPOINT,
+			}),
+		},
 		/* Base URL to use in actions like `await page.goto('')`. */
 		// baseURL: 'http://localhost:3000',
 		/* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */

@@ -15,25 +15,28 @@ Two things need to be set up for complete opentelemetry tracing:
 
 ```ts
 import { defineConfig, devices } from "@playwright/test";
-import type { PlaywrightOpentelemetryReporterOptions } from "playwright-opentelemetry";
+import type {
+	PlaywrightOpentelemetryConfig,
+	PlaywrightOpentelemetryUseOptions,
+} from "playwright-opentelemetry/fixture";
 
-export default defineConfig({
+const playwrightOpentelemetry: PlaywrightOpentelemetryConfig = {
+	// Or use environment variable OTEL_EXPORTER_OTLP_ENDPOINT
+	otlpEndpoint: "https://api.eu1.honeycomb.io/v1/traces",
+	// Or use environment variable OTEL_EXPORTER_OTLP_HEADERS
+	otlpHeaders: {
+		"x-honeycomb-team": "xxxabc",
+	},
+	// Or output an opentelemetry report zip
+	storeTraceZip: true,
+};
+
+export default defineConfig<PlaywrightOpentelemetryUseOptions>({
     // ... other Playwright config
-	reporter: [
-		[
-			"playwright-opentelemetry",
-			{
-                // Or use environment variable OTEL_EXPORTER_OTLP_ENDPOINT
-                otlpEndpoint: "https://api.eu1.honeycomb.io/v1/traces",
-                // Or use environment variable OTEL_EXPORTER_OTLP_HEADERS
-	            otlpHeaders: {
-                    "x-honeycomb-team": "xxxabc",
-                }
-				// Or output a opentelemetry report zip
-				storeTraceZip: true,
-			} satisfies PlaywrightOpentelemetryReporterOptions,
-		],
-	],
+	use: {
+		playwrightOpentelemetry,
+	},
+	reporter: [["playwright-opentelemetry/reporter"]],
     // ... rest of Playwright config
 });
 ```
@@ -55,11 +58,14 @@ test("has title", async ({ page }) => {
 
 ```ts
 import { defineConfig, devices } from "@playwright/test";
-import type { PlaywrightOpentelemetryReporterOptions } from "playwright-opentelemetry";
+import type { PlaywrightOpentelemetryUseOptions } from "playwright-opentelemetry/fixture";
 
-export default defineConfig({
+export default defineConfig<PlaywrightOpentelemetryUseOptions>({
     // ... other Playwright config
 	use: {
+		playwrightOpentelemetry: {
+			storeTraceZip: true,
+		},
 		// Most performant method of screenshot collection
 		trace: {
 			mode: "on",

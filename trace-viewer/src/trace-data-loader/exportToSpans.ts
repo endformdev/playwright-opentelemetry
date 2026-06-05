@@ -161,6 +161,16 @@ function extractTitle(
 	attrs: Record<string, AttributeValue>,
 	spanName: string,
 ): string {
+	const browserResourceType = attrs["browser.resource.type"];
+	const urlPath = attrs["url.path"];
+	if (
+		(browserResourceType === "page" || browserResourceType === "route") &&
+		typeof urlPath === "string" &&
+		urlPath.length > 0
+	) {
+		return urlPath;
+	}
+
 	for (const key of TITLE_ATTRIBUTES) {
 		const value = attrs[key];
 		if (typeof value === "string" && value.length > 0) {
