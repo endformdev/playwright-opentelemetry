@@ -278,7 +278,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				reporter.onStepEnd(testCase, testResult, step);
 			}
 
-			await reporter.onTestEnd(testCase, testResult);
+			reporter.onTestEnd(testCase, testResult);
 			await reporter.onEnd({} as FullResult);
 
 			// Verify sendSpans was called with the trace data
@@ -337,6 +337,23 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				f.startsWith("screenshots/"),
 			);
 			expect(screenshotFiles).toHaveLength(2);
+			expect(JSON.parse(zipEntries.get("manifest.json") as string)).toEqual({
+				version: 1,
+				screenshots: screenshotFiles
+					.map((filepath) => {
+						const filename = path.basename(filepath);
+						return {
+							timestamp: Number.parseInt(
+								filename.replace(/^.*-/, "").replace(/\.jpeg$/, ""),
+								10,
+							),
+							file: filename,
+							path: filepath,
+							contentType: "image/jpeg",
+						};
+					})
+					.sort((a, b) => a.timestamp - b.timestamp),
+			});
 
 			// Verify screenshot naming convention: {pageGuid}-{timestamp}.jpeg
 			for (const filepath of screenshotFiles) {
@@ -390,7 +407,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			// Execute reporter lifecycle
 			reporter.onBegin(config, mockSuite);
 			reporter.onTestBegin(testCase, testResult);
-			await reporter.onTestEnd(testCase, testResult);
+			reporter.onTestEnd(testCase, testResult);
 			await reporter.onEnd({} as FullResult);
 
 			// Verify the zip file was created
@@ -409,6 +426,10 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				f.startsWith("screenshots/"),
 			);
 			expect(screenshotFiles).toHaveLength(0);
+			expect(JSON.parse(zipEntries.get("manifest.json") as string)).toEqual({
+				version: 1,
+				screenshots: [],
+			});
 		});
 
 		it("includes fixture browser spans as a separate trace fragment", async () => {
@@ -491,7 +512,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			reporter.onBegin(config, mockSuite);
 			reporter.onTestBegin(testCase, testResult);
-			await reporter.onTestEnd(testCase, testResult);
+			reporter.onTestEnd(testCase, testResult);
 			await reporter.onEnd({} as FullResult);
 
 			const expectedZipName = `browser.spec.ts:12-${testId}-pw-otel.zip`;
@@ -584,7 +605,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			// Execute reporter lifecycle
 			reporter.onBegin(config, mockSuite);
 			reporter.onTestBegin(testCase, testResult);
-			await reporter.onTestEnd(testCase, testResult);
+			reporter.onTestEnd(testCase, testResult);
 			await reporter.onEnd({} as FullResult);
 
 			// Find and read the zip file
@@ -659,7 +680,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			// Execute reporter lifecycle
 			reporter.onBegin(config, mockSuite);
 			reporter.onTestBegin(testCase, testResult);
-			await reporter.onTestEnd(testCase, testResult);
+			reporter.onTestEnd(testCase, testResult);
 			await reporter.onEnd({} as FullResult);
 
 			// Find and read the zip file
@@ -811,7 +832,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				reporter.onStepEnd(testCase1, testResult1, step);
 			}
 
-			await reporter.onTestEnd(testCase1, testResult1);
+			reporter.onTestEnd(testCase1, testResult1);
 
 			// --- Test 2 execution ---
 			reporter.onTestBegin(testCase2, testResult2);
@@ -821,7 +842,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				reporter.onStepEnd(testCase2, testResult2, step);
 			}
 
-			await reporter.onTestEnd(testCase2, testResult2);
+			reporter.onTestEnd(testCase2, testResult2);
 
 			// End the run
 			await reporter.onEnd({} as FullResult);
@@ -979,7 +1000,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				reporter.onStepEnd(testCase, testResult, step);
 			}
 
-			await reporter.onTestEnd(testCase, testResult);
+			reporter.onTestEnd(testCase, testResult);
 			await reporter.onEnd({} as FullResult);
 
 			// Verify the zip file

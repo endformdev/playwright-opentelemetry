@@ -90,34 +90,28 @@ describe("Trace API", () => {
 		expect(oldTestResponse.status).toBe(404);
 	});
 
-	it("stores and serves screenshots through the new reporter and viewer paths", async () => {
+	it("stores and serves screenshots ZIP through the reporter and viewer paths", async () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
-		const filename = "page@abc-1766927492500.jpeg";
-		const buffer = createScreenshotBuffer("page");
+		const buffer = createScreenshotBuffer("screenshots.zip");
 
 		const uploadResponse = await app.fetch(
-			new Request(`http://localhost${REPORTER_PATH}/screenshots/${filename}`, {
+			new Request(`http://localhost${REPORTER_PATH}/screenshots.zip`, {
 				method: "PUT",
-				headers: { "X-Trace-Id": traceId, "Content-Type": "image/jpeg" },
+				headers: { "X-Trace-Id": traceId, "Content-Type": "application/zip" },
 				body: buffer,
 			}),
 		);
-		const listResponse = await app.fetch(
-			new Request(`http://localhost${VIEWER_PATH}/${traceId}/screenshots`),
-		);
-		const imageResponse = await app.fetch(
+		const zipResponse = await app.fetch(
 			new Request(
-				`http://localhost${VIEWER_PATH}/${traceId}/screenshots/${filename}`,
+				`http://localhost${VIEWER_PATH}/${traceId}/screenshots.zip`,
 			),
 		);
 
 		expect(uploadResponse.status).toBe(200);
-		expect(await listResponse.json()).toEqual({
-			screenshots: [{ timestamp: 1766927492500, file: filename }],
-		});
-		expect(imageResponse.status).toBe(200);
-		expect(await imageResponse.arrayBuffer()).toEqual(buffer);
+		expect(zipResponse.status).toBe(200);
+		expect(zipResponse.headers.get("content-type")).toBe("application/zip");
+		expect(await zipResponse.arrayBuffer()).toEqual(buffer);
 	});
 
 	it("isolates traces and screenshots with resolvePath", async () => {

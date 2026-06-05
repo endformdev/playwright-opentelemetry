@@ -190,7 +190,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	});
 
 	// Determine which sections are active/disabled
-	const hasScreenshots = () => props.traceInfo.screenshots.length > 0;
+	const hasScreenshots = () => props.traceInfo.screenshots().length > 0;
 	const hasSteps = () => stepsDepth() > 0;
 	const hasBrowserSpans = () => browserDepth() > 0;
 	const hasExternalSpans = () => externalDepth() > 0;

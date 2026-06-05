@@ -16,8 +16,7 @@ s3://bucket/
     └── {traceId}/
         ├── traces/
         │   └── {requestId}.json
-        └── screenshots/
-            └── {pageId}-{timestamp}.jpeg
+        └── screenshots.zip
 ```
 
 All data writes directly to `traces/{traceId}/`. A lifecycle rule expires traces after a configurable retention period (default: 30 days).
@@ -261,14 +260,14 @@ Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, cus
 ### Playwright-Specific Endpoints
 
 ```
-PUT /playwright-otel-reporter/v1/screenshots/{filename}
+PUT /playwright-otel-reporter/v1/screenshots.zip
 X-Trace-Id: {traceId}
 
-Body: JPEG image data
+Body: ZIP containing manifest.json and screenshots/*
 ```
 
 **Backend logic:**
-1. Write to `traces/{traceId}/screenshots/{filename}`
+1. Write to `traces/{traceId}/screenshots.zip`
 
 ### Trace Viewer API (Read)
 
@@ -277,14 +276,12 @@ Serves the format expected by the trace viewer:
 ```
 GET /playwright-otel-trace-viewer/v1/{traceId}/traces
   -> { "resourceSpans": [...] }
-GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots
-  -> { "screenshots": [{ "timestamp": 1767539662401, "file": "page@abc-1767539662401.jpeg" }] }
-GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots/{filename}
+GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots.zip
 ```
 
-Screenshot timestamps are in **milliseconds since Unix epoch** (13 digits). The timestamp is extracted from the filename format `{pageId}-{timestampMs}.jpeg`.
+The screenshot ZIP contains root `manifest.json` with screenshot timestamps in **milliseconds since Unix epoch** (13 digits) and screenshot files under `screenshots/`.
 
-The trace endpoint merges all stored OTLP fragments for a trace ID by concatenating `resourceSpans`. If no trace fragments exist, it returns `404` instead of an empty OTLP export. The screenshots list endpoint calls S3 ListObjects and formats the response. If no screenshots exist, it returns `{ "screenshots": [] }`; missing individual screenshots return `404`.
+The trace endpoint merges all stored OTLP fragments for a trace ID by concatenating `resourceSpans`. If no trace fragments exist, it returns `404` instead of an empty OTLP export. The screenshots ZIP endpoint returns the stored object directly. If no screenshot ZIP exists, it returns `404`; the viewer treats that as no screenshots.
 
 ## Bucket Setup (Required)
 

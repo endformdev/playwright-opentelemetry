@@ -9,8 +9,7 @@ import { type OtlpExport, mergeOtlpExports } from "../otlp";
  *
  * Serves trace data in the format expected by the trace viewer:
  * - GET /playwright-otel-trace-viewer/v1/{traceId}/traces -> { resourceSpans: [...] }
- * - GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots -> { screenshots: [...] }
- * - GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots/{filename}
+ * - GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots.zip
  *
  * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
@@ -81,36 +80,8 @@ export function createViewerHandler(
 			return mergeOtlpExports(payloads);
 		}
 
-		if (parts.length === 2 && parts[1] === "screenshots") {
-			// List all screenshots
-			const prefix = `traces/${traceId}/screenshots/`;
-
-			// Apply path resolution if configured
-			let resolvedPrefix = prefix;
-			if (config.resolvePath) {
-				resolvedPrefix = await config.resolvePath(event, prefix);
-			}
-
-			const files = await storage.list(resolvedPrefix);
-
-			// Extract filenames and parse timestamps for sorting
-			// Filename format: {pageId}-{timestampMs}.jpeg (e.g., page@abc-1767539662401.jpeg)
-			// Timestamp is in milliseconds since epoch
-			const screenshots = files
-				.map((file) => {
-					const filename = file.replace(resolvedPrefix, "");
-					// Extract timestamp from filename (format: pageId-timestamp.jpeg)
-					const match = filename.match(/-(\d+)\./);
-					const timestamp = match ? Number.parseInt(match[1], 10) : 0;
-					return { timestamp, file: filename };
-				})
-				.sort((a, b) => a.timestamp - b.timestamp);
-
-			return { screenshots };
-		}
-
-		if (parts.length === 3 && parts[1] === "screenshots") {
-			let storagePath = `traces/${traceId}/screenshots/${parts[2]}`;
+		if (parts.length === 2 && parts[1] === "screenshots.zip") {
+			let storagePath = `traces/${traceId}/screenshots.zip`;
 
 			// Apply path resolution if configured
 			if (config.resolvePath) {
@@ -122,13 +93,13 @@ export function createViewerHandler(
 			if (!data) {
 				throw new HTTPError({
 					statusCode: 404,
-					message: `File not found: ${storagePath}`,
+					message: `Screenshots ZIP not found: ${traceId}`,
 				});
 			}
 
 			return new Response(data, {
 				headers: {
-					"Content-Type": "image/jpeg",
+					"Content-Type": "application/zip",
 					"Cache-Control": "public, max-age=600",
 				},
 			});

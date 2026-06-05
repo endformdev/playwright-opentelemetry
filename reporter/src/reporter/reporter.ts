@@ -40,8 +40,10 @@ import {
 } from "./reporter-attributes";
 import { sendSpans } from "./sender";
 import {
-	createTraceZip,
+	createTraceZipBlob,
+	createScreenshotsZip,
 	extractScreenshotsFromPlaywrightTrace,
+	writeTraceZip,
 } from "./trace-zip-builder";
 
 export type { Span } from "../shared/otel";
@@ -51,8 +53,33 @@ type SpanBatch = {
 	config: ResolvedPlaywrightOpentelemetryConfig;
 };
 
+type PendingTraceArtifact = {
+	outputDir: string;
+	test: TestCase;
+	prepared: Promise<PreparedTraceArtifactResult>;
+};
+
+type PrepareTraceArtifactOptions = {
+	test: TestCase;
+	spans: Span[];
+	fixtureSpans: Span[];
+	traceAttachmentPath?: string;
+	traceId: string;
+	config: ResolvedPlaywrightOpentelemetryConfig;
+	playwrightVersion: string;
+};
+
+type PreparedTraceArtifactResult =
+	| { traceZipBlob?: Blob }
+	| { error: unknown };
+
+type PreparedTraceArtifact = {
+	traceZipBlob?: Blob;
+};
+
 export class PlaywrightOpentelemetryReporter implements Reporter {
 	private spanBatches: SpanBatch[] = [];
+	private pendingTraceArtifacts: PendingTraceArtifact[] = [];
 	private rootDir?: string;
 	private playwrightVersion?: string;
 	private debug = false;
@@ -75,11 +102,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	onTestBegin(_test: TestCase, _result: TestResult) {}
 
-	async onStepBegin(_test: TestCase, _result: TestResult, _step: TestStep) {}
+	onStepBegin(_test: TestCase, _result: TestResult, _step: TestStep) {}
 
 	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
 
-	async onTestEnd(test: TestCase, result: TestResult) {
+	onTestEnd(test: TestCase, result: TestResult): void {
 		const testId = test.id;
 		const outputDir = getTestOutputDir(test);
 		const config = getTestConfig(test);
@@ -187,35 +214,37 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Add all test spans to the global spans array
 		this.spanBatches.push({ spans: testSpans, config });
 
-		// Extract screenshots from Playwright's retained trace ZIP.
-		const screenshots = traceAttachment?.path
-			? await extractScreenshotsFromPlaywrightTrace(traceAttachment.path)
-			: new Map<string, Blob>();
-
-		// If storeTraceZip is enabled, create zip file for this test
-		if (config.storeTraceZip) {
-			await createTraceZip({
-				outputDir,
+		if (config.storeTraceZip || config.playwrightTraceApiEndpoint) {
+			const prepared = this.prepareTraceArtifact({
 				test,
 				spans: testSpans,
 				fixtureSpans,
-				serviceName: config.serviceName,
-				playwrightVersion: this.playwrightVersion || "unknown",
-				screenshots,
-			});
-		}
-
-		// If trace API is configured, send screenshots. Test metadata lives on the root span.
-		if (config.playwrightTraceApiEndpoint) {
-			await this.sendScreenshotsToTraceApi({
+				traceAttachmentPath: traceAttachment?.path,
 				traceId,
-				screenshots,
 				config,
+				playwrightVersion: this.playwrightVersion || "unknown",
+			}).catch((error: unknown) => ({ error }));
+
+			this.pendingTraceArtifacts.push({
+				outputDir,
+				test,
+				prepared,
 			});
 		}
 	}
 
 	async onEnd(_result: FullResult) {
+		for (const artifact of this.pendingTraceArtifacts) {
+			const prepared = await artifact.prepared;
+			if ("error" in prepared) {
+				throw prepared.error;
+			}
+
+			if (prepared.traceZipBlob) {
+				await writeTraceZip(artifact.outputDir, artifact.test, prepared.traceZipBlob);
+			}
+		}
+
 		const destinations = new Map<
 			string,
 			{ spans: Span[]; options: SendSpansOptions }
@@ -246,6 +275,42 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		for (const destination of destinations.values()) {
 			await sendSpans(destination.spans, destination.options);
 		}
+	}
+
+	private async prepareTraceArtifact(
+		options: PrepareTraceArtifactOptions,
+	): Promise<PreparedTraceArtifact> {
+		const screenshots = options.traceAttachmentPath
+			? await extractScreenshotsFromPlaywrightTrace(options.traceAttachmentPath)
+			: new Map<string, Blob>();
+
+		const traceZipBlobPromise = options.config.storeTraceZip
+			? createTraceZipBlob({
+					test: options.test,
+					spans: options.spans,
+					fixtureSpans: options.fixtureSpans,
+					serviceName: options.config.serviceName,
+					playwrightVersion: options.playwrightVersion,
+					screenshots,
+				})
+			: undefined;
+
+		const uploadPromise = options.config.playwrightTraceApiEndpoint
+			? this.sendScreenshotsZipToTraceApi({
+					traceId: options.traceId,
+					screenshots,
+					config: options.config,
+				})
+			: undefined;
+
+		const [traceZipBlob] = await Promise.all([
+			traceZipBlobPromise,
+			uploadPromise,
+		]);
+
+		return {
+			traceZipBlob,
+		};
 	}
 
 	private processTestStep(
@@ -409,35 +474,31 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		return this.debug;
 	}
 
-	private async sendScreenshotsToTraceApi(params: {
+	private async sendScreenshotsZipToTraceApi(params: {
 		traceId: string;
 		screenshots: Map<string, Blob>;
 		config: ResolvedPlaywrightOpentelemetryConfig;
 	}): Promise<void> {
 		const { traceId, screenshots, config } = params;
+		const screenshotsZip = await createScreenshotsZip(screenshots);
 
-		// Send screenshots concurrently
-		await Promise.all(
-			Array.from(screenshots.entries()).map(async ([filename, blob]) => {
-				const screenshotUrl = `${config.playwrightTraceApiEndpoint}/playwright-otel-reporter/v1/screenshots/${filename}`;
-				const response = await fetch(screenshotUrl, {
-					method: "PUT",
-					headers: {
-						"content-type": "image/jpeg",
-						"x-trace-id": traceId,
-						...config.playwrightTraceApiHeaders,
-					},
-					body: blob,
-				});
+		const screenshotUrl = `${config.playwrightTraceApiEndpoint}/playwright-otel-reporter/v1/screenshots.zip`;
+		const response = await fetch(screenshotUrl, {
+			method: "PUT",
+			headers: {
+				"content-type": "application/zip",
+				"x-trace-id": traceId,
+				...config.playwrightTraceApiHeaders,
+			},
+			body: screenshotsZip,
+		});
 
-				if (!response.ok) {
-					const error = await response.text();
-					throw new Error(
-						`Failed to send screenshot ${filename}: ${response.status} ${response.statusText}, ${error}`,
-					);
-				}
-			}),
-		);
+		if (!response.ok) {
+			const error = await response.text();
+			throw new Error(
+				`Failed to send screenshots ZIP: ${response.status} ${response.statusText}, ${error}`,
+			);
+		}
 	}
 }
 

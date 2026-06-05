@@ -1,24 +1,37 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadRemoteApi } from "./apiLoader";
+import { loadScreenshotsZipForTrace } from "./zipLoader";
+
+vi.mock("./zipLoader", () => ({
+	ensureServiceWorker: vi.fn(async () => ({})),
+	unloadCurrentTrace: vi.fn(async () => undefined),
+	loadScreenshotsZipForTrace: vi.fn(),
+}));
 
 describe("loading a trace from the remote trace API", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
+		vi.clearAllMocks();
 	});
 
 	it("loads trace data, derives test header metadata, and builds screenshot URLs", async () => {
 		const traceId = "7709187832dca84f02f413a312421586";
+		vi.mocked(loadScreenshotsZipForTrace).mockResolvedValueOnce([
+			{
+				timestamp: 1766927492100,
+				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
+			},
+			{
+				timestamp: 1766927492300,
+				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
+			},
+		]);
 		const fetchMock = vi.fn(async (url: string) => {
 			if (url === `https://traces.example.com/${traceId}/traces`) {
 				return jsonResponse(otlpExport(traceId));
 			}
-			if (url === `https://traces.example.com/${traceId}/screenshots`) {
-				return jsonResponse({
-					screenshots: [
-						{ timestamp: 1766927492300, file: "page@abc-1766927492300.jpeg" },
-						{ timestamp: 1766927492100, file: "page@abc-1766927492100.jpeg" },
-					],
-				});
+			if (url === `https://traces.example.com/${traceId}/screenshots.zip`) {
+				return new Response(new Blob(["zip"]), { status: 200 });
 			}
 			return textResponse("not found", 404);
 		});
@@ -28,14 +41,10 @@ describe("loading a trace from the remote trace API", () => {
 			`https://traces.example.com/${traceId}/`,
 		);
 
-		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock).toHaveBeenNthCalledWith(
 			1,
 			`https://traces.example.com/${traceId}/traces`,
-		);
-		expect(fetchMock).toHaveBeenNthCalledWith(
-			2,
-			`https://traces.example.com/${traceId}/screenshots`,
 		);
 		expect(traceInfo.testInfo).toEqual({
 			name: "checkout completes",
@@ -48,16 +57,22 @@ describe("loading a trace from the remote trace API", () => {
 			endTimeUnixNano: "1766927493000000000",
 		});
 		expect(traceInfo.traceData.resourceSpans).toHaveLength(2);
-		expect(traceInfo.screenshots).toEqual([
+		expect(traceInfo.screenshots()).toEqual([]);
+		await vi.waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				`https://traces.example.com/${traceId}/screenshots.zip`,
+			);
+			expect(traceInfo.screenshots()).toEqual([
 			{
 				timestamp: 1766927492100,
-				url: `https://traces.example.com/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
+				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
 			},
 			{
 				timestamp: 1766927492300,
-				url: `https://traces.example.com/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
+				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
 			},
 		]);
+		});
 	});
 
 	it("surfaces a missing trace before trying to load screenshots", async () => {
@@ -66,7 +81,7 @@ describe("loading a trace from the remote trace API", () => {
 			if (url === `https://traces.example.com/${traceId}/traces`) {
 				return textResponse("Trace not found", 404);
 			}
-			return jsonResponse({ screenshots: [] });
+			return new Response(null, { status: 404 });
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
@@ -84,7 +99,7 @@ describe("loading a trace from the remote trace API", () => {
 				if (url.endsWith("/traces")) {
 					return jsonResponse(otlpExport(traceId, { includeTestSpan: false }));
 				}
-				return jsonResponse({ screenshots: [] });
+				return new Response(null, { status: 404 });
 			}),
 		);
 

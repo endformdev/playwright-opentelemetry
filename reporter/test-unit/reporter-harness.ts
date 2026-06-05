@@ -223,7 +223,7 @@ export async function runReporterTest({
 		);
 	}
 
-	await reporter.onTestEnd(testCase, testResult);
+	reporter.onTestEnd(testCase, testResult);
 	await reporter.onEnd({} as FullResult);
 
 	return { reporter, testResult };

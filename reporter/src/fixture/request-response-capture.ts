@@ -261,8 +261,8 @@ export async function fixtureCaptureRequestResponse({
 		statusCodeValue = SPAN_STATUS_CODE_ERROR;
 	}
 
-	// Get Content-Type header for resource type detection
-	const contentType = await response.headerValue("content-type");
+	// Response events can outlive page teardown; resource detection can fall back to the URL.
+	const contentType = await getResponseHeaderValue(response, "content-type");
 
 	// Detect resource type from Content-Type with URL extension fallback
 	const resourceType = detectResourceType(contentType, url);
@@ -304,4 +304,15 @@ export async function fixtureCaptureRequestResponse({
 	};
 
 	traceContext.addSpan(networkSpan);
+}
+
+async function getResponseHeaderValue(
+	response: Response,
+	name: string,
+): Promise<string | null> {
+	try {
+		return await response.headerValue(name);
+	} catch {
+		return null;
+	}
 }

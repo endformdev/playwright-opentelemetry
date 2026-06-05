@@ -52,7 +52,7 @@ const HoverContext = createContext<HoverContextValue>();
 export interface HoverProviderProps {
 	steps: Accessor<Span[]>;
 	spans: Accessor<Span[]>;
-	screenshots: ScreenshotInfo[];
+	screenshots: Accessor<ScreenshotInfo[]>;
 	testStartTimeMs: Accessor<number>;
 	children: JSX.Element;
 }
@@ -88,7 +88,7 @@ export function HoverProvider(props: HoverProviderProps) {
 			timeMs,
 			props.steps(),
 			props.spans(),
-			props.screenshots,
+			props.screenshots(),
 			props.testStartTimeMs(),
 		);
 	});
@@ -100,7 +100,7 @@ export function HoverProvider(props: HoverProviderProps) {
 			timeMs,
 			props.steps(),
 			props.spans(),
-			props.screenshots,
+			props.screenshots(),
 			props.testStartTimeMs(),
 		);
 	});
