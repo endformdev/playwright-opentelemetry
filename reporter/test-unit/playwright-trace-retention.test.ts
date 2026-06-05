@@ -26,13 +26,18 @@ describe("PlaywrightOpentelemetryReporter trace retention", () => {
 		);
 	});
 
-	it("does not publish when Playwright did not retain a trace attachment", async () => {
+	it("publishes spans when Playwright did not retain a trace attachment", async () => {
 		const { testResult } = await runReporterTest({
 			test: { title: "no retained trace" },
 			result: { attachments: [] },
 		});
 
-		expect(sendSpans).not.toHaveBeenCalled();
-		expect(testResult.attachments).toEqual([]);
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		expect(testResult.attachments).toContainEqual(
+			expect.objectContaining({
+				name: "playwright-opentelemetry-trace-id",
+				contentType: "text/plain",
+			}),
+		);
 	});
 });

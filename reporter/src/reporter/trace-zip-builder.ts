@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { TestCase, TestStatus } from "@playwright/test/reporter";
+import type { TestCase } from "@playwright/test/reporter";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
 import { BlobReader, BlobWriter, ZipReader, ZipWriter } from "@zip.js/zip.js";
-import type { Span } from "./reporter";
+import type { Span } from "../shared/otel";
 import { buildOtlpRequest } from "./sender";
 
 /**
@@ -87,19 +87,11 @@ export async function extractScreenshotsFromPlaywrightTrace(
 
 export interface CreateTraceZipOptions {
 	outputDir: string;
-	testId: string;
 	test: TestCase;
 	spans: Span[];
+	fixtureSpans: Span[];
 	serviceName: string;
 	playwrightVersion: string;
-	/** Relative file path to the test file (relative to rootDir) */
-	relativeFilePath: string;
-	/** Test result status */
-	status: TestStatus;
-	/** Test start time */
-	startTime: Date;
-	/** Test duration in milliseconds */
-	duration: number;
 	/** Screenshots extracted from Playwright trace ZIP (filename -> Blob) */
 	screenshots: Map<string, Blob>;
 }
@@ -114,6 +106,7 @@ export async function createTraceZip(
 		outputDir,
 		test,
 		spans,
+		fixtureSpans,
 		serviceName,
 		playwrightVersion,
 		screenshots,
@@ -132,6 +125,18 @@ export async function createTraceZip(
 		"traces/playwright-opentelemetry.json",
 		new Blob([traceJson]).stream(),
 	);
+
+	if (fixtureSpans.length > 0) {
+		const fixtureOtlpRequest = buildOtlpRequest(
+			fixtureSpans,
+			"playwright-browser",
+			playwrightVersion,
+		);
+		await zipWriter.add(
+			"traces/playwright-browser.json",
+			new Blob([JSON.stringify(fixtureOtlpRequest, null, 2)]).stream(),
+		);
+	}
 
 	// Add screenshots concurrently by streaming directly from input blobs
 	await Promise.all(

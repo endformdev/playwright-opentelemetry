@@ -9,17 +9,16 @@ import type {
 } from "@playwright/test/reporter";
 import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
 import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
-import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
 import PlaywrightOpentelemetryReporter from "../src/reporter";
+import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
+import { generateSpanId, generateTraceId } from "../src/shared/otel";
 import {
-	generateSpanId,
-	getCurrentSpanId,
-	getOrCreateTraceId,
-	writeBrowserPageSpan,
-} from "../src/shared/trace-files";
+	TRACE_CONTEXT_ATTACHMENT_NAME,
+	type TestTraceContext,
+} from "../src/fixture/trace-context";
 
 export interface TestHarnessOptions {
-	reporterOptions?: Partial<PlaywrightOpentelemetryReporterOptions>;
+	playwrightOpentelemetry?: Partial<PlaywrightOpentelemetryConfig>;
 	config?: ConfigDefinition;
 	test: TestDefinition;
 	result?: ResultDefinition;
@@ -121,7 +120,7 @@ const DEFAULT_DURATION = 1000;
 const DEFAULT_STEP_DURATION = 100;
 const DEFAULT_STEP_CATEGORY = "test.step";
 
-export const DEFAULT_REPORTER_OPTIONS: PlaywrightOpentelemetryReporterOptions =
+export const DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG: PlaywrightOpentelemetryConfig =
 	{
 		otlpEndpoint: "http://localhost:4317/v1/traces",
 		debug: true,
@@ -164,19 +163,18 @@ export type { FullConfig, FullResult, Suite, TestCase, TestResult };
  * ```
  */
 export async function runReporterTest({
-	reporterOptions,
+	playwrightOpentelemetry,
 	config,
 	test,
 	result,
 }: TestHarnessOptions): Promise<TestHarnessResult> {
-	// Merge reporter options with defaults
-	const mergedReporterOptions: PlaywrightOpentelemetryReporterOptions = {
-		...DEFAULT_REPORTER_OPTIONS,
-		...reporterOptions,
+	const mergedPlaywrightOpentelemetry: PlaywrightOpentelemetryConfig = {
+		...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
+		...playwrightOpentelemetry,
 	};
 
 	// Create reporter
-	const reporter = new PlaywrightOpentelemetryReporter(mergedReporterOptions);
+	const reporter = new PlaywrightOpentelemetryReporter();
 
 	// Build mock objects
 	const mergedConfig = buildConfig(config);
@@ -185,8 +183,23 @@ export async function runReporterTest({
 		test.id ?? `test-${test.title.replace(/\s+/g, "-").toLowerCase()}`;
 	// Use unique output directory per test to avoid conflicts
 	const outputDir = config?.outputDir ?? getUniqueOutputDir(testId);
-	const testCase = buildTestCase(test, outputDir);
+	const testCase = buildTestCase(
+		test,
+		outputDir,
+		mergedPlaywrightOpentelemetry,
+	);
 	const testResult = buildTestResult(result, DEFAULT_START_TIME);
+	const traceContext = createHarnessTraceContext();
+	testResult.attachments.push({
+		name: TRACE_CONTEXT_ATTACHMENT_NAME,
+		contentType: "application/json",
+		body: Buffer.from(
+			JSON.stringify({
+				traceId: traceContext.traceId,
+				rootSpanId: traceContext.rootSpanId,
+			}),
+		),
+	});
 
 	// Create mock suite that returns the test case
 	const mockSuite = {
@@ -206,6 +219,7 @@ export async function runReporterTest({
 			testResult.steps,
 			result?.steps ?? [],
 			outputDir,
+			traceContext,
 		);
 	}
 
@@ -325,6 +339,7 @@ export function buildConfig(def?: ConfigDefinition): FullConfig {
 export function buildTestCase(
 	def: TestDefinition,
 	outputDir: string = DEFAULT_OUTPUT_DIR,
+	playwrightOpentelemetry: PlaywrightOpentelemetryConfig = DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
 ): TestCase {
 	const titlePath = def.titlePath ?? [
 		"",
@@ -340,6 +355,9 @@ export function buildTestCase(
 	const parentSuite = {
 		project: () => ({
 			outputDir,
+			use: {
+				playwrightOpentelemetry,
+			},
 		}),
 	};
 
@@ -356,7 +374,7 @@ export function buildTestCase(
 					column: def.location.column ?? 1,
 				}
 			: undefined,
-	} as TestCase;
+	} as unknown as TestCase;
 }
 
 export function buildTestResult(
@@ -445,6 +463,7 @@ export async function simulateNetworkRequest(
 	networkAction: NetworkAction,
 	testId: string,
 	outputDir: string,
+	traceContext = createHarnessTraceContext(),
 ): Promise<void> {
 	const { route, request, response } = createMockNetworkObjects(
 		networkAction.method,
@@ -461,9 +480,9 @@ export async function simulateNetworkRequest(
 	await fixtureOtelHeaderPropagator({
 		route,
 		request,
-		testId,
-		outputDir,
-		parentSpanId: networkAction.parentSpanId ?? null,
+		traceContext,
+		parentSpanId: networkAction.parentSpanId ?? traceContext.rootSpanId,
+		routeAssociation: networkAction.parentSpanId ? "active-page" : "root",
 	});
 
 	// 2. Request/Response capture via page "response" event
@@ -471,8 +490,7 @@ export async function simulateNetworkRequest(
 	await fixtureCaptureRequestResponse({
 		request,
 		response,
-		testId,
-		outputDir,
+		traceContext,
 	});
 }
 
@@ -483,6 +501,7 @@ async function executeStepHooks(
 	steps: TestStep[],
 	stepDefs: StepDefinition[],
 	outputDir: string,
+	traceContext: TestTraceContext,
 ) {
 	for (let i = 0; i < steps.length; i++) {
 		const step = steps[i];
@@ -494,13 +513,23 @@ async function executeStepHooks(
 		// Execute network actions if present (simulating fixture calls during step)
 		if (stepDef?.networkActions) {
 			for (const networkAction of stepDef.networkActions) {
-				await simulateNetworkRequest(networkAction, test.id, outputDir);
+				await simulateNetworkRequest(
+					networkAction,
+					test.id,
+					outputDir,
+					traceContext,
+				);
 			}
 		}
 
 		if (stepDef?.browserPageActions) {
 			for (const browserPageAction of stepDef.browserPageActions) {
-				await simulateBrowserPageAction(browserPageAction, test.id, outputDir);
+				await simulateBrowserPageAction(
+					browserPageAction,
+					test.id,
+					outputDir,
+					traceContext,
+				);
 			}
 		}
 
@@ -513,6 +542,7 @@ async function executeStepHooks(
 				step.steps,
 				stepDef?.steps ?? [],
 				outputDir,
+				traceContext,
 			);
 		}
 
@@ -525,10 +555,10 @@ async function simulateBrowserPageAction(
 	browserPageAction: BrowserPageAction,
 	testId: string,
 	outputDir: string,
+	traceContext: TestTraceContext,
 ): Promise<void> {
-	const traceId = getOrCreateTraceId(outputDir, testId);
 	const spanId = generateSpanId();
-	const parentSpanId = getCurrentSpanId(outputDir, testId);
+	const parentSpanId = traceContext.rootSpanId;
 	const parsedUrl = new URL(browserPageAction.url);
 	const attributes: Record<string, string | number | boolean> = {
 		"browser.resource.type": "page",
@@ -546,8 +576,8 @@ async function simulateBrowserPageAction(
 		attributes["browser.page.previous_url"] = browserPageAction.previousUrl;
 	}
 
-	writeBrowserPageSpan(outputDir, testId, {
-		traceId,
+	traceContext.addSpan({
+		traceId: traceContext.traceId,
 		spanId,
 		parentSpanId,
 		name: "browser.page",
@@ -563,8 +593,21 @@ async function simulateBrowserPageAction(
 			{ ...networkAction, parentSpanId: spanId },
 			testId,
 			outputDir,
+			traceContext,
 		);
 	}
+}
+
+function createHarnessTraceContext(): TestTraceContext {
+	return {
+		traceId: generateTraceId(),
+		rootSpanId: generateSpanId(),
+		spans: [],
+		requestContexts: new WeakMap(),
+		addSpan(span) {
+			this.spans.push(span);
+		},
+	};
 }
 
 export interface TestHarnessResult {

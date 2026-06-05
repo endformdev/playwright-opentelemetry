@@ -1,15 +1,11 @@
 import type { Request, Response } from "@playwright/test";
-import {
-	type NetworkSpan,
-	readNetworkSpanParent,
-	writeNetworkSpan,
-} from "../shared/trace-files";
+import type { Span } from "../shared/otel";
+import type { TestTraceContext } from "./trace-context";
 
 export interface FixtureCaptureOptions {
 	request: Request;
 	response: Response;
-	testId: string;
-	outputDir: string;
+	traceContext: TestTraceContext;
 }
 
 /**
@@ -218,48 +214,24 @@ const SPAN_STATUS_CODE_UNSET = 0;
 const SPAN_STATUS_CODE_ERROR = 2;
 
 /**
- * Captures request/response data and writes the complete network span.
- * Called from page.on("response") after the request has completed.
- *
- * This function:
- * 1. Extracts the traceparent header to find the parent file
- * 2. Reads the parent span ID from the parent file
- * 3. Builds the complete span with all HTTP attributes
- * 4. Writes the network span for the reporter to collect
+ * Captures request/response data and stores the complete network span in the
+ * current test trace context. Called after the request has completed.
  *
  * @param options - The capture options
  */
 export async function fixtureCaptureRequestResponse({
 	request,
 	response,
-	testId,
-	outputDir,
+	traceContext,
 }: FixtureCaptureOptions): Promise<void> {
 	const url = request.url();
 	const method = request.method();
 	const statusCode = response.status();
+	const requestTraceContext = traceContext.requestContexts.get(request);
 
-	// Get the traceparent header that was injected by the propagator
-	const traceHeader = await request.headerValue("traceparent");
-
-	if (!traceHeader) {
+	if (!requestTraceContext) {
 		return;
 	}
-
-	// Read the parent span ID from the parent file
-	const parentSpanId = readNetworkSpanParent(outputDir, testId, traceHeader);
-
-	if (!parentSpanId) {
-		return;
-	}
-
-	// Parse the traceparent header to extract traceId and spanId
-	// Format: version-traceid-spanid-flags (e.g., "00-abc123...-def456...-01")
-	const parts = traceHeader.split("-");
-	if (parts.length !== 4) {
-		return;
-	}
-	const [, traceId, spanId] = parts;
 
 	// Get timing information from the request
 	// Playwright's timing() provides:
@@ -304,6 +276,7 @@ export async function fixtureCaptureRequestResponse({
 		"server.port": serverPort,
 		"http.response.status_code": statusCode,
 		"http.resource.type": resourceType,
+		"browser.request.route_association": requestTraceContext.routeAssociation,
 	};
 
 	// Add query string if present (without the leading '?')
@@ -317,10 +290,10 @@ export async function fixtureCaptureRequestResponse({
 	}
 
 	// Create the network span
-	const networkSpan: NetworkSpan = {
-		traceId,
-		spanId,
-		parentSpanId,
+	const networkSpan: Span = {
+		traceId: requestTraceContext.traceId,
+		spanId: requestTraceContext.spanId,
+		parentSpanId: requestTraceContext.parentSpanId,
 		name: `HTTP ${method}`,
 		kind: SPAN_KIND_CLIENT,
 		startTime,
@@ -330,6 +303,5 @@ export async function fixtureCaptureRequestResponse({
 		serviceName: "playwright-browser",
 	};
 
-	// Write span to file for reporter to collect
-	writeNetworkSpan(outputDir, testId, traceHeader, networkSpan);
+	traceContext.addSpan(networkSpan);
 }

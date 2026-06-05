@@ -1,218 +1,208 @@
-import type { Request } from "@playwright/test";
+import type { Page, Request, Response, Route } from "@playwright/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	BrowserPageTracker,
 	shouldCreateSameDocumentPageSpan,
 } from "../src/fixture/browser-page-tracker";
+import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
+import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
 import {
-	type BrowserPageAction,
-	getUniqueOutputDir,
-	runReporterTest,
-} from "./reporter-harness";
+	FIXTURE_SPANS_ATTACHMENT_NAME,
+	flushFixtureSpans,
+	type TestTraceContext,
+} from "../src/fixture/trace-context";
+import { resolvePlaywrightOpentelemetryConfig } from "../src/shared/config";
+import { generateSpanId, generateTraceId } from "../src/shared/otel";
 
-vi.mock("../src/reporter/sender", () => ({
-	sendSpans: vi.fn(),
-}));
-
-import { sendSpans } from "../src/reporter/sender";
-
-const BROWSER_SERVICE_NAME = "playwright-browser" as const;
-const BROWSER_PAGE_SPAN_NAME = "browser.page" as const;
-const HTTP_CLIENT_SPAN_NAME = "HTTP GET" as const;
-
-interface BrowserPageScenario {
-	steps: Array<{
-		title: string;
-		startTime: Date;
-		duration: number;
-		browserPageActions: BrowserPageAction[];
-	}>;
-}
-
-async function runBrowserPageScenario(_scenario: BrowserPageScenario) {
-	return runReporterTest({
-		test: {
-			title: "browser page span scenario",
-			titlePath: [
-				"",
-				"chromium",
-				"browser-page.spec.ts",
-				"browser page span scenario",
-			],
-		},
-		result: {
-			steps: _scenario.steps.map((step) => ({
-				title: step.title,
-				startTime: step.startTime,
-				duration: step.duration,
-				browserPageActions: step.browserPageActions,
-				networkActions:
-					step.browserPageActions.length === 0
-						? [
-								{
-									method: "GET",
-									url: "https://example.com/bootstrap.json",
-									statusCode: 200,
-									startTime: new Date("2025-11-06T10:00:00.200Z"),
-									duration: 100,
-								},
-							]
-						: undefined,
-			})),
-		},
-	});
-}
-
-function sentSpans() {
-	return (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] ?? [];
-}
-
-function findBrowserPageSpan(spans = sentSpans()) {
-	return spans.find(
-		(span: { name: string; serviceName?: string }) =>
-			span.name === BROWSER_PAGE_SPAN_NAME &&
-			span.serviceName === BROWSER_SERVICE_NAME,
-	);
-}
-
-function findHttpSpan(spans = sentSpans()) {
-	return spans.find(
-		(span: { name: string; serviceName?: string }) =>
-			span.name === HTTP_CLIENT_SPAN_NAME &&
-			span.serviceName === BROWSER_SERVICE_NAME,
-	);
-}
-
-describe("PlaywrightOpentelemetryReporter - Browser page spans", () => {
+describe("fixture browser span hierarchy", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		delete process.env.PLAYWRIGHT_TRACE_API_ENDPOINT;
+		delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 	});
 
-	it("creates a browser.page span for a main-frame document navigation", async () => {
-		await runBrowserPageScenario({
-			steps: [
-				{
-					title: "Navigate to docs",
-					startTime: new Date("2025-11-06T10:00:00.100Z"),
-					duration: 500,
-					browserPageActions: [
-						{
-							type: "document",
-							url: "https://example.com/docs",
-							startTime: new Date("2025-11-06T10:00:00.150Z"),
-						},
-					],
-				},
-			],
-		});
+	it("parents document page spans to the root test span", () => {
+		const traceContext = createTraceContext();
+		const tracker = new BrowserPageTracker(traceContext);
+		const page = createPage("about:blank");
+		tracker.registerPage(page);
 
-		const pageSpan = findBrowserPageSpan();
+		tracker.startDocumentNavigation(
+			createRequest({
+				page,
+				url: "https://example.com/products",
+				isNavigationRequest: true,
+			}),
+		);
 
-		expect(pageSpan).toEqual(
+		expect(traceContext.spans).toEqual([
 			expect.objectContaining({
-				name: BROWSER_PAGE_SPAN_NAME,
-				serviceName: BROWSER_SERVICE_NAME,
-				startTime: new Date("2025-11-06T10:00:00.150Z"),
+				name: "browser.page",
+				parentSpanId: traceContext.rootSpanId,
 				attributes: expect.objectContaining({
 					"browser.resource.type": "page",
-					"url.full": "https://example.com/docs",
-					"url.path": "/docs",
 					"browser.page.navigation.type": "document",
+					"browser.page.id": "page-1",
+					"url.full": "https://example.com/products",
 				}),
 			}),
-		);
+		]);
 	});
 
-	it("parents document and subresource HTTP spans to the active browser.page span", async () => {
-		await runBrowserPageScenario({
-			steps: [
-				{
-					title: "Navigate to product page",
-					startTime: new Date("2025-11-06T10:00:00.100Z"),
-					duration: 800,
-					browserPageActions: [
-						{
-							type: "document",
-							url: "https://example.com/products/123",
-							startTime: new Date("2025-11-06T10:00:00.150Z"),
-							networkActions: [
-								{
-									method: "GET",
-									url: "https://example.com/products/123",
-									statusCode: 200,
-									startTime: new Date("2025-11-06T10:00:00.150Z"),
-									duration: 120,
-								},
-								{
-									method: "GET",
-									url: "https://example.com/app.js",
-									statusCode: 200,
-									startTime: new Date("2025-11-06T10:00:00.250Z"),
-									duration: 200,
-								},
-							],
-						},
-					],
-				},
-			],
-		});
+	it("creates same-document route spans under the active page span", () => {
+		const traceContext = createTraceContext();
+		const tracker = new BrowserPageTracker(traceContext);
+		const page = createPage("about:blank");
+		tracker.registerPage(page);
+		tracker.startDocumentNavigation(
+			createRequest({
+				page,
+				url: "https://example.com/products",
+				isNavigationRequest: true,
+			}),
+		);
+		const pageSpan = traceContext.spans[0];
 
-		const spans = sentSpans();
-		const pageSpan = findBrowserPageSpan(spans);
-		const httpSpan = findHttpSpan(spans);
+		tracker.handleFrameNavigated(page, "https://example.com/products/123");
 
-		expect(pageSpan).toBeDefined();
-		expect(httpSpan).toEqual(
+		expect(traceContext.spans[1]).toEqual(
 			expect.objectContaining({
+				name: "browser.route",
 				parentSpanId: pageSpan?.spanId,
+				attributes: expect.objectContaining({
+					"browser.resource.type": "route",
+					"browser.page.navigation.type": "same-document",
+					"browser.page.id": "page-1",
+					"browser.document.url": "https://example.com/products",
+					"browser.route.previous_url": "https://example.com/products",
+					"url.full": "https://example.com/products/123",
+				}),
 			}),
 		);
 	});
 
-	it("creates a new browser.page span for deliberate same-document SPA navigation", async () => {
-		await runBrowserPageScenario({
-			steps: [
-				{
-					title: "Open product details",
-					startTime: new Date("2025-11-06T10:00:00.100Z"),
-					duration: 800,
-					browserPageActions: [
-						{
-							type: "document",
-							url: "https://example.com/products",
-							startTime: new Date("2025-11-06T10:00:00.150Z"),
-						},
-						{
-							type: "same-document",
-							previousUrl: "https://example.com/products",
-							url: "https://example.com/products/123",
-							startTime: new Date("2025-11-06T10:00:00.400Z"),
-						},
-					],
-				},
-			],
-		});
-
-		const pageSpans = sentSpans().filter(
-			(span: { name: string; serviceName?: string }) =>
-				span.name === BROWSER_PAGE_SPAN_NAME &&
-				span.serviceName === BROWSER_SERVICE_NAME,
+	it("parents network spans to active route, active page, or root", async () => {
+		const traceContext = createTraceContext();
+		const tracker = new BrowserPageTracker(traceContext);
+		const page = createPage("about:blank");
+		tracker.registerPage(page);
+		tracker.startDocumentNavigation(
+			createRequest({
+				page,
+				url: "https://example.com/products",
+				isNavigationRequest: true,
+			}),
 		);
 
-		expect(pageSpans).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					attributes: expect.objectContaining({
-						"url.full": "https://example.com/products/123",
-						"browser.page.navigation.type": "same-document",
-						"browser.page.previous_url": "https://example.com/products",
-					}),
-				}),
-			]),
+		await captureNetworkRequest(
+			traceContext,
+			tracker,
+			page,
+			"active-page.json",
+		);
+		tracker.handleFrameNavigated(page, "https://example.com/products/123");
+		await captureNetworkRequest(
+			traceContext,
+			tracker,
+			page,
+			"active-route.json",
+		);
+		await captureNetworkRequest(traceContext, tracker, undefined, "root.json");
+
+		const httpSpans = traceContext.spans.filter(
+			(span) => span.name === "HTTP GET",
+		);
+		expect(httpSpans.map((span) => span.attributes)).toEqual([
+			expect.objectContaining({
+				"browser.request.route_association": "active-page",
+			}),
+			expect.objectContaining({
+				"browser.request.route_association": "active-route",
+			}),
+			expect.objectContaining({
+				"browser.request.route_association": "root",
+			}),
+		]);
+		expect(httpSpans[0]?.parentSpanId).toBe(traceContext.spans[0]?.spanId);
+		expect(httpSpans[1]?.parentSpanId).toBe(traceContext.spans[2]?.spanId);
+		expect(httpSpans[2]?.parentSpanId).toBe(traceContext.rootSpanId);
+	});
+
+	it("flushes fixture spans directly to the trace API", async () => {
+		process.env.PLAYWRIGHT_TRACE_API_ENDPOINT = "https://traces.example.com";
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		global.fetch = fetchMock;
+		const traceContext = createTraceContext();
+		traceContext.addSpan({
+			traceId: traceContext.traceId,
+			spanId: generateSpanId(),
+			parentSpanId: traceContext.rootSpanId,
+			name: "browser.page",
+			startTime: new Date("2025-11-06T10:00:00.000Z"),
+			endTime: new Date("2025-11-06T10:00:01.000Z"),
+			attributes: { "browser.resource.type": "page" },
+			status: { code: 0 },
+			serviceName: "playwright-browser",
+		});
+
+		await flushFixtureSpans(
+			traceContext,
+			resolvePlaywrightOpentelemetryConfig({
+				playwrightTraceApiEndpoint: "https://traces.example.com",
+			}),
+		);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://traces.example.com/v1/traces",
+			expect.objectContaining({ method: "POST" }),
+		);
+		const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(body.resourceSpans[0].scopeSpans[0].spans[0]).toEqual(
+			expect.objectContaining({
+				traceId: traceContext.traceId,
+				name: "browser.page",
+			}),
 		);
 	});
 
-	it("does not create a new browser.page span for hash-only scroll updates", () => {
+	it("attaches fixture spans when trace ZIP storage is enabled", async () => {
+		const traceContext = createTraceContext();
+		const spanStartTime = new Date("2025-11-06T10:00:00.000Z");
+		traceContext.addSpan({
+			traceId: traceContext.traceId,
+			spanId: generateSpanId(),
+			parentSpanId: traceContext.rootSpanId,
+			name: "browser.page",
+			startTime: spanStartTime,
+			endTime: new Date("2025-11-06T10:00:01.000Z"),
+			attributes: { "browser.resource.type": "page" },
+			status: { code: 0 },
+			serviceName: "playwright-browser",
+		});
+		const attach = vi.fn();
+
+		await flushFixtureSpans(
+			traceContext,
+			resolvePlaywrightOpentelemetryConfig({ storeTraceZip: true }),
+			{ attach },
+		);
+
+		expect(attach).toHaveBeenCalledWith(FIXTURE_SPANS_ATTACHMENT_NAME, {
+			body: expect.any(String),
+			contentType: "application/json",
+		});
+		const body = JSON.parse(attach.mock.calls[0][1].body);
+		expect(body.spans).toEqual([
+			expect.objectContaining({
+				traceId: traceContext.traceId,
+				name: "browser.page",
+				startTime: spanStartTime.toISOString(),
+				serviceName: "playwright-browser",
+			}),
+		]);
+	});
+
+	it("does not create a same-document route for hash-only scroll updates", () => {
 		expect(
 			shouldCreateSameDocumentPageSpan(
 				"https://example.com/docs#getting-started",
@@ -221,120 +211,96 @@ describe("PlaywrightOpentelemetryReporter - Browser page spans", () => {
 			),
 		).toBe(false);
 	});
-
-	it("ignores navigation requests when Playwright has not created a frame yet", () => {
-		const tracker = new BrowserPageTracker(
-			"test-navigation-without-frame",
-			getUniqueOutputDir("navigation-without-frame"),
-		);
-		const request = {
-			isNavigationRequest: () => true,
-			frame: () => {
-				throw new Error("Frame is not available for navigation request");
-			},
-		} as unknown as Request;
-
-		expect(() => tracker.startDocumentNavigation(request)).not.toThrow();
-	});
-
-	it("falls back to the current Playwright step when no active browser.page span exists", async () => {
-		await runBrowserPageScenario({
-			steps: [
-				{
-					title: "Seed browser state",
-					startTime: new Date("2025-11-06T10:00:00.100Z"),
-					duration: 500,
-					browserPageActions: [],
-				},
-			],
-		});
-
-		const spans = sentSpans();
-		const pageSpan = findBrowserPageSpan(spans);
-		const httpSpan = findHttpSpan(spans);
-
-		expect(pageSpan).toBeUndefined();
-		expect(httpSpan?.parentSpanId).not.toBeUndefined();
-	});
-
-	it("ends a browser.page span at the next page span on the same Playwright page", async () => {
-		await runBrowserPageScenario({
-			steps: [
-				{
-					title: "Navigate between pages",
-					startTime: new Date("2025-11-06T10:00:00.100Z"),
-					duration: 1000,
-					browserPageActions: [
-						{
-							type: "document",
-							url: "https://example.com/products",
-							startTime: new Date("2025-11-06T10:00:00.150Z"),
-						},
-						{
-							type: "document",
-							url: "https://example.com/cart",
-							startTime: new Date("2025-11-06T10:00:00.600Z"),
-						},
-					],
-				},
-			],
-		});
-
-		const pageSpans = sentSpans().filter(
-			(span: { name: string; serviceName?: string }) =>
-				span.name === BROWSER_PAGE_SPAN_NAME &&
-				span.serviceName === BROWSER_SERVICE_NAME,
-		);
-
-		expect(pageSpans[0]).toEqual(
-			expect.objectContaining({
-				endTime: new Date("2025-11-06T10:00:00.600Z"),
-			}),
-		);
-	});
-
-	it("does not extend a browser.page span past the next page span for late network responses", async () => {
-		await runBrowserPageScenario({
-			steps: [
-				{
-					title: "Navigate between pages with late network response",
-					startTime: new Date("2025-11-06T10:00:00.100Z"),
-					duration: 1000,
-					browserPageActions: [
-						{
-							type: "document",
-							url: "https://example.com/products",
-							startTime: new Date("2025-11-06T10:00:00.150Z"),
-							networkActions: [
-								{
-									method: "GET",
-									url: "https://example.com/slow-products.json",
-									statusCode: 200,
-									startTime: new Date("2025-11-06T10:00:00.500Z"),
-									duration: 300,
-								},
-							],
-						},
-						{
-							type: "document",
-							url: "https://example.com/cart",
-							startTime: new Date("2025-11-06T10:00:00.600Z"),
-						},
-					],
-				},
-			],
-		});
-
-		const pageSpans = sentSpans().filter(
-			(span: { name: string; serviceName?: string }) =>
-				span.name === BROWSER_PAGE_SPAN_NAME &&
-				span.serviceName === BROWSER_SERVICE_NAME,
-		);
-
-		expect(pageSpans[0]).toEqual(
-			expect.objectContaining({
-				endTime: new Date("2025-11-06T10:00:00.600Z"),
-			}),
-		);
-	});
 });
+
+async function captureNetworkRequest(
+	traceContext: TestTraceContext,
+	tracker: BrowserPageTracker,
+	page: Page | undefined,
+	path: string,
+): Promise<void> {
+	const request = createRequest({
+		page,
+		url: `https://example.com/${path}`,
+		isNavigationRequest: false,
+	});
+	const route = createRoute(request);
+	const response = createResponse(request);
+	const parent = tracker.getNetworkParent(request);
+
+	await fixtureOtelHeaderPropagator({
+		route,
+		request,
+		traceContext,
+		parentSpanId: parent.spanId,
+		routeAssociation: parent.routeAssociation,
+	});
+	await fixtureCaptureRequestResponse({ request, response, traceContext });
+}
+
+function createTraceContext(): TestTraceContext {
+	return {
+		traceId: generateTraceId(),
+		rootSpanId: generateSpanId(),
+		spans: [],
+		requestContexts: new WeakMap(),
+		addSpan(span) {
+			this.spans.push(span);
+		},
+	};
+}
+
+function createPage(initialUrl: string): Page {
+	const frame = {};
+	const page = {
+		url: () => initialUrl,
+		mainFrame: () => frame,
+	} as Page;
+	(frame as { page: () => Page }).page = () => page;
+	return page;
+}
+
+function createRequest(options: {
+	page?: Page;
+	url: string;
+	isNavigationRequest: boolean;
+}): Request {
+	return {
+		url: () => options.url,
+		method: () => "GET",
+		headers: () => ({}),
+		isNavigationRequest: () => options.isNavigationRequest,
+		frame: () => {
+			if (!options.page) {
+				throw new Error("No frame");
+			}
+			return options.page.mainFrame();
+		},
+		timing: () => ({
+			startTime: new Date("2025-11-06T10:00:00.000Z").getTime(),
+			domainLookupStart: -1,
+			domainLookupEnd: -1,
+			connectStart: -1,
+			connectEnd: -1,
+			secureConnectionStart: -1,
+			requestStart: 0,
+			responseStart: 10,
+			responseEnd: 20,
+		}),
+	} as unknown as Request;
+}
+
+function createRoute(request: Request): Route {
+	return {
+		fallback: async () => {},
+		request: () => request,
+	} as unknown as Route;
+}
+
+function createResponse(request: Request): Response {
+	return {
+		status: () => 200,
+		request: () => request,
+		headerValue: async () => "application/json",
+	} as unknown as Response;
+}
