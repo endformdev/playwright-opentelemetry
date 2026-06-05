@@ -9,8 +9,8 @@ import type {
 } from "@playwright/test/reporter";
 import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
 import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
-import type { PlaywrightOpentelemetryReporterOptions } from "../src/reporter";
 import PlaywrightOpentelemetryReporter from "../src/reporter";
+import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
 import { generateSpanId, generateTraceId } from "../src/shared/otel";
 import {
 	TRACE_CONTEXT_ATTACHMENT_NAME,
@@ -18,7 +18,7 @@ import {
 } from "../src/fixture/trace-context";
 
 export interface TestHarnessOptions {
-	reporterOptions?: Partial<PlaywrightOpentelemetryReporterOptions>;
+	playwrightOpentelemetry?: Partial<PlaywrightOpentelemetryConfig>;
 	config?: ConfigDefinition;
 	test: TestDefinition;
 	result?: ResultDefinition;
@@ -120,7 +120,7 @@ const DEFAULT_DURATION = 1000;
 const DEFAULT_STEP_DURATION = 100;
 const DEFAULT_STEP_CATEGORY = "test.step";
 
-export const DEFAULT_REPORTER_OPTIONS: PlaywrightOpentelemetryReporterOptions =
+export const DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG: PlaywrightOpentelemetryConfig =
 	{
 		otlpEndpoint: "http://localhost:4317/v1/traces",
 		debug: true,
@@ -163,19 +163,18 @@ export type { FullConfig, FullResult, Suite, TestCase, TestResult };
  * ```
  */
 export async function runReporterTest({
-	reporterOptions,
+	playwrightOpentelemetry,
 	config,
 	test,
 	result,
 }: TestHarnessOptions): Promise<TestHarnessResult> {
-	// Merge reporter options with defaults
-	const mergedReporterOptions: PlaywrightOpentelemetryReporterOptions = {
-		...DEFAULT_REPORTER_OPTIONS,
-		...reporterOptions,
+	const mergedPlaywrightOpentelemetry: PlaywrightOpentelemetryConfig = {
+		...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
+		...playwrightOpentelemetry,
 	};
 
 	// Create reporter
-	const reporter = new PlaywrightOpentelemetryReporter(mergedReporterOptions);
+	const reporter = new PlaywrightOpentelemetryReporter();
 
 	// Build mock objects
 	const mergedConfig = buildConfig(config);
@@ -184,7 +183,11 @@ export async function runReporterTest({
 		test.id ?? `test-${test.title.replace(/\s+/g, "-").toLowerCase()}`;
 	// Use unique output directory per test to avoid conflicts
 	const outputDir = config?.outputDir ?? getUniqueOutputDir(testId);
-	const testCase = buildTestCase(test, outputDir);
+	const testCase = buildTestCase(
+		test,
+		outputDir,
+		mergedPlaywrightOpentelemetry,
+	);
 	const testResult = buildTestResult(result, DEFAULT_START_TIME);
 	const traceContext = createHarnessTraceContext();
 	testResult.attachments.push({
@@ -336,6 +339,7 @@ export function buildConfig(def?: ConfigDefinition): FullConfig {
 export function buildTestCase(
 	def: TestDefinition,
 	outputDir: string = DEFAULT_OUTPUT_DIR,
+	playwrightOpentelemetry: PlaywrightOpentelemetryConfig = DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
 ): TestCase {
 	const titlePath = def.titlePath ?? [
 		"",
@@ -351,6 +355,9 @@ export function buildTestCase(
 	const parentSuite = {
 		project: () => ({
 			outputDir,
+			use: {
+				playwrightOpentelemetry,
+			},
 		}),
 	};
 
@@ -367,7 +374,7 @@ export function buildTestCase(
 					column: def.location.column ?? 1,
 				}
 			: undefined,
-	} as TestCase;
+	} as unknown as TestCase;
 }
 
 export function buildTestResult(

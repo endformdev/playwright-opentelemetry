@@ -9,9 +9,15 @@ import type {
 	TestStep,
 } from "@playwright/test/reporter";
 import {
+	resolvePlaywrightOpentelemetryConfig,
+	type PlaywrightOpentelemetryConfig,
+	type PlaywrightOpentelemetryUseOptions,
+	type ResolvedPlaywrightOpentelemetryConfig,
+} from "../shared/config";
+import {
 	generateSpanId,
 	generateTraceId,
-	parseOtlpHeaders,
+	type SendSpansOptions,
 	type Span,
 } from "../shared/otel";
 import { TRACE_CONTEXT_ATTACHMENT_NAME } from "../fixture/trace-context";
@@ -35,64 +41,27 @@ import {
 	extractScreenshotsFromPlaywrightTrace,
 } from "./trace-zip-builder";
 
-export interface PlaywrightOpentelemetryReporterOptions {
-	otlpEndpoint?: string;
-	otlpHeaders?: Record<string, string>;
-	playwrightTraceApiEndpoint?: string;
-	playwrightTraceApiHeaders?: Record<string, string>;
-	storeTraceZip?: boolean;
-	serviceName?: string;
-	debug?: boolean;
-}
-
 export type { Span } from "../shared/otel";
 
+type SpanBatch = {
+	spans: Span[];
+	config: ResolvedPlaywrightOpentelemetryConfig;
+};
+
 export class PlaywrightOpentelemetryReporter implements Reporter {
-	private spans: Span[] = [];
+	private spanBatches: SpanBatch[] = [];
 	private rootDir?: string;
 	private playwrightVersion?: string;
-	private resolvedEndpoint: string;
-	private resolvedHeaders: Record<string, string>;
-	private resolvedTraceApiEndpoint: string;
-	private resolvedTraceApiHeaders: Record<string, string>;
-	private resolvedServiceName: string;
+	private debug = false;
 
 	/** Maps test.id to its project's outputDir */
 	private testOutputDirs: Map<string, string> = new Map();
+	private testConfigs: Map<string, ResolvedPlaywrightOpentelemetryConfig> =
+		new Map();
 
 	private stepSpanIds: Map<string, string> = new Map();
 
-	constructor(private options: PlaywrightOpentelemetryReporterOptions = {}) {
-		// Environment variables take priority over config options
-		this.resolvedEndpoint =
-			process.env.OTEL_EXPORTER_OTLP_ENDPOINT || options.otlpEndpoint || "";
-
-		const envHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS
-			? parseOtlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
-			: {};
-		this.resolvedHeaders = {
-			...options.otlpHeaders,
-			...envHeaders, // env headers override config headers
-		};
-
-		// Resolve trace API endpoint and headers
-		this.resolvedTraceApiEndpoint = options.playwrightTraceApiEndpoint || "";
-		this.resolvedTraceApiHeaders = options.playwrightTraceApiHeaders || {};
-
-		this.resolvedServiceName =
-			process.env.OTEL_SERVICE_NAME ||
-			options.serviceName ||
-			"playwright-tests";
-
-		// Require either an OTLP endpoint, trace API endpoint, or storeTraceZip to be enabled
-		if (
-			!this.resolvedEndpoint &&
-			!this.resolvedTraceApiEndpoint &&
-			!this.options.storeTraceZip
-		) {
-			throw new Error(getConfigurationErrorMessage());
-		}
-	}
+	constructor() {}
 
 	onBegin(config: FullConfig, suite: Suite) {
 		this.rootDir = config.rootDir;
@@ -103,6 +72,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			if (project?.outputDir) {
 				this.testOutputDirs.set(test.id, project.outputDir);
 			}
+
+			const resolvedConfig = resolvePlaywrightOpentelemetryConfig(
+				getProjectPlaywrightOpentelemetryConfig(project),
+				{ requireDestination: true },
+			);
+			this.testConfigs.set(test.id, resolvedConfig);
+			this.debug ||= resolvedConfig.debug;
 		}
 	}
 
@@ -118,10 +94,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	async onTestEnd(test: TestCase, result: TestResult) {
 		const testId = test.id;
 		const outputDir = this.getOutputDir(testId);
+		const config = this.getConfig(testId);
 		const { traceId, rootSpanId: testSpanId } = readTraceContextAttachment(
 			result,
 			testId,
-			this.options.storeTraceZip === true,
+			config.storeTraceZip,
 		);
 
 		const traceAttachment = result.attachments.find(
@@ -221,7 +198,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const testSpans: Span[] = [span, ...stepSpans];
 
 		// Add all test spans to the global spans array
-		this.spans.push(...testSpans);
+		this.spanBatches.push({ spans: testSpans, config });
 
 		// Calculate relative file path and duration for both zip and trace API
 		const relativeFilePath =
@@ -236,13 +213,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			: new Map<string, Blob>();
 
 		// If storeTraceZip is enabled, create zip file for this test
-		if (this.options.storeTraceZip) {
+		if (config.storeTraceZip) {
 			await createTraceZip({
 				outputDir,
 				testId,
 				test,
 				spans: testSpans,
-				serviceName: this.resolvedServiceName,
+				serviceName: config.serviceName,
 				playwrightVersion: this.playwrightVersion || "unknown",
 				relativeFilePath,
 				status: result.status,
@@ -253,35 +230,45 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 
 		// If trace API is configured, send screenshots. Test metadata lives on the root span.
-		if (this.resolvedTraceApiEndpoint) {
+		if (config.playwrightTraceApiEndpoint) {
 			await this.sendScreenshotsToTraceApi({
 				traceId,
 				screenshots,
+				config,
 			});
 		}
 	}
 
 	async onEnd(_result: FullResult) {
-		// Send spans to OTLP endpoint if configured
-		if (this.resolvedEndpoint && this.spans.length > 0) {
-			await sendSpans(this.spans, {
-				tracesEndpoint: this.resolvedEndpoint,
-				headers: this.resolvedHeaders,
-				serviceName: this.resolvedServiceName,
-				playwrightVersion: this.playwrightVersion || "unknown",
-				debug: this.options.debug ?? false,
-			});
+		const destinations = new Map<
+			string,
+			{ spans: Span[]; options: SendSpansOptions }
+		>();
+
+		for (const batch of this.spanBatches) {
+			if (batch.config.otlpEndpoint) {
+				addDestinationSpans(destinations, batch.spans, {
+					tracesEndpoint: batch.config.otlpEndpoint,
+					headers: batch.config.otlpHeaders,
+					serviceName: batch.config.serviceName,
+					playwrightVersion: this.playwrightVersion || "unknown",
+					debug: batch.config.debug,
+				});
+			}
+
+			if (batch.config.playwrightTraceApiEndpoint) {
+				addDestinationSpans(destinations, batch.spans, {
+					tracesEndpoint: `${batch.config.playwrightTraceApiEndpoint}/v1/traces`,
+					headers: batch.config.playwrightTraceApiHeaders,
+					serviceName: batch.config.serviceName,
+					playwrightVersion: this.playwrightVersion || "unknown",
+					debug: batch.config.debug,
+				});
+			}
 		}
 
-		// Send spans to trace API endpoint if configured
-		if (this.resolvedTraceApiEndpoint && this.spans.length > 0) {
-			await sendSpans(this.spans, {
-				tracesEndpoint: `${this.resolvedTraceApiEndpoint}/v1/traces`,
-				headers: this.resolvedTraceApiHeaders,
-				serviceName: this.resolvedServiceName,
-				playwrightVersion: this.playwrightVersion || "unknown",
-				debug: this.options.debug ?? false,
-			});
+		for (const destination of destinations.values()) {
+			await sendSpans(destination.spans, destination.options);
 		}
 	}
 
@@ -433,18 +420,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	onStdOut(chunk: string | Buffer, _test: TestCase, _result: TestResult): void {
-		if (this.options.debug) {
+		if (this.debug) {
 			console.log(chunk.toString().slice(0, -1));
 		}
 	}
 	onStdErr(chunk: string | Buffer, _test: TestCase, _result: TestResult): void {
-		if (this.options.debug) {
+		if (this.debug) {
 			console.log(chunk.toString().slice(0, -1));
 		}
 	}
 
 	printsToStdio(): boolean {
-		return this.options.debug ?? false;
+		return this.debug;
 	}
 
 	private getOutputDir(testId: string): string {
@@ -457,22 +444,33 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		return outputDir;
 	}
 
+	private getConfig(testId: string): ResolvedPlaywrightOpentelemetryConfig {
+		const config = this.testConfigs.get(testId);
+		if (!config) {
+			throw new Error(
+				`No playwrightOpentelemetry config found for test "${testId}" - onBegin must be called first and test must exist in suite`,
+			);
+		}
+		return config;
+	}
+
 	private async sendScreenshotsToTraceApi(params: {
 		traceId: string;
 		screenshots: Map<string, Blob>;
+		config: ResolvedPlaywrightOpentelemetryConfig;
 	}): Promise<void> {
-		const { traceId, screenshots } = params;
+		const { traceId, screenshots, config } = params;
 
 		// Send screenshots concurrently
 		await Promise.all(
 			Array.from(screenshots.entries()).map(async ([filename, blob]) => {
-				const screenshotUrl = `${this.resolvedTraceApiEndpoint}/playwright-otel-reporter/v1/screenshots/${filename}`;
+				const screenshotUrl = `${config.playwrightTraceApiEndpoint}/playwright-otel-reporter/v1/screenshots/${filename}`;
 				const response = await fetch(screenshotUrl, {
 					method: "PUT",
 					headers: {
 						"content-type": "image/jpeg",
 						"x-trace-id": traceId,
-						...this.resolvedTraceApiHeaders,
+						...config.playwrightTraceApiHeaders,
 					},
 					body: blob,
 				});
@@ -486,6 +484,28 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			}),
 		);
 	}
+}
+
+function getProjectPlaywrightOpentelemetryConfig(
+	project: unknown,
+): PlaywrightOpentelemetryConfig | undefined {
+	return (project as { use?: PlaywrightOpentelemetryUseOptions } | undefined)
+		?.use?.playwrightOpentelemetry;
+}
+
+function addDestinationSpans(
+	destinations: Map<string, { spans: Span[]; options: SendSpansOptions }>,
+	spans: Span[],
+	options: SendSpansOptions,
+): void {
+	const key = JSON.stringify(options);
+	const destination = destinations.get(key);
+	if (destination) {
+		destination.spans.push(...spans);
+		return;
+	}
+
+	destinations.set(key, { spans: [...spans], options });
 }
 
 function readTraceContextAttachment(
@@ -535,34 +555,6 @@ function isTraceContextAttachment(
 		"rootSpanId" in value &&
 		typeof value.traceId === "string" &&
 		typeof value.rootSpanId === "string"
-	);
-}
-
-function getConfigurationErrorMessage(): string {
-	return (
-		`playwright-opentelemetry reporter requires an OTLP endpoint to be configured.\n\n` +
-		`You can configure it using environment variables:\n\n` +
-		`  export OTEL_EXPORTER_OTLP_ENDPOINT="https://api.honeycomb.io"\n` +
-		`  export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=YOUR_API_KEY"\n` +
-		`  export OTEL_SERVICE_NAME="my-service"\n\n` +
-		`Or via playwright.config.ts:\n\n` +
-		`import { defineConfig } from '@playwright/test';\n` +
-		`import type { PlaywrightOpentelemetryReporterOptions } from 'playwright-opentelemetry';\n\n` +
-		`export default defineConfig({\n` +
-		`  reporter: [\n` +
-		`    [\n` +
-		`      'playwright-opentelemetry/reporter',\n` +
-		`      {\n` +
-		`        otlpEndpoint: 'http://localhost:4317/v1/traces',\n` +
-		`        otlpHeaders: {\n` +
-		`          Authorization: 'Bearer YOUR_TOKEN',\n` +
-		`        },\n` +
-		`        serviceName: 'my-service',\n` +
-		`      } satisfies PlaywrightOpentelemetryReporterOptions,\n` +
-		`    ],\n` +
-		`  ],\n` +
-		`});\n\n` +
-		`Note: Environment variables take precedence over config file options.\n`
 	);
 }
 

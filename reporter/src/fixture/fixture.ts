@@ -1,7 +1,15 @@
 import path from "node:path";
 import type { Request, Response, test as base } from "@playwright/test";
+import {
+	resolvePlaywrightOpentelemetryConfig,
+	type PlaywrightOpentelemetryUseOptions,
+} from "../shared/config";
 import { BrowserPageTracker } from "./browser-page-tracker";
 import { fixtureOtelHeaderPropagator } from "./network-propagator";
+import {
+	hasPlaywrightOpentelemetryReporter,
+	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
+} from "./reporter-config";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
 import {
 	createTestTraceContext,
@@ -14,12 +22,32 @@ type TestTraceInfo = {
 	outputDir: string;
 };
 
-export function createPlaywrightOtelTest(testBase: typeof base): typeof base {
-	return testBase.extend<{
-		testTraceInfo: TestTraceInfo;
-		testTraceContext: TestTraceContext;
-		browserPageTracker: BrowserPageTracker;
-	}>({
+type PlaywrightOpentelemetryFixtures = {
+	testTraceInfo: TestTraceInfo;
+	testTraceContext: TestTraceContext;
+	browserPageTracker: BrowserPageTracker;
+};
+
+type PlaywrightOpentelemetryWorkerFixtures = {
+	_playwrightOpentelemetryReporterCheck: void;
+};
+
+export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
+	return testBase.extend<
+		PlaywrightOpentelemetryUseOptions & PlaywrightOpentelemetryFixtures,
+		PlaywrightOpentelemetryWorkerFixtures
+	>({
+		playwrightOpentelemetry: [undefined, { option: true }],
+		_playwrightOpentelemetryReporterCheck: [
+			async ({}, use, workerInfo) => {
+				if (!hasPlaywrightOpentelemetryReporter(workerInfo.config.reporter)) {
+					throw new Error(MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR);
+				}
+
+				await use();
+			},
+			{ scope: "worker", auto: true },
+		],
 		testTraceInfo: [
 			// biome-ignore lint/correctness/noUnusedFunctionParameters: playwright fails if object not used
 			async ({ playwright }, use, testInfo) => {
@@ -33,10 +61,13 @@ export function createPlaywrightOtelTest(testBase: typeof base): typeof base {
 			{ auto: true },
 		],
 		testTraceContext: [
-			async ({}, use, testInfo) => {
+			async ({ playwrightOpentelemetry }, use, testInfo) => {
+				const config = resolvePlaywrightOpentelemetryConfig(
+					playwrightOpentelemetry,
+				);
 				const traceContext = await createTestTraceContext(testInfo);
 				await use(traceContext);
-				await flushFixtureSpans(traceContext);
+				await flushFixtureSpans(traceContext, config);
 			},
 			{ auto: true },
 		],

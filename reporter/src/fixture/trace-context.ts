@@ -2,10 +2,10 @@ import type { TestInfo } from "@playwright/test";
 import {
 	generateSpanId,
 	generateTraceId,
-	parseOtlpHeaders,
 	sendSpans,
 	type Span,
 } from "../shared/otel";
+import type { ResolvedPlaywrightOpentelemetryConfig } from "../shared/config";
 
 export const TRACE_CONTEXT_ATTACHMENT_NAME =
 	"playwright-opentelemetry-trace-context";
@@ -54,8 +54,9 @@ export async function createTestTraceContext(
 
 export async function flushFixtureSpans(
 	traceContext: TestTraceContext,
+	config: ResolvedPlaywrightOpentelemetryConfig,
 ): Promise<void> {
-	const destinations = fixtureSpanDestinations();
+	const destinations = fixtureSpanDestinations(config);
 	if (traceContext.spans.length === 0 || destinations.length === 0) {
 		return;
 	}
@@ -67,13 +68,15 @@ export async function flushFixtureSpans(
 				headers: destination.headers,
 				serviceName: "playwright-browser",
 				playwrightVersion: "unknown",
-				debug: process.env.PLAYWRIGHT_OPENTELEMETRY_DEBUG === "1",
+				debug: config.debug,
 			}),
 		),
 	);
 }
 
-function fixtureSpanDestinations(): Array<{
+function fixtureSpanDestinations(
+	config: ResolvedPlaywrightOpentelemetryConfig,
+): Array<{
 	tracesEndpoint: string;
 	headers: Record<string, string>;
 }> {
@@ -82,17 +85,17 @@ function fixtureSpanDestinations(): Array<{
 		headers: Record<string, string>;
 	}> = [];
 
-	if (process.env.PLAYWRIGHT_TRACE_API_ENDPOINT) {
+	if (config.playwrightTraceApiEndpoint) {
 		destinations.push({
-			tracesEndpoint: `${process.env.PLAYWRIGHT_TRACE_API_ENDPOINT}/v1/traces`,
-			headers: parseOtlpHeaders(process.env.PLAYWRIGHT_TRACE_API_HEADERS),
+			tracesEndpoint: `${config.playwrightTraceApiEndpoint}/v1/traces`,
+			headers: config.playwrightTraceApiHeaders,
 		});
 	}
 
-	if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+	if (config.otlpEndpoint) {
 		destinations.push({
-			tracesEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-			headers: parseOtlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS),
+			tracesEndpoint: config.otlpEndpoint,
+			headers: config.otlpHeaders,
 		});
 	}
 

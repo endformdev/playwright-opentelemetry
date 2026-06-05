@@ -10,6 +10,7 @@ import {
 	flushFixtureSpans,
 	type TestTraceContext,
 } from "../src/fixture/trace-context";
+import { resolvePlaywrightOpentelemetryConfig } from "../src/shared/config";
 import { generateSpanId, generateTraceId } from "../src/shared/otel";
 
 describe("fixture browser span hierarchy", () => {
@@ -143,7 +144,12 @@ describe("fixture browser span hierarchy", () => {
 			serviceName: "playwright-browser",
 		});
 
-		await flushFixtureSpans(traceContext);
+		await flushFixtureSpans(
+			traceContext,
+			resolvePlaywrightOpentelemetryConfig({
+				playwrightTraceApiEndpoint: "https://traces.example.com",
+			}),
+		);
 
 		expect(fetchMock).toHaveBeenCalledWith(
 			"https://traces.example.com/v1/traces",
