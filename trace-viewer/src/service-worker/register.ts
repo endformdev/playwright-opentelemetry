@@ -13,12 +13,19 @@ export interface ServiceWorkerState {
 export interface ScreenshotMeta {
 	timestamp: number;
 	file: string;
+	path?: string;
+	contentType?: string;
 }
 
 /**
  * Data to send to the service worker when loading a trace
  */
 export interface TraceLoadData {
+	zip: Blob;
+}
+
+export interface ScreenshotsZipLoadData {
+	traceId: string;
 	zip: Blob;
 }
 
@@ -33,12 +40,18 @@ export type ServiceWorkerMessage =
 			type: "LOAD_TRACE";
 			data: TraceLoadData;
 	  }
+	| {
+			type: "LOAD_SCREENSHOTS_ZIP";
+			data: ScreenshotsZipLoadData;
+	  }
 	| { type: "UNLOAD_TRACE" }
 	| { type: "PING" };
 
 export type ServiceWorkerResponse =
 	| { type: "TRACE_LOADED"; data: TraceLoadedData }
+	| { type: "SCREENSHOTS_LOADED"; data: { screenshotMetas: ScreenshotMeta[] } }
 	| { type: "TRACE_LOAD_ERROR"; error: string }
+	| { type: "SCREENSHOTS_LOAD_ERROR"; error: string }
 	| { type: "PONG" };
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
@@ -132,6 +145,32 @@ async function pingServiceWorker(worker: ServiceWorker): Promise<void> {
 export async function loadTraceInServiceWorker(
 	data: TraceLoadData,
 ): Promise<TraceLoadedData> {
+	return postServiceWorkerMessage<TraceLoadedData>(
+		{ type: "LOAD_TRACE", data },
+		"TRACE_LOADED",
+		"TRACE_LOAD_ERROR",
+		"Timeout loading trace in service worker",
+	);
+}
+
+export async function loadScreenshotsZipInServiceWorker(
+	data: ScreenshotsZipLoadData,
+): Promise<ScreenshotMeta[]> {
+	const result = await postServiceWorkerMessage<{ screenshotMetas: ScreenshotMeta[] }>(
+		{ type: "LOAD_SCREENSHOTS_ZIP", data },
+		"SCREENSHOTS_LOADED",
+		"SCREENSHOTS_LOAD_ERROR",
+		"Timeout loading screenshots ZIP in service worker",
+	);
+	return result.screenshotMetas;
+}
+
+async function postServiceWorkerMessage<Data>(
+	message: ServiceWorkerMessage,
+	loadedType: string,
+	errorType: string,
+	timeoutMessage: string,
+): Promise<Data> {
 	const registration = await navigator.serviceWorker.ready;
 	const worker = registration.active;
 
@@ -142,15 +181,15 @@ export async function loadTraceInServiceWorker(
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => {
 			navigator.serviceWorker.removeEventListener("message", handleMessage);
-			reject(new Error("Timeout loading trace in service worker"));
+			reject(new Error(timeoutMessage));
 		}, 30000);
 
 		const handleMessage = (event: MessageEvent) => {
-			if (event.data?.type === "TRACE_LOADED") {
+			if (event.data?.type === loadedType) {
 				clearTimeout(timeout);
 				navigator.serviceWorker.removeEventListener("message", handleMessage);
-				resolve(event.data.data);
-			} else if (event.data?.type === "TRACE_LOAD_ERROR") {
+				resolve(event.data.data as Data);
+			} else if (event.data?.type === errorType) {
 				clearTimeout(timeout);
 				navigator.serviceWorker.removeEventListener("message", handleMessage);
 				reject(
@@ -162,11 +201,7 @@ export async function loadTraceInServiceWorker(
 		};
 
 		navigator.serviceWorker.addEventListener("message", handleMessage);
-
-		worker.postMessage({
-			type: "LOAD_TRACE",
-			data,
-		});
+		worker.postMessage(message);
 	});
 }
 

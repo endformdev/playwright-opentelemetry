@@ -1,5 +1,6 @@
 import {
 	createResource,
+	type Accessor,
 	type JSX,
 	Match,
 	onCleanup,
@@ -18,7 +19,7 @@ import {
 export interface TraceInfo {
 	testInfo: TestInfo;
 	traceData: OtlpExport;
-	screenshots: ScreenshotInfo[];
+	screenshots: Accessor<ScreenshotInfo[]>;
 }
 
 export interface TestInfo {

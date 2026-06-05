@@ -4,6 +4,7 @@ import { loadLocalZip, loadRemoteZip } from "./zipLoader";
 const serviceWorker = vi.hoisted(() => ({
 	registerServiceWorker: vi.fn(async () => ({}) as ServiceWorkerRegistration),
 	loadTraceInServiceWorker: vi.fn(),
+	loadScreenshotsZipInServiceWorker: vi.fn(),
 	unloadTraceFromServiceWorker: vi.fn(async () => undefined),
 	getTraceViewerApiUrl: vi.fn(
 		(traceId: string) => `/playwright-otel-trace-viewer/v1/${traceId}`,
@@ -40,7 +41,7 @@ describe("loading ZIP traces", () => {
 		});
 		expect(traceInfo.testInfo.name).toBe("checkout completes");
 		expect(traceInfo.traceData.resourceSpans).toHaveLength(1);
-		expect(traceInfo.screenshots).toEqual([
+		expect(traceInfo.screenshots()).toEqual([
 			{
 				timestamp: 1766927492300,
 				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,

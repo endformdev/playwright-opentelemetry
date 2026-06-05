@@ -17,17 +17,20 @@ describe("multi-tenant trace API flows", () => {
 
 		await postTenantTrace(app, "org-a", traceId, "org A checkout");
 		await postTenantTrace(app, "org-b", traceId, "org B checkout");
-		await uploadTenantScreenshot(
+		const orgAScreenshotsZip = createScreenshotBuffer("org-a-screenshots.zip");
+		const orgBScreenshotsZip = createScreenshotBuffer("org-b-screenshots.zip");
+
+		await uploadTenantScreenshotsZip(
 			app,
 			"org-a",
 			traceId,
-			"page@a-1766927492100.jpeg",
+			orgAScreenshotsZip,
 		);
-		await uploadTenantScreenshot(
+		await uploadTenantScreenshotsZip(
 			app,
 			"org-b",
 			traceId,
-			"page@b-1766927492200.jpeg",
+			orgBScreenshotsZip,
 		);
 
 		expect(await readTenantSpanNames(app, "org-a", traceId)).toEqual([
@@ -36,16 +39,12 @@ describe("multi-tenant trace API flows", () => {
 		expect(await readTenantSpanNames(app, "org-b", traceId)).toEqual([
 			"org B checkout",
 		]);
-		expect(await readTenantScreenshots(app, "org-a", traceId)).toEqual({
-			screenshots: [
-				{ timestamp: 1766927492100, file: "page@a-1766927492100.jpeg" },
-			],
-		});
-		expect(await readTenantScreenshots(app, "org-b", traceId)).toEqual({
-			screenshots: [
-				{ timestamp: 1766927492200, file: "page@b-1766927492200.jpeg" },
-			],
-		});
+		expect(await readTenantScreenshotsZip(app, "org-a", traceId)).toEqual(
+			orgAScreenshotsZip,
+		);
+		expect(await readTenantScreenshotsZip(app, "org-b", traceId)).toEqual(
+			orgBScreenshotsZip,
+		);
 	});
 });
 
@@ -83,21 +82,21 @@ async function postTenantTrace(
 	expect(response.status).toBe(200);
 }
 
-async function uploadTenantScreenshot(
+async function uploadTenantScreenshotsZip(
 	app: ReturnType<typeof createTestHarness>,
 	orgId: string,
 	traceId: string,
-	filename: string,
+	body: ArrayBuffer,
 ) {
 	const response = await app.fetch(
-		new Request(`http://localhost${REPORTER_PATH}/screenshots/${filename}`, {
+		new Request(`http://localhost${REPORTER_PATH}/screenshots.zip`, {
 			method: "PUT",
 			headers: {
-				"Content-Type": "image/jpeg",
+				"Content-Type": "application/zip",
 				"X-Trace-Id": traceId,
 				"X-Org-Id": orgId,
 			},
-			body: createScreenshotBuffer(filename),
+			body,
 		}),
 	);
 	expect(response.status).toBe(200);
@@ -130,16 +129,16 @@ interface TraceResponse {
 	}>;
 }
 
-async function readTenantScreenshots(
+async function readTenantScreenshotsZip(
 	app: ReturnType<typeof createTestHarness>,
 	orgId: string,
 	traceId: string,
 ) {
 	const response = await app.fetch(
-		new Request(`http://localhost${VIEWER_PATH}/${traceId}/screenshots`, {
+		new Request(`http://localhost${VIEWER_PATH}/${traceId}/screenshots.zip`, {
 			headers: { "X-Org-Id": orgId },
 		}),
 	);
 	expect(response.status).toBe(200);
-	return response.json();
+	return response.arrayBuffer();
 }

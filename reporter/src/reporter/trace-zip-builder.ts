@@ -6,6 +6,18 @@ import { BlobReader, BlobWriter, ZipReader, ZipWriter } from "@zip.js/zip.js";
 import type { Span } from "../shared/otel";
 import { buildOtlpRequest } from "./sender";
 
+export interface ScreenshotManifestEntry {
+	timestamp: number;
+	file: string;
+	path: string;
+	contentType: string;
+}
+
+export interface ScreenshotManifest {
+	version: 1;
+	screenshots: ScreenshotManifestEntry[];
+}
+
 /**
  * Get the zip filename based on test location and ID.
  * Format: {basename(file)}:{line}-{testId}-pw-otel.zip
@@ -85,6 +97,17 @@ export async function extractScreenshotsFromPlaywrightTrace(
 	return screenshots;
 }
 
+export async function createScreenshotsZip(
+	screenshots: Map<string, Blob>,
+): Promise<Blob> {
+	const blobWriter = new BlobWriter("application/zip");
+	const zipWriter = new ZipWriter(blobWriter);
+
+	await addScreenshotsToZip(zipWriter, screenshots);
+
+	return zipWriter.close();
+}
+
 export interface CreateTraceZipOptions {
 	outputDir: string;
 	test: TestCase;
@@ -96,15 +119,22 @@ export interface CreateTraceZipOptions {
 	screenshots: Map<string, Blob>;
 }
 
+export type CreateTraceZipBlobOptions = Omit<CreateTraceZipOptions, "outputDir">;
+
 /**
  * Create a zip file containing the OTLP trace JSON and screenshots for a test.
  */
 export async function createTraceZip(
 	options: CreateTraceZipOptions,
 ): Promise<void> {
+	const zipBlob = await createTraceZipBlob(options);
+	await writeTraceZip(options.outputDir, options.test, zipBlob);
+}
+
+export async function createTraceZipBlob(
+	options: CreateTraceZipBlobOptions,
+): Promise<Blob> {
 	const {
-		outputDir,
-		test,
 		spans,
 		fixtureSpans,
 		serviceName,
@@ -138,22 +168,82 @@ export async function createTraceZip(
 		);
 	}
 
-	// Add screenshots concurrently by streaming directly from input blobs
-	await Promise.all(
-		Array.from(screenshots.entries()).map(([filename, blob]) =>
-			zipWriter.add(`screenshots/${filename}`, blob.stream()),
-		),
-	);
+	await addScreenshotsToZip(zipWriter, screenshots);
 
-	// Close and get the zip blob
-	const zipBlob = await zipWriter.close();
+	return zipWriter.close();
+}
 
-	// Write to file
+export async function writeTraceZip(
+	outputDir: string,
+	test: TestCase,
+	zipBlob: Blob,
+): Promise<void> {
 	const zipFilename = getZipFilename(test, test.id);
 	const zipPath = path.join(outputDir, zipFilename);
 
 	const arrayBuffer = await zipBlob.arrayBuffer();
 	await fs.writeFile(zipPath, Buffer.from(arrayBuffer));
+}
+
+async function addScreenshotsToZip(
+	zipWriter: ZipWriter<Blob>,
+	screenshots: Map<string, Blob>,
+): Promise<void> {
+	const manifest = createScreenshotManifest(screenshots);
+	await zipWriter.add(
+		"manifest.json",
+		new Blob([JSON.stringify(manifest, null, 2)], {
+			type: "application/json",
+		}).stream(),
+	);
+
+	for (const [filename, blob] of screenshots.entries()) {
+		await zipWriter.add(`screenshots/${filename}`, blob.stream());
+	}
+}
+
+function createScreenshotManifest(
+	screenshots: Map<string, Blob>,
+): ScreenshotManifest {
+	const entries = Array.from(screenshots.keys())
+		.map((filename) => ({
+			timestamp: extractTimestampFromFilename(filename),
+			file: filename,
+			path: `screenshots/${filename}`,
+			contentType: getMimeType(filename),
+		}))
+		.sort((a, b) => a.timestamp - b.timestamp);
+
+	return {
+		version: 1,
+		screenshots: entries,
+	};
+}
+
+function extractTimestampFromFilename(filename: string): number {
+	const lastDashIndex = filename.lastIndexOf("-");
+	if (lastDashIndex === -1) return 0;
+
+	const timestamp = Number.parseInt(
+		filename.slice(lastDashIndex + 1).replace(/\.[^.]+$/, ""),
+		10,
+	);
+	return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function getMimeType(filename: string): string {
+	const ext = filename.split(".").pop()?.toLowerCase();
+	switch (ext) {
+		case "png":
+			return "image/png";
+		case "jpg":
+		case "jpeg":
+			return "image/jpeg";
+		case "webp":
+			return "image/webp";
+		default:
+			return "application/octet-stream";
+	}
 }
 
 function isFileEntry(entry: Entry): entry is FileEntry {

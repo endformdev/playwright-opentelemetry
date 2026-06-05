@@ -20,19 +20,20 @@ const sw = self as unknown as ServiceWorkerGlobalScope;
 interface ScreenshotMeta {
 	timestamp: number;
 	file: string;
+	path: string;
+	contentType: string;
 }
 
 interface ZipLoadResult {
 	traceId: string;
 	traceData: OtlpExport;
 	screenshotMetas: ScreenshotMeta[];
-	screenshotFiles: Set<string>;
 }
 
 interface LoadedTrace {
 	traceId: string;
 	zip: Blob;
-	screenshotFiles: Set<string>;
+	screenshotMetasByFile: Map<string, ScreenshotMeta>;
 	screenshotBlobs: Map<string, Blob>;
 	screenshotLoads: Map<string, Promise<Blob>>;
 	screenshotMetas: ScreenshotMeta[];
@@ -57,9 +58,14 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 	const { type, data } = event.data;
 	const client = event.source as Client | null;
 
-	switch (type) {
+		switch (type) {
 		case "LOAD_TRACE": {
 			event.waitUntil(loadTrace(data.zip, client));
+			break;
+		}
+
+		case "LOAD_SCREENSHOTS_ZIP": {
+			event.waitUntil(loadScreenshotsZip(data.traceId, data.zip, client));
 			break;
 		}
 
@@ -81,7 +87,7 @@ async function loadTrace(zip: Blob, client: Client | null): Promise<void> {
 		currentTrace = {
 			traceId: result.traceId,
 			zip,
-			screenshotFiles: result.screenshotFiles,
+			screenshotMetasByFile: metasByFile(result.screenshotMetas),
 			screenshotBlobs: new Map(),
 			screenshotLoads: new Map(),
 			screenshotMetas: result.screenshotMetas,
@@ -98,6 +104,34 @@ async function loadTrace(zip: Blob, client: Client | null): Promise<void> {
 	} catch (error) {
 		client?.postMessage({
 			type: "TRACE_LOAD_ERROR",
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
+async function loadScreenshotsZip(
+	traceId: string,
+	zip: Blob,
+	client: Client | null,
+): Promise<void> {
+	try {
+		const screenshotMetas = await loadScreenshotMetas(zip);
+		currentTrace = {
+			traceId,
+			zip,
+			screenshotMetasByFile: metasByFile(screenshotMetas),
+			screenshotBlobs: new Map(),
+			screenshotLoads: new Map(),
+			screenshotMetas,
+		};
+
+		client?.postMessage({
+			type: "SCREENSHOTS_LOADED",
+			data: { screenshotMetas },
+		});
+	} catch (error) {
+		client?.postMessage({
+			type: "SCREENSHOTS_LOAD_ERROR",
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}
@@ -143,8 +177,7 @@ async function loadZip(zip: Blob): Promise<ZipLoadResult> {
 
 async function parseZipEntries(entries: Entry[]): Promise<ZipLoadResult> {
 	const traceExports: OtlpExport[] = [];
-	const screenshotMetas: ScreenshotMeta[] = [];
-	const screenshotFiles = new Set<string>();
+	const screenshotMetas = await parseScreenshotManifest(entries);
 
 	for (const entry of entries) {
 		if (!isFileEntry(entry)) continue;
@@ -154,17 +187,6 @@ async function parseZipEntries(entries: Entry[]): Promise<ZipLoadResult> {
 			if (name && !name.includes("/")) {
 				const text = await entry.getData(new TextWriter());
 				traceExports.push(parseOtlpExport(JSON.parse(text)));
-			}
-		}
-
-		if (entry.filename.startsWith("screenshots/")) {
-			const name = entry.filename.slice("screenshots/".length);
-			if (name) {
-				screenshotFiles.add(name);
-				screenshotMetas.push({
-					timestamp: extractTimestampFromFilename(name),
-					file: name,
-				});
 			}
 		}
 	}
@@ -181,16 +203,51 @@ async function parseZipEntries(entries: Entry[]): Promise<ZipLoadResult> {
 		throw new Error("Unable to load ZIP trace: no traceId found in OTLP trace data");
 	}
 
-	screenshotMetas.sort((a, b) => a.timestamp - b.timestamp);
+	return { traceId, traceData, screenshotMetas };
+}
 
-	return { traceId, traceData, screenshotMetas, screenshotFiles };
+async function loadScreenshotMetas(zip: Blob): Promise<ScreenshotMeta[]> {
+	const zipReader = new ZipReader(new BlobReader(zip));
+	try {
+		return parseScreenshotManifest(await zipReader.getEntries());
+	} finally {
+		await zipReader.close();
+	}
+}
+
+async function parseScreenshotManifest(
+	entries: Entry[],
+): Promise<ScreenshotMeta[]> {
+	const manifestEntry = entries.find(
+		(entry): entry is FileEntry =>
+			isFileEntry(entry) && entry.filename === "manifest.json",
+	);
+	if (!manifestEntry) return [];
+
+	const manifest = JSON.parse(await manifestEntry.getData(new TextWriter())) as {
+		screenshots?: Array<Partial<ScreenshotMeta>>;
+	};
+	return (manifest.screenshots ?? [])
+		.filter(
+			(screenshot): screenshot is ScreenshotMeta =>
+				typeof screenshot.timestamp === "number" &&
+				typeof screenshot.file === "string" &&
+				screenshot.file.length > 0,
+		)
+		.map((screenshot) => ({
+			timestamp: screenshot.timestamp,
+			file: screenshot.file,
+			path: screenshot.path || `screenshots/${screenshot.file}`,
+			contentType: screenshot.contentType || getMimeType(screenshot.file),
+		}))
+		.sort((a, b) => a.timestamp - b.timestamp);
 }
 
 async function screenshotResponse(
 	trace: LoadedTrace,
 	filename: string,
 ): Promise<Response> {
-	if (!trace.screenshotFiles.has(filename)) {
+	if (!trace.screenshotMetasByFile.has(filename)) {
 		return notFoundResponse(`Screenshot not found: ${filename}`);
 	}
 
@@ -214,7 +271,7 @@ async function getScreenshotBlob(
 	const existingLoad = trace.screenshotLoads.get(filename);
 	if (existingLoad) return existingLoad;
 
-	const load = extractScreenshotBlob(trace.zip, filename)
+	const load = extractScreenshotBlob(trace, filename)
 		.then((blob) => {
 			trace.screenshotBlobs.set(filename, blob);
 			return blob;
@@ -227,22 +284,34 @@ async function getScreenshotBlob(
 	return load;
 }
 
-async function extractScreenshotBlob(zip: Blob, filename: string): Promise<Blob> {
-	const zipReader = new ZipReader(new BlobReader(zip));
+async function extractScreenshotBlob(
+	trace: LoadedTrace,
+	filename: string,
+): Promise<Blob> {
+	const screenshotMeta = trace.screenshotMetasByFile.get(filename);
+	if (!screenshotMeta) {
+		throw new Error(`Screenshot not found in manifest: ${filename}`);
+	}
+
+	const zipReader = new ZipReader(new BlobReader(trace.zip));
 	try {
 		const entry = (await zipReader.getEntries()).find(
 			(entry): entry is FileEntry =>
-				isFileEntry(entry) && entry.filename === `screenshots/${filename}`,
+				isFileEntry(entry) && entry.filename === screenshotMeta.path,
 		);
 
 		if (!entry) {
 			throw new Error(`Screenshot not found in ZIP: ${filename}`);
 		}
 
-		return entry.getData(new BlobWriter(getMimeType(filename)));
+		return entry.getData(new BlobWriter(screenshotMeta.contentType));
 	} finally {
 		await zipReader.close();
 	}
+}
+
+function metasByFile(screenshotMetas: ScreenshotMeta[]): Map<string, ScreenshotMeta> {
+	return new Map(screenshotMetas.map((meta) => [meta.file, meta]));
 }
 
 function findTraceId(traceData: OtlpExport): string | undefined {
@@ -277,17 +346,6 @@ function blobResponse(blob: Blob): Response {
 
 function notFoundResponse(message: string): Response {
 	return new Response(message, { status: 404 });
-}
-
-function extractTimestampFromFilename(filename: string): number {
-	const lastDashIndex = filename.lastIndexOf("-");
-	if (lastDashIndex === -1) return 0;
-
-	const timestamp = Number.parseInt(
-		filename.slice(lastDashIndex + 1).replace(/\.[^.]+$/, ""),
-		10,
-	);
-	return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function getMimeType(filename: string): string {

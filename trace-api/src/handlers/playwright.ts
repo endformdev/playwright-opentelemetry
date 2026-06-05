@@ -8,7 +8,7 @@ import type { TraceApiHandlerConfig } from "../createTraceApi";
  *
  * Receives screenshots at PUT /playwright-otel-reporter/v1/*,
  * using X-Trace-Id header to determine storage location:
- * - PUT /playwright-otel-reporter/v1/screenshots/{filename} -> traces/{traceId}/screenshots/{filename}
+ * - PUT /playwright-otel-reporter/v1/screenshots.zip -> traces/{traceId}/screenshots.zip
  *
  * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
@@ -45,14 +45,14 @@ export function createPlaywrightHandler(
 			throw new Error("Path is required");
 		}
 
-		if (!path.startsWith("screenshots/")) {
+		if (path !== "screenshots.zip") {
 			throw new Error(`Unsupported Playwright artifact path: ${path}`);
 		}
 
-		const contentType = "image/jpeg";
+		const contentType = "application/zip";
 
 		// Build storage path
-		let storagePath = `traces/${traceId}/${path}`;
+		let storagePath = `traces/${traceId}/screenshots.zip`;
 
 		// Apply path resolution if configured
 		if (config.resolvePath) {

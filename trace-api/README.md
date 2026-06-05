@@ -145,22 +145,21 @@ Body: Standard OTLP JSON payload
 Partitions OTLP spans by trace ID and writes OTLP-shaped fragments to `traces/{traceId}/traces/{requestId}.json`. The fragment filename is a unique request ID, not a service name or span ID.
 
 ```
-PUT /playwright-otel-reporter/v1/screenshots/{filename}
+PUT /playwright-otel-reporter/v1/screenshots.zip
 X-Trace-Id: {traceId}
-Body: JPEG image data
+Body: ZIP containing manifest.json and screenshots/*
 ```
 
-Writes screenshots to `traces/{traceId}/screenshots/{filename}`.
+Writes the screenshot bundle to `traces/{traceId}/screenshots.zip`.
 
 **Read Endpoints:**
 
 ```
 GET /playwright-otel-trace-viewer/v1/{traceId}/traces
-GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots
-GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots/{filename}
+GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots.zip
 ```
 
-Serves merged OTLP trace data and screenshot data in the format expected by the trace viewer. The trace endpoint returns `404` when no trace fragments exist. The screenshots list endpoint returns `{ "screenshots": [] }` when a trace has no screenshots, while missing individual screenshots return `404`.
+Serves merged OTLP trace data and the stored screenshot ZIP expected by the trace viewer. The trace endpoint returns `404` when no trace fragments exist. A missing screenshot ZIP returns `404`; the viewer treats that as no screenshots.
 
 ## Storage Setup
 
@@ -197,9 +196,8 @@ wrangler r2 bucket lifecycle set my-traces --rules '[{
 ```
 s3://bucket/
 └── traces/
-    └── {traceId}/
-        ├── traces/
-        │   └── {requestId}.json
-        └── screenshots/
-            └── {pageId}-{timestamp}.jpeg
+	└── {traceId}/
+		├── traces/
+		│   └── {requestId}.json
+		└── screenshots.zip
 ```

@@ -2,6 +2,7 @@ import {
 	createEffect,
 	createMemo,
 	createSignal,
+	type Accessor,
 	For,
 	onCleanup,
 	Show,
@@ -18,7 +19,7 @@ import {
 import type { TimelineViewport } from "./viewport";
 
 export interface ScreenshotFilmstripProps {
-	screenshots: ScreenshotInfo[];
+	screenshots: Accessor<ScreenshotInfo[]>;
 	/** Current viewport state for selecting screenshots */
 	viewport: TimelineViewport;
 	/** Test start time in milliseconds (Unix timestamp) for converting absolute to relative timestamps */
@@ -42,7 +43,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 
 	// Convert screenshots to relative timestamps (offset from test start)
 	const screenshotsWithRelativeTime = createMemo((): RelativeScreenshot[] => {
-		return props.screenshots.map((screenshot) => ({
+		return props.screenshots().map((screenshot) => ({
 			timestamp: screenshot.timestamp - props.testStartTimeMs,
 			original: screenshot,
 		}));
@@ -110,7 +111,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 					when={slotCount() > 0}
 					fallback={
 						<Show
-							when={props.screenshots.length > 0}
+							when={props.screenshots().length > 0}
 							fallback={
 								<div class="flex items-center justify-center w-full text-gray-400 text-sm">
 									No screenshots available
