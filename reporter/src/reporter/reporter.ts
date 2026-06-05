@@ -20,7 +20,10 @@ import {
 	type SendSpansOptions,
 	type Span,
 } from "../shared/otel";
-import { TRACE_CONTEXT_ATTACHMENT_NAME } from "../fixture/trace-context";
+import {
+	FIXTURE_SPANS_ATTACHMENT_NAME,
+	TRACE_CONTEXT_ATTACHMENT_NAME,
+} from "../fixture/trace-context";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -54,47 +57,32 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private playwrightVersion?: string;
 	private debug = false;
 
-	/** Maps test.id to its project's outputDir */
-	private testOutputDirs: Map<string, string> = new Map();
-	private testConfigs: Map<string, ResolvedPlaywrightOpentelemetryConfig> =
-		new Map();
-
-	private stepSpanIds: Map<string, string> = new Map();
-
 	constructor() {}
 
-	onBegin(config: FullConfig, suite: Suite) {
+	onBegin(config: FullConfig, _suite: Suite) {
 		this.rootDir = config.rootDir;
 		this.playwrightVersion = config.version;
 
-		for (const test of suite.allTests()) {
-			const project = test.parent.project();
-			if (project?.outputDir) {
-				this.testOutputDirs.set(test.id, project.outputDir);
-			}
-
+		const projects = Array.isArray(config.projects) ? config.projects : [];
+		for (const project of projects) {
 			const resolvedConfig = resolvePlaywrightOpentelemetryConfig(
 				getProjectPlaywrightOpentelemetryConfig(project),
 				{ requireDestination: true },
 			);
-			this.testConfigs.set(test.id, resolvedConfig);
 			this.debug ||= resolvedConfig.debug;
 		}
 	}
 
 	onTestBegin(_test: TestCase, _result: TestResult) {}
 
-	async onStepBegin(test: TestCase, _result: TestResult, step: TestStep) {
-		const stepId = getStepId(test, step);
-		this.stepSpanIds.set(stepId, generateSpanId());
-	}
+	async onStepBegin(_test: TestCase, _result: TestResult, _step: TestStep) {}
 
 	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
 
 	async onTestEnd(test: TestCase, result: TestResult) {
 		const testId = test.id;
-		const outputDir = this.getOutputDir(testId);
-		const config = this.getConfig(testId);
+		const outputDir = getTestOutputDir(test);
+		const config = getTestConfig(test);
 		const { traceId, rootSpanId: testSpanId } = readTraceContextAttachment(
 			result,
 			testId,
@@ -107,6 +95,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				attachment.contentType === "application/zip" &&
 				attachment.path,
 		);
+		const fixtureSpans = config.storeTraceZip
+			? readFixtureSpansAttachment(result, testId)
+			: [];
 
 		// Attach trace ID early so other reporters can consume it during onTestEnd.
 		result.attachments.push({
@@ -148,6 +139,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Track processed step IDs to merge duplicates (Playwright can report the same step twice,
 		// once with location info and once without - we want to merge them)
 		const processedSteps = new Map<string, Span>();
+		const skippedStepIds = new Set<string>();
 		if (result.steps && result.steps.length > 0) {
 			for (const step of result.steps) {
 				this.processTestStep(
@@ -157,17 +149,12 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					traceId,
 					[],
 					processedSteps,
+					skippedStepIds,
 				);
 			}
 		}
 
-		// Collect step spans (filter out marker objects used to track skipped steps)
-		const stepSpans: Span[] = [];
-		for (const [key, stepSpan] of processedSteps.entries()) {
-			if (!key.startsWith("__skip__")) {
-				stepSpans.push(stepSpan);
-			}
-		}
+		const stepSpans = Array.from(processedSteps.values());
 
 		// Calculate test span timing to encompass all child spans
 		// Start with Playwright's reported timing as the baseline
@@ -200,13 +187,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Add all test spans to the global spans array
 		this.spanBatches.push({ spans: testSpans, config });
 
-		// Calculate relative file path and duration for both zip and trace API
-		const relativeFilePath =
-			test.location && this.rootDir
-				? path.relative(this.rootDir, test.location.file)
-				: (test.location?.file ?? "");
-		const computedDuration = maxEndTime.getTime() - minStartTime.getTime();
-
 		// Extract screenshots from Playwright's retained trace ZIP.
 		const screenshots = traceAttachment?.path
 			? await extractScreenshotsFromPlaywrightTrace(traceAttachment.path)
@@ -216,15 +196,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		if (config.storeTraceZip) {
 			await createTraceZip({
 				outputDir,
-				testId,
 				test,
 				spans: testSpans,
+				fixtureSpans,
 				serviceName: config.serviceName,
 				playwrightVersion: this.playwrightVersion || "unknown",
-				relativeFilePath,
-				status: result.status,
-				startTime: minStartTime,
-				duration: computedDuration,
 				screenshots,
 			});
 		}
@@ -279,6 +255,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		traceId: string,
 		parentTitlePath: string[],
 		processedSteps: Map<string, Span>,
+		skippedStepIds: Set<string>,
 	) {
 		// Skip fixture steps that come from the playwright-opentelemetry fixture file to avoid noise
 		const isInternalFixture =
@@ -292,12 +269,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// If this step is from our fixture file, mark it and remove any already-created span
 		// (Playwright sometimes reports the same fixture twice, once without location first)
 		if (isInternalFixture) {
-			processedSteps.set(`__skip__${stepId}`, {} as Span);
+			skippedStepIds.add(stepId);
 
 			// Remove any span we already created for this stepId (from a duplicate without location)
-			if (processedSteps.has(stepId)) {
-				processedSteps.delete(stepId);
-			}
+			processedSteps.delete(stepId);
 
 			// Still process nested steps with the same parent (skip this fixture as a span)
 			if (step.steps && step.steps.length > 0) {
@@ -309,6 +284,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 						traceId,
 						parentTitlePath,
 						processedSteps,
+						skippedStepIds,
 					);
 				}
 			}
@@ -316,7 +292,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 
 		// Skip if we've already identified this stepId as our fixture
-		if (processedSteps.has(`__skip__${stepId}`)) {
+		if (skippedStepIds.has(stepId)) {
 			if (step.steps && step.steps.length > 0) {
 				for (const childStep of step.steps) {
 					this.processTestStep(
@@ -326,6 +302,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 						traceId,
 						parentTitlePath,
 						processedSteps,
+						skippedStepIds,
 					);
 				}
 			}
@@ -334,10 +311,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		// Build the full title path for this step
 		const currentTitlePath = [...parentTitlePath, step.title];
-
-		// Use pre-generated span ID from state, or generate one if missing
-		// (can happen due to race conditions with async hooks)
-		const stepSpanId = this.stepSpanIds.get(stepId) ?? generateSpanId();
 
 		// Check if we've already processed this step (Playwright can report duplicates)
 		const existingSpan = processedSteps.get(stepId);
@@ -361,6 +334,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 						traceId,
 						currentTitlePath,
 						processedSteps,
+						skippedStepIds,
 					);
 				}
 			}
@@ -393,7 +367,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		const stepSpan: Span = {
 			traceId,
-			spanId: stepSpanId,
+			spanId: generateSpanId(),
 			parentSpanId,
 			name: TEST_STEP_SPAN_NAME,
 			startTime: step.startTime,
@@ -414,6 +388,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					traceId,
 					currentTitlePath,
 					processedSteps,
+					skippedStepIds,
 				);
 			}
 		}
@@ -432,26 +407,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	printsToStdio(): boolean {
 		return this.debug;
-	}
-
-	private getOutputDir(testId: string): string {
-		const outputDir = this.testOutputDirs.get(testId);
-		if (!outputDir) {
-			throw new Error(
-				`No outputDir found for test "${testId}" - onBegin must be called first and test must exist in suite`,
-			);
-		}
-		return outputDir;
-	}
-
-	private getConfig(testId: string): ResolvedPlaywrightOpentelemetryConfig {
-		const config = this.testConfigs.get(testId);
-		if (!config) {
-			throw new Error(
-				`No playwrightOpentelemetry config found for test "${testId}" - onBegin must be called first and test must exist in suite`,
-			);
-		}
-		return config;
 	}
 
 	private async sendScreenshotsToTraceApi(params: {
@@ -491,6 +446,22 @@ function getProjectPlaywrightOpentelemetryConfig(
 ): PlaywrightOpentelemetryConfig | undefined {
 	return (project as { use?: PlaywrightOpentelemetryUseOptions } | undefined)
 		?.use?.playwrightOpentelemetry;
+}
+
+function getTestConfig(test: TestCase): ResolvedPlaywrightOpentelemetryConfig {
+	return resolvePlaywrightOpentelemetryConfig(
+		getProjectPlaywrightOpentelemetryConfig(test.parent.project()),
+		{ requireDestination: true },
+	);
+}
+
+function getTestOutputDir(test: TestCase): string {
+	const outputDir = (test.parent.project() as { outputDir?: string } | undefined)
+		?.outputDir;
+	if (!outputDir) {
+		throw new Error(`No outputDir found for test "${test.id}"`);
+	}
+	return outputDir;
 }
 
 function addDestinationSpans(
@@ -543,6 +514,110 @@ function readTraceContextAttachment(
 	}
 
 	return parsed;
+}
+
+function readFixtureSpansAttachment(
+	result: TestResult,
+	testId: string,
+): Span[] {
+	const attachment = result.attachments.find(
+		(attachment) => attachment.name === FIXTURE_SPANS_ATTACHMENT_NAME,
+	);
+
+	if (!attachment?.body) {
+		return [];
+	}
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(attachment.body.toString("utf-8"));
+	} catch (error) {
+		throw new Error(
+			`Invalid ${FIXTURE_SPANS_ATTACHMENT_NAME} attachment for test ${testId}: ${error}`,
+		);
+	}
+
+	if (!isRecord(parsed) || !Array.isArray(parsed.spans)) {
+		throw new Error(
+			`Invalid ${FIXTURE_SPANS_ATTACHMENT_NAME} attachment for test ${testId}: expected { spans }`,
+		);
+	}
+
+	return parsed.spans.map((span, index) =>
+		parseFixtureSpan(span, testId, index),
+	);
+}
+
+function parseFixtureSpan(value: unknown, testId: string, index: number): Span {
+	if (!isRecord(value)) {
+		throw invalidFixtureSpanError(testId, index);
+	}
+
+	const startTime = parseAttachmentDate(value.startTime);
+	const endTime = parseAttachmentDate(value.endTime);
+	if (
+		typeof value.traceId !== "string" ||
+		typeof value.spanId !== "string" ||
+		typeof value.name !== "string" ||
+		!startTime ||
+		!endTime ||
+		!isSpanAttributes(value.attributes) ||
+		!isSpanStatus(value.status)
+	) {
+		throw invalidFixtureSpanError(testId, index);
+	}
+
+	return {
+		traceId: value.traceId,
+		spanId: value.spanId,
+		parentSpanId:
+			typeof value.parentSpanId === "string" ? value.parentSpanId : undefined,
+		name: value.name,
+		startTime,
+		endTime,
+		attributes: value.attributes,
+		status: value.status,
+		kind: typeof value.kind === "number" ? value.kind : undefined,
+		serviceName:
+			typeof value.serviceName === "string" ? value.serviceName : undefined,
+	};
+}
+
+function invalidFixtureSpanError(testId: string, index: number): Error {
+	return new Error(
+		`Invalid ${FIXTURE_SPANS_ATTACHMENT_NAME} attachment for test ${testId}: invalid span at index ${index}`,
+	);
+}
+
+function parseAttachmentDate(value: unknown): Date | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function isSpanStatus(value: unknown): value is Span["status"] {
+	return isRecord(value) && typeof value.code === "number";
+}
+
+function isSpanAttributes(value: unknown): value is Span["attributes"] {
+	if (!isRecord(value)) {
+		return false;
+	}
+
+	return Object.values(value).every(
+		(attributeValue) =>
+			typeof attributeValue === "string" ||
+			typeof attributeValue === "number" ||
+			typeof attributeValue === "boolean" ||
+			(Array.isArray(attributeValue) &&
+				attributeValue.every((item) => typeof item === "string")),
+	);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isTraceContextAttachment(

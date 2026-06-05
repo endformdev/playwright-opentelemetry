@@ -211,6 +211,11 @@ export class TraceViewerPage {
 		await this.page.getByRole("button", { name: "Load" }).click();
 	}
 
+	async loadTraceFromZip(zipPath: string): Promise<void> {
+		await this.goto();
+		await this.page.locator('input[type="file"]').setInputFiles(zipPath);
+	}
+
 	async loadTraceFromUrlParam(traceIdHex: string): Promise<void> {
 		const apiUrl = `${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceIdHex}`;
 		await this.page.goto(`/?traceSource=${encodeURIComponent(apiUrl)}`);

@@ -7,6 +7,7 @@ import {
 import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
 import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
 import {
+	FIXTURE_SPANS_ATTACHMENT_NAME,
 	flushFixtureSpans,
 	type TestTraceContext,
 } from "../src/fixture/trace-context";
@@ -162,6 +163,43 @@ describe("fixture browser span hierarchy", () => {
 				name: "browser.page",
 			}),
 		);
+	});
+
+	it("attaches fixture spans when trace ZIP storage is enabled", async () => {
+		const traceContext = createTraceContext();
+		const spanStartTime = new Date("2025-11-06T10:00:00.000Z");
+		traceContext.addSpan({
+			traceId: traceContext.traceId,
+			spanId: generateSpanId(),
+			parentSpanId: traceContext.rootSpanId,
+			name: "browser.page",
+			startTime: spanStartTime,
+			endTime: new Date("2025-11-06T10:00:01.000Z"),
+			attributes: { "browser.resource.type": "page" },
+			status: { code: 0 },
+			serviceName: "playwright-browser",
+		});
+		const attach = vi.fn();
+
+		await flushFixtureSpans(
+			traceContext,
+			resolvePlaywrightOpentelemetryConfig({ storeTraceZip: true }),
+			{ attach },
+		);
+
+		expect(attach).toHaveBeenCalledWith(FIXTURE_SPANS_ATTACHMENT_NAME, {
+			body: expect.any(String),
+			contentType: "application/json",
+		});
+		const body = JSON.parse(attach.mock.calls[0][1].body);
+		expect(body.spans).toEqual([
+			expect.objectContaining({
+				traceId: traceContext.traceId,
+				name: "browser.page",
+				startTime: spanStartTime.toISOString(),
+				serviceName: "playwright-browser",
+			}),
+		]);
 	});
 
 	it("does not create a same-document route for hash-only scroll updates", () => {

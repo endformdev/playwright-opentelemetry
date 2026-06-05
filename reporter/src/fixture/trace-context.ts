@@ -9,10 +9,21 @@ import type { ResolvedPlaywrightOpentelemetryConfig } from "../shared/config";
 
 export const TRACE_CONTEXT_ATTACHMENT_NAME =
 	"playwright-opentelemetry-trace-context";
+export const FIXTURE_SPANS_ATTACHMENT_NAME =
+	"playwright-opentelemetry-fixture-spans";
 
 export interface PlaywrightOtelTraceContextAttachment {
 	traceId: string;
 	rootSpanId: string;
+}
+
+export interface PlaywrightOtelFixtureSpansAttachment {
+	spans: Array<
+		Omit<Span, "startTime" | "endTime"> & {
+			startTime: string;
+			endTime: string;
+		}
+	>;
 }
 
 export interface NetworkRequestTraceContext {
@@ -55,9 +66,23 @@ export async function createTestTraceContext(
 export async function flushFixtureSpans(
 	traceContext: TestTraceContext,
 	config: ResolvedPlaywrightOpentelemetryConfig,
+	testInfo?: Pick<TestInfo, "attach">,
 ): Promise<void> {
+	if (traceContext.spans.length === 0) {
+		return;
+	}
+
+	if (config.storeTraceZip && testInfo) {
+		await testInfo.attach(FIXTURE_SPANS_ATTACHMENT_NAME, {
+			body: JSON.stringify({
+				spans: traceContext.spans.map(serializeSpanForAttachment),
+			}),
+			contentType: "application/json",
+		});
+	}
+
 	const destinations = fixtureSpanDestinations(config);
-	if (traceContext.spans.length === 0 || destinations.length === 0) {
+	if (destinations.length === 0) {
 		return;
 	}
 
@@ -72,6 +97,16 @@ export async function flushFixtureSpans(
 			}),
 		),
 	);
+}
+
+function serializeSpanForAttachment(
+	span: Span,
+): PlaywrightOtelFixtureSpansAttachment["spans"][number] {
+	return {
+		...span,
+		startTime: span.startTime.toISOString(),
+		endTime: span.endTime.toISOString(),
+	};
 }
 
 function fixtureSpanDestinations(

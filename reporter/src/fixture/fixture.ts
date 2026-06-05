@@ -60,14 +60,14 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ auto: true },
 		],
-		testTraceContext: [
+			testTraceContext: [
 			async ({ playwrightOpentelemetry }, use, testInfo) => {
 				const config = resolvePlaywrightOpentelemetryConfig(
 					playwrightOpentelemetry,
 				);
 				const traceContext = await createTestTraceContext(testInfo);
 				await use(traceContext);
-				await flushFixtureSpans(traceContext, config);
+				await flushFixtureSpans(traceContext, config, testInfo);
 			},
 			{ auto: true },
 		],

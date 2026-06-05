@@ -2,20 +2,12 @@ import fs from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 import type { PlaywrightOpentelemetryUseOptions } from "./src/fixture";
 
-const browserPageSpansTraceIdFile =
-	process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
-
 loadEnv();
 
-// Allow either OTEL_EXPORTER_OTLP_ENDPOINT or PLAYWRIGHT_TRACE_API_ENDPOINT to be set
-if (
-	!process.env.OTEL_EXPORTER_OTLP_ENDPOINT &&
-	!process.env.PLAYWRIGHT_TRACE_API_ENDPOINT
-) {
-	throw new Error(
-		"Either OTEL_EXPORTER_OTLP_ENDPOINT or PLAYWRIGHT_TRACE_API_ENDPOINT must be set",
-	);
-}
+const browserPageSpansTraceIdFile =
+	process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
+const browserPageSpansTraceZipPathFile =
+	process.env.BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE;
 
 // Only require OTLP headers if using OTLP endpoint
 if (
@@ -43,7 +35,7 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 	/* Reporter to use. See https://playwright.dev/docs/test-reporters */
 	reporter: [
 		["./dist/reporter.mjs"],
-		...(browserPageSpansTraceIdFile
+		...(browserPageSpansTraceIdFile || browserPageSpansTraceZipPathFile
 			? ([["./test-e2e/browser-page-spans-trace-id-file-reporter.ts"]] as const)
 			: []),
 	],
@@ -52,7 +44,6 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 		playwrightOpentelemetry: {
 			debug: false,
 			storeTraceZip: true,
-			// Allow configuring trace API endpoint via environment variable
 			...(process.env.PLAYWRIGHT_TRACE_API_ENDPOINT && {
 				playwrightTraceApiEndpoint: process.env.PLAYWRIGHT_TRACE_API_ENDPOINT,
 			}),

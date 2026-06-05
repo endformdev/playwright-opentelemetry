@@ -214,14 +214,8 @@ const SPAN_STATUS_CODE_UNSET = 0;
 const SPAN_STATUS_CODE_ERROR = 2;
 
 /**
- * Captures request/response data and writes the complete network span.
- * Called from page.on("response") after the request has completed.
- *
- * This function:
- * 1. Extracts the traceparent header to find the parent file
- * 2. Reads the parent span ID from the parent file
- * 3. Builds the complete span with all HTTP attributes
- * 4. Writes the network span for the reporter to collect
+ * Captures request/response data and stores the complete network span in the
+ * current test trace context. Called after the request has completed.
  *
  * @param options - The capture options
  */

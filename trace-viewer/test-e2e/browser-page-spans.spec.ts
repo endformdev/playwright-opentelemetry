@@ -4,7 +4,10 @@ import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
-import { BROWSER_PAGE_SPANS_TRACE_ID_FILE } from "./setup/global-setup";
+import {
+	BROWSER_PAGE_SPANS_TRACE_ID_FILE,
+	BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
+} from "./setup/global-setup";
 
 const TEST_NAME = "playwright.dev browser page navigation trace";
 const TRACE_MARKER = "browser-page-span-e2e";
@@ -212,6 +215,23 @@ test("renders browser page, route, and network spans from independent trace frag
 	await expect(
 		viewer.browserSpans.spanById(pythonDocsPage.spanId),
 	).toBeVisible();
+	await expect(viewer.browserSpans.spanByName("/docs/intro")).toBeVisible();
+	await expect(
+		viewer.browserSpans.spanByName("/python/docs/intro"),
+	).toBeVisible();
+});
+
+test("renders browser spans from reporter trace zip", async ({ page }) => {
+	const traceZipPath = readFileSync(
+		BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
+		"utf-8",
+	).trim();
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromZip(traceZipPath);
+
+	await expect(viewer.header.testName).toHaveText(TEST_NAME);
+	await expect(viewer.browserSpans.root).toBeVisible();
 	await expect(viewer.browserSpans.spanByName("/docs/intro")).toBeVisible();
 	await expect(
 		viewer.browserSpans.spanByName("/python/docs/intro"),
