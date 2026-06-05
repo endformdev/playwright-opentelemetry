@@ -69,20 +69,32 @@ function requiredSpan(
 	return span;
 }
 
-function pageSpan(
-	spans: OtlpSpan[],
-	path: string,
-	navigationType: "document" | "same-document",
-): OtlpSpan {
+function pageSpan(spans: OtlpSpan[], path: string): OtlpSpan {
 	return requiredSpan(
 		spans,
-		`${navigationType} browser.page span for ${path}`,
+		`document browser.page span for ${path}`,
 		(span) => {
 			const attrs = attributes(span);
 			return (
 				span.name === "browser.page" &&
 				attrs["browser.resource.type"] === "page" &&
-				attrs["browser.page.navigation.type"] === navigationType &&
+				attrs["browser.page.navigation.type"] === "document" &&
+				attrs["url.path"] === path
+			);
+		},
+	);
+}
+
+function routeSpan(spans: OtlpSpan[], path: string): OtlpSpan {
+	return requiredSpan(
+		spans,
+		`same-document browser.route span for ${path}`,
+		(span) => {
+			const attrs = attributes(span);
+			return (
+				span.name === "browser.route" &&
+				attrs["browser.resource.type"] === "route" &&
+				attrs["browser.page.navigation.type"] === "same-document" &&
 				attrs["url.path"] === path
 			);
 		},
@@ -132,7 +144,7 @@ async function loadTraceSpans(
 	return flattenSpans([(await response.json()) as OtlpExport]);
 }
 
-test("renders browser.page spans with nested network requests from reporter output", async ({
+test("renders browser page, route, and network spans from independent trace fragments", async ({
 	page,
 	request,
 }) => {
@@ -142,19 +154,21 @@ test("renders browser.page spans with nested network requests from reporter outp
 	).trim();
 	const spans = await loadTraceSpans(request, traceId);
 
-	const homePage = pageSpan(spans, "/", "document");
-	const docsPage = pageSpan(spans, "/docs/intro", "same-document");
-	const pythonDocsPage = pageSpan(spans, "/python/docs/intro", "document");
+	const homePage = pageSpan(spans, "/");
+	const docsRoute = routeSpan(spans, "/docs/intro");
+	const pythonDocsPage = pageSpan(spans, "/python/docs/intro");
 
-	expect(attributes(docsPage)).toEqual(
+	expect(attributes(docsRoute)).toEqual(
 		expect.objectContaining({
-			"browser.page.previous_url": "https://playwright.dev/",
+			"browser.document.url": "https://playwright.dev/",
+			"browser.route.previous_url": "https://playwright.dev/",
 		}),
 	);
+	expect(docsRoute.parentSpanId).toBe(homePage.spanId);
 	expect(
 		spans.filter(
 			(span) =>
-				span.name === "browser.page" &&
+				(span.name === "browser.page" || span.name === "browser.route") &&
 				String(attributes(span)["url.full"] ?? "").includes(
 					"browser-page-span-e2e-anchor",
 				),
@@ -170,16 +184,31 @@ test("renders browser.page spans with nested network requests from reporter outp
 	);
 
 	expect(homeDocument.parentSpanId).toBe(homePage.spanId);
-	expect(docsDocument.parentSpanId).toBe(docsPage.spanId);
+	expect(docsDocument.parentSpanId).toBe(docsRoute.spanId);
 	expect(pythonDocsDocument.parentSpanId).toBe(pythonDocsPage.spanId);
 	expect(afterHashDocument.parentSpanId).toBe(pythonDocsPage.spanId);
+	expect(attributes(homeDocument)).toEqual(
+		expect.objectContaining({
+			"browser.request.route_association": "active-page",
+		}),
+	);
+	expect(attributes(docsDocument)).toEqual(
+		expect.objectContaining({
+			"browser.request.route_association": "active-route",
+		}),
+	);
+	expect(attributes(afterHashDocument)).toEqual(
+		expect.objectContaining({
+			"browser.request.route_association": "active-page",
+		}),
+	);
 
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(TEST_NAME);
 	await expect(viewer.browserSpans.root).toBeVisible();
 	await expect(viewer.browserSpans.spanById(homePage.spanId)).toBeVisible();
-	await expect(viewer.browserSpans.spanById(docsPage.spanId)).toBeVisible();
+	await expect(viewer.browserSpans.spanById(docsRoute.spanId)).toBeVisible();
 	await expect(
 		viewer.browserSpans.spanById(pythonDocsPage.spanId),
 	).toBeVisible();

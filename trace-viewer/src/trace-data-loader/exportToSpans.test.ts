@@ -114,6 +114,20 @@ describe("otlpSpanToSpan", () => {
 		expect(result.title).toBe("HTTP GET /api/users");
 	});
 
+	it("extracts route title from url.path for browser route spans", () => {
+		const span = createOtlpSpan({
+			name: "browser.route",
+			attributes: [
+				{ key: "browser.resource.type", value: { stringValue: "route" } },
+				{ key: "url.path", value: { stringValue: "/docs/intro" } },
+			],
+		});
+
+		const result = otlpSpanToSpan(span, 0, "playwright-browser");
+
+		expect(result.title).toBe("/docs/intro");
+	});
+
 	it("flattens attributes to simple values", () => {
 		const span = createOtlpSpan({
 			attributes: [
