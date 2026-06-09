@@ -382,10 +382,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const existingSpan = processedSteps.get(stepId);
 		if (existingSpan) {
 			if (step.error) {
-				existingSpan.status = {
-					code: 2,
-					message: step.error.message,
-				};
+				existingSpan.status = errorStatus(step.error.message);
 			}
 
 			// Merge: if this step has location info and the existing one doesn't, add it
@@ -446,9 +443,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			startTime: step.startTime,
 			endTime: new Date(step.startTime.getTime() + step.duration),
 			attributes,
-			status: step.error
-				? { code: 2, message: step.error.message }
-				: { code: 1 }, // 1=OK, 2=ERROR
+			status: step.error ? errorStatus(step.error.message) : { code: 1 }, // 1=OK, 2=ERROR
 		};
 
 		processedSteps.set(stepId, stepSpan);
@@ -664,6 +659,27 @@ function parseAttachmentDate(value: unknown): Date | undefined {
 
 function isSpanStatus(value: unknown): value is Span["status"] {
 	return isRecord(value) && typeof value.code === "number";
+}
+
+const ANSI_ESCAPE_PATTERN =
+	/[\u001b\u009b][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
+const ORPHANED_ANSI_SGR_PATTERN = /\[(?:\d{1,3};)*\d{1,3}m/g;
+
+function errorStatus(message: string | undefined): Span["status"] {
+	if (!message) {
+		return { code: 2 };
+	}
+
+	const cleanedMessage = cleanErrorMessage(message);
+	return cleanedMessage ? { code: 2, message: cleanedMessage } : { code: 2 };
+}
+
+function cleanErrorMessage(message: string): string {
+	return message
+		.replace(ANSI_ESCAPE_PATTERN, "")
+		.replace(ORPHANED_ANSI_SGR_PATTERN, "")
+		.replace(/\r\n?/g, "\n")
+		.trim();
 }
 
 function isSpanAttributes(value: unknown): value is Span["attributes"] {

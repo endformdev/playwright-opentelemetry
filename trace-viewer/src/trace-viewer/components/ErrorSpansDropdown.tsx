@@ -88,7 +88,10 @@ export function ErrorSpansDropdown(props: ErrorSpansDropdownProps) {
 								</div>
 								<Show when={span.status?.message}>
 									{(message) => (
-										<div class="mt-1 max-h-10 overflow-hidden text-xs text-red-700">
+										<div
+											class="mt-1 max-h-16 overflow-hidden whitespace-pre-wrap text-xs text-red-700"
+											data-testid="error-spans-item-message"
+										>
 											{message()}
 										</div>
 									)}

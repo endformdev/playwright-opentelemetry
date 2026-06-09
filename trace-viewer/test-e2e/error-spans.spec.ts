@@ -25,11 +25,21 @@ test("shows reporter error spans in the header dropdown", async ({ page }) => {
 	await viewer.errors.button.click();
 	await expect(viewer.errors.dropdown).toBeVisible();
 	await expect(viewer.errors.dropdown).toContainText("Failing checkout step");
+	await expect(viewer.errors.dropdown).toContainText(
+		"expect(received).toBe(expected)",
+	);
+	await expect(viewer.errors.dropdown).not.toContainText(/\[\d+m/);
 
 	await viewer.errors.items
 		.filter({ hasText: "Failing checkout step" })
 		.first()
 		.click();
-	await expect(viewer.details.spanDetailsById(spanId!)).toBeVisible();
-	await expect(viewer.details.spanDetailsById(spanId!)).toContainText("Error");
+	const spanDetails = viewer.details.spanDetailsById(spanId!);
+	const errorMessage = spanDetails.getByTestId("span-error-message");
+	await expect(spanDetails).toBeVisible();
+	await expect(spanDetails).toContainText("Error");
+	await expect(errorMessage).toContainText("expect(received).toBe(expected)");
+	await expect(errorMessage).toContainText('Expected: "confirmed"');
+	await expect(errorMessage).toContainText('Received: "submitted"');
+	await expect(errorMessage).not.toContainText(/\[\d+m/);
 });

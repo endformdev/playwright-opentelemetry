@@ -86,7 +86,12 @@ export function SpanDetails(props: SpanDetailsProps) {
 						<div class="font-semibold">Error</div>
 						<Show when={span.status?.message}>
 							{(message) => (
-								<div class="mt-0.5 break-words font-mono">{message()}</div>
+								<div
+									class="mt-0.5 whitespace-pre-wrap break-words font-mono"
+									data-testid="span-error-message"
+								>
+									{message()}
+								</div>
 							)}
 						</Show>
 					</div>
