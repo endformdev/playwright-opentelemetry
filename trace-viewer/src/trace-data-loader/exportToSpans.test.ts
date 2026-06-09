@@ -162,6 +162,19 @@ describe("otlpSpanToSpan", () => {
 
 		expect(result.serviceName).toBe("playwright-browser");
 	});
+
+	it("preserves span status", () => {
+		const span = createOtlpSpan({
+			status: { code: 2, message: "Expected button to be visible" },
+		});
+
+		const result = otlpSpanToSpan(span, 0, "test-service");
+
+		expect(result.status).toEqual({
+			code: 2,
+			message: "Expected button to be visible",
+		});
+	});
 });
 
 describe("otlpExportToSpans", () => {

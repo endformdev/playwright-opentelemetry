@@ -18,11 +18,21 @@ export interface Span {
 	durationMs: number;
 	kind: SpanKind;
 	attributes: Record<string, AttributeValue>;
+	status?: SpanStatus;
 	/** Service name from resource attributes (e.g., "playwright-browser") */
 	serviceName: string;
 }
 
 export type AttributeValue = string | number | boolean | string[];
+
+export interface SpanStatus {
+	code: number;
+	message?: string;
+}
+
+export function isErrorSpan(span: Span): boolean {
+	return span.status?.code === 2;
+}
 
 export type SpanKind =
 	| "internal"
@@ -88,6 +98,7 @@ export function otlpSpanToSpan(
 		durationMs: endTimeMs - startTimeMs,
 		kind: spanKindFromOtlp(span.kind),
 		attributes,
+		status: span.status,
 		serviceName,
 	};
 }

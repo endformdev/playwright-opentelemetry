@@ -71,6 +71,7 @@ export interface SpanBarProps {
 	duration: number;
 	row: number;
 	color: string;
+	isError?: boolean;
 	/** Optional icon to display before the span name */
 	icon?: JSX.Element;
 	onHover?: (spanId: string | null) => void;
@@ -113,6 +114,7 @@ export function SpanBar(props: SpanBarProps) {
 			data-span-duration-ms={props.duration}
 			data-span-end-ms={props.startOffset + props.duration}
 			data-span-row={props.row}
+			data-span-error={props.isError ? "true" : undefined}
 			class="absolute h-6 rounded-xs text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
 			classList={{
 				"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),

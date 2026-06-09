@@ -1,10 +1,7 @@
 import { parseOtlpExport } from "../../trace-data-loader";
 import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
 import type { ScreenshotInfo, TraceInfoData } from "../TraceInfoLoader";
-import {
-	ensureServiceWorker,
-	loadScreenshotsForTrace,
-} from "./zipLoader";
+import { ensureServiceWorker, loadScreenshotsForTrace } from "./zipLoader";
 
 const TRACES_PATH = "traces";
 const SCREENSHOTS_ZIP_PATH = "screenshots.zip";

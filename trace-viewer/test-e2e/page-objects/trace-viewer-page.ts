@@ -174,6 +174,20 @@ export class SearchComponent {
 	}
 }
 
+export class ErrorSpansComponent {
+	readonly button: Locator;
+	readonly count: Locator;
+	readonly dropdown: Locator;
+	readonly items: Locator;
+
+	constructor(page: Page) {
+		this.button = page.getByTestId("error-spans-button");
+		this.count = page.getByTestId("error-spans-count");
+		this.dropdown = page.getByTestId("error-spans-dropdown");
+		this.items = page.getByTestId("error-spans-item");
+	}
+}
+
 export class TraceViewerPage {
 	readonly page: Page;
 	readonly root: Locator;
@@ -185,6 +199,7 @@ export class TraceViewerPage {
 	readonly externalSpans: SpanSection;
 	readonly details: DetailsPanel;
 	readonly search: SearchComponent;
+	readonly errors: ErrorSpansComponent;
 
 	constructor(page: Page) {
 		this.page = page;
@@ -197,6 +212,7 @@ export class TraceViewerPage {
 		this.externalSpans = new SpanSection(page, "External Spans");
 		this.details = new DetailsPanel(page);
 		this.search = new SearchComponent(page);
+		this.errors = new ErrorSpansComponent(page);
 	}
 
 	async goto(): Promise<void> {

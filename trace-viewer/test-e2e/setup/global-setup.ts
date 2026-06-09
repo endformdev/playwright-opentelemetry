@@ -8,6 +8,9 @@ export const BROWSER_PAGE_SPANS_TRACE_ID_FILE = path.resolve(
 export const BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE = path.resolve(
 	"test-results/browser-page-spans-trace-zip-path.txt",
 );
+export const ERROR_SPANS_TRACE_ID_FILE = path.resolve(
+	"test-results/error-spans-trace-id.txt",
+);
 
 export default async function globalSetup() {
 	try {
@@ -19,9 +22,10 @@ export default async function globalSetup() {
 		});
 		rmSync(BROWSER_PAGE_SPANS_TRACE_ID_FILE, { force: true });
 		rmSync(BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE, { force: true });
+		rmSync(ERROR_SPANS_TRACE_ID_FILE, { force: true });
 
 		execFileSync("pnpm", ["--filter", "../reporter", "test:e2e"], {
-				env: {
+			env: {
 				...env,
 				// Configure the reporter to send traces to our test trace-api-server
 				PLAYWRIGHT_TRACE_API_ENDPOINT: "http://localhost:9295",
@@ -30,6 +34,7 @@ export default async function globalSetup() {
 				OTEL_EXPORTER_OTLP_HEADERS: "",
 				BROWSER_PAGE_SPANS_TRACE_ID_FILE,
 				BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
+				ERROR_SPANS_TRACE_ID_FILE,
 			},
 			stdio: "pipe",
 		});
@@ -43,6 +48,12 @@ export default async function globalSetup() {
 		if (!existsSync(BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE)) {
 			throw new Error(
 				`Reporter e2e run did not write ${BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE}`,
+			);
+		}
+
+		if (!existsSync(ERROR_SPANS_TRACE_ID_FILE)) {
+			throw new Error(
+				`Reporter e2e run did not write ${ERROR_SPANS_TRACE_ID_FILE}`,
 			);
 		}
 

@@ -1,10 +1,13 @@
 import { type Accessor, Show } from "solid-js";
+import type { Span } from "../trace-data-loader/exportToSpans";
 import type { TestInfo } from "../trace-info-loader";
+import { ErrorSpansDropdown } from "./components/ErrorSpansDropdown";
 import { SearchCombobox } from "./components/SearchCombobox";
 import { useSearch } from "./contexts/SearchContext";
 
 export interface TraceViewerHeaderProps {
 	testInfo: TestInfo;
+	errorSpans: Span[];
 	hoverTimeMs: Accessor<number | null>;
 	onSpanSelect?: (spanId: string) => void;
 	onSpanHover?: (spanId: string | null) => void;
@@ -83,6 +86,10 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 		props.onSpanSelect?.(spanId);
 	};
 
+	const handleErrorSpanSelect = (spanId: string) => {
+		props.onSpanSelect?.(spanId);
+	};
+
 	return (
 		<header
 			class="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-3"
@@ -122,6 +129,12 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 						</span>
 					</div>
 				</div>
+
+				<ErrorSpansDropdown
+					spans={props.errorSpans}
+					onSpanSelect={handleErrorSpanSelect}
+					onSpanHover={props.onSpanHover}
+				/>
 
 				{/* Search */}
 				<div class="w-80">

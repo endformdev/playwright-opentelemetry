@@ -381,6 +381,13 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Check if we've already processed this step (Playwright can report duplicates)
 		const existingSpan = processedSteps.get(stepId);
 		if (existingSpan) {
+			if (step.error) {
+				existingSpan.status = {
+					code: 2,
+					message: step.error.message,
+				};
+			}
+
 			// Merge: if this step has location info and the existing one doesn't, add it
 			if (step.location && !existingSpan.attributes[ATTR_CODE_FILE_PATH]) {
 				const { file, line } = step.location;
@@ -439,7 +446,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			startTime: step.startTime,
 			endTime: new Date(step.startTime.getTime() + step.duration),
 			attributes,
-			status: { code: step.error ? 2 : 1 }, // 1=OK, 2=ERROR
+			status: step.error
+				? { code: 2, message: step.error.message }
+				: { code: 1 }, // 1=OK, 2=ERROR
 		};
 
 		processedSteps.set(stepId, stepSpan);

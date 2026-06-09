@@ -5,35 +5,50 @@ import type { Reporter, TestCase, TestResult } from "@playwright/test/reporter";
 const TRACE_ID_ATTACHMENT_NAME = "playwright-opentelemetry-trace-id";
 const BROWSER_PAGE_SPANS_TEST_NAME =
 	"playwright.dev browser page navigation trace";
+const ERROR_SPANS_TEST_NAME = "expected failing step trace";
 
 export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
-	onTestEnd(test: TestCase, result: TestResult): void {
+		onTestEnd(test: TestCase, result: TestResult): void {
 		const browserPageSpansTraceIdFile =
 			process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
 		const browserPageSpansTraceZipPathFile =
 			process.env.BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE;
+		const errorSpansTraceIdFile = process.env.ERROR_SPANS_TRACE_ID_FILE;
 		if (
-			(!browserPageSpansTraceIdFile && !browserPageSpansTraceZipPathFile) ||
-			test.title !== BROWSER_PAGE_SPANS_TEST_NAME
+			!browserPageSpansTraceIdFile &&
+			!browserPageSpansTraceZipPathFile &&
+			!errorSpansTraceIdFile
+		) {
+			return;
+		}
+		if (
+			test.title !== BROWSER_PAGE_SPANS_TEST_NAME &&
+			test.title !== ERROR_SPANS_TEST_NAME
 		) {
 			return;
 		}
 
-		if (browserPageSpansTraceIdFile) {
-			const browserPageSpansTraceId = result.attachments
-				.find((attachment) => attachment.name === TRACE_ID_ATTACHMENT_NAME)
-				?.body?.toString("utf-8")
-				.trim();
+		const traceId = result.attachments
+			.find((attachment) => attachment.name === TRACE_ID_ATTACHMENT_NAME)
+			?.body?.toString("utf-8")
+			.trim();
 
-			if (!browserPageSpansTraceId) {
-				throw new Error(`Missing ${TRACE_ID_ATTACHMENT_NAME} attachment`);
-			}
-
-			writeFile(browserPageSpansTraceIdFile, browserPageSpansTraceId);
+		if (!traceId) {
+			throw new Error(`Missing ${TRACE_ID_ATTACHMENT_NAME} attachment`);
 		}
 
-		if (browserPageSpansTraceZipPathFile) {
-			writeFile(browserPageSpansTraceZipPathFile, getTraceZipPath(test));
+		if (test.title === BROWSER_PAGE_SPANS_TEST_NAME) {
+			if (browserPageSpansTraceIdFile) {
+				writeFile(browserPageSpansTraceIdFile, traceId);
+			}
+
+			if (browserPageSpansTraceZipPathFile) {
+				writeFile(browserPageSpansTraceZipPathFile, getTraceZipPath(test));
+			}
+		}
+
+		if (test.title === ERROR_SPANS_TEST_NAME && errorSpansTraceIdFile) {
+			writeFile(errorSpansTraceIdFile, traceId);
 		}
 	}
 }

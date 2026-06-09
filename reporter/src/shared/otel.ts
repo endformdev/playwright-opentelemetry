@@ -10,7 +10,7 @@ export type Span = {
 	startTime: Date;
 	endTime: Date;
 	attributes: Record<string, SpanAttributeValue>;
-	status: { code: number };
+	status: { code: number; message?: string };
 	kind?: number;
 	/** Service name for this span (if different from default). */
 	serviceName?: string;

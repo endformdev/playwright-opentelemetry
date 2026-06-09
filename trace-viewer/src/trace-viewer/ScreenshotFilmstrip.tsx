@@ -130,66 +130,64 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 						</For>
 					</Show>
 				</Show>
-				<Show
-					when={!props.screenshots.loading || screenshots().length > 0}
-				>
-				<Show
-					when={slotCount() > 0}
-					fallback={
+				<Show when={!props.screenshots.loading || screenshots().length > 0}>
+					<Show
+						when={slotCount() > 0}
+						fallback={
+							<Show
+								when={screenshots().length > 0}
+								fallback={
+									<div class="flex items-center justify-center w-full text-gray-400 text-sm">
+										{props.screenshots.error
+											? "Failed to load screenshots"
+											: "No screenshots available"}
+									</div>
+								}
+							>
+								<div class="flex items-center justify-center w-full text-gray-400 text-sm">
+									Resize panel to view screenshots
+								</div>
+							</Show>
+						}
+					>
 						<Show
-							when={screenshots().length > 0}
+							when={hasAnyScreenshots()}
 							fallback={
 								<div class="flex items-center justify-center w-full text-gray-400 text-sm">
-									{props.screenshots.error
-										? "Failed to load screenshots"
-										: "No screenshots available"}
+									No screenshots in this time range
 								</div>
 							}
 						>
-							<div class="flex items-center justify-center w-full text-gray-400 text-sm">
-								Resize panel to view screenshots
-							</div>
+							<For each={selectedScreenshots()}>
+								{(screenshot) => (
+									<Show
+										when={screenshot}
+										fallback={
+											// Empty slot - takes up space but shows nothing
+											<div class="flex-shrink-0 h-full aspect-video" />
+										}
+									>
+										{(s) => (
+											<div
+												class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm"
+												data-screenshot-timestamp={s().timestamp}
+												onMouseEnter={() => props.onScreenshotHover?.(s().url)}
+												onMouseLeave={() => props.onScreenshotHover?.(null)}
+											>
+												<img
+													src={s().url}
+													alt={`Screenshot at ${s().timestamp}`}
+													class="w-full h-full object-contain select-none"
+													loading="lazy"
+													draggable={false}
+												/>
+											</div>
+										)}
+									</Show>
+								)}
+							</For>
 						</Show>
-					}
-				>
-					<Show
-						when={hasAnyScreenshots()}
-						fallback={
-							<div class="flex items-center justify-center w-full text-gray-400 text-sm">
-								No screenshots in this time range
-							</div>
-						}
-					>
-						<For each={selectedScreenshots()}>
-							{(screenshot) => (
-								<Show
-									when={screenshot}
-									fallback={
-										// Empty slot - takes up space but shows nothing
-										<div class="flex-shrink-0 h-full aspect-video" />
-									}
-								>
-									{(s) => (
-										<div
-											class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm"
-											data-screenshot-timestamp={s().timestamp}
-											onMouseEnter={() => props.onScreenshotHover?.(s().url)}
-											onMouseLeave={() => props.onScreenshotHover?.(null)}
-										>
-											<img
-												src={s().url}
-												alt={`Screenshot at ${s().timestamp}`}
-												class="w-full h-full object-contain select-none"
-												loading="lazy"
-												draggable={false}
-											/>
-										</div>
-									)}
-								</Show>
-							)}
-						</For>
 					</Show>
-				</Show>
 				</Show>
 			</div>
 		</div>

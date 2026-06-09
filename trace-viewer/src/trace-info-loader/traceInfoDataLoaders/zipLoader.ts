@@ -62,7 +62,9 @@ export async function loadScreenshotsForTrace(
 	const baseUrl = getTraceViewerApiUrl(traceId);
 	return screenshotMetas.map((screenshot) => ({
 		timestamp: screenshot.timestamp,
-		url: screenshotUrl(baseUrl, screenshot.file, { screenshotsZip: screenshotsZipUrl }),
+		url: screenshotUrl(baseUrl, screenshot.file, {
+			screenshotsZip: screenshotsZipUrl,
+		}),
 	}));
 }
 
@@ -70,7 +72,10 @@ export async function loadScreenshotsZipForTrace(
 	traceId: string,
 	zip: Blob,
 ): Promise<ScreenshotInfo[]> {
-	const screenshotMetas = await loadScreenshotsZipInServiceWorker({ traceId, zip });
+	const screenshotMetas = await loadScreenshotsZipInServiceWorker({
+		traceId,
+		zip,
+	});
 	const baseUrl = getTraceViewerApiUrl(traceId);
 	return screenshotMetas.map((screenshot) => ({
 		timestamp: screenshot.timestamp,

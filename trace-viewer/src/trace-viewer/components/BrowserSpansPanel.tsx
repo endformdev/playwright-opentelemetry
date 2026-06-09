@@ -1,5 +1,5 @@
 import { createMemo, For, Show } from "solid-js";
-import type { Span } from "../../trace-data-loader/exportToSpans";
+import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
 import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
@@ -11,6 +11,8 @@ import {
 	type ResourceType,
 } from "./browserSpanStyles";
 import { ROW_HEIGHT, SpanBar } from "./SpanBar";
+
+const ERROR_SPAN_COLOR = "#dc2626";
 
 export interface BrowserSpansPanelProps {
 	spans: Span[];
@@ -44,6 +46,10 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 		}
 		return map;
 	});
+
+	const errorSpanIds = createMemo(
+		() => new Set(props.spans.filter(isErrorSpan).map((span) => span.id)),
+	);
 
 	const visibleSpans = createMemo(() => {
 		return packedSpansResult().spans.filter((span) =>
@@ -81,6 +87,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 							{(packedSpan: PackedSpan) => {
 								const resourceType =
 									resourceTypeMap().get(packedSpan.id) ?? "other";
+								const isError = errorSpanIds().has(packedSpan.id);
 								return (
 									<SpanBar
 										id={packedSpan.id}
@@ -88,7 +95,12 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 										startOffset={packedSpan.startOffset}
 										duration={packedSpan.duration}
 										row={packedSpan.row}
-										color={getResourceColor(resourceType)}
+										color={
+											isError
+												? ERROR_SPAN_COLOR
+												: getResourceColor(resourceType)
+										}
+										isError={isError}
 										icon={getResourceIcon(resourceType)}
 										onHover={props.onSpanHover}
 										matchedSpanIds={props.matchedSpanIds}
