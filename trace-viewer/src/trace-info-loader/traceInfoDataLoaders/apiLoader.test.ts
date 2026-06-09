@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadRemoteApi } from "./apiLoader";
-import { loadScreenshotsZipForTrace } from "./zipLoader";
+import { loadScreenshotsForTrace } from "./zipLoader";
 
 vi.mock("./zipLoader", () => ({
 	ensureServiceWorker: vi.fn(async () => ({})),
 	unloadCurrentTrace: vi.fn(async () => undefined),
-	loadScreenshotsZipForTrace: vi.fn(),
+	loadScreenshotsForTrace: vi.fn(),
 }));
 
 describe("loading a trace from the remote trace API", () => {
@@ -16,7 +16,7 @@ describe("loading a trace from the remote trace API", () => {
 
 	it("loads trace data, derives test header metadata, and builds screenshot URLs", async () => {
 		const traceId = "7709187832dca84f02f413a312421586";
-		vi.mocked(loadScreenshotsZipForTrace).mockResolvedValueOnce([
+		vi.mocked(loadScreenshotsForTrace).mockResolvedValueOnce([
 			{
 				timestamp: 1766927492100,
 				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
@@ -29,9 +29,6 @@ describe("loading a trace from the remote trace API", () => {
 		const fetchMock = vi.fn(async (url: string) => {
 			if (url === `https://traces.example.com/${traceId}/traces`) {
 				return jsonResponse(otlpExport(traceId));
-			}
-			if (url === `https://traces.example.com/${traceId}/screenshots.zip`) {
-				return new Response(new Blob(["zip"]), { status: 200 });
 			}
 			return textResponse("not found", 404);
 		});
@@ -57,12 +54,8 @@ describe("loading a trace from the remote trace API", () => {
 			endTimeUnixNano: "1766927493000000000",
 		});
 		expect(traceInfo.traceData.resourceSpans).toHaveLength(2);
-		expect(traceInfo.screenshots()).toEqual([]);
-		await vi.waitFor(() => {
-			expect(fetchMock).toHaveBeenCalledWith(
-				`https://traces.example.com/${traceId}/screenshots.zip`,
-			);
-			expect(traceInfo.screenshots()).toEqual([
+
+		expect(await traceInfo.loadScreenshots()).toEqual([
 			{
 				timestamp: 1766927492100,
 				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
@@ -72,7 +65,10 @@ describe("loading a trace from the remote trace API", () => {
 				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
 			},
 		]);
-		});
+		expect(loadScreenshotsForTrace).toHaveBeenCalledWith(
+			traceId,
+			`https://traces.example.com/${traceId}/screenshots.zip`,
+		);
 	});
 
 	it("surfaces a missing trace before trying to load screenshots", async () => {

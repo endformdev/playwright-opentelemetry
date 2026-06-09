@@ -2,9 +2,9 @@ import {
 	createEffect,
 	createMemo,
 	createSignal,
-	type Accessor,
 	For,
 	onCleanup,
+	type Resource,
 	Show,
 } from "solid-js";
 
@@ -19,7 +19,7 @@ import {
 import type { TimelineViewport } from "./viewport";
 
 export interface ScreenshotFilmstripProps {
-	screenshots: Accessor<ScreenshotInfo[]>;
+	screenshots: Resource<ScreenshotInfo[]>;
 	/** Current viewport state for selecting screenshots */
 	viewport: TimelineViewport;
 	/** Test start time in milliseconds (Unix timestamp) for converting absolute to relative timestamps */
@@ -40,14 +40,19 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	let contentRef: HTMLDivElement | undefined;
 
 	const [slotCount, setSlotCount] = createSignal(0);
+	const screenshots = () => props.screenshots() ?? [];
 
 	// Convert screenshots to relative timestamps (offset from test start)
 	const screenshotsWithRelativeTime = createMemo((): RelativeScreenshot[] => {
-		return props.screenshots().map((screenshot) => ({
+		return screenshots().map((screenshot) => ({
 			timestamp: screenshot.timestamp - props.testStartTimeMs,
 			original: screenshot,
 		}));
 	});
+
+	const skeletonSlots = createMemo(() =>
+		Array.from({ length: Math.max(1, slotCount()) }),
+	);
 
 	// Set up ResizeObserver to track content area size
 	createEffect(() => {
@@ -107,14 +112,37 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 			aria-label="Screenshots"
 		>
 			<div class="flex gap-2 h-full">
+				<Show when={props.screenshots.loading && screenshots().length === 0}>
+					<Show
+						when={slotCount() > 0}
+						fallback={
+							<div class="flex items-center justify-center w-full text-gray-400 text-sm">
+								Loading screenshots...
+							</div>
+						}
+					>
+						<For each={skeletonSlots()}>
+							{() => (
+								<div class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm">
+									<div class="h-full w-full animate-pulse bg-gradient-to-br from-gray-100 via-gray-200 to-gray-100" />
+								</div>
+							)}
+						</For>
+					</Show>
+				</Show>
+				<Show
+					when={!props.screenshots.loading || screenshots().length > 0}
+				>
 				<Show
 					when={slotCount() > 0}
 					fallback={
 						<Show
-							when={props.screenshots().length > 0}
+							when={screenshots().length > 0}
 							fallback={
 								<div class="flex items-center justify-center w-full text-gray-400 text-sm">
-									No screenshots available
+									{props.screenshots.error
+										? "Failed to load screenshots"
+										: "No screenshots available"}
 								</div>
 							}
 						>
@@ -161,6 +189,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 							)}
 						</For>
 					</Show>
+				</Show>
 				</Show>
 			</div>
 		</div>

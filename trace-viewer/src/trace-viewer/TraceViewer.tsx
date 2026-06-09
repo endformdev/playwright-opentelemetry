@@ -121,7 +121,11 @@ export function TraceViewer(props: TraceViewerProps) {
 						...traceData.browserSpans(),
 						...traceData.externalSpans(),
 					]}
-					screenshots={props.traceInfo.screenshots}
+						screenshots={() =>
+							props.traceInfo.screenshots.loading
+								? []
+								: (props.traceInfo.screenshots() ?? [])
+						}
 					testStartTimeMs={testStartTimeMs}
 				>
 					<TraceViewerInner
@@ -190,7 +194,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	});
 
 	// Determine which sections are active/disabled
-	const hasScreenshots = () => props.traceInfo.screenshots().length > 0;
+	const hasLoadedScreenshots = () =>
+		(props.traceInfo.screenshots() ?? []).length > 0;
+	const hasScreenshots = () =>
+		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
 	const hasSteps = () => stepsDepth() > 0;
 	const hasBrowserSpans = () => browserDepth() > 0;
 	const hasExternalSpans = () => externalDepth() > 0;
@@ -198,7 +205,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	// Get list of disabled sections for the footer
 	const disabledSections = createMemo((): DisabledSection[] => {
 		const sections: DisabledSection[] = [];
-		if (!hasScreenshots()) {
+		if (!props.traceInfo.screenshots.loading && !hasLoadedScreenshots()) {
 			sections.push({
 				id: "screenshots",
 				title: SECTION_TITLES.screenshots,

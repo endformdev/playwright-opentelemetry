@@ -1,17 +1,15 @@
-import { createSignal } from "solid-js";
 import { parseOtlpExport } from "../../trace-data-loader";
 import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
-import type { ScreenshotInfo, TraceInfo } from "../TraceInfoLoader";
+import type { ScreenshotInfo, TraceInfoData } from "../TraceInfoLoader";
 import {
 	ensureServiceWorker,
-	loadScreenshotsZipForTrace,
-	unloadCurrentTrace,
+	loadScreenshotsForTrace,
 } from "./zipLoader";
 
 const TRACES_PATH = "traces";
 const SCREENSHOTS_ZIP_PATH = "screenshots.zip";
 
-export async function loadRemoteApi(baseUrl: string): Promise<TraceInfo> {
+export async function loadRemoteApi(baseUrl: string): Promise<TraceInfoData> {
 	// Normalize base URL (remove trailing slash)
 	const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
 
@@ -25,53 +23,33 @@ export async function loadRemoteApi(baseUrl: string): Promise<TraceInfo> {
 	}
 	const traceData = parseOtlpExport(await tracesResponse.json());
 	const testInfo = deriveTestInfoFromOtlpExport(traceData);
-	const [screenshots, setScreenshots] = createSignal<ScreenshotInfo[]>([]);
-
-	void loadScreenshotsFromApi(
-		normalizedBaseUrl,
-		testInfo.traceId,
-		setScreenshots,
-	);
+	const screenshotsZipUrl = `${normalizedBaseUrl}/${SCREENSHOTS_ZIP_PATH}`;
 
 	return {
 		testInfo,
 		traceData,
-		screenshots,
+		loadScreenshots: () =>
+			loadScreenshotsFromApi({
+				traceId: testInfo.traceId,
+				screenshotsZipUrl,
+			}),
 	};
 }
 
-async function loadScreenshotsFromApi(
-	normalizedBaseUrl: string,
-	traceId: string,
-	setScreenshots: (screenshots: ScreenshotInfo[]) => void,
-): Promise<void> {
+async function loadScreenshotsFromApi({
+	traceId,
+	screenshotsZipUrl,
+}: {
+	traceId: string;
+	screenshotsZipUrl: string;
+}): Promise<ScreenshotInfo[]> {
 	try {
 		await ensureServiceWorker();
-		await unloadCurrentTrace();
-
-		const screenshotsZipUrl = `${normalizedBaseUrl}/${SCREENSHOTS_ZIP_PATH}`;
-		const response = await fetch(screenshotsZipUrl);
-		if (response.status === 404) {
-			setScreenshots([]);
-			return;
-		}
-		if (!response.ok) {
-			console.warn(
-				`Failed to fetch screenshots ZIP from ${screenshotsZipUrl}: ${response.statusText}`,
-			);
-			setScreenshots([]);
-			return;
-		}
-
-		const loadedScreenshots = await loadScreenshotsZipForTrace(
-			traceId,
-			await response.blob(),
-		);
-		setScreenshots(loadedScreenshots);
+		return await loadScreenshotsForTrace(traceId, screenshotsZipUrl);
 	} catch (error) {
 		console.warn(
 			`Failed to load screenshots ZIP: ${error instanceof Error ? error.message : String(error)}`,
 		);
-		setScreenshots([]);
+		return [];
 	}
 }

@@ -39,12 +39,12 @@ interface LoadedTrace {
 	screenshotMetas: ScreenshotMeta[];
 }
 
-let currentTrace: LoadedTrace | null = null;
+type LoadedScreenshots = LoadedTrace;
 
-function getBasePath(): string {
-	const base = import.meta.env.VITE_TRACE_VIEWER_BASE ?? "/";
-	return base.endsWith("/") ? base : `${base}/`;
-}
+const loadedScreenshotsBySource = new Map<string, Promise<LoadedScreenshots>>();
+let currentTrace: LoadedScreenshots | null = null;
+
+const scopePath = new URL(sw.registration.scope).pathname;
 
 sw.addEventListener("install", () => {
 	sw.skipWaiting();
@@ -55,17 +55,31 @@ sw.addEventListener("activate", (event: ExtendableEvent) => {
 });
 
 sw.addEventListener("message", (event: ExtendableMessageEvent) => {
-	const { type, data } = event.data;
+	const { requestId, type, data } = event.data;
 	const client = event.source as Client | null;
 
 		switch (type) {
 		case "LOAD_TRACE": {
-			event.waitUntil(loadTrace(data.zip, client));
+			event.waitUntil(loadTrace(data.zip, data.sourceId, client, requestId));
+			break;
+		}
+
+		case "LOAD_TRACE_ZIP_URL": {
+			event.waitUntil(loadTraceZipUrl(data.zipUrl, client, requestId));
+			break;
+		}
+
+		case "LOAD_SCREENSHOTS": {
+			event.waitUntil(
+				loadScreenshotsUrl(data.traceId, data.screenshotsZipUrl, client, requestId),
+			);
 			break;
 		}
 
 		case "LOAD_SCREENSHOTS_ZIP": {
-			event.waitUntil(loadScreenshotsZip(data.traceId, data.zip, client));
+			event.waitUntil(
+				loadScreenshotsZip(data.traceId, data.zip, undefined, client, requestId),
+			);
 			break;
 		}
 
@@ -74,17 +88,29 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 			break;
 		}
 
+		case "CLEAR_SCREENSHOT_STATE": {
+			currentTrace = null;
+			loadedScreenshotsBySource.clear();
+			client?.postMessage({ requestId, type: "SCREENSHOT_STATE_CLEARED" });
+			break;
+		}
+
 		case "PING": {
-			client?.postMessage({ type: "PONG" });
+			client?.postMessage({ requestId, type: "PONG" });
 			break;
 		}
 	}
 });
 
-async function loadTrace(zip: Blob, client: Client | null): Promise<void> {
+async function loadTrace(
+	zip: Blob,
+	sourceId: string | undefined,
+	client: Client | null,
+	requestId?: string,
+): Promise<void> {
 	try {
 		const result = await loadZip(zip);
-		currentTrace = {
+		const loadedTrace = {
 			traceId: result.traceId,
 			zip,
 			screenshotMetasByFile: metasByFile(result.screenshotMetas),
@@ -92,8 +118,16 @@ async function loadTrace(zip: Blob, client: Client | null): Promise<void> {
 			screenshotLoads: new Map(),
 			screenshotMetas: result.screenshotMetas,
 		};
+		currentTrace = loadedTrace;
+		if (sourceId) {
+			loadedScreenshotsBySource.set(
+				sourceKey("traceSource", sourceId),
+				Promise.resolve(loadedTrace),
+			);
+		}
 
 		client?.postMessage({
+			requestId,
 			type: "TRACE_LOADED",
 			data: {
 				traceId: result.traceId,
@@ -103,7 +137,61 @@ async function loadTrace(zip: Blob, client: Client | null): Promise<void> {
 		});
 	} catch (error) {
 		client?.postMessage({
+			requestId,
 			type: "TRACE_LOAD_ERROR",
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
+async function loadTraceZipUrl(
+	zipUrl: string,
+	client: Client | null,
+	requestId?: string,
+): Promise<void> {
+	try {
+		const loadedTrace = await getOrLoadZipScreenshots(zipUrl);
+		const result = await loadZip(loadedTrace.zip);
+
+		client?.postMessage({
+			requestId,
+			type: "TRACE_LOADED",
+			data: {
+				traceId: result.traceId,
+				traceData: result.traceData,
+				screenshotMetas: loadedTrace.screenshotMetas,
+			},
+		});
+	} catch (error) {
+		client?.postMessage({
+			requestId,
+			type: "TRACE_LOAD_ERROR",
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
+async function loadScreenshotsUrl(
+	traceId: string,
+	screenshotsZipUrl: string,
+	client: Client | null,
+	requestId?: string,
+): Promise<void> {
+	try {
+		const loadedScreenshots = await getOrLoadScreenshotsZip(
+			traceId,
+			screenshotsZipUrl,
+		);
+
+		client?.postMessage({
+			requestId,
+			type: "SCREENSHOTS_LOADED",
+			data: { screenshotMetas: loadedScreenshots.screenshotMetas },
+		});
+	} catch (error) {
+		client?.postMessage({
+			requestId,
+			type: "SCREENSHOTS_LOAD_ERROR",
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}
@@ -112,11 +200,13 @@ async function loadTrace(zip: Blob, client: Client | null): Promise<void> {
 async function loadScreenshotsZip(
 	traceId: string,
 	zip: Blob,
+	sourceId: string | undefined,
 	client: Client | null,
+	requestId?: string,
 ): Promise<void> {
 	try {
 		const screenshotMetas = await loadScreenshotMetas(zip);
-		currentTrace = {
+		const loadedScreenshots = {
 			traceId,
 			zip,
 			screenshotMetasByFile: metasByFile(screenshotMetas),
@@ -124,13 +214,22 @@ async function loadScreenshotsZip(
 			screenshotLoads: new Map(),
 			screenshotMetas,
 		};
+		currentTrace = loadedScreenshots;
+		if (sourceId) {
+			loadedScreenshotsBySource.set(
+				sourceKey("traceSource", sourceId),
+				Promise.resolve(loadedScreenshots),
+			);
+		}
 
 		client?.postMessage({
+			requestId,
 			type: "SCREENSHOTS_LOADED",
 			data: { screenshotMetas },
 		});
 	} catch (error) {
 		client?.postMessage({
+			requestId,
 			type: "SCREENSHOTS_LOAD_ERROR",
 			error: error instanceof Error ? error.message : String(error),
 		});
@@ -139,32 +238,177 @@ async function loadScreenshotsZip(
 
 sw.addEventListener("fetch", (event: FetchEvent) => {
 	const url = new URL(event.request.url);
+	const relativePath = relativePathForUrl(url);
 
-	if (!currentTrace) {
+	if (!relativePath) {
 		return;
 	}
 
-	const apiPrefix = `${getBasePath()}playwright-otel-trace-viewer/v1/${currentTrace.traceId}/`;
-	if (!url.pathname.startsWith(apiPrefix)) {
+	const apiPrefix = "/playwright-otel-trace-viewer/v1/";
+	if (!relativePath.startsWith(apiPrefix)) {
 		return;
 	}
 
-	const apiPath = url.pathname.slice(apiPrefix.length);
+	const apiPath = relativePath.slice(apiPrefix.length);
 	const parts = apiPath.split("/").filter(Boolean);
-
-	if (parts.length === 1 && parts[0] === "screenshots") {
-		event.respondWith(jsonResponse({ screenshots: currentTrace.screenshotMetas }));
+	const traceId = parts[0];
+	if (!traceId) {
+		event.respondWith(notFoundResponse(`Unsupported trace API path: ${apiPath}`));
 		return;
 	}
 
-	if (parts.length === 2 && parts[0] === "screenshots") {
-		const screenshotFilename = parts[1];
-		event.respondWith(screenshotResponse(currentTrace, screenshotFilename));
+	if (parts.length === 2 && parts[1] === "screenshots") {
+		event.respondWith(screenshotListResponse(traceId, url));
+		return;
+	}
+
+	if (parts.length === 3 && parts[1] === "screenshots") {
+		const screenshotFilename = decodeURIComponent(parts[2]);
+		event.respondWith(screenshotResponseForUrl(traceId, screenshotFilename, url));
 		return;
 	}
 
 	event.respondWith(notFoundResponse(`Unsupported trace API path: ${apiPath}`));
 });
+
+function relativePathForUrl(url: URL): string | undefined {
+	if (!url.pathname.startsWith(scopePath)) return undefined;
+	return url.pathname.substring(scopePath.length - 1);
+}
+
+async function screenshotListResponse(
+	traceId: string,
+	url: URL,
+): Promise<Response> {
+	const loadedScreenshots = await screenshotsForRequest(traceId, url);
+	if (!loadedScreenshots) {
+		return notFoundResponse("Screenshot source not found");
+	}
+	return jsonResponse({ screenshots: loadedScreenshots.screenshotMetas });
+}
+
+async function screenshotResponseForUrl(
+	traceId: string,
+	filename: string,
+	url: URL,
+): Promise<Response> {
+	const loadedScreenshots = await screenshotsForRequest(traceId, url);
+	if (!loadedScreenshots) {
+		return notFoundResponse("Screenshot source not found");
+	}
+	return screenshotResponse(loadedScreenshots, filename);
+}
+
+async function screenshotsForRequest(
+	traceId: string,
+	url: URL,
+): Promise<LoadedScreenshots | undefined> {
+	const screenshotsZipUrl = url.searchParams.get("screenshotsZip");
+	if (screenshotsZipUrl) {
+		return getOrLoadScreenshotsZip(traceId, screenshotsZipUrl);
+	}
+
+	const traceZipUrl = url.searchParams.get("traceZip");
+	if (traceZipUrl) {
+		return getOrLoadZipScreenshots(traceZipUrl);
+	}
+
+	const traceSource = url.searchParams.get("traceSource");
+	if (traceSource) {
+		return loadedScreenshotsBySource.get(sourceKey("traceSource", traceSource));
+	}
+
+	return currentTrace?.traceId === traceId ? currentTrace : undefined;
+}
+
+function getOrLoadScreenshotsZip(
+	traceId: string,
+	screenshotsZipUrl: string,
+): Promise<LoadedScreenshots> {
+	const key = sourceKey("screenshotsZip", screenshotsZipUrl);
+	const existing = loadedScreenshotsBySource.get(key);
+	if (existing) return existing;
+
+	const promise = fetchZip(screenshotsZipUrl)
+		.then((zip) => {
+			if (!zip) {
+				loadedScreenshotsBySource.delete(key);
+				return missingScreenshots(traceId);
+			}
+			return loadScreenshotsFromZip(traceId, zip);
+		})
+		.catch((error) => {
+			loadedScreenshotsBySource.delete(key);
+			throw error;
+		});
+	loadedScreenshotsBySource.set(key, promise);
+	return promise;
+}
+
+function getOrLoadZipScreenshots(zipUrl: string): Promise<LoadedScreenshots> {
+	const key = sourceKey("traceZip", zipUrl);
+	const existing = loadedScreenshotsBySource.get(key);
+	if (existing) return existing;
+
+	const promise = fetchZip(zipUrl)
+		.then(async (zip) => {
+			if (!zip) throw new Error(`Trace ZIP not found: ${zipUrl}`);
+			const result = await loadZip(zip);
+			return loadedScreenshotsFromMetas(result.traceId, zip, result.screenshotMetas);
+		})
+		.catch((error) => {
+			loadedScreenshotsBySource.delete(key);
+			throw error;
+		});
+	loadedScreenshotsBySource.set(key, promise);
+	return promise;
+}
+
+async function fetchZip(url: string): Promise<Blob | undefined> {
+	const response = await fetch(url);
+	if (response.status === 404) return undefined;
+	if (!response.ok) {
+		throw new Error(`Failed to fetch ZIP from ${url}: ${response.statusText}`);
+	}
+	return response.blob();
+}
+
+function missingScreenshots(traceId: string): LoadedScreenshots {
+	return loadedScreenshotsFromMetas(
+		traceId,
+		new Blob([], { type: "application/zip" }),
+		[],
+	);
+}
+
+async function loadScreenshotsFromZip(
+	traceId: string,
+	zip: Blob,
+): Promise<LoadedScreenshots> {
+	return loadedScreenshotsFromMetas(traceId, zip, await loadScreenshotMetas(zip));
+}
+
+function loadedScreenshotsFromMetas(
+	traceId: string,
+	zip: Blob,
+	screenshotMetas: ScreenshotMeta[],
+): LoadedScreenshots {
+	return {
+		traceId,
+		zip,
+		screenshotMetasByFile: metasByFile(screenshotMetas),
+		screenshotBlobs: new Map(),
+		screenshotLoads: new Map(),
+		screenshotMetas,
+	};
+}
+
+function sourceKey(
+	kind: "screenshotsZip" | "traceZip" | "traceSource",
+	value: string,
+): string {
+	return `${kind}:${value}`;
+}
 
 async function loadZip(zip: Blob): Promise<ZipLoadResult> {
 	const zipReader = new ZipReader(new BlobReader(zip));

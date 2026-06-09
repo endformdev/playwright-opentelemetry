@@ -22,11 +22,21 @@ export interface ScreenshotMeta {
  */
 export interface TraceLoadData {
 	zip: Blob;
+	sourceId?: string;
+}
+
+export interface TraceZipUrlLoadData {
+	zipUrl: string;
 }
 
 export interface ScreenshotsZipLoadData {
 	traceId: string;
 	zip: Blob;
+}
+
+export interface ScreenshotsLoadData {
+	traceId: string;
+	screenshotsZipUrl: string;
 }
 
 export interface TraceLoadedData {
@@ -41,10 +51,19 @@ export type ServiceWorkerMessage =
 			data: TraceLoadData;
 	  }
 	| {
+			type: "LOAD_TRACE_ZIP_URL";
+			data: TraceZipUrlLoadData;
+	  }
+	| {
+			type: "LOAD_SCREENSHOTS";
+			data: ScreenshotsLoadData;
+	  }
+	| {
 			type: "LOAD_SCREENSHOTS_ZIP";
 			data: ScreenshotsZipLoadData;
 	  }
 	| { type: "UNLOAD_TRACE" }
+	| { type: "CLEAR_SCREENSHOT_STATE" }
 	| { type: "PING" };
 
 export type ServiceWorkerResponse =
@@ -53,6 +72,10 @@ export type ServiceWorkerResponse =
 	| { type: "TRACE_LOAD_ERROR"; error: string }
 	| { type: "SCREENSHOTS_LOAD_ERROR"; error: string }
 	| { type: "PONG" };
+
+type ServiceWorkerMessageWithRequestId = ServiceWorkerMessage & {
+	requestId: string;
+};
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
 	if (!("serviceWorker" in navigator)) {
@@ -68,14 +91,47 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 		type: "module",
 	});
 
-	// Wait for the service worker to be ready
+	// Wait for the service worker to be active and controlling this page.
 	await navigator.serviceWorker.ready;
+	await waitForActiveWorker(registration);
+	const controller = await waitForController();
 
-	const activeWorker = await waitForActiveWorker(registration);
-
-	await pingServiceWorker(activeWorker);
+	await pingServiceWorker(controller);
 
 	return registration;
+}
+
+async function waitForController(): Promise<ServiceWorker> {
+	if (navigator.serviceWorker.controller) {
+		return navigator.serviceWorker.controller;
+	}
+
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			navigator.serviceWorker.removeEventListener(
+				"controllerchange",
+				handleControllerChange,
+			);
+			reject(new Error("Timeout waiting for service worker to control page"));
+		}, 10000);
+
+		const handleControllerChange = () => {
+			const controller = navigator.serviceWorker.controller;
+			if (!controller) return;
+
+			clearTimeout(timeout);
+			navigator.serviceWorker.removeEventListener(
+				"controllerchange",
+				handleControllerChange,
+			);
+			resolve(controller);
+		};
+
+		navigator.serviceWorker.addEventListener(
+			"controllerchange",
+			handleControllerChange,
+		);
+	});
 }
 
 async function waitForActiveWorker(
@@ -152,6 +208,29 @@ export async function loadTraceInServiceWorker(
 	);
 }
 
+export async function loadTraceZipUrlInServiceWorker(
+	data: TraceZipUrlLoadData,
+): Promise<TraceLoadedData> {
+	return postServiceWorkerMessage<TraceLoadedData>(
+		{ type: "LOAD_TRACE_ZIP_URL", data },
+		"TRACE_LOADED",
+		"TRACE_LOAD_ERROR",
+		"Timeout loading trace ZIP in service worker",
+	);
+}
+
+export async function loadScreenshotsForTraceInServiceWorker(
+	data: ScreenshotsLoadData,
+): Promise<ScreenshotMeta[]> {
+	const result = await postServiceWorkerMessage<{ screenshotMetas: ScreenshotMeta[] }>(
+		{ type: "LOAD_SCREENSHOTS", data },
+		"SCREENSHOTS_LOADED",
+		"SCREENSHOTS_LOAD_ERROR",
+		"Timeout loading screenshots in service worker",
+	);
+	return result.screenshotMetas;
+}
+
 export async function loadScreenshotsZipInServiceWorker(
 	data: ScreenshotsZipLoadData,
 ): Promise<ScreenshotMeta[]> {
@@ -170,12 +249,13 @@ async function postServiceWorkerMessage<Data>(
 	errorType: string,
 	timeoutMessage: string,
 ): Promise<Data> {
-	const registration = await navigator.serviceWorker.ready;
-	const worker = registration.active;
-
-	if (!worker) {
-		throw new Error("No active service worker");
-	}
+	await navigator.serviceWorker.ready;
+	const worker = await waitForController();
+	const requestId = crypto.randomUUID();
+	const messageWithRequestId: ServiceWorkerMessageWithRequestId = {
+		...message,
+		requestId,
+	};
 
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => {
@@ -184,6 +264,8 @@ async function postServiceWorkerMessage<Data>(
 		}, 30000);
 
 		const handleMessage = (event: MessageEvent) => {
+			if (event.data?.requestId !== requestId) return;
+
 			if (event.data?.type === loadedType) {
 				clearTimeout(timeout);
 				navigator.serviceWorker.removeEventListener("message", handleMessage);
@@ -200,7 +282,7 @@ async function postServiceWorkerMessage<Data>(
 		};
 
 		navigator.serviceWorker.addEventListener("message", handleMessage);
-		worker.postMessage(message);
+		worker.postMessage(messageWithRequestId);
 	});
 }
 
