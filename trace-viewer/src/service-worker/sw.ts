@@ -330,9 +330,13 @@ function getOrLoadScreenshotsZip(
 	if (existing) return existing;
 
 	const promise = fetchZip(screenshotsZipUrl)
-		.then((zip) =>
-			zip ? loadScreenshotsFromZip(traceId, zip) : missingScreenshots(traceId),
-		)
+		.then((zip) => {
+			if (!zip) {
+				loadedScreenshotsBySource.delete(key);
+				return missingScreenshots(traceId);
+			}
+			return loadScreenshotsFromZip(traceId, zip);
+		})
 		.catch((error) => {
 			loadedScreenshotsBySource.delete(key);
 			throw error;

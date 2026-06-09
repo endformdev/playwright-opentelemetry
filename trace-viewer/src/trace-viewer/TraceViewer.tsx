@@ -205,6 +205,13 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	// Get list of disabled sections for the footer
 	const disabledSections = createMemo((): DisabledSection[] => {
 		const sections: DisabledSection[] = [];
+		if (!props.traceInfo.screenshots.loading && !hasLoadedScreenshots()) {
+			sections.push({
+				id: "screenshots",
+				title: SECTION_TITLES.screenshots,
+				tooltip: SECTION_TOOLTIPS.screenshots,
+			});
+		}
 		if (!hasSteps()) {
 			sections.push({
 				id: "steps",
