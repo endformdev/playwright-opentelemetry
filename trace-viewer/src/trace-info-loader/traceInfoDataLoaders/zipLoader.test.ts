@@ -4,7 +4,9 @@ import { loadLocalZip, loadRemoteZip } from "./zipLoader";
 const serviceWorker = vi.hoisted(() => ({
 	registerServiceWorker: vi.fn(async () => ({}) as ServiceWorkerRegistration),
 	loadTraceInServiceWorker: vi.fn(),
+	loadTraceZipUrlInServiceWorker: vi.fn(),
 	loadScreenshotsZipInServiceWorker: vi.fn(),
+	loadScreenshotsForTraceInServiceWorker: vi.fn(),
 	unloadTraceFromServiceWorker: vi.fn(async () => undefined),
 	getTraceViewerApiUrl: vi.fn(
 		(traceId: string) => `/playwright-otel-trace-viewer/v1/${traceId}`,
@@ -38,37 +40,44 @@ describe("loading ZIP traces", () => {
 		expect(serviceWorker.unloadTraceFromServiceWorker).toHaveBeenCalledTimes(1);
 		expect(serviceWorker.loadTraceInServiceWorker).toHaveBeenCalledWith({
 			zip: file,
+			sourceId: expect.stringMatching(/^local-zip-/),
 		});
 		expect(traceInfo.testInfo.name).toBe("checkout completes");
 		expect(traceInfo.traceData.resourceSpans).toHaveLength(1);
-		expect(traceInfo.screenshots()).toEqual([
+		expect(await traceInfo.loadScreenshots()).toEqual([
 			{
 				timestamp: 1766927492300,
-				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
+				url: expect.stringMatching(
+					new RegExp(
+						`^/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page%40abc-1766927492300\\.jpeg\\?traceSource=local-zip-`,
+					),
+				),
 			},
 		]);
 	});
 
-	it("downloads a remote ZIP and passes the blob to the service worker", async () => {
+	it("passes a remote ZIP URL to the service worker", async () => {
 		const traceId = "7709187832dca84f02f413a312421586";
-		const zipBlob = new Blob(["zip bytes"], { type: "application/zip" });
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () => new Response(zipBlob)),
-		);
-		serviceWorker.loadTraceInServiceWorker.mockResolvedValueOnce({
+		serviceWorker.loadTraceZipUrlInServiceWorker.mockResolvedValueOnce({
 			traceId,
 			traceData: otlpExport(traceId),
-			screenshotMetas: [],
+			screenshotMetas: [
+				{ timestamp: 1766927492300, file: "page@abc-1766927492300.jpeg" },
+			],
 		});
 
 		const traceInfo = await loadRemoteZip("https://example.com/trace.zip");
 
-		expect(fetch).toHaveBeenCalledWith("https://example.com/trace.zip");
-		expect(serviceWorker.loadTraceInServiceWorker).toHaveBeenCalledWith({
-			zip: expect.any(Blob),
+		expect(serviceWorker.loadTraceZipUrlInServiceWorker).toHaveBeenCalledWith({
+			zipUrl: "https://example.com/trace.zip",
 		});
 		expect(traceInfo.traceData.resourceSpans).toHaveLength(1);
+		expect(await traceInfo.loadScreenshots()).toEqual([
+			{
+				timestamp: 1766927492300,
+				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page%40abc-1766927492300.jpeg?traceZip=https%3A%2F%2Fexample.com%2Ftrace.zip`,
+			},
+		]);
 	});
 });
 

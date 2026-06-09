@@ -56,4 +56,93 @@ test.describe("reporter, trace-api, trace-viewer flow", () => {
 		const screenshotCount = await screenshotImages.count();
 		expect(screenshotCount).toBeGreaterThan(0);
 	});
+
+	test("keeps API screenshot URLs loadable after service worker state is lost", async ({
+		page,
+		request,
+	}) => {
+		const traceIdsResponse = await request.get(`${TRACE_API_URL}/trace-ids`);
+		expect(traceIdsResponse.ok()).toBeTruthy();
+
+		const { traceIds } = (await traceIdsResponse.json()) as {
+			traceIds: string[];
+		};
+		expect(traceIds.length).toBeGreaterThan(0);
+
+		const traceId = traceIds[0];
+		const viewer = new TraceViewerPage(page);
+		await viewer.loadTraceFromApi(traceId);
+
+		const firstImage = viewer.screenshots.images().first();
+		await expect(firstImage).toBeVisible({ timeout: 10000 });
+
+		const screenshotUrl = await firstImage.getAttribute("src");
+		expect(screenshotUrl).toBeTruthy();
+
+		const initialResponse = await fetchFromPageWithCacheBust(
+			page,
+			screenshotUrl!,
+			"before-state-loss",
+		);
+		expect(initialResponse.status).toBe(200);
+		expect(initialResponse.contentType).toMatch(/^image\//);
+
+		await page.evaluate(async () => {
+			await navigator.serviceWorker.ready;
+			const controller = navigator.serviceWorker.controller;
+			if (!controller) {
+				throw new Error("Expected a controlling service worker");
+			}
+
+			await new Promise<void>((resolve, reject) => {
+				const timeout = setTimeout(() => {
+					navigator.serviceWorker.removeEventListener("message", onMessage);
+					reject(new Error("Timed out waiting for service worker ping"));
+				}, 5000);
+
+				const onMessage = (event: MessageEvent) => {
+					if (event.data?.type !== "PONG") return;
+					clearTimeout(timeout);
+					navigator.serviceWorker.removeEventListener("message", onMessage);
+					resolve();
+				};
+
+				navigator.serviceWorker.addEventListener("message", onMessage);
+				controller.postMessage({ type: "CLEAR_SCREENSHOT_STATE" });
+				controller.postMessage({ type: "PING" });
+			});
+		});
+
+		const responseAfterStateLoss = await fetchFromPageWithCacheBust(
+			page,
+			screenshotUrl!,
+			"after-state-loss",
+		);
+		expect(responseAfterStateLoss.status).toBe(200);
+		expect(responseAfterStateLoss.contentType).toMatch(/^image\//);
+	});
 });
+
+interface FetchedScreenshotResponse {
+	status: number;
+	contentType: string;
+}
+
+async function fetchFromPageWithCacheBust(
+	page: import("@playwright/test").Page,
+	url: string,
+	cacheBust: string,
+): Promise<FetchedScreenshotResponse> {
+	return page.evaluate(
+		async ({ url, cacheBust }) => {
+			const fetchUrl = new URL(url, window.location.href);
+			fetchUrl.searchParams.set("cacheBust", cacheBust);
+			const response = await fetch(fetchUrl.toString());
+			return {
+				status: response.status,
+				contentType: response.headers.get("content-type") ?? "",
+			};
+		},
+		{ url, cacheBust },
+	);
+}

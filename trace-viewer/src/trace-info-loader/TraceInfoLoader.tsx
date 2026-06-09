@@ -19,7 +19,13 @@ import {
 export interface TraceInfo {
 	testInfo: TestInfo;
 	traceData: OtlpExport;
-	screenshots: Accessor<ScreenshotInfo[]>;
+	screenshots: Resource<ScreenshotInfo[]>;
+}
+
+export interface TraceInfoData {
+	testInfo: TestInfo;
+	traceData: OtlpExport;
+	loadScreenshots: () => Promise<ScreenshotInfo[]>;
 }
 
 export interface TestInfo {
@@ -52,11 +58,25 @@ export interface TraceInfoLoaderProps {
 }
 
 export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
-	const traceInfo = useTraceInfoLoader(() => props.source);
+	const traceInfoData = useTraceInfoLoader(() => props.source);
+	const [screenshots] = createResource(
+		() => traceInfoData()?.loadScreenshots,
+		(loadScreenshots) => loadScreenshots(),
+		{ initialValue: [] },
+	);
+	const traceInfo = (): TraceInfo | undefined => {
+		const data = traceInfoData();
+		if (!data) return undefined;
+		return {
+			testInfo: data.testInfo,
+			traceData: data.traceData,
+			screenshots,
+		};
+	};
 
 	return (
 		<Switch>
-			<Match when={traceInfo.loading}>
+			<Match when={traceInfoData.loading}>
 				<div class="flex flex-1 items-center justify-center">
 					<div class="text-center">
 						<div class="mb-2">Loading trace...</div>
@@ -69,11 +89,11 @@ export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
 					</div>
 				</div>
 			</Match>
-			<Match when={traceInfo.error}>
+			<Match when={traceInfoData.error}>
 				<div class="flex flex-1 items-center justify-center">
 					<div class="text-center text-red-600">
 						<div class="mb-2 font-semibold">Failed to load trace</div>
-						<div class="text-sm">{String(traceInfo.error)}</div>
+						<div class="text-sm">{String(traceInfoData.error)}</div>
 					</div>
 				</div>
 			</Match>
@@ -84,7 +104,7 @@ export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
 
 export function useTraceInfoLoader(
 	source: () => TraceSource | null,
-): Resource<TraceInfo | undefined> {
+): Resource<TraceInfoData | undefined> {
 	const [traceInfo] = createResource(source, async (src) => {
 		if (!src) return undefined;
 		return loadTraceSource(src);
@@ -98,7 +118,7 @@ export function useTraceInfoLoader(
 	return traceInfo;
 }
 
-async function loadTraceSource(source: TraceSource): Promise<TraceInfo> {
+async function loadTraceSource(source: TraceSource): Promise<TraceInfoData> {
 	switch (source.kind) {
 		case "local-zip":
 			return loadLocalZip(source.file);
