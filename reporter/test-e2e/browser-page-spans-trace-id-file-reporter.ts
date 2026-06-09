@@ -8,7 +8,7 @@ const BROWSER_PAGE_SPANS_TEST_NAME =
 const ERROR_SPANS_TEST_NAME = "expected failing step trace";
 
 export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
-		onTestEnd(test: TestCase, result: TestResult): void {
+	onTestEnd(test: TestCase, result: TestResult): void {
 		const browserPageSpansTraceIdFile =
 			process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
 		const browserPageSpansTraceZipPathFile =

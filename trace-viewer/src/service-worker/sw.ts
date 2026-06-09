@@ -58,7 +58,7 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 	const { requestId, type, data } = event.data;
 	const client = event.source as Client | null;
 
-		switch (type) {
+	switch (type) {
 		case "LOAD_TRACE": {
 			event.waitUntil(loadTrace(data.zip, data.sourceId, client, requestId));
 			break;
@@ -71,14 +71,25 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 
 		case "LOAD_SCREENSHOTS": {
 			event.waitUntil(
-				loadScreenshotsUrl(data.traceId, data.screenshotsZipUrl, client, requestId),
+				loadScreenshotsUrl(
+					data.traceId,
+					data.screenshotsZipUrl,
+					client,
+					requestId,
+				),
 			);
 			break;
 		}
 
 		case "LOAD_SCREENSHOTS_ZIP": {
 			event.waitUntil(
-				loadScreenshotsZip(data.traceId, data.zip, undefined, client, requestId),
+				loadScreenshotsZip(
+					data.traceId,
+					data.zip,
+					undefined,
+					client,
+					requestId,
+				),
 			);
 			break;
 		}
@@ -253,7 +264,9 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
 	const parts = apiPath.split("/").filter(Boolean);
 	const traceId = parts[0];
 	if (!traceId) {
-		event.respondWith(notFoundResponse(`Unsupported trace API path: ${apiPath}`));
+		event.respondWith(
+			notFoundResponse(`Unsupported trace API path: ${apiPath}`),
+		);
 		return;
 	}
 
@@ -264,7 +277,9 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
 
 	if (parts.length === 3 && parts[1] === "screenshots") {
 		const screenshotFilename = decodeURIComponent(parts[2]);
-		event.respondWith(screenshotResponseForUrl(traceId, screenshotFilename, url));
+		event.respondWith(
+			screenshotResponseForUrl(traceId, screenshotFilename, url),
+		);
 		return;
 	}
 
@@ -355,7 +370,11 @@ function getOrLoadZipScreenshots(zipUrl: string): Promise<LoadedScreenshots> {
 		.then(async (zip) => {
 			if (!zip) throw new Error(`Trace ZIP not found: ${zipUrl}`);
 			const result = await loadZip(zip);
-			return loadedScreenshotsFromMetas(result.traceId, zip, result.screenshotMetas);
+			return loadedScreenshotsFromMetas(
+				result.traceId,
+				zip,
+				result.screenshotMetas,
+			);
 		})
 		.catch((error) => {
 			loadedScreenshotsBySource.delete(key);
@@ -386,7 +405,11 @@ async function loadScreenshotsFromZip(
 	traceId: string,
 	zip: Blob,
 ): Promise<LoadedScreenshots> {
-	return loadedScreenshotsFromMetas(traceId, zip, await loadScreenshotMetas(zip));
+	return loadedScreenshotsFromMetas(
+		traceId,
+		zip,
+		await loadScreenshotMetas(zip),
+	);
 }
 
 function loadedScreenshotsFromMetas(
@@ -427,7 +450,10 @@ async function parseZipEntries(entries: Entry[]): Promise<ZipLoadResult> {
 	for (const entry of entries) {
 		if (!isFileEntry(entry)) continue;
 
-		if (entry.filename.startsWith("traces/") && entry.filename.endsWith(".json")) {
+		if (
+			entry.filename.startsWith("traces/") &&
+			entry.filename.endsWith(".json")
+		) {
 			const name = entry.filename.slice("traces/".length);
 			if (name && !name.includes("/")) {
 				const text = await entry.getData(new TextWriter());
@@ -445,7 +471,9 @@ async function parseZipEntries(entries: Entry[]): Promise<ZipLoadResult> {
 	const traceData = mergeOtlpExports(traceExports);
 	const traceId = findTraceId(traceData);
 	if (!traceId) {
-		throw new Error("Unable to load ZIP trace: no traceId found in OTLP trace data");
+		throw new Error(
+			"Unable to load ZIP trace: no traceId found in OTLP trace data",
+		);
 	}
 
 	return { traceId, traceData, screenshotMetas };
@@ -469,7 +497,9 @@ async function parseScreenshotManifest(
 	);
 	if (!manifestEntry) return [];
 
-	const manifest = JSON.parse(await manifestEntry.getData(new TextWriter())) as {
+	const manifest = JSON.parse(
+		await manifestEntry.getData(new TextWriter()),
+	) as {
 		screenshots?: Array<Partial<ScreenshotMeta>>;
 	};
 	return (manifest.screenshots ?? [])
@@ -555,7 +585,9 @@ async function extractScreenshotBlob(
 	}
 }
 
-function metasByFile(screenshotMetas: ScreenshotMeta[]): Map<string, ScreenshotMeta> {
+function metasByFile(
+	screenshotMetas: ScreenshotMeta[],
+): Map<string, ScreenshotMeta> {
 	return new Map(screenshotMetas.map((meta) => [meta.file, meta]));
 }
 

@@ -119,7 +119,10 @@ export interface CreateTraceZipOptions {
 	screenshots: Map<string, Blob>;
 }
 
-export type CreateTraceZipBlobOptions = Omit<CreateTraceZipOptions, "outputDir">;
+export type CreateTraceZipBlobOptions = Omit<
+	CreateTraceZipOptions,
+	"outputDir"
+>;
 
 /**
  * Create a zip file containing the OTLP trace JSON and screenshots for a test.
@@ -134,13 +137,8 @@ export async function createTraceZip(
 export async function createTraceZipBlob(
 	options: CreateTraceZipBlobOptions,
 ): Promise<Blob> {
-	const {
-		spans,
-		fixtureSpans,
-		serviceName,
-		playwrightVersion,
-		screenshots,
-	} = options;
+	const { spans, fixtureSpans, serviceName, playwrightVersion, screenshots } =
+		options;
 
 	// Build OTLP request JSON
 	const otlpRequest = buildOtlpRequest(spans, serviceName, playwrightVersion);

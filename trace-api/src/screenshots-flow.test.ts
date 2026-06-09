@@ -21,9 +21,7 @@ describe("reading screenshots through the viewer API", () => {
 		);
 
 		const zipResponse = await app.fetch(
-			new Request(
-				`http://localhost${VIEWER_PATH}/${traceId}/screenshots.zip`,
-			),
+			new Request(`http://localhost${VIEWER_PATH}/${traceId}/screenshots.zip`),
 		);
 
 		expect(uploadResponse.status).toBe(200);

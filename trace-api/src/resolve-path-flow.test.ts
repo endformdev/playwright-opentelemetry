@@ -20,18 +20,8 @@ describe("multi-tenant trace API flows", () => {
 		const orgAScreenshotsZip = createScreenshotBuffer("org-a-screenshots.zip");
 		const orgBScreenshotsZip = createScreenshotBuffer("org-b-screenshots.zip");
 
-		await uploadTenantScreenshotsZip(
-			app,
-			"org-a",
-			traceId,
-			orgAScreenshotsZip,
-		);
-		await uploadTenantScreenshotsZip(
-			app,
-			"org-b",
-			traceId,
-			orgBScreenshotsZip,
-		);
+		await uploadTenantScreenshotsZip(app, "org-a", traceId, orgAScreenshotsZip);
+		await uploadTenantScreenshotsZip(app, "org-b", traceId, orgBScreenshotsZip);
 
 		expect(await readTenantSpanNames(app, "org-a", traceId)).toEqual([
 			"org A checkout",

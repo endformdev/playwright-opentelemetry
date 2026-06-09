@@ -309,16 +309,16 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(sendSpans).toHaveBeenCalledTimes(1);
 		expect(sendSpans).toHaveBeenCalledWith(
 			expect.arrayContaining([
-					expect.objectContaining({
-						name: TEST_STEP_SPAN_NAME,
-						attributes: expect.objectContaining({
-							[ATTR_TEST_STEP_NAME]: "Failing step",
-						}),
-						status: {
-							code: 2,
-							message: "Expected element to be visible",
-						}, // ERROR status because it has an error
+				expect.objectContaining({
+					name: TEST_STEP_SPAN_NAME,
+					attributes: expect.objectContaining({
+						[ATTR_TEST_STEP_NAME]: "Failing step",
 					}),
+					status: {
+						code: 2,
+						message: "Expected element to be visible",
+					}, // ERROR status because it has an error
+				}),
 			]),
 			expect.any(Object),
 		);
