@@ -1,6 +1,16 @@
 import { type Accessor, createSignal } from "solid-js";
 
-export type TraceSourceSetter = (source: TraceSource | null) => void;
+export type TraceLoadOrigin = "url" | "ui";
+
+export interface TraceLoadRequest {
+	source: TraceSource;
+	origin: TraceLoadOrigin;
+}
+
+export type TraceLoadRequestSetter = (
+	source: TraceSource | null,
+	origin?: TraceLoadOrigin,
+) => void;
 
 export type TraceSource =
 	| LocalZipTraceSource
@@ -24,28 +34,33 @@ interface RemoteApiTraceSource {
 
 const QUERY_PARAM_NAME = "traceSource";
 
-export function createTraceSourceSignal(): [
-	Accessor<TraceSource | null>,
-	TraceSourceSetter,
+export function createTraceLoadRequestSignal(): [
+	Accessor<TraceLoadRequest | null>,
+	TraceLoadRequestSetter,
 ] {
-	const [source, setSourceInternal] = createSignal<TraceSource | null>(
-		readFromQueryParam(),
+	const [request, setRequestInternal] = createSignal<TraceLoadRequest | null>(
+		requestFromQueryParam(),
 	);
 
-	const setSource: TraceSourceSetter = (value) => {
-		setSourceInternal(value);
-		writeToQueryParam(value);
+	const setRequest: TraceLoadRequestSetter = (source, origin = "ui") => {
+		setRequestInternal(source ? { source, origin } : null);
+		writeToQueryParam(source);
 	};
 
 	// Handle browser back/forward navigation
 	if (typeof window !== "undefined") {
 		window.addEventListener("popstate", () => {
 			// Update signal from URL without pushing to history
-			setSourceInternal(readFromQueryParam());
+			setRequestInternal(requestFromQueryParam());
 		});
 	}
 
-	return [source, setSource];
+	return [request, setRequest];
+}
+
+function requestFromQueryParam(): TraceLoadRequest | null {
+	const source = readFromQueryParam();
+	return source ? { source, origin: "url" } : null;
 }
 
 function readFromQueryParam(): TraceSource | null {
@@ -56,7 +71,7 @@ function readFromQueryParam(): TraceSource | null {
 function writeToQueryParam(source: TraceSource | null): void {
 	const params = new URLSearchParams(window.location.search);
 
-	if (source) {
+	if (source && source.kind !== "local-zip") {
 		params.set(QUERY_PARAM_NAME, serializeTraceSource(source));
 	} else {
 		params.delete(QUERY_PARAM_NAME);
@@ -91,7 +106,7 @@ export function parseTraceSourceQuery(
 function serializeTraceSource(source: TraceSource): string {
 	switch (source.kind) {
 		case "local-zip":
-			return `local-zip:${source.file.name}`;
+			throw new Error("Local ZIP trace sources cannot be serialized");
 		case "remote-zip":
 			return source.url;
 		case "remote-api":

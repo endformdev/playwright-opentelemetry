@@ -205,9 +205,13 @@ export class TraceViewerPage {
 
 	async loadTraceFromApi(traceIdHex: string): Promise<void> {
 		await this.goto();
-		await this.page
-			.getByPlaceholder("Enter API URL...")
-			.fill(`${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceIdHex}`);
+		await this.loadTraceFromUrl(
+			`${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceIdHex}`,
+		);
+	}
+
+	async loadTraceFromUrl(url: string): Promise<void> {
+		await this.page.getByPlaceholder("Enter API URL...").fill(url);
 		await this.page.getByRole("button", { name: "Load" }).click();
 	}
 

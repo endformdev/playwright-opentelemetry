@@ -1,2 +1,10 @@
-export type { TraceSource, TraceSourceSetter } from "./traceSource";
-export { createTraceSourceSignal } from "./traceSource";
+export type {
+	TraceLoadOrigin,
+	TraceLoadRequest,
+	TraceLoadRequestSetter,
+	TraceSource,
+} from "./traceSource";
+export {
+	createTraceLoadRequestSignal,
+	parseTraceSourceQuery,
+} from "./traceSource";

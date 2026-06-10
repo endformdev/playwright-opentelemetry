@@ -1,11 +1,8 @@
 import {
 	createResource,
 	type Accessor,
-	type JSX,
-	Match,
 	onCleanup,
 	type Resource,
-	Switch,
 } from "solid-js";
 import type { TraceSource } from "../trace-source";
 import type { OtlpExport } from "../trace-data-loader";
@@ -52,19 +49,29 @@ export interface ScreenshotInfo {
 	url: string;
 }
 
-export interface TraceInfoLoaderProps {
-	source: TraceSource;
-	children: (traceInfo: TraceInfo) => JSX.Element;
+export interface TraceInfoLoaderResult {
+	traceInfoData: Resource<TraceInfoData | undefined>;
+	traceInfo: Accessor<TraceInfo | undefined>;
 }
 
-export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
-	const traceInfoData = useTraceInfoLoader(() => props.source);
+export function useTraceInfoLoader(
+	source: () => TraceSource | null,
+): TraceInfoLoaderResult {
+	const [traceInfoData] = createResource(source, async (src) => {
+		if (!src) return undefined;
+		return loadTraceSource(src);
+	});
 	const [screenshots] = createResource(
-		() => traceInfoData()?.loadScreenshots,
+		() =>
+			traceInfoData.state === "ready"
+				? traceInfoData()?.loadScreenshots
+				: undefined,
 		(loadScreenshots) => loadScreenshots(),
 		{ initialValue: [] },
 	);
+
 	const traceInfo = (): TraceInfo | undefined => {
+		if (traceInfoData.state !== "ready") return undefined;
 		const data = traceInfoData();
 		if (!data) return undefined;
 		return {
@@ -74,48 +81,12 @@ export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
 		};
 	};
 
-	return (
-		<Switch>
-			<Match when={traceInfoData.loading}>
-				<div class="flex flex-1 items-center justify-center">
-					<div class="text-center">
-						<div class="mb-2">Loading trace...</div>
-						<div class="text-sm text-gray-500">
-							{props.source.kind === "local-zip" && "Extracting ZIP file..."}
-							{props.source.kind === "remote-zip" &&
-								"Downloading and extracting ZIP..."}
-							{props.source.kind === "remote-api" && "Fetching trace data..."}
-						</div>
-					</div>
-				</div>
-			</Match>
-			<Match when={traceInfoData.error}>
-				<div class="flex flex-1 items-center justify-center">
-					<div class="text-center text-red-600">
-						<div class="mb-2 font-semibold">Failed to load trace</div>
-						<div class="text-sm">{String(traceInfoData.error)}</div>
-					</div>
-				</div>
-			</Match>
-			<Match when={traceInfo()}>{(info) => props.children(info())}</Match>
-		</Switch>
-	);
-}
-
-export function useTraceInfoLoader(
-	source: () => TraceSource | null,
-): Resource<TraceInfoData | undefined> {
-	const [traceInfo] = createResource(source, async (src) => {
-		if (!src) return undefined;
-		return loadTraceSource(src);
-	});
-
 	// Cleanup: unload trace from service worker when component unmounts
 	onCleanup(() => {
 		unloadCurrentTrace();
 	});
 
-	return traceInfo;
+	return { traceInfoData, traceInfo };
 }
 
 async function loadTraceSource(source: TraceSource): Promise<TraceInfoData> {
