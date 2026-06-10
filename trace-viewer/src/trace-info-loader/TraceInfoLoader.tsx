@@ -60,11 +60,15 @@ export interface TraceInfoLoaderProps {
 export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
 	const traceInfoData = useTraceInfoLoader(() => props.source);
 	const [screenshots] = createResource(
-		() => traceInfoData()?.loadScreenshots,
+		() =>
+			traceInfoData.state === "ready"
+				? traceInfoData()?.loadScreenshots
+				: undefined,
 		(loadScreenshots) => loadScreenshots(),
 		{ initialValue: [] },
 	);
 	const traceInfo = (): TraceInfo | undefined => {
+		if (traceInfoData.state !== "ready") return undefined;
 		const data = traceInfoData();
 		if (!data) return undefined;
 		return {

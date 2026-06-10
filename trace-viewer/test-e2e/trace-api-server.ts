@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import {
 	createOtlpHandler,
 	createPlaywrightHandler,
@@ -10,6 +11,8 @@ import {
 import { defineEventHandler, H3, serve } from "h3";
 
 const PORT = 9295;
+const BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE =
+	"test-results/browser-page-spans-trace-zip-path.txt";
 
 const traceIds = new Set<string>();
 
@@ -74,6 +77,36 @@ app.get(TRACE_VIEWER_READ_PATH, createViewerHandler(config));
 app.get("/trace-ids", () => {
 	return { traceIds: Array.from(traceIds).sort() };
 });
+
+app.get(
+	"/fixtures/browser-page-spans-trace.zip",
+	defineEventHandler(() => {
+		if (!existsSync(BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE)) {
+			return new Response("Trace ZIP fixture path has not been generated", {
+				headers: { "access-control-allow-origin": "*" },
+				status: 404,
+			});
+		}
+
+		const traceZipPath = readFileSync(
+			BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
+			"utf-8",
+		).trim();
+		if (!existsSync(traceZipPath)) {
+			return new Response("Trace ZIP fixture does not exist", {
+				headers: { "access-control-allow-origin": "*" },
+				status: 404,
+			});
+		}
+
+		return new Response(readFileSync(traceZipPath), {
+			headers: {
+				"access-control-allow-origin": "*",
+				"content-type": "application/zip",
+			},
+		});
+	}),
+);
 
 app.get("/health", () => {
 	return { status: "ok" };
