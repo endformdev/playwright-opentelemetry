@@ -25,7 +25,7 @@ export default function App() {
 					fallback={<NoTraceLoaded setTraceSource={setTraceSource} />}
 				>
 					{(source) => (
-						<TraceInfoLoader source={source()}>
+						<TraceInfoLoader source={source()} setTraceSource={setTraceSource}>
 							{(traceInfo) => <TraceViewer traceInfo={traceInfo} />}
 						</TraceInfoLoader>
 					)}

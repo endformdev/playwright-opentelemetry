@@ -7,7 +7,9 @@ import {
 	type Resource,
 	Switch,
 } from "solid-js";
+import { NoTraceLoaded } from "../NoTraceLoaded";
 import type { TraceSource } from "../trace-source";
+import type { TraceSourceSetter } from "../trace-source";
 import type { OtlpExport } from "../trace-data-loader";
 import { loadRemoteApi } from "./traceInfoDataLoaders/apiLoader";
 import {
@@ -54,6 +56,7 @@ export interface ScreenshotInfo {
 
 export interface TraceInfoLoaderProps {
 	source: TraceSource;
+	setTraceSource: TraceSourceSetter;
 	children: (traceInfo: TraceInfo) => JSX.Element;
 }
 
@@ -94,16 +97,25 @@ export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
 				</div>
 			</Match>
 			<Match when={traceInfoData.error}>
-				<div class="flex flex-1 items-center justify-center">
-					<div class="text-center text-red-600">
-						<div class="mb-2 font-semibold">Failed to load trace</div>
-						<div class="text-sm">{String(traceInfoData.error)}</div>
-					</div>
-				</div>
+				<NoTraceLoaded
+					setTraceSource={props.setTraceSource}
+					initialApiUrl={traceSourceUrl(props.source)}
+					loadError={String(traceInfoData.error)}
+				/>
 			</Match>
 			<Match when={traceInfo()}>{(info) => props.children(info())}</Match>
 		</Switch>
 	);
+}
+
+function traceSourceUrl(source: TraceSource): string | undefined {
+	switch (source.kind) {
+		case "remote-api":
+		case "remote-zip":
+			return source.url;
+		case "local-zip":
+			return undefined;
+	}
 }
 
 export function useTraceInfoLoader(

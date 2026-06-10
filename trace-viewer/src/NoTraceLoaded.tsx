@@ -5,7 +5,7 @@ import {
 	type FileUploadFileError,
 	type FileUploadFileRejectDetails,
 } from "@ark-ui/solid/file-upload";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { parseTraceSourceQuery, type TraceSourceSetter } from "./trace-source";
 
 const ZIP_ACCEPT = ".zip,application/zip,application/x-zip-compressed";
@@ -31,10 +31,17 @@ function fileErrorText(error: FileUploadFileError): string {
 	return fileErrorMessages[error] ?? String(error);
 }
 
-export function NoTraceLoaded(props: { setTraceSource: TraceSourceSetter }) {
-	const [apiUrl, setApiUrl] = createSignal("");
+export interface NoTraceLoadedProps {
+	setTraceSource: TraceSourceSetter;
+	initialApiUrl?: string;
+	loadError?: string;
+}
+
+export function NoTraceLoaded(props: NoTraceLoadedProps) {
+	const [apiUrl, setApiUrl] = createSignal(props.initialApiUrl ?? "");
 	const [fileError, setFileError] = createSignal("");
 	const [apiError, setApiError] = createSignal("");
+	const [loadError, setLoadError] = createSignal(props.loadError ?? "");
 
 	const handleFileAccept = (details: FileUploadFileAcceptDetails) => {
 		const file = details.files[0];
@@ -55,16 +62,19 @@ export function NoTraceLoaded(props: { setTraceSource: TraceSourceSetter }) {
 		const url = apiUrl().trim();
 		if (!url) {
 			setApiError("Enter a trace API URL or trace ZIP URL.");
+			setLoadError("");
 			return;
 		}
 
 		const source = parseTraceSourceQuery(url);
 		if (!source) {
 			setApiError("Enter a trace API URL or trace ZIP URL.");
+			setLoadError("");
 			return;
 		}
 
 		setApiError("");
+		setLoadError("");
 		props.setTraceSource(source);
 	};
 
@@ -76,76 +86,23 @@ export function NoTraceLoaded(props: { setTraceSource: TraceSourceSetter }) {
 
 	return (
 		<div class="flex-1 flex items-center justify-center px-4">
-			<div class="w-full max-w-xl text-center space-y-5">
-				<div class="text-2xl font-light text-gray-400">
+			<div class="w-full max-w-2xl text-center space-y-6">
+				<div class="text-2xl font-light text-gray-500">
 					Load a Playwright OpenTelemetry trace
 				</div>
 
-				<Field.Root invalid={Boolean(fileError())}>
-					<FileUpload.Root
-						accept={ZIP_ACCEPT}
-						maxFiles={1}
-						invalid={Boolean(fileError())}
-						onFileAccept={handleFileAccept}
-						onFileReject={handleFileReject}
-						validate={(file) =>
-							isZipFile(file) ? null : ["FILE_INVALID_TYPE"]
-						}
-					>
-						<FileUpload.Label class="sr-only">Trace ZIP file</FileUpload.Label>
-						<FileUpload.Dropzone
-							disableClick
-							class="rounded-lg border border-dashed border-gray-600 bg-gray-900/30 px-6 py-10 text-gray-400 transition-colors data-[dragging]:border-blue-400 data-[dragging]:bg-blue-900/20 data-[invalid]:border-red-500"
-						>
-							<div class="space-y-3">
-								<div class="text-xl font-light">Drop trace ZIP file here</div>
-								<div class="text-sm text-gray-500">or</div>
-								<FileUpload.Trigger class="inline-flex px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded cursor-pointer transition-colors text-white">
-									Select file
-								</FileUpload.Trigger>
-							</div>
-						</FileUpload.Dropzone>
-						<FileUpload.Context>
-							{(context) => (
-								<Show when={context().rejectedFiles.length > 0}>
-									<FileUpload.ItemGroup class="mt-3 space-y-1 text-sm text-red-400">
-										<For each={context().rejectedFiles}>
-											{(fileRejection) => (
-												<FileUpload.Item file={fileRejection.file}>
-													<FileUpload.ItemName class="font-medium" />
-													<For each={fileRejection.errors}>
-														{(error) => <div>{fileErrorText(error)}</div>}
-													</For>
-												</FileUpload.Item>
-											)}
-										</For>
-									</FileUpload.ItemGroup>
-								</Show>
-							)}
-						</FileUpload.Context>
-						<FileUpload.HiddenInput />
-					</FileUpload.Root>
-					<Field.HelperText class="mt-2 block text-sm text-gray-500">
-						Upload a local Playwright OpenTelemetry trace ZIP.
-					</Field.HelperText>
-					<Field.ErrorText class="mt-2 block text-sm text-red-400">
-						{fileError()}
-					</Field.ErrorText>
-				</Field.Root>
-
-				<div class="text-gray-500">or</div>
-
-				<Field.Root invalid={Boolean(apiError())}>
+				<Field.Root invalid={Boolean(apiError() || loadError())}>
 					<Field.Label class="sr-only">Trace API or ZIP URL</Field.Label>
 					<div class="flex items-start gap-2 justify-center">
 						<Field.Input
 							type="text"
 							placeholder="Enter API URL..."
-							class="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-80 max-w-full text-gray-900 data-[invalid]:border-red-500"
+							class="min-w-0 flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 data-[invalid]:border-red-500"
 							value={apiUrl()}
 							onInput={(event) => {
 								setApiUrl(event.currentTarget.value);
 								if (apiError()) setApiError("");
+								if (loadError()) setLoadError("");
 							}}
 							onKeyDown={handleApiKeyDown}
 						/>
@@ -161,8 +118,49 @@ export function NoTraceLoaded(props: { setTraceSource: TraceSourceSetter }) {
 					<Field.HelperText class="mt-2 block text-sm text-gray-500">
 						Enter a trace API URL, or a URL ending in .zip.
 					</Field.HelperText>
+					<Show when={apiError() || loadError()}>
+						<Field.ErrorText class="mx-auto mt-3 block max-w-xl rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+							<Show when={loadError()} fallback={apiError()}>
+								<div class="font-medium">Failed to load trace</div>
+								<div class="mt-1 break-words">{loadError()}</div>
+							</Show>
+						</Field.ErrorText>
+					</Show>
+				</Field.Root>
+
+				<div class="text-gray-500">or</div>
+
+				<Field.Root invalid={Boolean(fileError())}>
+					<FileUpload.Root
+						accept={ZIP_ACCEPT}
+						maxFiles={1}
+						invalid={Boolean(fileError())}
+						onFileAccept={handleFileAccept}
+						onFileReject={handleFileReject}
+						validate={(file) =>
+							isZipFile(file) ? null : ["FILE_INVALID_TYPE"]
+						}
+					>
+						<FileUpload.Label class="sr-only">Trace ZIP file</FileUpload.Label>
+						<FileUpload.Dropzone
+							disableClick
+							class="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-gray-600 transition-colors data-[dragging]:border-blue-400 data-[dragging]:bg-blue-50 data-[invalid]:border-red-500 data-[invalid]:bg-red-50"
+						>
+							<div class="space-y-3">
+								<div class="text-lg font-light">Drop trace ZIP file here</div>
+								<div class="text-sm text-gray-500">or</div>
+								<FileUpload.Trigger class="inline-flex px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded cursor-pointer transition-colors text-white">
+									Select file
+								</FileUpload.Trigger>
+							</div>
+						</FileUpload.Dropzone>
+						<FileUpload.HiddenInput />
+					</FileUpload.Root>
+					<Field.HelperText class="mt-2 block text-sm text-gray-500">
+						Upload a local Playwright OpenTelemetry trace ZIP.
+					</Field.HelperText>
 					<Field.ErrorText class="mt-2 block text-sm text-red-400">
-						{apiError()}
+						{fileError()}
 					</Field.ErrorText>
 				</Field.Root>
 			</div>
