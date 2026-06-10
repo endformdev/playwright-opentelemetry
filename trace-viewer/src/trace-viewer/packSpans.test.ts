@@ -25,40 +25,22 @@ describe("spansOverlap", () => {
 		).toBe(true);
 	});
 
-	it("returns true for adjacent spans (no gap) due to 2ms minimum gap requirement", () => {
+	it("returns false for adjacent spans", () => {
 		expect(
 			spansOverlap(
 				{ startOffset: 0, duration: 100 },
 				{ startOffset: 100, duration: 100 },
 			),
-		).toBe(true);
-	});
-
-	it("returns true for spans less than 2ms apart", () => {
-		expect(
-			spansOverlap(
-				{ startOffset: 0, duration: 100 },
-				{ startOffset: 101, duration: 100 },
-			),
-		).toBe(true);
-	});
-
-	it("returns false for spans exactly 2ms apart", () => {
-		expect(
-			spansOverlap(
-				{ startOffset: 0, duration: 100 },
-				{ startOffset: 102, duration: 100 },
-			),
 		).toBe(false);
 	});
 
-	it("returns false for non-overlapping spans with large gap", () => {
+	it("returns true for spans with a 1ms overlap", () => {
 		expect(
 			spansOverlap(
 				{ startOffset: 0, duration: 100 },
-				{ startOffset: 200, duration: 100 },
+				{ startOffset: 99, duration: 100 },
 			),
-		).toBe(false);
+		).toBe(true);
 	});
 
 	it("returns false for spans in reverse order with sufficient gap", () => {
@@ -68,15 +50,6 @@ describe("spansOverlap", () => {
 				{ startOffset: 0, duration: 100 },
 			),
 		).toBe(false);
-	});
-
-	it("returns true for spans in reverse order within 2ms", () => {
-		expect(
-			spansOverlap(
-				{ startOffset: 101, duration: 100 },
-				{ startOffset: 0, duration: 100 },
-			),
-		).toBe(true);
 	});
 });
 
@@ -110,9 +83,9 @@ describe("findAvailableRow", () => {
 			[{ startOffset: 50, duration: 200 }],
 			[{ startOffset: 100, duration: 100 }],
 		];
-		// Span at 252-352: row 0 ends at 300 (overlaps), row 1 ends at 250 (2ms gap - ok), row 2 ends at 200 (52ms gap - ok)
+		// Span at 260-360: row 0 overlaps, row 1 and row 2 are available.
 		// First available is row 1
-		const row = findAvailableRow({ startOffset: 252, duration: 100 }, rows, 0);
+		const row = findAvailableRow({ startOffset: 260, duration: 100 }, rows, 0);
 		expect(row).toBe(1);
 	});
 });
@@ -136,6 +109,16 @@ describe("packSpans", () => {
 		const result = packSpans([
 			{ id: "a", name: "A", startOffset: 0, duration: 100, parentId: null },
 			{ id: "b", name: "B", startOffset: 200, duration: 100, parentId: null },
+		]);
+		expect(result.spans[0].row).toBe(0);
+		expect(result.spans[1].row).toBe(0);
+		expect(result.totalRows).toBe(1);
+	});
+
+	it("places adjacent spans on same row", () => {
+		const result = packSpans([
+			{ id: "a", name: "A", startOffset: 0, duration: 100, parentId: null },
+			{ id: "b", name: "B", startOffset: 100, duration: 100, parentId: null },
 		]);
 		expect(result.spans[0].row).toBe(0);
 		expect(result.spans[1].row).toBe(0);

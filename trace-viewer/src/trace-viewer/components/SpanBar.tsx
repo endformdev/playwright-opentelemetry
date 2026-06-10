@@ -18,8 +18,6 @@ export interface SpanGeometry {
 	leftPercent: number;
 	/** Width as percentage of viewport */
 	widthPercent: number;
-	/** Display width (adjusted for very narrow spans) */
-	displayWidthPercent: number;
 	/** Whether the span is wide enough to show text content */
 	shouldShowContent: boolean;
 }
@@ -36,13 +34,13 @@ export function calculateSpanGeometry(
 	const rightPercent =
 		timeToViewportPosition(startOffset + duration, viewport) * 100;
 	const widthPercent = rightPercent - leftPercent;
-	const displayWidthPercent =
-		widthPercent > MIN_VISIBLE_WIDTH_PERCENT
-			? widthPercent
-			: widthPercent - 0.1;
 	const shouldShowContent = widthPercent > MIN_VISIBLE_WIDTH_PERCENT;
 
-	return { leftPercent, widthPercent, displayWidthPercent, shouldShowContent };
+	return {
+		leftPercent,
+		widthPercent,
+		shouldShowContent,
+	};
 }
 
 /**
@@ -115,14 +113,14 @@ export function SpanBar(props: SpanBarProps) {
 			data-span-end-ms={props.startOffset + props.duration}
 			data-span-row={props.row}
 			data-span-error={props.isError ? "true" : undefined}
-			class="absolute h-6 rounded-xs text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
+			class="absolute h-6 rounded-xs border-r border-gray-50 text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
 			classList={{
 				"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
 				"px-2": geometry().shouldShowContent,
 			}}
 			style={{
 				left: `${geometry().leftPercent}%`,
-				width: `${geometry().displayWidthPercent}%`,
+				width: `${geometry().widthPercent}%`,
 				top: `${props.row * ROW_HEIGHT}px`,
 				"background-color": props.color,
 			}}

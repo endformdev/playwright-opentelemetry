@@ -3,15 +3,8 @@
  * Assigns rows to spans to minimize vertical space while respecting:
  * 1. Parent-child relationships (children below parents)
  * 2. Non-overlapping constraint (no two spans on same row overlap in time)
- * 3. Minimum gap constraint (spans must be at least GAP_MS apart to share a row)
- * 4. Relative ordering (prefer keeping spans in their original order when possible)
+ * 3. Relative ordering (prefer keeping spans in their original order when possible)
  */
-
-/**
- * Minimum gap in milliseconds required between spans on the same row.
- * Spans closer than this will be placed on different rows for visual clarity.
- */
-const GAP_MS = 2;
 
 /**
  * Input span with timing and hierarchy information
@@ -40,13 +33,13 @@ export interface PackedSpansResult {
 }
 
 /**
- * Checks if two spans overlap in time or are too close together.
- * Spans are considered overlapping if they share any time range,
- * or if they are less than GAP_MS apart.
+ * Checks if two spans overlap in time.
+ * Spans are treated as half-open intervals, so exactly adjacent spans do not
+ * overlap and can share a row.
  *
  * @param a - First span
  * @param b - Second span
- * @returns true if spans overlap or are within GAP_MS of each other
+ * @returns true if spans overlap
  */
 export function spansOverlap(
 	a: { startOffset: number; duration: number },
@@ -55,8 +48,7 @@ export function spansOverlap(
 	const aEnd = a.startOffset + a.duration;
 	const bEnd = b.startOffset + b.duration;
 
-	// Spans overlap if they share time or are within GAP_MS of each other
-	return !(aEnd + GAP_MS <= b.startOffset || bEnd + GAP_MS <= a.startOffset);
+	return !(aEnd <= b.startOffset || bEnd <= a.startOffset);
 }
 
 /**
