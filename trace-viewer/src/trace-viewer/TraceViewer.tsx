@@ -8,6 +8,7 @@ import {
 	Show,
 } from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
+import { isErrorSpan } from "../trace-data-loader/exportToSpans";
 import type { TraceInfo } from "../trace-info-loader";
 import { BrowserSpansPanel } from "./components/BrowserSpansPanel";
 import { DetailsPanel } from "./components/DetailsPanel";
@@ -121,11 +122,11 @@ export function TraceViewer(props: TraceViewerProps) {
 						...traceData.browserSpans(),
 						...traceData.externalSpans(),
 					]}
-						screenshots={() =>
-							props.traceInfo.screenshots.loading
-								? []
-								: (props.traceInfo.screenshots() ?? [])
-						}
+					screenshots={() =>
+						props.traceInfo.screenshots.loading
+							? []
+							: (props.traceInfo.screenshots() ?? [])
+					}
 					testStartTimeMs={testStartTimeMs}
 				>
 					<TraceViewerInner
@@ -173,6 +174,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const [hoveredSearchSpanId, setHoveredSearchSpanId] = createSignal<
 		string | null
 	>(null);
+	const allSpans = createMemo(() => [
+		...props.traceData.steps(),
+		...props.traceData.browserSpans(),
+		...props.traceData.externalSpans(),
+	]);
+	const errorSpans = createMemo(() => allSpans().filter(isErrorSpan));
 
 	let contentAreaRef: HTMLDivElement | undefined;
 	const stepsDepth = createMemo(() => {
@@ -504,12 +511,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	const handleSpanSelect = (spanId: string) => {
 		// Find the span to get its start time
-		const allSpans = [
-			...props.traceData.steps(),
-			...props.traceData.browserSpans(),
-			...props.traceData.externalSpans(),
-		];
-		const span = allSpans.find((s) => s.id === spanId);
+		const span = allSpans().find((s) => s.id === spanId);
 
 		if (span) {
 			const position = timeToViewportPosition(span.startOffsetMs, viewport());
@@ -526,12 +528,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	// Navigate to a span without changing time position - only updates focus for scrolling
 	const handleSpanNavigate = (spanId: string) => {
-		const allSpans = [
-			...props.traceData.steps(),
-			...props.traceData.browserSpans(),
-			...props.traceData.externalSpans(),
-		];
-		const span = allSpans.find((s) => s.id === spanId);
+		const span = allSpans().find((s) => s.id === spanId);
 
 		if (span) {
 			const isStep =
@@ -575,12 +572,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 
 		// Find the span
-		const allSpans = [
-			...props.traceData.steps(),
-			...props.traceData.browserSpans(),
-			...props.traceData.externalSpans(),
-		];
-		const span = allSpans.find((s) => s.id === spanId);
+		const span = allSpans().find((s) => s.id === spanId);
 
 		if (span) {
 			// Check if span is visible in current viewport
@@ -823,6 +815,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		>
 			<TraceViewerHeader
 				testInfo={props.traceInfo.testInfo}
+				errorSpans={errorSpans()}
 				hoverTimeMs={displayTimeMs}
 				onSpanSelect={handleSpanSelect}
 				onSpanHover={handleSearchResultHover}

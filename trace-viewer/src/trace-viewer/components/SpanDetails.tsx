@@ -1,6 +1,6 @@
 import { ArrowUpFromDot } from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
-import type { Span } from "../../trace-data-loader/exportToSpans";
+import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
 import { formatAttributeValue, formatDuration } from "../formatters";
 import type { HoveredSpan } from "../getElementsAtTime";
 
@@ -19,7 +19,8 @@ export interface SpanDetailsProps {
 
 export function SpanDetails(props: SpanDetailsProps) {
 	const { span, depth, parent } = props.hoveredSpan;
-	const color = () => props.colorFn(depth, span);
+	const color = () =>
+		isErrorSpan(span) ? "#dc2626" : props.colorFn(depth, span);
 	const parentColor = () =>
 		parent ? props.colorFn(parent.depth, parent.span) : "";
 
@@ -50,6 +51,8 @@ export function SpanDetails(props: SpanDetailsProps) {
 		);
 	};
 
+	const statusLabel = () => (isErrorSpan(span) ? "Error" : "OK");
+
 	const handleParentClick = () => {
 		if (parent && props.onNavigateToSpan) {
 			props.onNavigateToSpan(parent.span.id);
@@ -78,6 +81,22 @@ export function SpanDetails(props: SpanDetailsProps) {
 
 			{/* Details */}
 			<div class="bg-gray-50 px-3 py-2 space-y-2 text-xs">
+				<Show when={isErrorSpan(span)}>
+					<div class="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-red-800">
+						<div class="font-semibold">Error</div>
+						<Show when={span.status?.message}>
+							{(message) => (
+								<div
+									class="mt-0.5 whitespace-pre-wrap break-words font-mono"
+									data-testid="span-error-message"
+								>
+									{message()}
+								</div>
+							)}
+						</Show>
+					</div>
+				</Show>
+
 				{/* Timing info - responsive single row that wraps on small widths */}
 				<div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
 					<span>
@@ -98,6 +117,19 @@ export function SpanDetails(props: SpanDetailsProps) {
 					<div class="flex gap-x-3 items-baseline">
 						<span class="text-gray-500">Kind:</span>
 						<span class="text-gray-900 capitalize">{span.kind}</span>
+					</div>
+
+					<div class="flex gap-x-3 items-baseline">
+						<span class="text-gray-500">Status:</span>
+						<span
+							class="capitalize"
+							classList={{
+								"text-red-700 font-semibold": isErrorSpan(span),
+								"text-gray-900": !isErrorSpan(span),
+							}}
+						>
+							{statusLabel()}
+						</span>
 					</div>
 
 					{/* Parent navigation chip - shows on right side when space allows, wraps below otherwise */}

@@ -1,9 +1,15 @@
 import { createMemo, For, Show } from "solid-js";
-import type { Span, SpanKind } from "../../trace-data-loader/exportToSpans";
+import {
+	isErrorSpan,
+	type Span,
+	type SpanKind,
+} from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
 import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
 import { ROW_HEIGHT, SpanBar } from "./SpanBar";
+
+const ERROR_SPAN_COLOR = "#dc2626";
 
 export interface ExternalSpansPanelProps {
 	spans: Span[];
@@ -50,6 +56,10 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 		return map;
 	});
 
+	const errorSpanIds = createMemo(
+		() => new Set(props.spans.filter(isErrorSpan).map((span) => span.id)),
+	);
+
 	const visibleSpans = createMemo(() => {
 		return packedSpansResult().spans.filter((span) =>
 			isTimeRangeVisible(
@@ -85,6 +95,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 						<For each={visibleSpans()}>
 							{(packedSpan: PackedSpan) => {
 								const kind = kindMap().get(packedSpan.id) ?? "internal";
+								const isError = errorSpanIds().has(packedSpan.id);
 								return (
 									<SpanBar
 										id={packedSpan.id}
@@ -92,7 +103,8 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 										startOffset={packedSpan.startOffset}
 										duration={packedSpan.duration}
 										row={packedSpan.row}
-										color={getSpanColor(kind)}
+										color={isError ? ERROR_SPAN_COLOR : getSpanColor(kind)}
+										isError={isError}
 										onHover={props.onSpanHover}
 										matchedSpanIds={props.matchedSpanIds}
 										hoveredSearchSpanId={props.hoveredSearchSpanId}

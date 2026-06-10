@@ -222,7 +222,9 @@ export async function loadTraceZipUrlInServiceWorker(
 export async function loadScreenshotsForTraceInServiceWorker(
 	data: ScreenshotsLoadData,
 ): Promise<ScreenshotMeta[]> {
-	const result = await postServiceWorkerMessage<{ screenshotMetas: ScreenshotMeta[] }>(
+	const result = await postServiceWorkerMessage<{
+		screenshotMetas: ScreenshotMeta[];
+	}>(
 		{ type: "LOAD_SCREENSHOTS", data },
 		"SCREENSHOTS_LOADED",
 		"SCREENSHOTS_LOAD_ERROR",
@@ -234,7 +236,9 @@ export async function loadScreenshotsForTraceInServiceWorker(
 export async function loadScreenshotsZipInServiceWorker(
 	data: ScreenshotsZipLoadData,
 ): Promise<ScreenshotMeta[]> {
-	const result = await postServiceWorkerMessage<{ screenshotMetas: ScreenshotMeta[] }>(
+	const result = await postServiceWorkerMessage<{
+		screenshotMetas: ScreenshotMeta[];
+	}>(
 		{ type: "LOAD_SCREENSHOTS_ZIP", data },
 		"SCREENSHOTS_LOADED",
 		"SCREENSHOTS_LOAD_ERROR",

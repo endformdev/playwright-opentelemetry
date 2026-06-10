@@ -314,7 +314,54 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 					attributes: expect.objectContaining({
 						[ATTR_TEST_STEP_NAME]: "Failing step",
 					}),
-					status: { code: 2 }, // ERROR status because it has an error
+					status: {
+						code: 2,
+						message: "Expected element to be visible",
+					}, // ERROR status because it has an error
+				}),
+			]),
+			expect.any(Object),
+		);
+	});
+
+	it("strips ANSI formatting from step error messages", async () => {
+		await runReporterTest({
+			test: {
+				title: "test with formatted failing step",
+				titlePath: [
+					"",
+					"chromium",
+					"test.spec.ts",
+					"test with formatted failing step",
+				],
+			},
+			result: {
+				status: "failed",
+				steps: [
+					{
+						title: "Formatted failing step",
+						category: "test.step",
+						startTime: new Date("2025-11-06T10:00:00.100Z"),
+						duration: 200,
+						error: {
+							message:
+								"\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).toBe(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: \u001b[32m\"confirmed\"\u001b[39m\nReceived: \u001b[31m\"submitted\"\u001b[39m",
+						},
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		expect(sendSpans).toHaveBeenCalledWith(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: TEST_STEP_SPAN_NAME,
+					status: {
+						code: 2,
+						message:
+							'expect(received).toBe(expected)\n\nExpected: "confirmed"\nReceived: "submitted"',
+					},
 				}),
 			]),
 			expect.any(Object),

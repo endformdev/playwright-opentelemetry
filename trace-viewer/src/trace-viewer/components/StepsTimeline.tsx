@@ -1,5 +1,5 @@
 import { createMemo, For } from "solid-js";
-import type { Span } from "../../trace-data-loader/exportToSpans";
+import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
 import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
@@ -64,6 +64,8 @@ function getStepColor(depth: number): string {
 	return `hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`;
 }
 
+const ERROR_SPAN_COLOR = "#dc2626";
+
 export function StepsTimeline(props: StepsTimelineProps) {
 	const { viewport } = useViewportContext();
 
@@ -73,6 +75,9 @@ export function StepsTimeline(props: StepsTimelineProps) {
 	});
 
 	const depthMap = createMemo(() => buildDepthMap(props.steps));
+	const errorSpanIds = createMemo(
+		() => new Set(props.steps.filter(isErrorSpan).map((span) => span.id)),
+	);
 
 	const visibleSteps = createMemo(() => {
 		return packedStepsResult().spans.filter((step) =>
@@ -100,6 +105,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 					<For each={visibleSteps()}>
 						{(step: PackedSpan) => {
 							const depth = depthMap().get(step.id) ?? 0;
+							const isError = errorSpanIds().has(step.id);
 							return (
 								<SpanBar
 									id={step.id}
@@ -107,7 +113,8 @@ export function StepsTimeline(props: StepsTimelineProps) {
 									startOffset={step.startOffset}
 									duration={step.duration}
 									row={step.row}
-									color={getStepColor(depth)}
+									color={isError ? ERROR_SPAN_COLOR : getStepColor(depth)}
+									isError={isError}
 									onHover={props.onStepHover}
 									matchedSpanIds={props.matchedSpanIds}
 									hoveredSearchSpanId={props.hoveredSearchSpanId}

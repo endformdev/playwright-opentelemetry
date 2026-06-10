@@ -202,8 +202,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			startTime: minStartTime,
 			endTime: maxEndTime,
 			attributes,
-			status: { code: result.status === test.expectedStatus ? 1 : 2 }, // 1=OK, 2=ERROR
 		};
+		if (result.status !== test.expectedStatus) {
+			span.status = { code: 2 };
+		}
 
 		// Build the final spans array with test span first
 		const testSpans: Span[] = [span, ...stepSpans];
@@ -381,6 +383,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Check if we've already processed this step (Playwright can report duplicates)
 		const existingSpan = processedSteps.get(stepId);
 		if (existingSpan) {
+			if (step.error) {
+				existingSpan.status = errorStatus(step.error.message);
+			}
+
 			// Merge: if this step has location info and the existing one doesn't, add it
 			if (step.location && !existingSpan.attributes[ATTR_CODE_FILE_PATH]) {
 				const { file, line } = step.location;
@@ -439,8 +445,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			startTime: step.startTime,
 			endTime: new Date(step.startTime.getTime() + step.duration),
 			attributes,
-			status: { code: step.error ? 2 : 1 }, // 1=OK, 2=ERROR
 		};
+		if (step.error) {
+			stepSpan.status = errorStatus(step.error.message);
+		}
 
 		processedSteps.set(stepId, stepSpan);
 
@@ -618,7 +626,7 @@ function parseFixtureSpan(value: unknown, testId: string, index: number): Span {
 		!startTime ||
 		!endTime ||
 		!isSpanAttributes(value.attributes) ||
-		!isSpanStatus(value.status)
+		(value.status !== undefined && !isSpanStatus(value.status))
 	) {
 		throw invalidFixtureSpanError(testId, index);
 	}
@@ -653,8 +661,29 @@ function parseAttachmentDate(value: unknown): Date | undefined {
 	return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-function isSpanStatus(value: unknown): value is Span["status"] {
+function isSpanStatus(value: unknown): value is NonNullable<Span["status"]> {
 	return isRecord(value) && typeof value.code === "number";
+}
+
+const ANSI_ESCAPE_PATTERN =
+	/[\u001b\u009b][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
+const ORPHANED_ANSI_SGR_PATTERN = /\[(?:\d{1,3};)*\d{1,3}m/g;
+
+function errorStatus(message: string | undefined): NonNullable<Span["status"]> {
+	if (!message) {
+		return { code: 2 };
+	}
+
+	const cleanedMessage = cleanErrorMessage(message);
+	return cleanedMessage ? { code: 2, message: cleanedMessage } : { code: 2 };
+}
+
+function cleanErrorMessage(message: string): string {
+	return message
+		.replace(ANSI_ESCAPE_PATTERN, "")
+		.replace(ORPHANED_ANSI_SGR_PATTERN, "")
+		.replace(/\r\n?/g, "\n")
+		.trim();
 }
 
 function isSpanAttributes(value: unknown): value is Span["attributes"] {
