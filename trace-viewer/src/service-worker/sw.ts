@@ -272,6 +272,7 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
 });
 
 function relativePathForUrl(url: URL): string | undefined {
+	if (url.origin !== sw.location.origin) return undefined;
 	if (!url.pathname.startsWith(scopePath)) return undefined;
 	return url.pathname.substring(scopePath.length - 1);
 }
