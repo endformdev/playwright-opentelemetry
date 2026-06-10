@@ -3,6 +3,7 @@ import {
 	type MenuHighlightChangeDetails,
 	type MenuOpenChangeDetails,
 } from "@ark-ui/solid/menu";
+import { CircleAlert } from "lucide-solid";
 import { For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
@@ -40,7 +41,7 @@ export function ErrorSpansDropdown(props: ErrorSpansDropdownProps) {
 		>
 			<Menu.Trigger
 				type="button"
-				class="relative inline-flex h-8 min-w-8 items-center justify-center rounded-md border px-2 text-sm font-semibold transition-colors"
+				class="inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-full border px-2.5 text-sm font-semibold leading-none transition-colors"
 				classList={{
 					"border-red-300 bg-red-50 text-red-700 hover:bg-red-100":
 						errorCount() > 0,
@@ -51,9 +52,12 @@ export function ErrorSpansDropdown(props: ErrorSpansDropdownProps) {
 				data-testid="error-spans-button"
 				title={errorCount() > 0 ? "Show error spans" : "No error spans"}
 			>
-				<span class="leading-none">!</span>
+				<CircleAlert size={15} strokeWidth={2.4} aria-hidden="true" />
 				<Show when={errorCount() > 0}>
-					<span class="ml-1 text-xs" data-testid="error-spans-count">
+					<span
+						class="text-xs leading-none tabular-nums"
+						data-testid="error-spans-count"
+					>
 						{errorCount()}
 					</span>
 				</Show>

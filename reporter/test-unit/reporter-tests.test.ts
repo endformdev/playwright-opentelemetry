@@ -53,7 +53,6 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 						[ATTR_CODE_FILE_PATH]: "example.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 3,
 					}),
-					status: { code: 1 }, // OK - status matches expected
 					traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
 					spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
 				}),
@@ -352,7 +351,6 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 						[ATTR_CODE_FILE_PATH]: "test.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 10,
 					}),
-					status: { code: 1 }, // OK - status matches expected
 				}),
 			]),
 			expect.objectContaining({

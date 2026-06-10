@@ -202,8 +202,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			startTime: minStartTime,
 			endTime: maxEndTime,
 			attributes,
-			status: { code: result.status === test.expectedStatus ? 1 : 2 }, // 1=OK, 2=ERROR
 		};
+		if (result.status !== test.expectedStatus) {
+			span.status = { code: 2 };
+		}
 
 		// Build the final spans array with test span first
 		const testSpans: Span[] = [span, ...stepSpans];
@@ -443,8 +445,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			startTime: step.startTime,
 			endTime: new Date(step.startTime.getTime() + step.duration),
 			attributes,
-			status: step.error ? errorStatus(step.error.message) : { code: 1 }, // 1=OK, 2=ERROR
 		};
+		if (step.error) {
+			stepSpan.status = errorStatus(step.error.message);
+		}
 
 		processedSteps.set(stepId, stepSpan);
 
@@ -622,7 +626,7 @@ function parseFixtureSpan(value: unknown, testId: string, index: number): Span {
 		!startTime ||
 		!endTime ||
 		!isSpanAttributes(value.attributes) ||
-		!isSpanStatus(value.status)
+		(value.status !== undefined && !isSpanStatus(value.status))
 	) {
 		throw invalidFixtureSpanError(testId, index);
 	}
@@ -657,7 +661,7 @@ function parseAttachmentDate(value: unknown): Date | undefined {
 	return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-function isSpanStatus(value: unknown): value is Span["status"] {
+function isSpanStatus(value: unknown): value is NonNullable<Span["status"]> {
 	return isRecord(value) && typeof value.code === "number";
 }
 
@@ -665,7 +669,7 @@ const ANSI_ESCAPE_PATTERN =
 	/[\u001b\u009b][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 const ORPHANED_ANSI_SGR_PATTERN = /\[(?:\d{1,3};)*\d{1,3}m/g;
 
-function errorStatus(message: string | undefined): Span["status"] {
+function errorStatus(message: string | undefined): NonNullable<Span["status"]> {
 	if (!message) {
 		return { code: 2 };
 	}
