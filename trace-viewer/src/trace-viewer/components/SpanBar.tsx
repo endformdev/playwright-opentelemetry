@@ -114,7 +114,7 @@ export function SpanBar(props: SpanBarProps) {
 		const spanGeometry = geometry();
 		const percentWithinBar =
 			((eventViewportPercent - spanGeometry.leftPercent) /
-				spanGeometry.displayWidthPercent) *
+				spanGeometry.widthPercent) *
 			100;
 		return Math.max(0, Math.min(100, percentWithinBar));
 	};
