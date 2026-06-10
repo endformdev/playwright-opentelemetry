@@ -715,4 +715,157 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 			expect.any(Object),
 		);
 	});
+
+	it("skips internal fixture steps from source and cjs package paths", async () => {
+		for (const file of [
+			"../dist/playwright-opentelemetry-fixture-DTgS7u93.mjs",
+			"/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture.cjs",
+			"/Users/test/project/node_modules/playwright-opentelemetry/dist/playwright-opentelemetry-fixture-DTgS7u93.mjs",
+			"/Users/test/project/playwright-opentelemetry/reporter/src/fixture/playwright-opentelemetry-fixture.ts",
+		]) {
+			vi.clearAllMocks();
+
+			await runReporterTest({
+				test: {
+					title: "test with internal fixture path variants",
+					titlePath: [
+						"",
+						"chromium",
+						"test.spec.ts",
+						"test with internal fixture path variants",
+					],
+				},
+				result: {
+					steps: [
+						{
+							title: "fixture: testTraceContext",
+							category: "fixture",
+							startTime: new Date("2025-11-06T10:00:00.050Z"),
+							duration: 50,
+							location: { file, line: 64 },
+						},
+						{
+							title: "User step",
+							category: "test.step",
+							startTime: new Date("2025-11-06T10:00:00.100Z"),
+							duration: 200,
+						},
+					],
+				},
+			});
+
+			const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+			expect(spans).toEqual(
+				expect.not.arrayContaining([
+					expect.objectContaining({
+						attributes: expect.objectContaining({
+							[ATTR_TEST_STEP_TITLE]: "fixture: testTraceContext",
+						}),
+					}),
+				]),
+			);
+			expect(spans).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						attributes: expect.objectContaining({
+							[ATTR_TEST_STEP_TITLE]: "User step",
+						}),
+					}),
+				]),
+			);
+		}
+	});
+
+	it("keeps nested user work under skipped internal fixture steps", async () => {
+		await runReporterTest({
+			test: {
+				title: "test with nested fixture work",
+				titlePath: [
+					"",
+					"chromium",
+					"test.spec.ts",
+					"test with nested fixture work",
+				],
+			},
+			result: {
+				steps: [
+					{
+						title: "fixture: page",
+						category: "fixture",
+						startTime: new Date("2025-11-06T10:00:00.050Z"),
+						duration: 300,
+						location: {
+							file: "/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture.cjs",
+							line: 96,
+						},
+						steps: [
+							{
+								title: "page.goto",
+								category: "pw:api",
+								startTime: new Date("2025-11-06T10:00:00.100Z"),
+								duration: 100,
+							},
+						],
+					},
+				],
+			},
+		});
+
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		expect(spans).toEqual(
+			expect.not.arrayContaining([
+				expect.objectContaining({
+					attributes: expect.objectContaining({
+						[ATTR_TEST_STEP_TITLE]: "fixture: page",
+					}),
+				}),
+			]),
+		);
+		expect(spans).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					parentSpanId: expect.any(String),
+					attributes: expect.objectContaining({
+						[ATTR_TEST_STEP_NAME]: "page.goto",
+						[ATTR_TEST_STEP_TITLE]: "page.goto",
+					}),
+				}),
+			]),
+		);
+	});
+
+	it("keeps user fixture steps that are not from playwright-opentelemetry", async () => {
+		await runReporterTest({
+			test: {
+				title: "test with user fixture",
+				titlePath: ["", "chromium", "test.spec.ts", "test with user fixture"],
+			},
+			result: {
+				steps: [
+					{
+						title: "fixture: loggedInPage",
+						category: "fixture",
+						startTime: new Date("2025-11-06T10:00:00.050Z"),
+						duration: 100,
+						location: {
+							file: "/Users/test/project/tests/fixtures.ts",
+							line: 12,
+						},
+					},
+				],
+			},
+		});
+
+		expect(sendSpans).toHaveBeenCalledWith(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: TEST_STEP_SPAN_NAME,
+					attributes: expect.objectContaining({
+						[ATTR_TEST_STEP_TITLE]: "fixture: loggedInPage",
+					}),
+				}),
+			]),
+			expect.any(Object),
+		);
+	});
 });

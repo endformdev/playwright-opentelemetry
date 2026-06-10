@@ -1,1 +1,1 @@
-export { createPlaywrightOtelTest } from "./fixture";
+export { createPlaywrightOtelTest } from "./playwright-opentelemetry-fixture";

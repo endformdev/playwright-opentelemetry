@@ -325,18 +325,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		processedSteps: Map<string, Span>,
 		skippedStepIds: Set<string>,
 	) {
-		// Skip fixture steps that come from the playwright-opentelemetry fixture file to avoid noise
-		const isInternalFixture =
-			step.category === "fixture" &&
-			step.location?.file.includes("playwright-opentelemetry") &&
-			(step.location?.file.endsWith("fixture.mjs") ||
-				step.location?.file.endsWith("fixture/index.ts"));
-
 		const stepId = getStepId(test, step);
 
 		// If this step is from our fixture file, mark it and remove any already-created span
 		// (Playwright sometimes reports the same fixture twice, once without location first)
-		if (isInternalFixture) {
+		if (isInternalFixtureStep(step)) {
 			skippedStepIds.add(stepId);
 
 			// Remove any span we already created for this stepId (from a duplicate without location)
@@ -685,6 +678,23 @@ function cleanErrorMessage(message: string): string {
 		.replace(/\r\n?/g, "\n")
 		.trim();
 }
+
+function isInternalFixtureStep(step: TestStep): boolean {
+	if (step.category !== "fixture" || !step.location?.file) {
+		return false;
+	}
+
+	const file = step.location.file.replace(/\\/g, "/");
+	return INTERNAL_FIXTURE_FILE_PATTERNS.some((pattern) => pattern.test(file));
+}
+
+const INTERNAL_FIXTURE_FILE_PATTERNS = [
+	/(?:^|\/)dist\/playwright-opentelemetry-fixture-[^/]+\.(?:mjs|cjs|js)$/,
+	/(?:^|\/)playwright-opentelemetry\/dist\/fixture\.(?:mjs|cjs|js)$/,
+	/(?:^|\/)playwright-opentelemetry\/dist\/playwright-opentelemetry-fixture-[^/]+\.(?:mjs|cjs|js)$/,
+	/(?:^|\/)playwright-opentelemetry\/dist\/fixture\/index\.(?:mjs|cjs|js)$/,
+	/(?:^|\/)playwright-opentelemetry\/(?:reporter\/)?src\/fixture\/playwright-opentelemetry-fixture\.ts$/,
+] as const;
 
 function isSpanAttributes(value: unknown): value is Span["attributes"] {
 	if (!isRecord(value)) {
