@@ -4,12 +4,13 @@ import type { TestInfo } from "../trace-info-loader";
 import { ErrorSpansDropdown } from "./components/ErrorSpansDropdown";
 import { SearchCombobox } from "./components/SearchCombobox";
 import { useSearch } from "./contexts/SearchContext";
+import type { SpanSelectionPlacement } from "./spanSelection";
 
 export interface TraceViewerHeaderProps {
 	testInfo: TestInfo;
 	errorSpans: Span[];
 	hoverTimeMs: Accessor<number | null>;
-	onSpanSelect?: (spanId: string) => void;
+	onSpanSelect?: (spanId: string, placement: SpanSelectionPlacement) => void;
 	onSpanHover?: (spanId: string | null) => void;
 }
 
@@ -83,11 +84,11 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 	};
 
 	const handleResultSelect = (spanId: string) => {
-		props.onSpanSelect?.(spanId);
+		props.onSpanSelect?.(spanId, "start");
 	};
 
 	const handleErrorSpanSelect = (spanId: string) => {
-		props.onSpanSelect?.(spanId);
+		props.onSpanSelect?.(spanId, "end");
 	};
 
 	return (
