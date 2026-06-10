@@ -96,6 +96,12 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 		page: async ({ page, testTraceContext, browserPageTracker }, use) => {
 			browserPageTracker.registerPage(page);
 			page.on("close", () => browserPageTracker.unregisterPage(page));
+			page.on("console", (message) => {
+				browserPageTracker.recordConsoleMessage(page, message);
+			});
+			page.on("pageerror", (error) => {
+				browserPageTracker.recordPageError(page, error);
+			});
 			page.on("framenavigated", (frame) => {
 				if (frame === page.mainFrame()) {
 					browserPageTracker.handleFrameNavigated(page, frame.url());

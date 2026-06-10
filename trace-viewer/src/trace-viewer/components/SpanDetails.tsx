@@ -1,8 +1,13 @@
 import { ArrowUpFromDot } from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
-import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
+import {
+	isErrorSpan,
+	type Span,
+	type SpanEvent,
+} from "../../trace-data-loader/exportToSpans";
 import { formatAttributeValue, formatDuration } from "../formatters";
 import type { HoveredSpan } from "../getElementsAtTime";
+import { getSpanEventSeverity } from "./spanEventStyles";
 
 export interface SpanDetailsProps {
 	hoveredSpan: HoveredSpan;
@@ -52,6 +57,8 @@ export function SpanDetails(props: SpanDetailsProps) {
 	};
 
 	const statusLabel = () => (isErrorSpan(span) ? "Error" : "OK");
+	const eventAbsoluteOffsetMs = (event: SpanEvent) =>
+		span.startOffsetMs + event.timeOffsetMs;
 
 	const handleParentClick = () => {
 		if (parent && props.onNavigateToSpan) {
@@ -160,6 +167,72 @@ export function SpanDetails(props: SpanDetailsProps) {
 				</Show>
 
 				{/* Attributes */}
+				<Show when={(span.events ?? []).length > 0}>
+					<div class="border-t border-gray-200 pt-2 mt-2">
+						<div class="text-gray-500 mb-1">Events:</div>
+						<div class="space-y-2 pl-2">
+							<For each={span.events ?? []}>
+								{(event, index) => (
+									<div
+										data-testid="span-event-card"
+										data-span-event-name={event.name}
+										data-span-event-index={index()}
+										data-span-event-error={
+											getSpanEventSeverity(event) === "error"
+												? "true"
+												: undefined
+										}
+										class="rounded border px-2 py-1.5"
+										classList={{
+											"border-red-200 bg-red-50":
+												getSpanEventSeverity(event) === "error",
+											"border-amber-200 bg-amber-50":
+												getSpanEventSeverity(event) === "warning",
+											"border-gray-200 bg-white":
+												getSpanEventSeverity(event) === "default",
+										}}
+									>
+										<div class="flex items-baseline justify-between gap-2">
+											<div class="font-semibold text-gray-800">
+												{event.name}
+											</div>
+											<div class="font-mono text-gray-500">
+												{formatDuration(eventAbsoluteOffsetMs(event))}
+											</div>
+										</div>
+										<Show when={eventMessage(event)}>
+											{(message) => (
+												<div class="mt-1 whitespace-pre-wrap break-words font-mono text-gray-900">
+													{message()}
+												</div>
+											)}
+										</Show>
+										<Show when={eventAttributeEntries(event).length > 0}>
+											<div class="mt-1 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+												<For each={eventAttributeEntries(event)}>
+													{([key, value]) => (
+														<>
+															<span class="text-gray-500 truncate" title={key}>
+																{key}:
+															</span>
+															<span
+																class="font-mono text-gray-900 break-all"
+																title={String(value)}
+															>
+																{formatAttributeValue(value)}
+															</span>
+														</>
+													)}
+												</For>
+											</div>
+										</Show>
+									</div>
+								)}
+							</For>
+						</div>
+					</div>
+				</Show>
+
 				<Show when={attributeEntries().length > 0}>
 					<div class="border-t border-gray-200 pt-2 mt-2">
 						<div class="text-gray-500 mb-1">Attributes:</div>
@@ -184,5 +257,19 @@ export function SpanDetails(props: SpanDetailsProps) {
 				</Show>
 			</div>
 		</div>
+	);
+}
+
+function eventMessage(event: SpanEvent): string | undefined {
+	const message =
+		event.attributes["exception.message"] ?? event.attributes.message;
+	return typeof message === "string" && message.length > 0
+		? message
+		: undefined;
+}
+
+function eventAttributeEntries(event: SpanEvent) {
+	return Object.entries(event.attributes).filter(
+		([key]) => key !== "exception.message" && key !== "message",
 	);
 }

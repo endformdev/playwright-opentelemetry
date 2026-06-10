@@ -1,4 +1,10 @@
-import type { Page, Request, Response, Route } from "@playwright/test";
+import type {
+	ConsoleMessage,
+	Page,
+	Request,
+	Response,
+	Route,
+} from "@playwright/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	BrowserPageTracker,
@@ -128,6 +134,78 @@ describe("fixture browser span hierarchy", () => {
 		expect(httpSpans[2]?.parentSpanId).toBe(traceContext.rootSpanId);
 	});
 
+	it("records console messages as log events on the active browser span", () => {
+		const traceContext = createTraceContext();
+		const tracker = new BrowserPageTracker(traceContext);
+		const page = createPage("about:blank");
+		tracker.registerPage(page);
+		tracker.startDocumentNavigation(
+			createRequest({
+				page,
+				url: "https://example.com/products",
+				isNavigationRequest: true,
+			}),
+		);
+
+		tracker.recordConsoleMessage(
+			page,
+			createConsoleMessage({
+				type: "warning",
+				text: "Slow checkout render",
+				url: "https://example.com/app.js",
+				line: 12,
+			}),
+			new Date("2025-11-06T10:00:00.050Z"),
+		);
+
+		expect(traceContext.spans[0]?.events).toEqual([
+			expect.objectContaining({
+				name: "log",
+				time: new Date("2025-11-06T10:00:00.050Z"),
+				attributes: expect.objectContaining({
+					message: "Slow checkout render",
+					"browser.console.type": "warning",
+					"severity.text": "WARN",
+					"code.file.path": "https://example.com/app.js",
+					"code.line.number": 13,
+				}),
+			}),
+		]);
+	});
+
+	it("records page errors as exception events on the active route span", () => {
+		const traceContext = createTraceContext();
+		const tracker = new BrowserPageTracker(traceContext);
+		const page = createPage("about:blank");
+		tracker.registerPage(page);
+		tracker.startDocumentNavigation(
+			createRequest({
+				page,
+				url: "https://example.com/products",
+				isNavigationRequest: true,
+			}),
+		);
+		tracker.handleFrameNavigated(page, "https://example.com/products/123");
+		const error = new TypeError("Cannot read properties of undefined");
+		error.stack =
+			"TypeError: Cannot read properties of undefined\n    at app.js:1:2";
+
+		tracker.recordPageError(page, error, new Date("2025-11-06T10:00:00.075Z"));
+
+		expect(traceContext.spans[1]?.events).toEqual([
+			expect.objectContaining({
+				name: "exception",
+				time: new Date("2025-11-06T10:00:00.075Z"),
+				attributes: expect.objectContaining({
+					"exception.type": "TypeError",
+					"exception.message": "Cannot read properties of undefined",
+					"exception.stacktrace": error.stack,
+				}),
+			}),
+		]);
+		expect(traceContext.spans[1]?.status).toEqual({ code: 0 });
+	});
+
 	it("flushes fixture spans directly to the trace API", async () => {
 		process.env.PLAYWRIGHT_TRACE_API_ENDPOINT = "https://traces.example.com";
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
@@ -141,6 +219,7 @@ describe("fixture browser span hierarchy", () => {
 			startTime: new Date("2025-11-06T10:00:00.000Z"),
 			endTime: new Date("2025-11-06T10:00:01.000Z"),
 			attributes: { "browser.resource.type": "page" },
+			events: [],
 			status: { code: 0 },
 			serviceName: "playwright-browser",
 		});
@@ -176,6 +255,7 @@ describe("fixture browser span hierarchy", () => {
 			startTime: spanStartTime,
 			endTime: new Date("2025-11-06T10:00:01.000Z"),
 			attributes: { "browser.resource.type": "page" },
+			events: [],
 			status: { code: 0 },
 			serviceName: "playwright-browser",
 		});
@@ -197,6 +277,7 @@ describe("fixture browser span hierarchy", () => {
 				traceId: traceContext.traceId,
 				name: "browser.page",
 				startTime: spanStartTime.toISOString(),
+				events: [],
 				serviceName: "playwright-browser",
 			}),
 		]);
@@ -303,4 +384,23 @@ function createResponse(request: Request): Response {
 		request: () => request,
 		headerValue: async () => "application/json",
 	} as unknown as Response;
+}
+
+function createConsoleMessage(options: {
+	type: string;
+	text: string;
+	url?: string;
+	line?: number;
+}): ConsoleMessage {
+	return {
+		type: () => options.type,
+		text: () => options.text,
+		location: () => ({
+			url: options.url ?? "",
+			line: options.line ?? 0,
+			column: 0,
+			lineNumber: options.line ?? 0,
+			columnNumber: 0,
+		}),
+	} as unknown as ConsoleMessage;
 }

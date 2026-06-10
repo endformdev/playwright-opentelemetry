@@ -8,6 +8,8 @@ const browserPageSpansTraceIdFile =
 	process.env.BROWSER_PAGE_SPANS_TRACE_ID_FILE;
 const browserPageSpansTraceZipPathFile =
 	process.env.BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE;
+const errorSpansTraceIdFile = process.env.ERROR_SPANS_TRACE_ID_FILE;
+const spanEventsTraceIdFile = process.env.SPAN_EVENTS_TRACE_ID_FILE;
 
 // Only require OTLP headers if using OTLP endpoint
 if (
@@ -35,7 +37,10 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 	/* Reporter to use. See https://playwright.dev/docs/test-reporters */
 	reporter: [
 		["./dist/reporter.mjs"],
-		...(browserPageSpansTraceIdFile || browserPageSpansTraceZipPathFile
+		...(browserPageSpansTraceIdFile ||
+		browserPageSpansTraceZipPathFile ||
+		errorSpansTraceIdFile ||
+		spanEventsTraceIdFile
 			? ([["./test-e2e/browser-page-spans-trace-id-file-reporter.ts"]] as const)
 			: []),
 	],

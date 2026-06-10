@@ -2,6 +2,12 @@ import { version } from "../../package.json" with { type: "json" };
 
 export type SpanAttributeValue = string | number | boolean | string[];
 
+export type SpanEvent = {
+	name: string;
+	time: Date;
+	attributes?: Record<string, SpanAttributeValue>;
+};
+
 export type Span = {
 	traceId: string;
 	spanId: string;
@@ -10,6 +16,7 @@ export type Span = {
 	startTime: Date;
 	endTime: Date;
 	attributes: Record<string, SpanAttributeValue>;
+	events?: SpanEvent[];
 	status?: { code: number; message?: string };
 	kind?: number;
 	/** Service name for this span (if different from default). */
@@ -112,7 +119,12 @@ function buildResourceSpan(
 		endTimeUnixNano: dateToNanoseconds(span.endTime),
 		attributes: toOtlpAttributes(span.attributes),
 		droppedAttributesCount: 0,
-		events: [],
+		events: (span.events ?? []).map((event) => ({
+			name: event.name,
+			timeUnixNano: dateToNanoseconds(event.time),
+			attributes: toOtlpAttributes(event.attributes ?? {}),
+			droppedAttributesCount: 0,
+		})),
 		droppedEventsCount: 0,
 		status: span.status,
 		links: [],

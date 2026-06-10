@@ -1,6 +1,6 @@
-import type { Page, Request } from "@playwright/test";
-import { generateSpanId, type Span } from "../shared/otel";
-import type { TestTraceContext } from "./trace-context";
+import type { ConsoleMessage, Page, Request } from "@playwright/test";
+import { generateSpanId } from "../shared/otel";
+import type { FixtureSpan, TestTraceContext } from "./trace-context";
 
 const BROWSER_PAGE_SPAN_NAME = "browser.page";
 const BROWSER_ROUTE_SPAN_NAME = "browser.route";
@@ -18,7 +18,7 @@ interface PageState {
 }
 
 interface ActiveBrowserSpan {
-	span: Span;
+	span: FixtureSpan;
 	url: string;
 }
 
@@ -114,6 +114,63 @@ export class BrowserPageTracker {
 		};
 	}
 
+	recordConsoleMessage(
+		page: Page,
+		message: ConsoleMessage,
+		time = new Date(),
+	): void {
+		const activeSpan = this.getActiveBrowserSpan(page);
+		if (!activeSpan) {
+			return;
+		}
+
+		const type = message.type();
+		const attributes: Record<string, string | number | boolean | string[]> = {
+			message: message.text(),
+			"browser.console.type": type,
+			"severity.text": consoleSeverityText(type),
+		};
+
+		const location = message.location();
+		if (location.url) {
+			attributes["code.file.path"] = location.url;
+		}
+		const line = consoleLocationLine(location);
+		if (line !== undefined) {
+			attributes["code.line.number"] = line + 1;
+		}
+
+		activeSpan.events.push({
+			name: "log",
+			time,
+			attributes,
+		});
+	}
+
+	recordPageError(page: Page, error: Error, time = new Date()): void {
+		const activeSpan = this.getActiveBrowserSpan(page);
+		if (!activeSpan) {
+			return;
+		}
+
+		const attributes: Record<string, string | number | boolean | string[]> = {};
+		if (error.name) {
+			attributes["exception.type"] = error.name;
+		}
+		if (error.message) {
+			attributes["exception.message"] = error.message;
+		}
+		if (error.stack) {
+			attributes["exception.stacktrace"] = error.stack;
+		}
+
+		activeSpan.events.push({
+			name: "exception",
+			time,
+			attributes,
+		});
+	}
+
 	private startDocumentPageSpan(
 		page: Page,
 		url: string,
@@ -182,6 +239,11 @@ export class BrowserPageTracker {
 		}
 	}
 
+	private getActiveBrowserSpan(page: Page): FixtureSpan | undefined {
+		const state = this.pageStates.get(page);
+		return state?.activeRouteSpan?.span ?? state?.activeDocumentSpan?.span;
+	}
+
 	private stateFor(page: Page): PageState {
 		const existing = this.pageStates.get(page);
 		if (existing) {
@@ -214,7 +276,7 @@ export class BrowserPageTracker {
 		startTime: Date;
 		previousUrl?: string;
 		documentUrl?: string;
-	}): Span {
+	}): FixtureSpan {
 		return {
 			traceId: this.traceContext.traceId,
 			spanId: generateSpanId(),
@@ -230,9 +292,35 @@ export class BrowserPageTracker {
 				previousUrl,
 				documentUrl,
 			}),
+			events: [],
 			serviceName: BROWSER_SERVICE_NAME,
 		};
 	}
+}
+
+function consoleSeverityText(type: string): string {
+	switch (type) {
+		case "debug":
+			return "DEBUG";
+		case "warning":
+			return "WARN";
+		case "error":
+		case "assert":
+			return "ERROR";
+		case "trace":
+			return "TRACE";
+		default:
+			return "INFO";
+	}
+}
+
+type ConsoleLocation = ReturnType<ConsoleMessage["location"]> & {
+	line?: number;
+	column?: number;
+};
+
+function consoleLocationLine(location: ConsoleLocation): number | undefined {
+	return location.line ?? location.lineNumber;
 }
 
 function pageAttributes({

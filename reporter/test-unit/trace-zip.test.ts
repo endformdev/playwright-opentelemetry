@@ -495,6 +495,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 												"browser.page.navigation.type": "document",
 												"url.path": "/browser-spans",
 											},
+											events: [],
 											status: { code: 0 },
 											serviceName: "playwright-browser",
 										},
