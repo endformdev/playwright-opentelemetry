@@ -718,9 +718,10 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 
 	it("skips internal fixture steps from source and cjs package paths", async () => {
 		for (const file of [
+			"../dist/playwright-opentelemetry-fixture-DTgS7u93.mjs",
 			"/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture.cjs",
-			"/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture-DTgS7u93.mjs",
-			"/Users/test/project/playwright-opentelemetry/reporter/src/fixture/fixture.ts",
+			"/Users/test/project/node_modules/playwright-opentelemetry/dist/playwright-opentelemetry-fixture-DTgS7u93.mjs",
+			"/Users/test/project/playwright-opentelemetry/reporter/src/fixture/playwright-opentelemetry-fixture.ts",
 		]) {
 			vi.clearAllMocks();
 
@@ -794,7 +795,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 						startTime: new Date("2025-11-06T10:00:00.050Z"),
 						duration: 300,
 						location: {
-							file: "/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture.mjs",
+							file: "/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture.cjs",
 							line: 96,
 						},
 						steps: [

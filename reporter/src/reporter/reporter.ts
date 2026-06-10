@@ -689,10 +689,11 @@ function isInternalFixtureStep(step: TestStep): boolean {
 }
 
 const INTERNAL_FIXTURE_FILE_PATTERNS = [
+	/(?:^|\/)dist\/playwright-opentelemetry-fixture-[^/]+\.(?:mjs|cjs|js)$/,
 	/(?:^|\/)playwright-opentelemetry\/dist\/fixture\.(?:mjs|cjs|js)$/,
-	/(?:^|\/)playwright-opentelemetry\/dist\/fixture-[^/]+\.(?:mjs|cjs|js)$/,
+	/(?:^|\/)playwright-opentelemetry\/dist\/playwright-opentelemetry-fixture-[^/]+\.(?:mjs|cjs|js)$/,
 	/(?:^|\/)playwright-opentelemetry\/dist\/fixture\/index\.(?:mjs|cjs|js)$/,
-	/(?:^|\/)playwright-opentelemetry\/(?:reporter\/)?src\/fixture\/(?:fixture|index)\.ts$/,
+	/(?:^|\/)playwright-opentelemetry\/(?:reporter\/)?src\/fixture\/playwright-opentelemetry-fixture\.ts$/,
 ] as const;
 
 function isSpanAttributes(value: unknown): value is Span["attributes"] {
