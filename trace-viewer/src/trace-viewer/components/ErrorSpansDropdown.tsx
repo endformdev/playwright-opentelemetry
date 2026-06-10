@@ -6,7 +6,7 @@ import {
 import { CircleAlert } from "lucide-solid";
 import { For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
+import type { Span } from "../../trace-data-loader/exportToSpans";
 import { formatDuration } from "../formatters";
 
 export interface ErrorSpansDropdownProps {
@@ -16,8 +16,7 @@ export interface ErrorSpansDropdownProps {
 }
 
 export function ErrorSpansDropdown(props: ErrorSpansDropdownProps) {
-	const errorSpans = () => props.spans.filter(isErrorSpan);
-	const errorCount = () => errorSpans().length;
+	const errorCount = () => props.spans.length;
 
 	const handleOpenChange = (details: MenuOpenChangeDetails) => {
 		if (!details.open) props.onSpanHover?.(null);
@@ -73,7 +72,7 @@ export function ErrorSpansDropdown(props: ErrorSpansDropdownProps) {
 							<Menu.ItemGroupLabel class="border-b border-red-100 bg-red-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-red-700">
 								Error Spans ({errorCount()})
 							</Menu.ItemGroupLabel>
-							<For each={errorSpans()}>
+							<For each={props.spans}>
 								{(span) => (
 									<Menu.Item
 										value={span.id}

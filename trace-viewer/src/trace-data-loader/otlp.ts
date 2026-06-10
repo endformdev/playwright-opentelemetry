@@ -41,7 +41,7 @@ const OtlpSpanSchema = v.object({
 	droppedAttributesCount: v.fallback(v.number(), 0),
 	events: v.array(v.unknown()),
 	droppedEventsCount: v.fallback(v.number(), 0),
-	status: OtlpSpanStatusSchema,
+	status: v.optional(OtlpSpanStatusSchema),
 	links: v.array(v.unknown()),
 	droppedLinksCount: v.fallback(v.number(), 0),
 });
