@@ -1,4 +1,9 @@
-import type { OtlpAttribute, OtlpExport, OtlpSpan } from "./otlp";
+import type {
+	OtlpAttribute,
+	OtlpExport,
+	OtlpSpan,
+	OtlpSpanEvent,
+} from "./otlp";
 
 /**
  * A span with timing relative to test start.
@@ -18,12 +23,19 @@ export interface Span {
 	durationMs: number;
 	kind: SpanKind;
 	attributes: Record<string, AttributeValue>;
+	events?: SpanEvent[];
 	status?: SpanStatus;
 	/** Service name from resource attributes (e.g., "playwright-browser") */
 	serviceName: string;
 }
 
 export type AttributeValue = string | number | boolean | string[];
+
+export interface SpanEvent {
+	name: string;
+	timeOffsetMs: number;
+	attributes: Record<string, AttributeValue>;
+}
 
 export interface SpanStatus {
 	code: number;
@@ -98,8 +110,22 @@ export function otlpSpanToSpan(
 		durationMs: endTimeMs - startTimeMs,
 		kind: spanKindFromOtlp(span.kind),
 		attributes,
+		events: span.events.map((event) =>
+			otlpEventToSpanEvent(event, startTimeMs),
+		),
 		status: span.status,
 		serviceName,
+	};
+}
+
+function otlpEventToSpanEvent(
+	event: OtlpSpanEvent,
+	spanStartTimeMs: number,
+): SpanEvent {
+	return {
+		name: event.name,
+		timeOffsetMs: nanoToMs(event.timeUnixNano) - spanStartTimeMs,
+		attributes: flattenAttributes(event.attributes),
 	};
 }
 

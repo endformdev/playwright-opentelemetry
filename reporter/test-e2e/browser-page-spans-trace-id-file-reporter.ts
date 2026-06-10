@@ -6,6 +6,7 @@ const TRACE_ID_ATTACHMENT_NAME = "playwright-opentelemetry-trace-id";
 const BROWSER_PAGE_SPANS_TEST_NAME =
 	"playwright.dev browser page navigation trace";
 const ERROR_SPANS_TEST_NAME = "expected failing step trace";
+const SPAN_EVENTS_TEST_NAME = "browser console and page error span events";
 
 export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 	onTestEnd(test: TestCase, result: TestResult): void {
@@ -14,16 +15,19 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 		const browserPageSpansTraceZipPathFile =
 			process.env.BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE;
 		const errorSpansTraceIdFile = process.env.ERROR_SPANS_TRACE_ID_FILE;
+		const spanEventsTraceIdFile = process.env.SPAN_EVENTS_TRACE_ID_FILE;
 		if (
 			!browserPageSpansTraceIdFile &&
 			!browserPageSpansTraceZipPathFile &&
-			!errorSpansTraceIdFile
+			!errorSpansTraceIdFile &&
+			!spanEventsTraceIdFile
 		) {
 			return;
 		}
 		if (
 			test.title !== BROWSER_PAGE_SPANS_TEST_NAME &&
-			test.title !== ERROR_SPANS_TEST_NAME
+			test.title !== ERROR_SPANS_TEST_NAME &&
+			test.title !== SPAN_EVENTS_TEST_NAME
 		) {
 			return;
 		}
@@ -49,6 +53,10 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 
 		if (test.title === ERROR_SPANS_TEST_NAME && errorSpansTraceIdFile) {
 			writeFile(errorSpansTraceIdFile, traceId);
+		}
+
+		if (test.title === SPAN_EVENTS_TEST_NAME && spanEventsTraceIdFile) {
+			writeFile(spanEventsTraceIdFile, traceId);
 		}
 	}
 }

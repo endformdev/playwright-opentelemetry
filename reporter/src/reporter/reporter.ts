@@ -619,6 +619,7 @@ function parseFixtureSpan(value: unknown, testId: string, index: number): Span {
 		!startTime ||
 		!endTime ||
 		!isSpanAttributes(value.attributes) ||
+		!isSpanEvents(value.events) ||
 		(value.status !== undefined && !isSpanStatus(value.status))
 	) {
 		throw invalidFixtureSpanError(testId, index);
@@ -633,6 +634,11 @@ function parseFixtureSpan(value: unknown, testId: string, index: number): Span {
 		startTime,
 		endTime,
 		attributes: value.attributes,
+		events: value.events.map((event) => ({
+			name: event.name,
+			time: parseAttachmentDate(event.time)!,
+			attributes: event.attributes,
+		})),
 		status: value.status,
 		kind: typeof value.kind === "number" ? value.kind : undefined,
 		serviceName:
@@ -708,6 +714,23 @@ function isSpanAttributes(value: unknown): value is Span["attributes"] {
 			typeof attributeValue === "boolean" ||
 			(Array.isArray(attributeValue) &&
 				attributeValue.every((item) => typeof item === "string")),
+	);
+}
+
+function isSpanEvents(value: unknown): value is Array<{
+	name: string;
+	time: string;
+	attributes?: Span["attributes"];
+}> {
+	return (
+		Array.isArray(value) &&
+		value.every(
+			(event) =>
+				isRecord(event) &&
+				typeof event.name === "string" &&
+				parseAttachmentDate(event.time) !== undefined &&
+				(event.attributes === undefined || isSpanAttributes(event.attributes)),
+		)
 	);
 }
 

@@ -588,6 +588,7 @@ async function simulateBrowserPageAction(
 		startTime: browserPageAction.startTime,
 		endTime: browserPageAction.startTime,
 		attributes,
+		events: [],
 		status: { code: 0 },
 		serviceName: "playwright-browser",
 	});

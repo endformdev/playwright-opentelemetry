@@ -29,6 +29,13 @@ const OtlpSpanStatusSchema = v.object({
 	message: v.optional(v.string()),
 });
 
+const OtlpSpanEventSchema = v.object({
+	name: v.string(),
+	timeUnixNano: v.string(),
+	attributes: v.array(OtlpAttributeSchema),
+	droppedAttributesCount: v.fallback(v.number(), 0),
+});
+
 const OtlpSpanSchema = v.object({
 	traceId: v.string(),
 	spanId: v.string(),
@@ -39,7 +46,7 @@ const OtlpSpanSchema = v.object({
 	endTimeUnixNano: v.string(),
 	attributes: v.array(OtlpAttributeSchema),
 	droppedAttributesCount: v.fallback(v.number(), 0),
-	events: v.array(v.unknown()),
+	events: v.array(OtlpSpanEventSchema),
 	droppedEventsCount: v.fallback(v.number(), 0),
 	status: v.optional(OtlpSpanStatusSchema),
 	links: v.array(v.unknown()),
@@ -73,6 +80,7 @@ export type OtlpExport = v.InferOutput<typeof OtlpExportSchema>;
 export type OtlpResourceSpans = v.InferOutput<typeof OtlpResourceSpansSchema>;
 export type OtlpScopeSpans = v.InferOutput<typeof OtlpScopeSpansSchema>;
 export type OtlpSpan = v.InferOutput<typeof OtlpSpanSchema>;
+export type OtlpSpanEvent = v.InferOutput<typeof OtlpSpanEventSchema>;
 export type OtlpAttribute = v.InferOutput<typeof OtlpAttributeSchema>;
 export type OtlpAttributeValue = v.InferOutput<typeof OtlpAttributeValueSchema>;
 

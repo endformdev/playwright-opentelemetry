@@ -175,6 +175,40 @@ describe("otlpSpanToSpan", () => {
 			message: "Expected button to be visible",
 		});
 	});
+
+	it("preserves span events with timing relative to the span", () => {
+		const span = createOtlpSpan({
+			startTimeUnixNano: "1000000000",
+			endTimeUnixNano: "1300000000",
+			events: [
+				{
+					name: "log",
+					timeUnixNano: "1125000000",
+					attributes: [
+						{
+							key: "message",
+							value: { stringValue: "Console warning" },
+						},
+						{ key: "severity.text", value: { stringValue: "WARN" } },
+					],
+					droppedAttributesCount: 0,
+				},
+			],
+		});
+
+		const result = otlpSpanToSpan(span, 0, "test-service");
+
+		expect(result.events).toEqual([
+			{
+				name: "log",
+				timeOffsetMs: 125,
+				attributes: {
+					message: "Console warning",
+					"severity.text": "WARN",
+				},
+			},
+		]);
+	});
 });
 
 describe("otlpExportToSpans", () => {

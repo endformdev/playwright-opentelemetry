@@ -1,7 +1,9 @@
-import type { JSX } from "solid-js";
+import { For, type JSX } from "solid-js";
+import type { SpanEvent } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
 import type { TimelineViewport } from "../viewport";
 import { timeToViewportPosition } from "../viewport";
+import { getSpanEventSeverity } from "./spanEventStyles";
 
 /** Height of each span row in pixels */
 export const ROW_HEIGHT = 28;
@@ -70,6 +72,7 @@ export interface SpanBarProps {
 	row: number;
 	color: string;
 	isError?: boolean;
+	events?: SpanEvent[];
 	/** Optional icon to display before the span name */
 	icon?: JSX.Element;
 	onHover?: (spanId: string | null) => void;
@@ -102,6 +105,20 @@ export function SpanBar(props: SpanBarProps) {
 		);
 	};
 
+	const eventLeftPercent = (event: SpanEvent) => {
+		const eventViewportPercent =
+			timeToViewportPosition(
+				props.startOffset + event.timeOffsetMs,
+				viewport(),
+			) * 100;
+		const spanGeometry = geometry();
+		const percentWithinBar =
+			((eventViewportPercent - spanGeometry.leftPercent) /
+				spanGeometry.displayWidthPercent) *
+			100;
+		return Math.max(0, Math.min(100, percentWithinBar));
+	};
+
 	return (
 		<div
 			role="listitem"
@@ -129,6 +146,40 @@ export function SpanBar(props: SpanBarProps) {
 			onMouseLeave={() => props.onHover?.(null)}
 		>
 			{displayText()}
+			<For each={props.events ?? []}>
+				{(event, index) => (
+					<div
+						data-testid="span-event-marker"
+						data-span-event-name={event.name}
+						data-span-event-index={index()}
+						data-span-event-error={
+							getSpanEventSeverity(event) === "error" ? "true" : undefined
+						}
+						class="absolute top-1 bottom-1 w-2 rounded-full border pointer-events-auto shadow-sm"
+						classList={{
+							"bg-red-200/95 border-red-700/70":
+								getSpanEventSeverity(event) === "error",
+							"bg-amber-200/95 border-amber-700/70":
+								getSpanEventSeverity(event) === "warning",
+							"bg-white/75 border-black/20":
+								getSpanEventSeverity(event) === "default",
+						}}
+						style={{
+							left: `${eventLeftPercent(event)}%`,
+							"margin-left": "-4px",
+						}}
+						title={eventTooltip(event)}
+					/>
+				)}
+			</For>
 		</div>
 	);
+}
+
+function eventTooltip(event: SpanEvent): string {
+	const message =
+		event.attributes["exception.message"] ?? event.attributes.message;
+	return typeof message === "string" && message.length > 0
+		? message
+		: event.name;
 }

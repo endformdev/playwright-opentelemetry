@@ -59,6 +59,9 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 	const errorSpanIds = createMemo(
 		() => new Set(props.spans.filter(isErrorSpan).map((span) => span.id)),
 	);
+	const spanEvents = createMemo(
+		() => new Map(props.spans.map((span) => [span.id, span.events])),
+	);
 
 	const visibleSpans = createMemo(() => {
 		return packedSpansResult().spans.filter((span) =>
@@ -105,6 +108,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 										row={packedSpan.row}
 										color={isError ? ERROR_SPAN_COLOR : getSpanColor(kind)}
 										isError={isError}
+										events={spanEvents().get(packedSpan.id)}
 										onHover={props.onSpanHover}
 										matchedSpanIds={props.matchedSpanIds}
 										hoveredSearchSpanId={props.hoveredSearchSpanId}

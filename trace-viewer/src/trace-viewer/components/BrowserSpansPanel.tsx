@@ -50,6 +50,9 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 	const errorSpanIds = createMemo(
 		() => new Set(props.spans.filter(isErrorSpan).map((span) => span.id)),
 	);
+	const spanEvents = createMemo(
+		() => new Map(props.spans.map((span) => [span.id, span.events])),
+	);
 
 	const visibleSpans = createMemo(() => {
 		return packedSpansResult().spans.filter((span) =>
@@ -101,6 +104,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 												: getResourceColor(resourceType)
 										}
 										isError={isError}
+										events={spanEvents().get(packedSpan.id)}
 										icon={getResourceIcon(resourceType)}
 										onHover={props.onSpanHover}
 										matchedSpanIds={props.matchedSpanIds}

@@ -1,6 +1,5 @@
 import type { Request, Response } from "@playwright/test";
-import type { Span } from "../shared/otel";
-import type { TestTraceContext } from "./trace-context";
+import type { FixtureSpan, TestTraceContext } from "./trace-context";
 
 export interface FixtureCaptureOptions {
 	request: Request;
@@ -290,7 +289,7 @@ export async function fixtureCaptureRequestResponse({
 	}
 
 	// Create the network span
-	const networkSpan: Span = {
+	const networkSpan: FixtureSpan = {
 		traceId: requestTraceContext.traceId,
 		spanId: requestTraceContext.spanId,
 		parentSpanId: requestTraceContext.parentSpanId,
@@ -300,6 +299,7 @@ export async function fixtureCaptureRequestResponse({
 		endTime,
 		status: { code: statusCodeValue },
 		attributes,
+		events: [],
 		serviceName: "playwright-browser",
 	};
 

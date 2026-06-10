@@ -4,6 +4,7 @@ import {
 	generateTraceId,
 	sendSpans,
 	type Span,
+	type SpanEvent,
 } from "../shared/otel";
 import type { ResolvedPlaywrightOpentelemetryConfig } from "../shared/config";
 
@@ -17,11 +18,16 @@ export interface PlaywrightOtelTraceContextAttachment {
 	rootSpanId: string;
 }
 
+export type FixtureSpan = Omit<Span, "events"> & {
+	events: SpanEvent[];
+};
+
 export interface PlaywrightOtelFixtureSpansAttachment {
 	spans: Array<
-		Omit<Span, "startTime" | "endTime"> & {
+		Omit<FixtureSpan, "startTime" | "endTime" | "events"> & {
 			startTime: string;
 			endTime: string;
+			events: Array<Omit<SpanEvent, "time"> & { time: string }>;
 		}
 	>;
 }
@@ -34,9 +40,9 @@ export interface NetworkRequestTraceContext {
 }
 
 export interface TestTraceContext extends PlaywrightOtelTraceContextAttachment {
-	spans: Span[];
+	spans: FixtureSpan[];
 	requestContexts: WeakMap<object, NetworkRequestTraceContext>;
-	addSpan(span: Span): void;
+	addSpan(span: FixtureSpan): void;
 }
 
 export async function createTestTraceContext(
@@ -100,12 +106,16 @@ export async function flushFixtureSpans(
 }
 
 function serializeSpanForAttachment(
-	span: Span,
+	span: FixtureSpan,
 ): PlaywrightOtelFixtureSpansAttachment["spans"][number] {
 	return {
 		...span,
 		startTime: span.startTime.toISOString(),
 		endTime: span.endTime.toISOString(),
+		events: span.events.map((event) => ({
+			...event,
+			time: event.time.toISOString(),
+		})),
 	};
 }
 
