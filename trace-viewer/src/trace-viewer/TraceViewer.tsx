@@ -32,6 +32,10 @@ import { packSpans, type SpanInput } from "./packSpans";
 import { calculateDepthBasedSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
+import {
+	getSpanSelectionTimeMs,
+	type SpanSelectionPlacement,
+} from "./spanSelection";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
 import {
@@ -509,12 +513,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 	};
 
-	const handleSpanSelect = (spanId: string) => {
-		// Find the span to get its start time
+	const handleSpanSelect = (
+		spanId: string,
+		placement: SpanSelectionPlacement,
+	) => {
+		// Find the span to get its selected timeline position
 		const span = allSpans().find((s) => s.id === spanId);
 
 		if (span) {
-			const position = timeToViewportPosition(span.startOffsetMs, viewport());
+			const selectionTimeMs = getSpanSelectionTimeMs(span, placement);
+			const position = timeToViewportPosition(selectionTimeMs, viewport());
 			const clampedPosition = Math.max(0, Math.min(1, position));
 
 			const isStep =
