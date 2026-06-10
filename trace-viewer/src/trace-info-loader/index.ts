@@ -4,6 +4,6 @@ export {
 	type TestStatus,
 	type TraceInfo,
 	type TraceInfoData,
-	TraceInfoLoader,
-	type TraceInfoLoaderProps,
+	type TraceInfoLoaderResult,
+	useTraceInfoLoader,
 } from "./TraceInfoLoader";

@@ -1,15 +1,10 @@
 import {
 	createResource,
 	type Accessor,
-	type JSX,
-	Match,
 	onCleanup,
 	type Resource,
-	Switch,
 } from "solid-js";
-import { NoTraceLoaded } from "../NoTraceLoaded";
 import type { TraceSource } from "../trace-source";
-import type { TraceSourceSetter } from "../trace-source";
 import type { OtlpExport } from "../trace-data-loader";
 import { loadRemoteApi } from "./traceInfoDataLoaders/apiLoader";
 import {
@@ -54,14 +49,18 @@ export interface ScreenshotInfo {
 	url: string;
 }
 
-export interface TraceInfoLoaderProps {
-	source: TraceSource;
-	setTraceSource: TraceSourceSetter;
-	children: (traceInfo: TraceInfo) => JSX.Element;
+export interface TraceInfoLoaderResult {
+	traceInfoData: Resource<TraceInfoData | undefined>;
+	traceInfo: Accessor<TraceInfo | undefined>;
 }
 
-export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
-	const traceInfoData = useTraceInfoLoader(() => props.source);
+export function useTraceInfoLoader(
+	source: () => TraceSource | null,
+): TraceInfoLoaderResult {
+	const [traceInfoData] = createResource(source, async (src) => {
+		if (!src) return undefined;
+		return loadTraceSource(src);
+	});
 	const [screenshots] = createResource(
 		() =>
 			traceInfoData.state === "ready"
@@ -70,6 +69,7 @@ export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
 		(loadScreenshots) => loadScreenshots(),
 		{ initialValue: [] },
 	);
+
 	const traceInfo = (): TraceInfo | undefined => {
 		if (traceInfoData.state !== "ready") return undefined;
 		const data = traceInfoData();
@@ -81,57 +81,12 @@ export function TraceInfoLoader(props: TraceInfoLoaderProps): JSX.Element {
 		};
 	};
 
-	return (
-		<Switch>
-			<Match when={traceInfoData.loading}>
-				<div class="flex flex-1 items-center justify-center">
-					<div class="text-center">
-						<div class="mb-2">Loading trace...</div>
-						<div class="text-sm text-gray-500">
-							{props.source.kind === "local-zip" && "Extracting ZIP file..."}
-							{props.source.kind === "remote-zip" &&
-								"Downloading and extracting ZIP..."}
-							{props.source.kind === "remote-api" && "Fetching trace data..."}
-						</div>
-					</div>
-				</div>
-			</Match>
-			<Match when={traceInfoData.error}>
-				<NoTraceLoaded
-					setTraceSource={props.setTraceSource}
-					initialApiUrl={traceSourceUrl(props.source)}
-					loadError={String(traceInfoData.error)}
-				/>
-			</Match>
-			<Match when={traceInfo()}>{(info) => props.children(info())}</Match>
-		</Switch>
-	);
-}
-
-function traceSourceUrl(source: TraceSource): string | undefined {
-	switch (source.kind) {
-		case "remote-api":
-		case "remote-zip":
-			return source.url;
-		case "local-zip":
-			return undefined;
-	}
-}
-
-export function useTraceInfoLoader(
-	source: () => TraceSource | null,
-): Resource<TraceInfoData | undefined> {
-	const [traceInfo] = createResource(source, async (src) => {
-		if (!src) return undefined;
-		return loadTraceSource(src);
-	});
-
 	// Cleanup: unload trace from service worker when component unmounts
 	onCleanup(() => {
 		unloadCurrentTrace();
 	});
 
-	return traceInfo;
+	return { traceInfoData, traceInfo };
 }
 
 async function loadTraceSource(source: TraceSource): Promise<TraceInfoData> {
