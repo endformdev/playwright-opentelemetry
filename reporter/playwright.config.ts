@@ -10,6 +10,7 @@ const browserPageSpansTraceZipPathFile =
 	process.env.BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE;
 const errorSpansTraceIdFile = process.env.ERROR_SPANS_TRACE_ID_FILE;
 const spanEventsTraceIdFile = process.env.SPAN_EVENTS_TRACE_ID_FILE;
+const rrwebStatesTraceIdFile = process.env.RRWEB_STATES_TRACE_ID_FILE;
 
 // Only require OTLP headers if using OTLP endpoint
 if (
@@ -40,7 +41,8 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 		...(browserPageSpansTraceIdFile ||
 		browserPageSpansTraceZipPathFile ||
 		errorSpansTraceIdFile ||
-		spanEventsTraceIdFile
+		spanEventsTraceIdFile ||
+		rrwebStatesTraceIdFile
 			? ([["./test-e2e/browser-page-spans-trace-id-file-reporter.ts"]] as const)
 			: []),
 	],
@@ -58,7 +60,6 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 		/* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
 		trace: {
 			mode: "on",
-			screenshots: true,
 			snapshots: false,
 			sources: false,
 			attachments: false,

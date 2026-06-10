@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadRemoteApi } from "./apiLoader";
-import { loadScreenshotsForTrace } from "./zipLoader";
+import { loadRrwebZipData } from "../rrwebZip";
 
-vi.mock("./zipLoader", () => ({
-	ensureServiceWorker: vi.fn(async () => ({})),
-	unloadCurrentTrace: vi.fn(async () => undefined),
-	loadScreenshotsForTrace: vi.fn(),
+vi.mock("../rrwebZip", () => ({
+	loadRrwebZipData: vi.fn(),
 }));
 
 describe("loading a trace from the remote trace API", () => {
@@ -14,21 +12,16 @@ describe("loading a trace from the remote trace API", () => {
 		vi.clearAllMocks();
 	});
 
-	it("loads trace data, derives test header metadata, and builds screenshot URLs", async () => {
+	it("loads trace data, derives test header metadata, and loads rrweb ZIP", async () => {
 		const traceId = "7709187832dca84f02f413a312421586";
-		vi.mocked(loadScreenshotsForTrace).mockResolvedValueOnce([
-			{
-				timestamp: 1766927492100,
-				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
-			},
-			{
-				timestamp: 1766927492300,
-				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
-			},
-		]);
+		const rrwebTrace = { recordings: [] };
+		vi.mocked(loadRrwebZipData).mockResolvedValueOnce(rrwebTrace);
 		const fetchMock = vi.fn(async (url: string) => {
 			if (url === `https://traces.example.com/${traceId}/traces`) {
 				return jsonResponse(otlpExport(traceId));
+			}
+			if (url === `https://traces.example.com/${traceId}/rrweb.zip`) {
+				return new Response(new Blob(["zip"]), { status: 200 });
 			}
 			return textResponse("not found", 404);
 		});
@@ -38,7 +31,7 @@ describe("loading a trace from the remote trace API", () => {
 			`https://traces.example.com/${traceId}/`,
 		);
 
-		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 		expect(fetchMock).toHaveBeenNthCalledWith(
 			1,
 			`https://traces.example.com/${traceId}/traces`,
@@ -54,24 +47,28 @@ describe("loading a trace from the remote trace API", () => {
 			endTimeUnixNano: "1766927493000000000",
 		});
 		expect(traceInfo.traceData.resourceSpans).toHaveLength(2);
-
-		expect(await traceInfo.loadScreenshots()).toEqual([
-			{
-				timestamp: 1766927492100,
-				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
-			},
-			{
-				timestamp: 1766927492300,
-				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
-			},
-		]);
-		expect(loadScreenshotsForTrace).toHaveBeenCalledWith(
-			traceId,
-			`https://traces.example.com/${traceId}/screenshots.zip`,
-		);
+		expect(traceInfo.rrweb).toBe(rrwebTrace);
+		expect(loadRrwebZipData).toHaveBeenCalledTimes(1);
 	});
 
-	it("surfaces a missing trace before trying to load screenshots", async () => {
+	it("uses an empty rrweb trace when rrweb ZIP is missing", async () => {
+		const traceId = "7709187832dca84f02f413a312421586";
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string) => {
+				if (url.endsWith("/traces")) return jsonResponse(otlpExport(traceId));
+				return textResponse("not found", 404);
+			}),
+		);
+
+		const traceInfo = await loadRemoteApi(
+			`https://traces.example.com/${traceId}`,
+		);
+		expect(traceInfo.rrweb).toEqual({ recordings: [] });
+		expect(loadRrwebZipData).not.toHaveBeenCalled();
+	});
+
+	it("surfaces a missing trace before trying to load rrweb", async () => {
 		const traceId = "7709187832dca84f02f413a312421586";
 		const fetchMock = vi.fn(async (url: string) => {
 			if (url === `https://traces.example.com/${traceId}/traces`) {

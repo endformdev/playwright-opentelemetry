@@ -12,6 +12,8 @@ export const TRACE_CONTEXT_ATTACHMENT_NAME =
 	"playwright-opentelemetry-trace-context";
 export const FIXTURE_SPANS_ATTACHMENT_NAME =
 	"playwright-opentelemetry-fixture-spans";
+export const RRWEB_RECORDINGS_ATTACHMENT_NAME =
+	"playwright-opentelemetry-rrweb-recordings";
 
 export interface PlaywrightOtelTraceContextAttachment {
 	traceId: string;

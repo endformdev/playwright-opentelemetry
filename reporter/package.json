@@ -63,6 +63,8 @@
 		"@playwright/test": "*"
 	},
 	"dependencies": {
+		"@rrweb/record": "catalog:",
+		"@rrweb/types": "catalog:",
 		"@zip.js/zip.js": "catalog:"
 	},
 	"devDependencies": {

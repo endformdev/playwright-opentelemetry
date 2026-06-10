@@ -7,6 +7,7 @@ const BROWSER_PAGE_SPANS_TEST_NAME =
 	"playwright.dev browser page navigation trace";
 const ERROR_SPANS_TEST_NAME = "expected failing step trace";
 const SPAN_EVENTS_TEST_NAME = "browser console and page error span events";
+const RRWEB_STATES_TEST_NAME = "rrweb deterministic state replay";
 
 export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 	onTestEnd(test: TestCase, result: TestResult): void {
@@ -16,18 +17,21 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 			process.env.BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE;
 		const errorSpansTraceIdFile = process.env.ERROR_SPANS_TRACE_ID_FILE;
 		const spanEventsTraceIdFile = process.env.SPAN_EVENTS_TRACE_ID_FILE;
+		const rrwebStatesTraceIdFile = process.env.RRWEB_STATES_TRACE_ID_FILE;
 		if (
 			!browserPageSpansTraceIdFile &&
 			!browserPageSpansTraceZipPathFile &&
 			!errorSpansTraceIdFile &&
-			!spanEventsTraceIdFile
+			!spanEventsTraceIdFile &&
+			!rrwebStatesTraceIdFile
 		) {
 			return;
 		}
 		if (
 			test.title !== BROWSER_PAGE_SPANS_TEST_NAME &&
 			test.title !== ERROR_SPANS_TEST_NAME &&
-			test.title !== SPAN_EVENTS_TEST_NAME
+			test.title !== SPAN_EVENTS_TEST_NAME &&
+			test.title !== RRWEB_STATES_TEST_NAME
 		) {
 			return;
 		}
@@ -57,6 +61,10 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 
 		if (test.title === SPAN_EVENTS_TEST_NAME && spanEventsTraceIdFile) {
 			writeFile(spanEventsTraceIdFile, traceId);
+		}
+
+		if (test.title === RRWEB_STATES_TEST_NAME && rrwebStatesTraceIdFile) {
+			writeFile(rrwebStatesTraceIdFile, traceId);
 		}
 	}
 }

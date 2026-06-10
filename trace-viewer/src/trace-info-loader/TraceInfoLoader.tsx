@@ -1,28 +1,20 @@
-import {
-	createResource,
-	type Accessor,
-	onCleanup,
-	type Resource,
-} from "solid-js";
+import { createResource, type Accessor, type Resource } from "solid-js";
 import type { TraceSource } from "../trace-source";
 import type { OtlpExport } from "../trace-data-loader";
+import type { RrwebTrace } from "./rrwebRecording";
 import { loadRemoteApi } from "./traceInfoDataLoaders/apiLoader";
-import {
-	loadLocalZip,
-	loadRemoteZip,
-	unloadCurrentTrace,
-} from "./traceInfoDataLoaders/zipLoader";
+import { loadLocalZip, loadRemoteZip } from "./traceInfoDataLoaders/zipLoader";
 
 export interface TraceInfo {
 	testInfo: TestInfo;
 	traceData: OtlpExport;
-	screenshots: Resource<ScreenshotInfo[]>;
+	rrweb: RrwebTrace;
 }
 
 export interface TraceInfoData {
 	testInfo: TestInfo;
 	traceData: OtlpExport;
-	loadScreenshots: () => Promise<ScreenshotInfo[]>;
+	rrweb: RrwebTrace;
 }
 
 export interface TestInfo {
@@ -44,11 +36,6 @@ export type TestStatus =
 	| "timedOut"
 	| "interrupted";
 
-export interface ScreenshotInfo {
-	timestamp: number;
-	url: string;
-}
-
 export interface TraceInfoLoaderResult {
 	traceInfoData: Resource<TraceInfoData | undefined>;
 	traceInfo: Accessor<TraceInfo | undefined>;
@@ -61,15 +48,6 @@ export function useTraceInfoLoader(
 		if (!src) return undefined;
 		return loadTraceSource(src);
 	});
-	const [screenshots] = createResource(
-		() =>
-			traceInfoData.state === "ready"
-				? traceInfoData()?.loadScreenshots
-				: undefined,
-		(loadScreenshots) => loadScreenshots(),
-		{ initialValue: [] },
-	);
-
 	const traceInfo = (): TraceInfo | undefined => {
 		if (traceInfoData.state !== "ready") return undefined;
 		const data = traceInfoData();
@@ -77,14 +55,9 @@ export function useTraceInfoLoader(
 		return {
 			testInfo: data.testInfo,
 			traceData: data.traceData,
-			screenshots,
+			rrweb: data.rrweb,
 		};
 	};
-
-	// Cleanup: unload trace from service worker when component unmounts
-	onCleanup(() => {
-		unloadCurrentTrace();
-	});
 
 	return { traceInfoData, traceInfo };
 }

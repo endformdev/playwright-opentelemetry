@@ -31,7 +31,7 @@ import { MultiResizablePanel } from "./MultiResizablePanel";
 import { packSpans, type SpanInput } from "./packSpans";
 import { calculateDepthBasedSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
-import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
+import { RrwebFilmstrip } from "./RrwebFilmstrip";
 import {
 	getSpanSelectionTimeMs,
 	type SpanSelectionPlacement,
@@ -50,7 +50,7 @@ export interface TraceViewerProps {
 }
 
 /** Section identifiers for the main timeline panels */
-type SectionId = "screenshots" | "steps" | "browser" | "external";
+type SectionId = "replay" | "steps" | "browser" | "external";
 
 interface DisabledSection {
 	id: SectionId;
@@ -66,14 +66,14 @@ interface PanelSizeConfig {
 }
 
 const SECTION_TITLES: Record<SectionId, string> = {
-	screenshots: "Screenshots",
+	replay: "Replay",
 	steps: "Steps Timeline",
 	browser: "Browser Spans",
 	external: "External Spans",
 };
 
 const SECTION_TOOLTIPS: Record<SectionId, string> = {
-	screenshots: "No screenshots were captured during this test",
+	replay: "No rrweb recording was captured during this test",
 	steps: "No test steps were recorded",
 	browser: "No browser spans were captured",
 	external: "No external spans were captured",
@@ -126,12 +126,6 @@ export function TraceViewer(props: TraceViewerProps) {
 						...traceData.browserSpans(),
 						...traceData.externalSpans(),
 					]}
-					screenshots={() =>
-						props.traceInfo.screenshots.loading
-							? []
-							: (props.traceInfo.screenshots() ?? [])
-					}
-					testStartTimeMs={testStartTimeMs}
 				>
 					<TraceViewerInner
 						traceInfo={props.traceInfo}
@@ -178,6 +172,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const [hoveredSearchSpanId, setHoveredSearchSpanId] = createSignal<
 		string | null
 	>(null);
+	const [hoveredReplayFrameTimeMs, setHoveredReplayFrameTimeMs] = createSignal<
+		number | null
+	>(null);
 	const allSpans = createMemo(() => [
 		...props.traceData.steps(),
 		...props.traceData.browserSpans(),
@@ -205,10 +202,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	});
 
 	// Determine which sections are active/disabled
-	const hasLoadedScreenshots = () =>
-		(props.traceInfo.screenshots() ?? []).length > 0;
-	const hasScreenshots = () =>
-		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
+	const hasReplay = () => props.traceInfo.rrweb.recordings.length > 0;
 	const hasSteps = () => stepsDepth() > 0;
 	const hasBrowserSpans = () => browserDepth() > 0;
 	const hasExternalSpans = () => externalDepth() > 0;
@@ -216,11 +210,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	// Get list of disabled sections for the footer
 	const disabledSections = createMemo((): DisabledSection[] => {
 		const sections: DisabledSection[] = [];
-		if (!props.traceInfo.screenshots.loading && !hasLoadedScreenshots()) {
+		if (!hasReplay()) {
 			sections.push({
-				id: "screenshots",
-				title: SECTION_TITLES.screenshots,
-				tooltip: SECTION_TOOLTIPS.screenshots,
+				id: "replay",
+				title: SECTION_TITLES.replay,
+				tooltip: SECTION_TOOLTIPS.replay,
 			});
 		}
 		if (!hasSteps()) {
@@ -359,6 +353,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 		// Check if hovering over a resize handle (they have cursor-*-resize)
 		const target = e.target as HTMLElement;
+		if (target.closest("[data-replay-frame-timestamp]")) {
+			return;
+		}
+		setHoveredReplayFrameTimeMs(null);
+
 		const computedStyle = window.getComputedStyle(target);
 		if (
 			computedStyle.cursor === "col-resize" ||
@@ -425,6 +424,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const handleMouseLeave = () => {
+		setHoveredReplayFrameTimeMs(null);
 		if (mode() === "hover") {
 			setHoverPosition(null);
 		}
@@ -495,9 +495,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	// We intentionally do NOT clear hoveredElement on mouseLeave (null).
 	// The last hovered element persists until a new element is hovered or
 	// the mouse leaves the main panel entirely.
-	const handleScreenshotHover = (screenshotUrl: string | null) => {
-		if (screenshotUrl && mode() === "hover") {
-			setHoveredElement({ type: "screenshot", id: screenshotUrl });
+	const handleReplayFrameHover = (
+		frame: { id: string; timestamp: number } | null,
+	) => {
+		if (frame && mode() === "hover") {
+			const relativeTimeMs = frame.timestamp - props.testStartTimeMs();
+			setHoveredReplayFrameTimeMs(relativeTimeMs);
+			setHoverPosition(timeToViewportPosition(relativeTimeMs, viewport()));
+			setHoveredElement({ type: "replay-frame", id: frame.id });
+		} else {
+			setHoveredReplayFrameTimeMs(null);
 		}
 	};
 
@@ -702,38 +709,38 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				{/* Active panels section */}
 				<div class="flex-1 min-h-0">
 					<Show
-						when={hasScreenshots() && hasAnySpanPanels()}
+						when={hasReplay() && hasAnySpanPanels()}
 						fallback={
 							<Show
-								when={hasScreenshots()}
+								when={hasReplay()}
 								fallback={
 									<Show when={hasAnySpanPanels()}>
 										<SpanPanelsContent />
 									</Show>
 								}
 							>
-								{/* Only screenshots active */}
-								<ScreenshotFilmstrip
-									screenshots={props.traceInfo.screenshots}
+								{/* Only replay active */}
+								<RrwebFilmstrip
+									rrweb={props.traceInfo.rrweb}
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
-									onScreenshotHover={handleScreenshotHover}
+									onReplayFrameHover={handleReplayFrameHover}
 								/>
 							</Show>
 						}
 					>
-						{/* Both screenshots and span panels active */}
+						{/* Both replay and span panels active */}
 						<ResizablePanel
 							direction="vertical"
 							initialFirstPanelSize={12}
 							minFirstPanelSize={7}
 							maxFirstPanelSize={40}
 							firstPanel={
-								<ScreenshotFilmstrip
-									screenshots={props.traceInfo.screenshots}
+								<RrwebFilmstrip
+									rrweb={props.traceInfo.rrweb}
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
-									onScreenshotHover={handleScreenshotHover}
+									onReplayFrameHover={handleReplayFrameHover}
 								/>
 							}
 							secondPanel={<SpanPanelsContent />}
@@ -840,6 +847,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						<DetailsPanel
 							traceInfo={props.traceInfo}
 							hoveredElements={displayElements()}
+							displayTimeMs={hoveredReplayFrameTimeMs() ?? displayTimeMs()}
 							testStartTimeMs={props.testStartTimeMs()}
 							focusedElement={displayFocusedElement()}
 							onNavigateToSpan={handleSpanNavigate}

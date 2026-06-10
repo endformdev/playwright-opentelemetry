@@ -17,7 +17,7 @@ describe("Trace API Integration", () => {
 		 * should send all data to the trace API:
 		 * 1. OTLP spans to POST {endpoint}/v1/traces
 		 * 2. Test metadata as root playwright.test span attributes
-		 * 3. Screenshots to PUT {endpoint}/playwright-otel-reporter/v1/screenshots.zip
+		 * 3. rrweb to PUT {endpoint}/playwright-otel-reporter/v1/rrweb.zip when an rrweb attachment exists
 		 *
 		 * All requests should include:
 		 * - X-Trace-Id header with the test's traceId
@@ -197,20 +197,6 @@ describe("Trace API Integration", () => {
 			}),
 		);
 
-		const screenshotsCall = mockFetch.mock.calls.find(
-			(call) =>
-				call[0] ===
-					"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip" &&
-				call[1]?.method === "PUT",
-		);
-		if (!screenshotsCall) {
-			throw new Error("Expected trace API screenshots request");
-		}
-		expect(screenshotsCall[1].headers).toMatchObject({
-			"x-trace-id": testSpan.traceId,
-			Authorization: "Bearer test-token",
-		});
-
 		const traceIdAttachment = testResult.attachments.find(
 			(attachment) => attachment.name === "playwright-opentelemetry-trace-id",
 		);
@@ -220,7 +206,7 @@ describe("Trace API Integration", () => {
 	it("sends data to both OTLP endpoint and trace API endpoint when both configured", async () => {
 		/**
 		 * When both otlpEndpoint and playwrightTraceApiEndpoint are configured,
-		 * spans should be sent to both endpoints, and screenshots should only go to the trace API endpoint.
+		 * spans should be sent to both endpoints; rrweb artifacts are uploaded only when attached by the fixture.
 		 */
 		const options: PlaywrightOpentelemetryConfig = {
 			otlpEndpoint: "https://otel-collector.example.com/v1/traces",

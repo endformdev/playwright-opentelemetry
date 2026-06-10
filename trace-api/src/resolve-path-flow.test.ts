@@ -2,7 +2,7 @@ import type { H3Event } from "h3";
 import { describe, expect, it } from "vitest";
 import {
 	createOtlpPayload,
-	createScreenshotBuffer,
+	createRrwebBuffer,
 	createTestHarness,
 	generateTraceId,
 } from "./testHarness";
@@ -11,17 +11,17 @@ const REPORTER_PATH = "/playwright-otel-reporter/v1";
 const VIEWER_PATH = "/playwright-otel-trace-viewer/v1";
 
 describe("multi-tenant trace API flows", () => {
-	it("keeps two tenants with the same trace ID from seeing each other's traces or screenshots", async () => {
+	it("keeps two tenants with the same trace ID from seeing each other's traces or rrweb recordings", async () => {
 		const app = createTestHarness({ resolvePath: tenantPath });
 		const traceId = generateTraceId();
 
 		await postTenantTrace(app, "org-a", traceId, "org A checkout");
 		await postTenantTrace(app, "org-b", traceId, "org B checkout");
-		const orgAScreenshotsZip = createScreenshotBuffer("org-a-screenshots.zip");
-		const orgBScreenshotsZip = createScreenshotBuffer("org-b-screenshots.zip");
+		const orgARrwebZip = createRrwebBuffer("org-a-rrweb.zip");
+		const orgBRrwebZip = createRrwebBuffer("org-b-rrweb.zip");
 
-		await uploadTenantScreenshotsZip(app, "org-a", traceId, orgAScreenshotsZip);
-		await uploadTenantScreenshotsZip(app, "org-b", traceId, orgBScreenshotsZip);
+		await uploadTenantRrwebZip(app, "org-a", traceId, orgARrwebZip);
+		await uploadTenantRrwebZip(app, "org-b", traceId, orgBRrwebZip);
 
 		expect(await readTenantSpanNames(app, "org-a", traceId)).toEqual([
 			"org A checkout",
@@ -29,11 +29,11 @@ describe("multi-tenant trace API flows", () => {
 		expect(await readTenantSpanNames(app, "org-b", traceId)).toEqual([
 			"org B checkout",
 		]);
-		expect(await readTenantScreenshotsZip(app, "org-a", traceId)).toEqual(
-			orgAScreenshotsZip,
+		expect(await readTenantRrwebZip(app, "org-a", traceId)).toEqual(
+			orgARrwebZip,
 		);
-		expect(await readTenantScreenshotsZip(app, "org-b", traceId)).toEqual(
-			orgBScreenshotsZip,
+		expect(await readTenantRrwebZip(app, "org-b", traceId)).toEqual(
+			orgBRrwebZip,
 		);
 	});
 });
@@ -72,14 +72,14 @@ async function postTenantTrace(
 	expect(response.status).toBe(200);
 }
 
-async function uploadTenantScreenshotsZip(
+async function uploadTenantRrwebZip(
 	app: ReturnType<typeof createTestHarness>,
 	orgId: string,
 	traceId: string,
 	body: ArrayBuffer,
 ) {
 	const response = await app.fetch(
-		new Request(`http://localhost${REPORTER_PATH}/screenshots.zip`, {
+		new Request(`http://localhost${REPORTER_PATH}/rrweb.zip`, {
 			method: "PUT",
 			headers: {
 				"Content-Type": "application/zip",
@@ -119,13 +119,13 @@ interface TraceResponse {
 	}>;
 }
 
-async function readTenantScreenshotsZip(
+async function readTenantRrwebZip(
 	app: ReturnType<typeof createTestHarness>,
 	orgId: string,
 	traceId: string,
 ) {
 	const response = await app.fetch(
-		new Request(`http://localhost${VIEWER_PATH}/${traceId}/screenshots.zip`, {
+		new Request(`http://localhost${VIEWER_PATH}/${traceId}/rrweb.zip`, {
 			headers: { "X-Org-Id": orgId },
 		}),
 	);

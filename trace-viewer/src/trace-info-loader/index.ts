@@ -1,5 +1,4 @@
 export {
-	type ScreenshotInfo,
 	type TestInfo,
 	type TestStatus,
 	type TraceInfo,
@@ -7,3 +6,4 @@ export {
 	type TraceInfoLoaderResult,
 	useTraceInfoLoader,
 } from "./TraceInfoLoader";
+export type { RrwebRecording, RrwebTrace } from "./rrwebRecording";

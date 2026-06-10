@@ -54,7 +54,7 @@ test("has title", async ({ page }) => {
 });
 ```
 
-### Add screenshots
+### Add rrweb replay
 
 ```ts
 import { defineConfig, devices } from "@playwright/test";
@@ -66,20 +66,12 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 		playwrightOpentelemetry: {
 			storeTraceZip: true,
 		},
-		// Most performant method of screenshot collection
-		trace: {
-			mode: "on",
-			screenshots: true,
-			snapshots: false,
-			sources: false,
-			attachments: false,
-		},
-		// Otherwise this also does the trick!
-		// trace: "on"
 	}
     // ... rest of Playwright config
 });
 ```
+
+rrweb recording is enabled by default when `storeTraceZip` or `playwrightTraceApiEndpoint` is configured. Set `playwrightOpentelemetry.rrweb` to `false` to opt out.
 
 ### Showing a trace
 
@@ -104,9 +96,11 @@ When running the reporter with `storeTraceZip: true`, a local copy of trace data
 {file.spec}:{linenumber}-{testId}-pw-otel.zip
 - traces/
   - playwright-opentelemetry.json <-- the OTLP request body of all trace data collected by the reporter related to this test. Test metadata is stored on the root `playwright.test` span.
-- manifest.json <-- screenshot metadata with timestamps and ZIP paths
-- screenshots/ <-- any screenshots collected during the test run
-  - {page}@{pageId}-{timestamp}.jpeg
+- rrweb/
+  - manifest.json <-- rrweb recording metadata with timestamps and segment paths
+  - recordings/
+    - {recordingId}/
+      - 00000.json <-- rrweb events
 ```
 
 ### Trace API
@@ -116,7 +110,7 @@ The trace viewer can also load traces from a trace-specific API base URL, for ex
 - `GET {baseUrl}/traces` - merged OTLP trace export response
 	- Response format `{ "resourceSpans": [...] }`
 	- Returns `404` when the trace does not exist
-- `GET {baseUrl}/screenshots.zip` - ZIP containing root `manifest.json` and `screenshots/*`, or `404` when there are no screenshots
+- `GET {baseUrl}/rrweb.zip` - ZIP containing `rrweb/manifest.json` and `rrweb/recordings/**`, or `404` when there is no rrweb recording
 
 The trace viewer derives base test information from the root `playwright.test` span attributes, including `test.case.title`, `playwright.test.describes`, `playwright.test.status`, `code.file.path`, and `code.line.number`.
 

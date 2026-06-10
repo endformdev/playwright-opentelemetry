@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import type {
 	FullConfig,
@@ -10,6 +11,7 @@ import type {
 } from "@playwright/test/reporter";
 import {
 	FIXTURE_SPANS_ATTACHMENT_NAME,
+	RRWEB_RECORDINGS_ATTACHMENT_NAME,
 	TRACE_CONTEXT_ATTACHMENT_NAME,
 } from "../fixture/trace-context";
 import {
@@ -40,9 +42,9 @@ import {
 } from "./reporter-attributes";
 import { sendSpans } from "./sender";
 import {
-	createScreenshotsZip,
+	createRrwebZip,
 	createTraceZipBlob,
-	extractScreenshotsFromPlaywrightTrace,
+	type RrwebRecordingsArtifact,
 	writeTraceZip,
 } from "./trace-zip-builder";
 
@@ -63,7 +65,7 @@ type PrepareTraceArtifactOptions = {
 	test: TestCase;
 	spans: Span[];
 	fixtureSpans: Span[];
-	traceAttachmentPath?: string;
+	result: TestResult;
 	traceId: string;
 	config: ResolvedPlaywrightOpentelemetryConfig;
 	playwrightVersion: string;
@@ -113,12 +115,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			testId,
 		);
 
-		const traceAttachment = result.attachments.find(
-			(attachment) =>
-				attachment.name === "trace" &&
-				attachment.contentType === "application/zip" &&
-				attachment.path,
-		);
 		const fixtureSpans = config.storeTraceZip
 			? readFixtureSpansAttachment(result, testId)
 			: [];
@@ -218,7 +214,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				test,
 				spans: testSpans,
 				fixtureSpans,
-				traceAttachmentPath: traceAttachment?.path,
+				result,
 				traceId,
 				config,
 				playwrightVersion: this.playwrightVersion || "unknown",
@@ -283,9 +279,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private async prepareTraceArtifact(
 		options: PrepareTraceArtifactOptions,
 	): Promise<PreparedTraceArtifact> {
-		const screenshots = options.traceAttachmentPath
-			? await extractScreenshotsFromPlaywrightTrace(options.traceAttachmentPath)
-			: new Map<string, Blob>();
+		const rrweb = options.config.rrweb
+			? await readRrwebRecordingsAttachment(options.result, options.test.id)
+			: null;
 
 		const traceZipBlobPromise = options.config.storeTraceZip
 			? createTraceZipBlob({
@@ -294,17 +290,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					fixtureSpans: options.fixtureSpans,
 					serviceName: options.config.serviceName,
 					playwrightVersion: options.playwrightVersion,
-					screenshots,
+					rrweb,
 				})
 			: undefined;
 
-		const uploadPromise = options.config.playwrightTraceApiEndpoint
-			? this.sendScreenshotsZipToTraceApi({
-					traceId: options.traceId,
-					screenshots,
-					config: options.config,
-				})
-			: undefined;
+		const uploadPromise =
+			options.config.playwrightTraceApiEndpoint && rrweb
+				? this.sendRrwebZipToTraceApi({
+						traceId: options.traceId,
+						rrweb,
+						config: options.config,
+					})
+				: undefined;
 
 		const [traceZipBlob] = await Promise.all([
 			traceZipBlobPromise,
@@ -476,29 +473,29 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		return this.debug;
 	}
 
-	private async sendScreenshotsZipToTraceApi(params: {
+	private async sendRrwebZipToTraceApi(params: {
 		traceId: string;
-		screenshots: Map<string, Blob>;
+		rrweb: RrwebRecordingsArtifact;
 		config: ResolvedPlaywrightOpentelemetryConfig;
 	}): Promise<void> {
-		const { traceId, screenshots, config } = params;
-		const screenshotsZip = await createScreenshotsZip(screenshots);
+		const { traceId, rrweb, config } = params;
+		const rrwebZip = await createRrwebZip(rrweb);
 
-		const screenshotUrl = `${config.playwrightTraceApiEndpoint}/playwright-otel-reporter/v1/screenshots.zip`;
-		const response = await fetch(screenshotUrl, {
+		const rrwebUrl = `${config.playwrightTraceApiEndpoint}/playwright-otel-reporter/v1/rrweb.zip`;
+		const response = await fetch(rrwebUrl, {
 			method: "PUT",
 			headers: {
 				"content-type": "application/zip",
 				"x-trace-id": traceId,
 				...config.playwrightTraceApiHeaders,
 			},
-			body: screenshotsZip,
+			body: rrwebZip,
 		});
 
 		if (!response.ok) {
 			const error = await response.text();
 			throw new Error(
-				`Failed to send screenshots ZIP: ${response.status} ${response.statusText}, ${error}`,
+				`Failed to send rrweb ZIP: ${response.status} ${response.statusText}, ${error}`,
 			);
 		}
 	}
@@ -603,6 +600,47 @@ function readFixtureSpansAttachment(
 	return parsed.spans.map((span, index) =>
 		parseFixtureSpan(span, testId, index),
 	);
+}
+
+async function readRrwebRecordingsAttachment(
+	result: TestResult,
+	testId: string,
+): Promise<RrwebRecordingsArtifact | null> {
+	const attachment = result.attachments.find(
+		(attachment) => attachment.name === RRWEB_RECORDINGS_ATTACHMENT_NAME,
+	);
+
+	if (!attachment) {
+		return null;
+	}
+
+	let text: string;
+	if (attachment.body) {
+		text = attachment.body.toString("utf-8");
+	} else if (attachment.path) {
+		text = await fs.readFile(attachment.path, "utf-8");
+	} else {
+		throw new Error(
+			`Invalid ${RRWEB_RECORDINGS_ATTACHMENT_NAME} attachment for test ${testId}: expected body or path`,
+		);
+	}
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch (error) {
+		throw new Error(
+			`Invalid ${RRWEB_RECORDINGS_ATTACHMENT_NAME} attachment for test ${testId}: ${error}`,
+		);
+	}
+
+	if (!isRrwebRecordingsArtifact(parsed)) {
+		throw new Error(
+			`Invalid ${RRWEB_RECORDINGS_ATTACHMENT_NAME} attachment for test ${testId}: expected { version: 1, recordings: [{ id, pageId, events }] }`,
+		);
+	}
+
+	return parsed;
 }
 
 function parseFixtureSpan(value: unknown, testId: string, index: number): Span {
@@ -748,6 +786,45 @@ function isTraceContextAttachment(
 		"rootSpanId" in value &&
 		typeof value.traceId === "string" &&
 		typeof value.rootSpanId === "string"
+	);
+}
+
+function isRrwebRecordingsArtifact(
+	value: unknown,
+): value is RrwebRecordingsArtifact {
+	return (
+		isRecord(value) &&
+		value.version === 1 &&
+		Array.isArray(value.recordings) &&
+		(value.warnings === undefined || isStringArray(value.warnings)) &&
+		value.recordings.every(isRrwebRecordingArtifact)
+	);
+}
+
+function isRrwebRecordingArtifact(value: unknown): boolean {
+	return (
+		isRecord(value) &&
+		typeof value.id === "string" &&
+		typeof value.pageId === "string" &&
+		(value.documentId === undefined || typeof value.documentId === "string") &&
+		(value.initialUrl === undefined || typeof value.initialUrl === "string") &&
+		(value.warnings === undefined || isStringArray(value.warnings)) &&
+		Array.isArray(value.events) &&
+		value.events.every(isRrwebEventWithTime)
+	);
+}
+
+function isRrwebEventWithTime(value: unknown): boolean {
+	return (
+		isRecord(value) &&
+		typeof value.type === "number" &&
+		typeof value.timestamp === "number"
+	);
+}
+
+function isStringArray(value: unknown): value is string[] {
+	return (
+		Array.isArray(value) && value.every((item) => typeof item === "string")
 	);
 }
 

@@ -138,19 +138,19 @@ export class DetailsPanel {
 	}
 }
 
-export class ScreenshotSection {
+export class ReplaySection {
 	readonly root: Locator;
 
 	constructor(page: Page) {
-		this.root = page.getByRole("region", { name: "Screenshots" });
+		this.root = page.getByRole("region", { name: "Replay" });
 	}
 
-	images(): Locator {
-		return this.root.getByRole("img", { name: /Screenshot at/ });
+	frames(): Locator {
+		return this.root.locator("[data-replay-frame-timestamp]");
 	}
 
-	screenshots(): Locator {
-		return this.root.locator("[data-screenshot-timestamp]");
+	replayIframes(): Locator {
+		return this.root.locator("iframe");
 	}
 }
 
@@ -193,7 +193,7 @@ export class TraceViewerPage {
 	readonly root: Locator;
 	readonly header: TraceViewerHeader;
 	readonly timelineContent: Locator;
-	readonly screenshots: ScreenshotSection;
+	readonly replay: ReplaySection;
 	readonly steps: SpanSection;
 	readonly browserSpans: SpanSection;
 	readonly externalSpans: SpanSection;
@@ -206,7 +206,7 @@ export class TraceViewerPage {
 		this.root = page.getByRole("main", { name: "Trace viewer" });
 		this.header = new TraceViewerHeader(page);
 		this.timelineContent = page.getByRole("region", { name: "Trace timeline" });
-		this.screenshots = new ScreenshotSection(page);
+		this.replay = new ReplaySection(page);
 		this.steps = new SpanSection(page, "Steps Timeline");
 		this.browserSpans = new SpanSection(page, "Browser Spans");
 		this.externalSpans = new SpanSection(page, "External Spans");

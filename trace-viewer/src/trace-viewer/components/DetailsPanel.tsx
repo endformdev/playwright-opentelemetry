@@ -5,6 +5,7 @@ import {
 	flattenHoveredSpans,
 	type HoveredElements,
 } from "../getElementsAtTime";
+import { RrwebReplayPreview } from "../rrweb/RrwebReplayPreview";
 import {
 	getResourceColor,
 	getResourceDisplayName,
@@ -16,16 +17,17 @@ import { SpanDetails } from "./SpanDetails";
 const SCROLL_DEBOUNCE_MS = 40;
 const SCROLL_TOP_PADDING_PX = 16;
 
-type FocusedElementType = "screenshot" | "step" | "span";
+type FocusedElementType = "replay-frame" | "step" | "span";
 
 interface FocusedElement {
 	type: FocusedElementType;
-	id: string; // span ID for steps/spans, or screenshot URL for screenshots
+	id: string;
 }
 
 export interface DetailsPanelProps {
 	traceInfo: TraceInfo;
 	hoveredElements: HoveredElements | null;
+	displayTimeMs: number | null;
 	testStartTimeMs: number;
 	focusedElement: FocusedElement | null;
 	onNavigateToSpan?: (spanId: string) => void;
@@ -72,24 +74,24 @@ export function DetailsPanel(props: DetailsPanelProps) {
 		);
 	};
 
-	const isScreenshotFocused = () => {
+	const isReplayFocused = () => {
 		const focused = props.focusedElement;
-		return focused?.type === "screenshot";
+		return focused?.type === "replay-frame";
 	};
 
 	createEffect(() => {
 		const focused = props.focusedElement;
 		const currentId = focused
-			? focused.type === "screenshot"
-				? "screenshot"
+			? focused.type === "replay-frame"
+				? "replay"
 				: focused.id
 			: null;
 
 		if (!currentId || !containerRef) return;
 
 		const selector =
-			focused!.type === "screenshot"
-				? "[data-screenshot]"
+			focused!.type === "replay-frame"
+				? "[data-replay]"
 				: `[data-span-id="${focused!.id}"]`;
 
 		const timeout = setTimeout(() => {
@@ -119,37 +121,34 @@ export function DetailsPanel(props: DetailsPanelProps) {
 			data-testid="trace-details-panel"
 			class="h-full overflow-auto bg-white"
 		>
-			<Show
-				when={props.hoveredElements}
-				fallback={
-					<div class="h-full flex items-center justify-center text-gray-400 text-sm">
-						Hover over the timeline to see details
-					</div>
-				}
-			>
-				{(elements) => (
-					<div class="p-4 space-y-6">
-						{/* Screenshot at the top */}
-						<Show when={elements().screenshot}>
-							{(screenshot) => (
-								<div
-									data-screenshot
-									class="bg-gray-100 rounded-md overflow-hidden border-2 transition-colors duration-150"
-									classList={{
-										"border-blue-500 ring-2 ring-blue-200":
-											isScreenshotFocused(),
-										"border-gray-200": !isScreenshotFocused(),
-									}}
-								>
-									<img
-										src={screenshot().url}
-										alt="Screenshot at hover time"
-										class="w-full h-auto"
-									/>
-								</div>
-							)}
-						</Show>
+			<div class="p-4 space-y-6">
+				<div
+					data-replay
+					class="rounded-md border-2 transition-colors duration-150"
+					classList={{
+						"border-blue-500 ring-2 ring-blue-200": isReplayFocused(),
+						"border-transparent": !isReplayFocused(),
+					}}
+				>
+					<RrwebReplayPreview
+						rrweb={props.traceInfo.rrweb}
+						absoluteTimeMs={
+							props.displayTimeMs === null
+								? null
+								: props.testStartTimeMs + props.displayTimeMs
+						}
+					/>
+				</div>
 
+				<Show
+					when={props.hoveredElements}
+					fallback={
+						<div class="text-gray-400 text-sm text-center py-4">
+							Hover over the timeline to see active steps and spans
+						</div>
+					}
+				>
+					<>
 						{/* Steps section */}
 						<Show when={flatSteps().length > 0}>
 							<div>
@@ -237,9 +236,9 @@ export function DetailsPanel(props: DetailsPanelProps) {
 								No active steps or spans at this time
 							</div>
 						</Show>
-					</div>
-				)}
-			</Show>
+					</>
+				</Show>
+			</div>
 		</div>
 	);
 }

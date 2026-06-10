@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { Span } from "../trace-data-loader/exportToSpans";
-import type { ScreenshotInfo } from "../trace-info-loader";
 import {
 	flattenHoveredSpans,
 	getElementsAtTime,
@@ -8,8 +7,6 @@ import {
 } from "./getElementsAtTime";
 
 describe("getElementsAtTime", () => {
-	const testStartTimeMs = 1000000; // Unix timestamp in ms
-
 	const createSpan = (
 		id: string,
 		startOffsetMs: number,
@@ -29,67 +26,11 @@ describe("getElementsAtTime", () => {
 		serviceName: "test-service",
 	});
 
-	describe("screenshot selection", () => {
-		it("returns null when no screenshots available", () => {
-			const result = getElementsAtTime(100, [], [], [], testStartTimeMs);
-			expect(result.screenshot).toBeNull();
-		});
-
-		it("returns the most recent screenshot before hover time", () => {
-			const screenshots: ScreenshotInfo[] = [
-				{ timestamp: testStartTimeMs + 50, url: "a.png" },
-				{ timestamp: testStartTimeMs + 100, url: "b.png" },
-				{ timestamp: testStartTimeMs + 200, url: "c.png" },
-			];
-
-			const result = getElementsAtTime(
-				150,
-				[],
-				[],
-				screenshots,
-				testStartTimeMs,
-			);
-			expect(result.screenshot?.url).toBe("b.png");
-		});
-
-		it("returns null when hover time is before all screenshots (respects causality)", () => {
-			const screenshots: ScreenshotInfo[] = [
-				{ timestamp: testStartTimeMs + 100, url: "a.png" },
-				{ timestamp: testStartTimeMs + 200, url: "b.png" },
-			];
-
-			const result = getElementsAtTime(
-				50,
-				[],
-				[],
-				screenshots,
-				testStartTimeMs,
-			);
-			// No screenshot should show before any exist - respects causality
-			expect(result.screenshot).toBeNull();
-		});
-
-		it("returns exact match screenshot", () => {
-			const screenshots: ScreenshotInfo[] = [
-				{ timestamp: testStartTimeMs + 100, url: "exact.png" },
-			];
-
-			const result = getElementsAtTime(
-				100,
-				[],
-				[],
-				screenshots,
-				testStartTimeMs,
-			);
-			expect(result.screenshot?.url).toBe("exact.png");
-		});
-	});
-
 	describe("span filtering", () => {
 		it("returns empty arrays when no spans match hover time", () => {
 			const spans = [createSpan("1", 0, 50), createSpan("2", 100, 50)];
 
-			const result = getElementsAtTime(75, [], spans, [], testStartTimeMs);
+			const result = getElementsAtTime(75, [], spans);
 			expect(result.spans).toHaveLength(0);
 		});
 
@@ -100,7 +41,7 @@ describe("getElementsAtTime", () => {
 				createSpan("3", 25, 50), // 25-75, contains 50
 			];
 
-			const result = getElementsAtTime(50, [], spans, [], testStartTimeMs);
+			const result = getElementsAtTime(50, [], spans);
 			const flatSpans = flattenHoveredSpans(result.spans);
 			expect(flatSpans).toHaveLength(2);
 			expect(flatSpans.map((s) => s.span.id)).toContain("1");
@@ -110,14 +51,14 @@ describe("getElementsAtTime", () => {
 		it("includes spans at exact start time", () => {
 			const spans = [createSpan("1", 50, 100)];
 
-			const result = getElementsAtTime(50, [], spans, [], testStartTimeMs);
+			const result = getElementsAtTime(50, [], spans);
 			expect(flattenHoveredSpans(result.spans)).toHaveLength(1);
 		});
 
 		it("includes spans at exact end time", () => {
 			const spans = [createSpan("1", 0, 50)]; // ends at 50
 
-			const result = getElementsAtTime(50, [], spans, [], testStartTimeMs);
+			const result = getElementsAtTime(50, [], spans);
 			expect(flattenHoveredSpans(result.spans)).toHaveLength(1);
 		});
 	});
@@ -130,7 +71,7 @@ describe("getElementsAtTime", () => {
 				createSpan("child2", 50, 50, "child1", "Child 2"),
 			];
 
-			const result = getElementsAtTime(75, [], spans, [], testStartTimeMs);
+			const result = getElementsAtTime(75, [], spans);
 
 			// Root should have one child
 			expect(result.spans).toHaveLength(1);
@@ -154,7 +95,7 @@ describe("getElementsAtTime", () => {
 				createSpan("child", 60, 50, "parent"), // active at hover, but parent is not
 			];
 
-			const result = getElementsAtTime(75, [], spans, [], testStartTimeMs);
+			const result = getElementsAtTime(75, [], spans);
 
 			// Child should be promoted to root level since parent is not active
 			expect(result.spans).toHaveLength(1);
@@ -168,7 +109,7 @@ describe("getElementsAtTime", () => {
 				createSpan("root2", 10, 100, null),
 			];
 
-			const result = getElementsAtTime(50, [], spans, [], testStartTimeMs);
+			const result = getElementsAtTime(50, [], spans);
 			expect(result.spans).toHaveLength(2);
 		});
 	});
@@ -178,7 +119,7 @@ describe("getElementsAtTime", () => {
 			const steps = [createSpan("step1", 0, 100)];
 			const spans = [createSpan("span1", 0, 100)];
 
-			const result = getElementsAtTime(50, steps, spans, [], testStartTimeMs);
+			const result = getElementsAtTime(50, steps, spans);
 
 			expect(flattenHoveredSpans(result.steps)).toHaveLength(1);
 			expect(result.steps[0].span.id).toBe("step1");

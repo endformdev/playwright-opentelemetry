@@ -6,6 +6,7 @@ export interface PlaywrightOpentelemetryConfig {
 	playwrightTraceApiEndpoint?: string;
 	playwrightTraceApiHeaders?: Record<string, string>;
 	storeTraceZip?: boolean;
+	rrweb?: boolean;
 	serviceName?: string;
 	debug?: boolean;
 }
@@ -20,6 +21,7 @@ export interface ResolvedPlaywrightOpentelemetryConfig {
 	playwrightTraceApiEndpoint: string;
 	playwrightTraceApiHeaders: Record<string, string>;
 	storeTraceZip: boolean;
+	rrweb: boolean;
 	serviceName: string;
 	debug: boolean;
 }
@@ -40,6 +42,11 @@ export function resolvePlaywrightOpentelemetryConfig(
 	);
 	const debugEnv = process.env.PLAYWRIGHT_OPENTELEMETRY_DEBUG;
 
+	const storeTraceZip = config?.storeTraceZip === true;
+	const playwrightTraceApiEndpoint =
+		process.env.PLAYWRIGHT_TRACE_API_ENDPOINT ||
+		config?.playwrightTraceApiEndpoint ||
+		"";
 	const resolvedConfig = {
 		otlpEndpoint:
 			process.env.OTEL_EXPORTER_OTLP_ENDPOINT || config?.otlpEndpoint || "",
@@ -47,15 +54,14 @@ export function resolvePlaywrightOpentelemetryConfig(
 			...config?.otlpHeaders,
 			...envOtlpHeaders,
 		},
-		playwrightTraceApiEndpoint:
-			process.env.PLAYWRIGHT_TRACE_API_ENDPOINT ||
-			config?.playwrightTraceApiEndpoint ||
-			"",
+		playwrightTraceApiEndpoint,
 		playwrightTraceApiHeaders: {
 			...config?.playwrightTraceApiHeaders,
 			...envTraceApiHeaders,
 		},
-		storeTraceZip: config?.storeTraceZip === true,
+		storeTraceZip,
+		rrweb:
+			config?.rrweb ?? Boolean(storeTraceZip || playwrightTraceApiEndpoint),
 		serviceName:
 			process.env.OTEL_SERVICE_NAME ||
 			config?.serviceName ||

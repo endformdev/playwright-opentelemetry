@@ -4,7 +4,7 @@
  * E2E Verification Script for Trace Zip Creation
  *
  * This script verifies that the playwright-opentelemetry reporter correctly
- * creates zip files containing OTLP traces and screenshots.
+ * creates zip files containing OTLP traces and rrweb recordings.
  */
 
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
@@ -18,7 +18,7 @@ interface VerificationResult {
 	filename: string;
 	passed: boolean;
 	spanCount?: number;
-	screenshotCount?: number;
+	rrwebRecordingCount?: number;
 	testSpan?: OtlpSpan;
 	errors: string[];
 }
@@ -79,7 +79,7 @@ async function main() {
 
 		if (result.passed) {
 			console.log(
-				`     Spans: ${result.spanCount}, Screenshots: ${result.screenshotCount}`,
+				`     Spans: ${result.spanCount}, rrweb recordings: ${result.rrwebRecordingCount}`,
 			);
 			if (result.testSpan) {
 				const attrs = attributesByKey(result.testSpan.attributes ?? []);
@@ -141,7 +141,7 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 	const filename = path.basename(zipPath);
 	const errors: string[] = [];
 	let spanCount = 0;
-	let screenshotCount = 0;
+	let rrwebRecordingCount = 0;
 	let testSpan: OtlpSpan | undefined;
 
 	const tempDir = await mkdtemp(path.join(tmpdir(), "verify-trace-"));
@@ -192,29 +192,36 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 			}
 		}
 
-		const screenshotsDir = path.join(tempDir, "screenshots");
-		let screenshotFiles: string[] = [];
+		const rrwebManifestPath = path.join(tempDir, "rrweb", "manifest.json");
 
 		try {
-			const entries = await readdir(screenshotsDir);
-			screenshotFiles = entries.filter(
-				(name) => name.endsWith(".jpeg") || name.endsWith(".jpg"),
-			);
-		} catch {
-			// Directory doesn't exist.
-		}
-
-		screenshotCount = screenshotFiles.length;
-
-		if (screenshotCount === 0) {
-			errors.push("No screenshots found in screenshots/ directory");
-		} else {
-			const screenshotPattern = /^[^@]+@[^-]+-\d+\.jpeg$/;
-
-			for (const name of screenshotFiles) {
-				if (!screenshotPattern.test(name)) {
-					errors.push(`Screenshot does not match naming convention: ${name}`);
+			const manifest = JSON.parse(
+				await readFile(rrwebManifestPath, "utf-8"),
+			) as {
+				recordings?: Array<{ segments?: Array<{ file?: string }> }>;
+			};
+			if (!Array.isArray(manifest.recordings)) {
+				errors.push("Invalid rrweb manifest: missing recordings array");
+			} else {
+				rrwebRecordingCount = manifest.recordings.length;
+				if (rrwebRecordingCount === 0) {
+					errors.push("No rrweb recordings found in rrweb/manifest.json");
 				}
+				for (const recording of manifest.recordings) {
+					for (const segment of recording.segments ?? []) {
+						if (!segment.file) {
+							errors.push("rrweb recording segment missing file path");
+							continue;
+						}
+						await readFile(path.join(tempDir, segment.file));
+					}
+				}
+			}
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+				errors.push("Missing rrweb/manifest.json or recording segment");
+			} else {
+				errors.push(`Failed to parse rrweb manifest: ${err}`);
 			}
 		}
 	} catch (error) {
@@ -227,7 +234,7 @@ async function verifyZipFile(zipPath: string): Promise<VerificationResult> {
 		filename,
 		passed: errors.length === 0,
 		spanCount,
-		screenshotCount,
+		rrwebRecordingCount,
 		testSpan,
 		errors,
 	};

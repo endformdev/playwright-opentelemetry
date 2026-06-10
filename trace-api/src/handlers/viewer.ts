@@ -9,7 +9,7 @@ import { type OtlpExport, mergeOtlpExports } from "../otlp";
  *
  * Serves trace data in the format expected by the trace viewer:
  * - GET /playwright-otel-trace-viewer/v1/{traceId}/traces -> { resourceSpans: [...] }
- * - GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots.zip
+ * - GET /playwright-otel-trace-viewer/v1/{traceId}/rrweb.zip
  *
  * @param config - TraceApiHandlerConfig with storage and optional CORS/resolvePath settings
  * @returns H3 event handler
@@ -80,8 +80,8 @@ export function createViewerHandler(
 			return mergeOtlpExports(payloads);
 		}
 
-		if (parts.length === 2 && parts[1] === "screenshots.zip") {
-			let storagePath = `traces/${traceId}/screenshots.zip`;
+		if (parts.length === 2 && parts[1] === "rrweb.zip") {
+			let storagePath = `traces/${traceId}/rrweb.zip`;
 
 			// Apply path resolution if configured
 			if (config.resolvePath) {
@@ -93,7 +93,7 @@ export function createViewerHandler(
 			if (!data) {
 				throw new HTTPError({
 					statusCode: 404,
-					message: `Screenshots ZIP not found: ${traceId}`,
+					message: `rrweb ZIP not found: ${traceId}`,
 				});
 			}
 

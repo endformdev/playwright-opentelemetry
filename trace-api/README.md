@@ -4,7 +4,7 @@ H3-based API library for storing and serving Playwright OpenTelemetry traces in 
 
 ## Introduction
 
-The Trace API is a customizable library that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers. It provides endpoints for writing OTLP trace data and Playwright screenshots, and serves them in a format compatible with the trace viewer. Test metadata is stored on the root `playwright.test` span.
+The Trace API is a customizable library that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers. It provides endpoints for writing OTLP trace data and rrweb recordings, and serves them in a format compatible with the trace viewer. Test metadata is stored on the root `playwright.test` span.
 
 ## Usage
 
@@ -145,21 +145,21 @@ Body: Standard OTLP JSON payload
 Partitions OTLP spans by trace ID and writes OTLP-shaped fragments to `traces/{traceId}/traces/{requestId}.json`. The fragment filename is a unique request ID, not a service name or span ID.
 
 ```
-PUT /playwright-otel-reporter/v1/screenshots.zip
+PUT /playwright-otel-reporter/v1/rrweb.zip
 X-Trace-Id: {traceId}
-Body: ZIP containing manifest.json and screenshots/*
+Body: ZIP containing rrweb/manifest.json and rrweb/recordings/**
 ```
 
-Writes the screenshot bundle to `traces/{traceId}/screenshots.zip`.
+Writes the rrweb bundle to `traces/{traceId}/rrweb.zip`.
 
 **Read Endpoints:**
 
 ```
 GET /playwright-otel-trace-viewer/v1/{traceId}/traces
-GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots.zip
+GET /playwright-otel-trace-viewer/v1/{traceId}/rrweb.zip
 ```
 
-Serves merged OTLP trace data and the stored screenshot ZIP expected by the trace viewer. The trace endpoint returns `404` when no trace fragments exist. A missing screenshot ZIP returns `404`; the viewer treats that as no screenshots.
+Serves merged OTLP trace data and the stored rrweb ZIP expected by the trace viewer. The trace endpoint returns `404` when no trace fragments exist. A missing rrweb ZIP returns `404`; the viewer treats that as no recording.
 
 ## Storage Setup
 
@@ -199,5 +199,5 @@ s3://bucket/
 	└── {traceId}/
 		├── traces/
 		│   └── {requestId}.json
-		└── screenshots.zip
+		└── rrweb.zip
 ```

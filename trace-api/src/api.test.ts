@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	createOtlpPayload,
-	createScreenshotBuffer,
+	createRrwebBuffer,
 	createTestHarness,
 	generateTraceId,
 } from "./testHarness";
@@ -90,20 +90,20 @@ describe("Trace API", () => {
 		expect(oldTestResponse.status).toBe(404);
 	});
 
-	it("stores and serves screenshots ZIP through the reporter and viewer paths", async () => {
+	it("stores and serves rrweb ZIP through the reporter and viewer paths", async () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
-		const buffer = createScreenshotBuffer("screenshots.zip");
+		const buffer = createRrwebBuffer("rrweb.zip");
 
 		const uploadResponse = await app.fetch(
-			new Request(`http://localhost${REPORTER_PATH}/screenshots.zip`, {
+			new Request(`http://localhost${REPORTER_PATH}/rrweb.zip`, {
 				method: "PUT",
 				headers: { "X-Trace-Id": traceId, "Content-Type": "application/zip" },
 				body: buffer,
 			}),
 		);
 		const zipResponse = await app.fetch(
-			new Request(`http://localhost${VIEWER_PATH}/${traceId}/screenshots.zip`),
+			new Request(`http://localhost${VIEWER_PATH}/${traceId}/rrweb.zip`),
 		);
 
 		expect(uploadResponse.status).toBe(200);
@@ -112,7 +112,7 @@ describe("Trace API", () => {
 		expect(await zipResponse.arrayBuffer()).toEqual(buffer);
 	});
 
-	it("isolates traces and screenshots with resolvePath", async () => {
+	it("isolates traces with resolvePath", async () => {
 		const app = createTestHarness({
 			resolvePath(event, path) {
 				return `${event.req.headers.get("x-org-id")}/${path}`;

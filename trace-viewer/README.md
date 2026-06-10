@@ -4,7 +4,7 @@ A SolidJS single-page application for viewing Playwright test execution traces i
 
 ## Overview
 
-This trace viewer provides a rich, interactive visualization of Playwright test runs that have been exported to OpenTelemetry format. It displays test steps, timing information, screenshots captured during execution, and additional trace data like HTTP requests.
+This trace viewer provides a rich, interactive visualization of Playwright test runs that have been exported to OpenTelemetry format. It displays test steps, timing information, rrweb page replay, and additional trace data like HTTP requests.
 
 ## Run the trace viewer
 
@@ -14,14 +14,14 @@ To boot the trace viewer on `localhost:9294`:
 npx @playwright-opentelemetry/trace-viewer
 ```
 
-The viewer can load a local trace zip or a trace-specific API base URL such as `/playwright-otel-trace-viewer/v1/{traceId}`. Remote API loading fetches `{baseUrl}/traces` once for the merged OTLP export, derives test metadata from the root `playwright.test` span, then downloads `{baseUrl}/screenshots.zip` into the service worker when screenshots are needed.
+The viewer can load a local trace zip or a trace-specific API base URL such as `/playwright-otel-trace-viewer/v1/{traceId}`. Remote API loading fetches `{baseUrl}/traces` for the merged OTLP export, derives test metadata from the root `playwright.test` span, then downloads `{baseUrl}/rrweb.zip` when a replay artifact exists.
 
 The remote API contract is:
 
 - `GET {baseUrl}/traces` returns `{ "resourceSpans": [...] }` or `404` when the trace does not exist
-- `GET {baseUrl}/screenshots.zip` returns a ZIP with root `manifest.json` and `screenshots/*`, or `404` when there are no screenshots
+- `GET {baseUrl}/rrweb.zip` returns a ZIP with `rrweb/manifest.json` and `rrweb/recordings/**`, or `404` when there is no replay recording
 
-The service worker exposes internal per-screenshot URLs to the viewer after loading the ZIP.
+Replay uses rrweb with canvas replay enabled. Load trace artifacts only from trusted sources.
 
 ## Deploy Your Own
 

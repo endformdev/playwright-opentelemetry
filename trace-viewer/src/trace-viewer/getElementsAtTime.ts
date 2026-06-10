@@ -1,5 +1,4 @@
 import type { Span } from "../trace-data-loader/exportToSpans";
-import type { ScreenshotInfo } from "../trace-info-loader";
 
 /**
  * A span with its depth in the hierarchy and nested children.
@@ -15,8 +14,6 @@ export interface HoveredSpan {
  * All elements at a specific point in time.
  */
 export interface HoveredElements {
-	/** The most recent screenshot before or at the hover time */
-	screenshot: ScreenshotInfo | null;
 	/** Steps active at this time, as a hierarchical tree */
 	steps: HoveredSpan[];
 	/** Spans active at this time, as a hierarchical tree */
@@ -24,57 +21,22 @@ export interface HoveredElements {
 }
 
 /**
- * Gets all elements (screenshot, steps, spans) that are active at a specific time.
+ * Gets all elements (steps, spans) that are active at a specific time.
  *
  * @param timeMs - The time in milliseconds (relative to test start)
  * @param steps - All steps from the trace
  * @param spans - All spans from the trace
- * @param screenshots - All screenshots from the trace
- * @param testStartTimeMs - Test start time as Unix timestamp in ms
  * @returns Elements active at the given time
  */
 export function getElementsAtTime(
 	timeMs: number,
 	steps: Span[],
 	spans: Span[],
-	screenshots: ScreenshotInfo[],
-	testStartTimeMs: number,
 ): HoveredElements {
 	return {
-		screenshot: findScreenshotAtTime(timeMs, screenshots, testStartTimeMs),
 		steps: findSpansAtTime(timeMs, steps),
 		spans: findSpansAtTime(timeMs, spans),
 	};
-}
-
-/**
- * Finds the most recent screenshot at or before the given time.
- * Returns null if no screenshot exists at or before the time (respects causality).
- */
-function findScreenshotAtTime(
-	timeMs: number,
-	screenshots: ScreenshotInfo[],
-	testStartTimeMs: number,
-): ScreenshotInfo | null {
-	if (screenshots.length === 0) return null;
-
-	// Convert hover time (relative) to absolute timestamp
-	const absoluteTimeMs = testStartTimeMs + timeMs;
-
-	// Find the most recent screenshot at or before this time
-	let bestScreenshot: ScreenshotInfo | null = null;
-
-	for (const screenshot of screenshots) {
-		if (screenshot.timestamp <= absoluteTimeMs) {
-			if (!bestScreenshot || screenshot.timestamp > bestScreenshot.timestamp) {
-				bestScreenshot = screenshot;
-			}
-		}
-	}
-
-	// Return null if no screenshot exists at or before this time
-	// (we don't show future screenshots - respects causality)
-	return bestScreenshot;
 }
 
 /**

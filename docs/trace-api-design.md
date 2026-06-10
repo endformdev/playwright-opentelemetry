@@ -16,7 +16,7 @@ s3://bucket/
     └── {traceId}/
         ├── traces/
         │   └── {requestId}.json
-        └── screenshots.zip
+        └── rrweb.zip
 ```
 
 All data writes directly to `traces/{traceId}/`. A lifecycle rule expires traces after a configurable retention period (default: 30 days).
@@ -260,14 +260,14 @@ Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, cus
 ### Playwright-Specific Endpoints
 
 ```
-PUT /playwright-otel-reporter/v1/screenshots.zip
+PUT /playwright-otel-reporter/v1/rrweb.zip
 X-Trace-Id: {traceId}
 
-Body: ZIP containing manifest.json and screenshots/*
+Body: ZIP containing rrweb/manifest.json and rrweb/recordings/**
 ```
 
 **Backend logic:**
-1. Write to `traces/{traceId}/screenshots.zip`
+1. Write to `traces/{traceId}/rrweb.zip`
 
 ### Trace Viewer API (Read)
 
@@ -276,12 +276,12 @@ Serves the format expected by the trace viewer:
 ```
 GET /playwright-otel-trace-viewer/v1/{traceId}/traces
   -> { "resourceSpans": [...] }
-GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots.zip
+GET /playwright-otel-trace-viewer/v1/{traceId}/rrweb.zip
 ```
 
-The screenshot ZIP contains root `manifest.json` with screenshot timestamps in **milliseconds since Unix epoch** (13 digits) and screenshot files under `screenshots/`.
+The rrweb ZIP contains `rrweb/manifest.json` with recording timestamps in **milliseconds since Unix epoch** (13 digits) and rrweb event segments under `rrweb/recordings/**`.
 
-The trace endpoint merges all stored OTLP fragments for a trace ID by concatenating `resourceSpans`. If no trace fragments exist, it returns `404` instead of an empty OTLP export. The screenshots ZIP endpoint returns the stored object directly. If no screenshot ZIP exists, it returns `404`; the viewer treats that as no screenshots.
+The trace endpoint merges all stored OTLP fragments for a trace ID by concatenating `resourceSpans`. If no trace fragments exist, it returns `404` instead of an empty OTLP export. The rrweb ZIP endpoint returns the stored object directly. If no rrweb ZIP exists, it returns `404`; the viewer treats that as no replay recording.
 
 ## Bucket Setup (Required)
 

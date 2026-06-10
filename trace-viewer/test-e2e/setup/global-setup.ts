@@ -14,6 +14,9 @@ export const ERROR_SPANS_TRACE_ID_FILE = path.resolve(
 export const SPAN_EVENTS_TRACE_ID_FILE = path.resolve(
 	"test-results/span-events-trace-id.txt",
 );
+export const RRWEB_STATES_TRACE_ID_FILE = path.resolve(
+	"test-results/rrweb-states-trace-id.txt",
+);
 
 export default async function globalSetup() {
 	try {
@@ -27,6 +30,7 @@ export default async function globalSetup() {
 		rmSync(BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE, { force: true });
 		rmSync(ERROR_SPANS_TRACE_ID_FILE, { force: true });
 		rmSync(SPAN_EVENTS_TRACE_ID_FILE, { force: true });
+		rmSync(RRWEB_STATES_TRACE_ID_FILE, { force: true });
 
 		execFileSync("pnpm", ["--filter", "../reporter", "test:e2e"], {
 			env: {
@@ -40,6 +44,7 @@ export default async function globalSetup() {
 				BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
 				ERROR_SPANS_TRACE_ID_FILE,
 				SPAN_EVENTS_TRACE_ID_FILE,
+				RRWEB_STATES_TRACE_ID_FILE,
 			},
 			stdio: "pipe",
 		});
@@ -65,6 +70,12 @@ export default async function globalSetup() {
 		if (!existsSync(SPAN_EVENTS_TRACE_ID_FILE)) {
 			throw new Error(
 				`Reporter e2e run did not write ${SPAN_EVENTS_TRACE_ID_FILE}`,
+			);
+		}
+
+		if (!existsSync(RRWEB_STATES_TRACE_ID_FILE)) {
+			throw new Error(
+				`Reporter e2e run did not write ${RRWEB_STATES_TRACE_ID_FILE}`,
 			);
 		}
 

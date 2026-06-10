@@ -345,7 +345,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 						duration: 200,
 						error: {
 							message:
-								"\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).toBe(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: \u001b[32m\"confirmed\"\u001b[39m\nReceived: \u001b[31m\"submitted\"\u001b[39m",
+								'\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).toBe(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: \u001b[32m"confirmed"\u001b[39m\nReceived: \u001b[31m"submitted"\u001b[39m',
 						},
 					},
 				],

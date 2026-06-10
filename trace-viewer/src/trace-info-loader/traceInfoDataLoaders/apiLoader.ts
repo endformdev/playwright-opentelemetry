@@ -1,10 +1,11 @@
 import { parseOtlpExport } from "../../trace-data-loader";
 import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
-import type { ScreenshotInfo, TraceInfoData } from "../TraceInfoLoader";
-import { ensureServiceWorker, loadScreenshotsForTrace } from "./zipLoader";
+import { EMPTY_RRWEB_TRACE, type RrwebTrace } from "../rrwebRecording";
+import { loadRrwebZipData } from "../rrwebZip";
+import type { TraceInfoData } from "../TraceInfoLoader";
 
 const TRACES_PATH = "traces";
-const SCREENSHOTS_ZIP_PATH = "screenshots.zip";
+const RRWEB_ZIP_PATH = "rrweb.zip";
 
 export async function loadRemoteApi(baseUrl: string): Promise<TraceInfoData> {
 	// Normalize base URL (remove trailing slash)
@@ -20,33 +21,24 @@ export async function loadRemoteApi(baseUrl: string): Promise<TraceInfoData> {
 	}
 	const traceData = parseOtlpExport(await tracesResponse.json());
 	const testInfo = deriveTestInfoFromOtlpExport(traceData);
-	const screenshotsZipUrl = `${normalizedBaseUrl}/${SCREENSHOTS_ZIP_PATH}`;
+	const rrwebZipUrl = `${normalizedBaseUrl}/${RRWEB_ZIP_PATH}`;
 
 	return {
 		testInfo,
 		traceData,
-		loadScreenshots: () =>
-			loadScreenshotsFromApi({
-				traceId: testInfo.traceId,
-				screenshotsZipUrl,
-			}),
+		rrweb: await loadRrwebFromApi(rrwebZipUrl),
 	};
 }
 
-async function loadScreenshotsFromApi({
-	traceId,
-	screenshotsZipUrl,
-}: {
-	traceId: string;
-	screenshotsZipUrl: string;
-}): Promise<ScreenshotInfo[]> {
-	try {
-		await ensureServiceWorker();
-		return await loadScreenshotsForTrace(traceId, screenshotsZipUrl);
-	} catch (error) {
-		console.warn(
-			`Failed to load screenshots ZIP: ${error instanceof Error ? error.message : String(error)}`,
-		);
-		return [];
+async function loadRrwebFromApi(rrwebZipUrl: string): Promise<RrwebTrace> {
+	const response = await fetch(rrwebZipUrl);
+	if (response.status === 404) {
+		return EMPTY_RRWEB_TRACE;
 	}
+	if (!response.ok) {
+		throw new Error(
+			`Failed to fetch rrweb ZIP from ${rrwebZipUrl}: ${response.status} ${response.statusText}`,
+		);
+	}
+	return loadRrwebZipData(await response.blob());
 }

@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+.rrweb-replay-container .replayer-mouse,
+.rrweb-replay-container .replayer-mouse-tail {
+	display: none !important;
+}

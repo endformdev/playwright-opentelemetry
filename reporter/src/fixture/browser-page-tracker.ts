@@ -34,6 +34,10 @@ export class BrowserPageTracker {
 		this.pages.add(page);
 	}
 
+	getPageId(page: Page): string {
+		return this.stateFor(page).pageId;
+	}
+
 	unregisterPage(page: Page, endTime = new Date()): void {
 		this.finishPageSpans(page, endTime);
 		this.pages.delete(page);

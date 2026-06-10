@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { Request, Response, test as base } from "@playwright/test";
+import type { Page, Request, Response, test as base } from "@playwright/test";
 import {
 	resolvePlaywrightOpentelemetryConfig,
 	type PlaywrightOpentelemetryUseOptions,
@@ -11,6 +11,7 @@ import {
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
 } from "./reporter-config";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
+import { installRrwebRecorder } from "./rrweb-recorder";
 import {
 	createTestTraceContext,
 	flushFixtureSpans,
@@ -79,7 +80,39 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ auto: true },
 		],
-		context: async ({ context, testTraceContext, browserPageTracker }, use) => {
+		context: async (
+			{
+				context,
+				testTraceContext,
+				browserPageTracker,
+				playwrightOpentelemetry,
+			},
+			use,
+			testInfo,
+		) => {
+			const config = resolvePlaywrightOpentelemetryConfig(
+				playwrightOpentelemetry,
+			);
+			const instrumentedPages = new WeakSet<Page>();
+			const instrumentPage = (page: Page) => {
+				if (instrumentedPages.has(page)) return;
+				instrumentedPages.add(page);
+				instrumentBrowserPage(page, testTraceContext, browserPageTracker);
+			};
+
+			for (const page of context.pages()) {
+				instrumentPage(page);
+			}
+			context.on("page", instrumentPage);
+
+			const flushRrweb = config.rrweb
+				? await installRrwebRecorder({
+						context,
+						browserPageTracker,
+						testInfo,
+					})
+				: undefined;
+
 			context.route("**", async (route, request) => {
 				browserPageTracker.startDocumentNavigation(request);
 				const networkParent = browserPageTracker.getNetworkParent(request);
@@ -92,57 +125,52 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				});
 			});
 			await use(context);
+			context.off("page", instrumentPage);
+			await flushRrweb?.();
 		},
-		page: async ({ page, testTraceContext, browserPageTracker }, use) => {
-			browserPageTracker.registerPage(page);
-			page.on("close", () => browserPageTracker.unregisterPage(page));
-			page.on("console", (message) => {
-				browserPageTracker.recordConsoleMessage(page, message);
-			});
-			page.on("pageerror", (error) => {
-				browserPageTracker.recordPageError(page, error);
-			});
-			page.on("framenavigated", (frame) => {
-				if (frame === page.mainFrame()) {
-					browserPageTracker.handleFrameNavigated(page, frame.url());
-				}
-			});
-
-			// Two-phase capture approach:
-			// 1. On 'response': Store the Response object (available synchronously)
-			// 2. On 'requestfinished': Use stored response + accurate timing
-			//
-			// This solves two problems:
-			// - 'response' event has timing.responseEnd = -1 (body not downloaded yet)
-			// - 'requestfinished' requires async request.response() which may fail if page closes
-			const pendingRequests = new Map<Request, Response>();
-
-			page.on("response", (response) => {
-				// Store response synchronously - no await needed
-				pendingRequests.set(response.request(), response);
-			});
-
-			page.on("requestfinished", async (request) => {
-				// Get the stored response - no async request.response() call needed
-				const response = pendingRequests.get(request);
-				pendingRequests.delete(request);
-
-				if (!response) {
-					// No response stored - request may have failed or been handled differently
-					return;
-				}
-
-				// Now we have both:
-				// - The Response object (captured at 'response' event)
-				// - Accurate timing with responseEnd (available at 'requestfinished')
-				await fixtureCaptureRequestResponse({
-					request,
-					response,
-					traceContext: testTraceContext,
-				});
-			});
-
+		page: async ({ page }, use) => {
 			await use(page);
 		},
+	});
+}
+
+function instrumentBrowserPage(
+	page: Page,
+	testTraceContext: TestTraceContext,
+	browserPageTracker: BrowserPageTracker,
+): void {
+	browserPageTracker.registerPage(page);
+	page.on("close", () => browserPageTracker.unregisterPage(page));
+	page.on("console", (message) => {
+		browserPageTracker.recordConsoleMessage(page, message);
+	});
+	page.on("pageerror", (error) => {
+		browserPageTracker.recordPageError(page, error);
+	});
+	page.on("framenavigated", (frame) => {
+		if (frame === page.mainFrame()) {
+			browserPageTracker.handleFrameNavigated(page, frame.url());
+		}
+	});
+
+	const pendingRequests = new Map<Request, Response>();
+
+	page.on("response", (response) => {
+		pendingRequests.set(response.request(), response);
+	});
+
+	page.on("requestfinished", async (request) => {
+		const response = pendingRequests.get(request);
+		pendingRequests.delete(request);
+
+		if (!response) {
+			return;
+		}
+
+		await fixtureCaptureRequestResponse({
+			request,
+			response,
+			traceContext: testTraceContext,
+		});
 	});
 }

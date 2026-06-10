@@ -9,6 +9,9 @@ allowBuilds:
   workerd: true
 
 catalog:
+  "@rrweb/record": 2.0.1
+  "@rrweb/replay": 2.0.1
+  "@rrweb/types": 2.0.1
   "@biomejs/biome": 2.4.16
   "@playwright/test": 1.60.0
   "@types/node": ^25.9.1

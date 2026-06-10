@@ -50,7 +50,28 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 			otlpEndpoint: "",
 			playwrightTraceApiEndpoint: "",
 			storeTraceZip: false,
+			rrweb: false,
 		});
+	});
+
+	it("enables rrweb by default for trace artifacts", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({ storeTraceZip: true }).rrweb,
+		).toBe(true);
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				playwrightTraceApiEndpoint: "https://traces.example.com",
+			}).rrweb,
+		).toBe(true);
+	});
+
+	it("allows rrweb to be explicitly disabled", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				storeTraceZip: true,
+				rrweb: false,
+			}).rrweb,
+		).toBe(false);
 	});
 
 	it("throws a configuration error when a destination is required", () => {

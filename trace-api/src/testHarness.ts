@@ -116,9 +116,8 @@ export function createOtlpPayload(options: CreateOtlpPayloadOptions) {
 	};
 }
 
-export function createScreenshotBuffer(text = "screenshot"): ArrayBuffer {
-	// Simple mock binary data
-	return new TextEncoder().encode(`FAKE_JPEG_${text}`).buffer;
+export function createRrwebBuffer(text = "rrweb"): ArrayBuffer {
+	return new TextEncoder().encode(`FAKE_RRWEB_ZIP_${text}`).buffer;
 }
 
 interface StoredObject {

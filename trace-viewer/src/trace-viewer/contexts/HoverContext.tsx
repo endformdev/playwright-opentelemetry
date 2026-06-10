@@ -7,18 +7,17 @@ import {
 	useContext,
 } from "solid-js";
 import type { Span } from "../../trace-data-loader/exportToSpans";
-import type { ScreenshotInfo } from "../../trace-info-loader";
 import { getElementsAtTime, type HoveredElements } from "../getElementsAtTime";
 import { viewportPositionToTime } from "../viewport";
 import { useViewportContext } from "./ViewportContext";
 
 export type HoverMode = "hover" | "locked" | "search-override";
 
-export type FocusedElementType = "screenshot" | "step" | "span";
+export type FocusedElementType = "replay-frame" | "step" | "span";
 
 export interface FocusedElement {
 	type: FocusedElementType;
-	id: string; // span ID for steps/spans, or screenshot URL for screenshots
+	id: string; // span ID for steps/spans, or replay frame ID for replay frames
 }
 
 export interface HoverContextValue {
@@ -52,8 +51,6 @@ const HoverContext = createContext<HoverContextValue>();
 export interface HoverProviderProps {
 	steps: Accessor<Span[]>;
 	spans: Accessor<Span[]>;
-	screenshots: Accessor<ScreenshotInfo[]>;
-	testStartTimeMs: Accessor<number>;
 	children: JSX.Element;
 }
 
@@ -84,25 +81,13 @@ export function HoverProvider(props: HoverProviderProps) {
 	const hoveredElements = createMemo((): HoveredElements | null => {
 		const timeMs = hoverTimeMs();
 		if (timeMs === null) return null;
-		return getElementsAtTime(
-			timeMs,
-			props.steps(),
-			props.spans(),
-			props.screenshots(),
-			props.testStartTimeMs(),
-		);
+		return getElementsAtTime(timeMs, props.steps(), props.spans());
 	});
 
 	const lockedElements = createMemo((): HoveredElements | null => {
 		const timeMs = lockedTimeMs();
 		if (timeMs === null) return null;
-		return getElementsAtTime(
-			timeMs,
-			props.steps(),
-			props.spans(),
-			props.screenshots(),
-			props.testStartTimeMs(),
-		);
+		return getElementsAtTime(timeMs, props.steps(), props.spans());
 	});
 
 	const displayTimeMs = (): number | null => {
