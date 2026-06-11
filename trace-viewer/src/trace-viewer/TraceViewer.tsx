@@ -522,7 +522,24 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 		if (span) {
 			const selectionTimeMs = getSpanSelectionTimeMs(span, placement);
-			const position = timeToViewportPosition(selectionTimeMs, viewport());
+			const currentViewport = viewport();
+			const selectionViewport = isTimeRangeVisible(
+				span.startOffsetMs,
+				span.startOffsetMs + span.durationMs,
+				currentViewport,
+			)
+				? currentViewport
+				: {
+						visibleStartMs: 0,
+						visibleEndMs: currentViewport.totalDurationMs,
+						totalDurationMs: currentViewport.totalDurationMs,
+					};
+
+			if (selectionViewport !== currentViewport) {
+				setViewport(selectionViewport);
+			}
+
+			const position = timeToViewportPosition(selectionTimeMs, selectionViewport);
 			const clampedPosition = Math.max(0, Math.min(1, position));
 
 			const isStep =

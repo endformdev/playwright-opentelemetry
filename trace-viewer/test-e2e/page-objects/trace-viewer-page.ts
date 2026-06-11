@@ -240,4 +240,17 @@ export class TraceViewerPage {
 		const apiUrl = `${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceIdHex}`;
 		await this.page.goto(`/?traceSource=${encodeURIComponent(apiUrl)}`);
 	}
+
+	async zoomTimelineToRange(startRatio: number, endRatio: number): Promise<void> {
+		const box = await this.timelineContent.boundingBox();
+		if (!box) {
+			throw new Error("Trace timeline is not visible");
+		}
+
+		const y = box.y + box.height / 2;
+		await this.page.mouse.move(box.x + box.width * startRatio, y);
+		await this.page.mouse.down();
+		await this.page.mouse.move(box.x + box.width * endRatio, y, { steps: 8 });
+		await this.page.mouse.up();
+	}
 }
