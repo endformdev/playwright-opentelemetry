@@ -1,6 +1,15 @@
-import { createEffect, For, onCleanup, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	on,
+	onCleanup,
+	Show,
+} from "solid-js";
 import type { SpanKind } from "../../trace-data-loader/exportToSpans";
 import type { TraceInfo } from "../../trace-info-loader";
+import type { FocusedElement } from "../contexts/HoverContext";
 import {
 	flattenHoveredSpans,
 	type HoveredElements,
@@ -13,15 +22,7 @@ import {
 } from "./browserSpanStyles";
 import { SpanDetails } from "./SpanDetails";
 
-const SCROLL_DEBOUNCE_MS = 40;
-const SCROLL_TOP_PADDING_PX = 16;
-
-type FocusedElementType = "screenshot" | "step" | "span";
-
-interface FocusedElement {
-	type: FocusedElementType;
-	id: string; // span ID for steps/spans, or screenshot URL for screenshots
-}
+const FOCUSED_ELEMENT_TOP_OFFSET_PX = 16;
 
 export interface DetailsPanelProps {
 	traceInfo: TraceInfo;
@@ -45,23 +46,33 @@ function getSpanColor(kind: SpanKind): string {
 
 export function DetailsPanel(props: DetailsPanelProps) {
 	let containerRef: HTMLDivElement | undefined;
+	let anchorFrame: number | undefined;
+	// The detailsLayoutKey that produced the current bottom spacer; used to
+	// decide whether the spacer is still trustworthy when focus is lost.
+	let spacerLayoutKey: string | undefined;
 
-	const flatSteps = () =>
+	const [bottomSpacerHeight, setBottomSpacerHeight] = createSignal(0);
+
+	const flatSteps = createMemo(() =>
 		props.hoveredElements
 			? flattenHoveredSpans(props.hoveredElements.steps)
-			: [];
+			: [],
+	);
 
-	const allSpans = () =>
+	const allSpans = createMemo(() =>
 		props.hoveredElements
 			? flattenHoveredSpans(props.hoveredElements.spans)
-			: [];
+			: [],
+	);
 
 	// Split spans by service name
-	const flatBrowserSpans = () =>
-		allSpans().filter((hs) => hs.span.serviceName === "playwright-browser");
+	const flatBrowserSpans = createMemo(() =>
+		allSpans().filter((hs) => hs.span.serviceName === "playwright-browser"),
+	);
 
-	const flatExternalSpans = () =>
-		allSpans().filter((hs) => hs.span.serviceName !== "playwright-browser");
+	const flatExternalSpans = createMemo(() =>
+		allSpans().filter((hs) => hs.span.serviceName !== "playwright-browser"),
+	);
 
 	const isSpanFocused = (spanId: string): boolean => {
 		const focused = props.focusedElement;
@@ -77,41 +88,107 @@ export function DetailsPanel(props: DetailsPanelProps) {
 		return focused?.type === "screenshot";
 	};
 
-	createEffect(() => {
-		const focused = props.focusedElement;
-		const currentId = focused
-			? focused.type === "screenshot"
-				? "screenshot"
-				: focused.id
-			: null;
+	const focusedElementSelector = (focused: FocusedElement) =>
+		focused.type === "screenshot"
+			? "[data-screenshot]"
+			: `[data-span-id="${focused.id}"]`;
 
-		if (!currentId || !containerRef) return;
+	// Memoized so downstream subscribers (the anchoring effect) only re-run
+	// when the rendered content actually changes, not on every hover move.
+	const detailsLayoutKey = createMemo(() => {
+		const elements = props.hoveredElements;
+		if (!elements) return "";
 
-		const selector =
-			focused!.type === "screenshot"
-				? "[data-screenshot]"
-				: `[data-span-id="${focused!.id}"]`;
-
-		const timeout = setTimeout(() => {
-			const element = containerRef?.querySelector(selector);
-			if (element && containerRef) {
-				const elementRect = element.getBoundingClientRect();
-				const containerRect = containerRef.getBoundingClientRect();
-				const elementTopInScrollArea =
-					elementRect.top - containerRect.top + containerRef.scrollTop;
-				const targetScrollTop = Math.max(
-					0,
-					elementTopInScrollArea - SCROLL_TOP_PADDING_PX,
-				);
-				containerRef.scrollTo({
-					top: targetScrollTop,
-					behavior: "smooth",
-				});
-			}
-		}, SCROLL_DEBOUNCE_MS);
-
-		onCleanup(() => clearTimeout(timeout));
+		return [
+			elements.screenshot?.url ?? "",
+			...flatSteps().map((hoveredSpan) => hoveredSpan.span.id),
+			...flatBrowserSpans().map((hoveredSpan) => hoveredSpan.span.id),
+			...flatExternalSpans().map((hoveredSpan) => hoveredSpan.span.id),
+		].join("|");
 	});
+
+	const cancelAnchorFrame = () => {
+		if (anchorFrame !== undefined) {
+			cancelAnimationFrame(anchorFrame);
+			anchorFrame = undefined;
+		}
+	};
+
+	// Cancel any pending frame when the component is disposed.
+	onCleanup(cancelAnchorFrame);
+
+	const anchorFocusedElement = () => {
+		cancelAnchorFrame();
+
+		anchorFrame = requestAnimationFrame(() => {
+			anchorFrame = undefined;
+
+			// Reads here are intentionally non-reactive: rAF callbacks run
+			// outside Solid's tracking scope.
+			const focused = props.focusedElement;
+			if (!focused || !containerRef) {
+				// Keep the current spacer: removing it would shrink the
+				// scroll area and jump the scroll position.
+				return;
+			}
+
+			const selector = focusedElementSelector(focused);
+			const element = containerRef.querySelector<HTMLElement>(selector);
+			if (!element) {
+				spacerLayoutKey = undefined;
+				setBottomSpacerHeight(0);
+				return;
+			}
+
+			// Signal writes outside a batch apply to the DOM synchronously,
+			// so the spacer is in place before we measure and scroll below.
+			spacerLayoutKey = detailsLayoutKey();
+			setBottomSpacerHeight(
+				Math.max(
+					0,
+					containerRef.clientHeight -
+						FOCUSED_ELEMENT_TOP_OFFSET_PX -
+						element.offsetHeight,
+				),
+			);
+
+			const elementRect = element.getBoundingClientRect();
+			const containerRect = containerRef.getBoundingClientRect();
+			const elementTopInScrollArea =
+				elementRect.top - containerRect.top + containerRef.scrollTop;
+
+			containerRef.scrollTo({
+				top: Math.max(
+					0,
+					elementTopInScrollArea - FOCUSED_ELEMENT_TOP_OFFSET_PX,
+				),
+				behavior: "auto",
+			});
+		});
+	};
+
+	createEffect(
+		on(
+			[() => props.focusedElement, detailsLayoutKey],
+			([focused, layoutKey]) => {
+				if (!focused) {
+					cancelAnchorFrame();
+
+					// Keep the spacer from the last anchored layout so a brief
+					// hover-out doesn't shrink the scroll area and jump the
+					// scroll position. Only clear it once the panel content
+					// actually changes and the measurement is stale.
+					if (spacerLayoutKey !== undefined && spacerLayoutKey !== layoutKey) {
+						spacerLayoutKey = undefined;
+						setBottomSpacerHeight(0);
+					}
+					return;
+				}
+
+				anchorFocusedElement();
+			},
+		),
+	);
 
 	return (
 		<div
@@ -145,6 +222,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 										src={screenshot().url}
 										alt="Screenshot at hover time"
 										class="w-full h-auto"
+										onLoad={anchorFocusedElement}
 									/>
 								</div>
 							)}
@@ -236,6 +314,13 @@ export function DetailsPanel(props: DetailsPanelProps) {
 							<div class="text-gray-400 text-sm text-center py-4">
 								No active steps or spans at this time
 							</div>
+						</Show>
+
+						<Show when={bottomSpacerHeight() > 0}>
+							<div
+								aria-hidden="true"
+								style={{ height: `${bottomSpacerHeight()}px` }}
+							/>
 						</Show>
 					</div>
 				)}
