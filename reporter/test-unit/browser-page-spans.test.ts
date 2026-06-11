@@ -10,7 +10,10 @@ import {
 	BrowserPageTracker,
 	shouldCreateSameDocumentPageSpan,
 } from "../src/fixture/browser-page-tracker";
-import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
+import {
+	propagateRouteTraceHeaders,
+	storeRequestTraceContext,
+} from "../src/fixture/network-propagator";
 import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
 import {
 	FIXTURE_SPANS_ATTACHMENT_NAME,
@@ -309,12 +312,17 @@ async function captureNetworkRequest(
 	const response = createResponse(request);
 	const parent = tracker.getNetworkParent(request);
 
-	await fixtureOtelHeaderPropagator({
-		route,
+	const spanId = storeRequestTraceContext({
 		request,
 		traceContext,
 		parentSpanId: parent.spanId,
 		routeAssociation: parent.routeAssociation,
+	});
+	await propagateRouteTraceHeaders({
+		route,
+		request,
+		traceId: traceContext.traceId,
+		spanId,
 	});
 	await fixtureCaptureRequestResponse({ request, response, traceContext });
 }

@@ -5,7 +5,10 @@ import {
 	type PlaywrightOpentelemetryUseOptions,
 } from "../shared/config";
 import { BrowserPageTracker } from "./browser-page-tracker";
-import { fixtureOtelHeaderPropagator } from "./network-propagator";
+import {
+	propagateRouteTraceHeaders,
+	storeRequestTraceContext,
+} from "./network-propagator";
 import {
 	hasPlaywrightOpentelemetryReporter,
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
@@ -79,17 +82,39 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ auto: true },
 		],
-		context: async ({ context, testTraceContext, browserPageTracker }, use) => {
+		context: async (
+			{
+				context,
+				playwrightOpentelemetry,
+				testTraceContext,
+				browserPageTracker,
+			},
+			use,
+		) => {
+			const config = resolvePlaywrightOpentelemetryConfig(
+				playwrightOpentelemetry,
+			);
 			context.route("**", async (route, request) => {
 				browserPageTracker.startDocumentNavigation(request);
 				const networkParent = browserPageTracker.getNetworkParent(request);
-				await fixtureOtelHeaderPropagator({
-					route,
+				const spanId = storeRequestTraceContext({
 					request,
 					traceContext: testTraceContext,
 					parentSpanId: networkParent.spanId,
 					routeAssociation: networkParent.routeAssociation,
 				});
+
+				if (config.propagateTraceHeaders) {
+					await propagateRouteTraceHeaders({
+						route,
+						request,
+						traceId: testTraceContext.traceId,
+						spanId,
+					});
+					return;
+				}
+
+				await route.fallback();
 			});
 			await use(context);
 		},

@@ -4,10 +4,7 @@ import {
 	type TraceLoadInterfaceStatus,
 } from "./TraceLoadInterface";
 import { useTraceInfoLoader } from "./trace-info-loader";
-import {
-	createTraceLoadRequestSignal,
-	type TraceSource,
-} from "./trace-source";
+import { createTraceLoadRequestSignal, type TraceSource } from "./trace-source";
 import { TraceViewer } from "./trace-viewer";
 
 export default function App() {

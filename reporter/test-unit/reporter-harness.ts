@@ -7,7 +7,10 @@ import type {
 	TestResult,
 	TestStep,
 } from "@playwright/test/reporter";
-import { fixtureOtelHeaderPropagator } from "../src/fixture/network-propagator";
+import {
+	propagateRouteTraceHeaders,
+	storeRequestTraceContext,
+} from "../src/fixture/network-propagator";
 import { fixtureCaptureRequestResponse } from "../src/fixture/request-response-capture";
 import {
 	type TestTraceContext,
@@ -131,7 +134,8 @@ export type { FullConfig, FullResult, Suite, TestCase, TestResult };
 // Re-export for convenience in tests
 export {
 	fixtureCaptureRequestResponse,
-	fixtureOtelHeaderPropagator,
+	propagateRouteTraceHeaders,
+	storeRequestTraceContext,
 	PlaywrightOpentelemetryReporter,
 };
 
@@ -252,7 +256,7 @@ export interface MockNetworkOptions {
 /**
  * Creates mock Playwright Route, Request, and Response objects for testing the fixture functions.
  * The returned objects can be used with:
- * - fixtureOtelHeaderPropagator (route + request) - for trace header propagation
+ * - propagateRouteTraceHeaders (route + request) - for trace header propagation
  * - fixtureCaptureRequestResponse (request + response) - for capturing request/response data
  *
  * The mock captures headers passed to route.fallback() and exposes them via request.allHeaders()
@@ -460,8 +464,9 @@ function buildSteps(
 /**
  * Simulates a network request happening during a test, calling the fixture functions
  * in the order they would be invoked in real Playwright execution:
- * 1. fixtureOtelHeaderPropagator - called via context.route() handler, propagates trace headers
- * 2. fixtureCaptureRequestResponse - called via page.on("response"), captures request and response data
+ * 1. storeRequestTraceContext - called via context.route() handler, stores request context
+ * 2. propagateRouteTraceHeaders - called via context.route() handler, propagates trace headers
+ * 3. fixtureCaptureRequestResponse - called via page.on("response"), captures request and response data
  */
 export async function simulateNetworkRequest(
 	networkAction: NetworkAction,
@@ -480,16 +485,23 @@ export async function simulateNetworkRequest(
 		},
 	);
 
-	// 1. Header propagation via context route handler
-	await fixtureOtelHeaderPropagator({
-		route,
+	// 1. Request context storage via context route handler
+	const spanId = storeRequestTraceContext({
 		request,
 		traceContext,
 		parentSpanId: networkAction.parentSpanId ?? traceContext.rootSpanId,
 		routeAssociation: networkAction.parentSpanId ? "active-page" : "root",
 	});
 
-	// 2. Request/Response capture via page "response" event
+	// 2. Header propagation via context route handler
+	await propagateRouteTraceHeaders({
+		route,
+		request,
+		traceId: traceContext.traceId,
+		spanId,
+	});
+
+	// 3. Request/Response capture via page "response" event
 	//    (response.request() gives us the request, so we capture both together)
 	await fixtureCaptureRequestResponse({
 		request,

@@ -6,6 +6,7 @@ export interface PlaywrightOpentelemetryConfig {
 	playwrightTraceApiEndpoint?: string;
 	playwrightTraceApiHeaders?: Record<string, string>;
 	storeTraceZip?: boolean;
+	propagateTraceHeaders?: boolean;
 	serviceName?: string;
 	debug?: boolean;
 }
@@ -20,6 +21,7 @@ export interface ResolvedPlaywrightOpentelemetryConfig {
 	playwrightTraceApiEndpoint: string;
 	playwrightTraceApiHeaders: Record<string, string>;
 	storeTraceZip: boolean;
+	propagateTraceHeaders: boolean;
 	serviceName: string;
 	debug: boolean;
 }
@@ -56,6 +58,7 @@ export function resolvePlaywrightOpentelemetryConfig(
 			...envTraceApiHeaders,
 		},
 		storeTraceZip: config?.storeTraceZip === true,
+		propagateTraceHeaders: config?.propagateTraceHeaders ?? true,
 		serviceName:
 			process.env.OTEL_SERVICE_NAME ||
 			config?.serviceName ||

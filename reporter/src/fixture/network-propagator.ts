@@ -2,27 +2,27 @@ import type { Request, Route } from "@playwright/test";
 import { generateSpanId } from "../shared/otel";
 import type { TestTraceContext } from "./trace-context";
 
-export interface PlaywrightFixturePropagatorOptions {
-	route: Route;
+export interface StoreRequestTraceContextOptions {
 	request: Request;
 	traceContext: TestTraceContext;
 	parentSpanId: string;
 	routeAssociation: "active-route" | "active-page" | "root";
 }
 
-/**
- * Intercepts network requests to propagate trace context via traceparent header.
- * @param options - The propagator options
- */
-export async function fixtureOtelHeaderPropagator({
-	route,
+export interface PropagateRouteTraceHeadersOptions {
+	route: Route;
+	request: Request;
+	traceId: string;
+	spanId: string;
+}
+
+export function storeRequestTraceContext({
 	request,
 	traceContext,
 	parentSpanId,
 	routeAssociation,
-}: PlaywrightFixturePropagatorOptions): Promise<void> {
+}: StoreRequestTraceContextOptions): string {
 	const spanId = generateSpanId();
-	const traceHeader = `00-${traceContext.traceId}-${spanId}-01`;
 
 	traceContext.requestContexts.set(request, {
 		traceId: traceContext.traceId,
@@ -30,6 +30,21 @@ export async function fixtureOtelHeaderPropagator({
 		parentSpanId,
 		routeAssociation,
 	});
+
+	return spanId;
+}
+
+/**
+ * Intercepts network requests to propagate trace context via traceparent header.
+ * @param options - The propagator options
+ */
+export async function propagateRouteTraceHeaders({
+	route,
+	request,
+	traceId,
+	spanId,
+}: PropagateRouteTraceHeadersOptions): Promise<void> {
+	const traceHeader = `00-${traceId}-${spanId}-01`;
 
 	await route.fallback({
 		headers: {
