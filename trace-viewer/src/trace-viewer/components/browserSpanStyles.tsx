@@ -79,7 +79,7 @@ export function getResourceColor(resourceType: ResourceType): string {
 		image: "#9c27b0", // Purple
 		script: "#f5a623", // Orange
 		fetch: "#fbbc04", // Yellow
-		font: "#ea4335", // Red
+		font: "#14b8a6", // Teal
 		media: "#00bcd4", // Teal
 		other: "#9e9e9e", // Gray
 	};
