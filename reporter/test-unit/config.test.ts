@@ -50,6 +50,17 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 			otlpEndpoint: "",
 			playwrightTraceApiEndpoint: "",
 			storeTraceZip: false,
+			propagateTraceHeaders: true,
+		});
+	});
+
+	it("allows trace header propagation to be disabled", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				propagateTraceHeaders: false,
+			}),
+		).toMatchObject({
+			propagateTraceHeaders: false,
 		});
 	});
 

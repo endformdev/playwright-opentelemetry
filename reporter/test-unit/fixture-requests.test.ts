@@ -1,5 +1,9 @@
-import type { Request, Response } from "@playwright/test";
+import type { Request, Response, Route } from "@playwright/test";
 import { describe, expect, it } from "vitest";
+import {
+	propagateRouteTraceHeaders,
+	storeRequestTraceContext,
+} from "../src/fixture/network-propagator";
 import {
 	detectResourceType,
 	fixtureCaptureRequestResponse,
@@ -60,6 +64,62 @@ describe("fixture request/response capture", () => {
 		]);
 	});
 
+	it("propagates traceparent headers by default", async () => {
+		const traceContext = createTraceContext();
+		const request = createRequest("https://api.example.com/users", {
+			accept: "application/json",
+		});
+		const route = createRoute();
+
+		const spanId = storeRequestTraceContext({
+			request,
+			traceContext,
+			parentSpanId: traceContext.rootSpanId,
+			routeAssociation: "root",
+		});
+		await propagateRouteTraceHeaders({
+			route,
+			request,
+			traceId: traceContext.traceId,
+			spanId,
+		});
+
+		expect(route.fallbackOptions?.headers).toMatchObject({
+			accept: "application/json",
+			traceparent: expect.stringMatching(
+				new RegExp(`^00-${traceContext.traceId}-[0-9a-f]{16}-01$`),
+			),
+		});
+	});
+
+	it("can disable traceparent propagation while still capturing request spans", async () => {
+		const traceContext = createTraceContext();
+		const request = createRequest("https://api.example.com/users");
+		const route = createRoute();
+
+		storeRequestTraceContext({
+			request,
+			traceContext,
+			parentSpanId: traceContext.rootSpanId,
+			routeAssociation: "root",
+		});
+		await route.fallback();
+		await fixtureCaptureRequestResponse({
+			request,
+			response: createResponse(200, "application/json"),
+			traceContext,
+		});
+
+		expect(route.fallbackOptions).toBeUndefined();
+		expect(traceContext.spans).toEqual([
+			expect.objectContaining({
+				traceId: traceContext.traceId,
+				parentSpanId: traceContext.rootSpanId,
+				name: "HTTP GET",
+			}),
+		]);
+	});
+
 	it("detects browser resource types from content-type and URL fallback", () => {
 		expect(detectResourceType("text/html", "https://example.com")).toBe(
 			"document",
@@ -94,10 +154,14 @@ function createTraceContext(): TestTraceContext {
 	};
 }
 
-function createRequest(url: string): Request {
+function createRequest(
+	url: string,
+	headers: Record<string, string> = {},
+): Request {
 	return {
 		url: () => url,
 		method: () => "GET",
+		headers: () => headers,
 		timing: () => ({
 			startTime: new Date("2025-11-06T10:00:00.000Z").getTime(),
 			domainLookupStart: -1,
@@ -110,6 +174,23 @@ function createRequest(url: string): Request {
 			responseEnd: 20,
 		}),
 	} as unknown as Request;
+}
+
+function createRoute(): Route & {
+	fallbackOptions?: { headers?: Record<string, string> };
+} {
+	const route = {
+		fallbackOptions: undefined as
+			| { headers?: Record<string, string> }
+			| undefined,
+		fallback: async (options?: { headers?: Record<string, string> }) => {
+			route.fallbackOptions = options;
+		},
+	};
+
+	return route as unknown as Route & {
+		fallbackOptions?: { headers?: Record<string, string> };
+	};
 }
 
 function createResponse(status: number, contentType: string): Response {

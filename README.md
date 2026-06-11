@@ -9,7 +9,7 @@ We're just getting started, this project is in early development. Reach out if y
 Two things need to be set up for complete opentelemetry tracing:
 
 1. A reporter that sends traces to your provider of choice
-2. A fixture that propogates opentelemetry trace headers to enable nested spans
+2. A fixture that propagates opentelemetry trace headers to enable nested spans
 
 ### Configure the reporter
 
@@ -29,6 +29,11 @@ const playwrightOpentelemetry: PlaywrightOpentelemetryConfig = {
 	},
 	// Or output an opentelemetry report zip
 	storeTraceZip: true,
+	// Defaults to true. When enabled, browser requests receive a W3C
+	// traceparent header that makes downstream spans children of the
+	// Playwright-generated test trace. Export Playwright telemetry to the
+	// same backend as your app telemetry to avoid missing root spans.
+	propagateTraceHeaders: true,
 };
 
 export default defineConfig<PlaywrightOpentelemetryUseOptions>({
