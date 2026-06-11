@@ -96,6 +96,6 @@ async function loadTraceSource(source: TraceSource): Promise<TraceInfoData> {
 		case "remote-zip":
 			return loadRemoteZip(source.url);
 		case "remote-api":
-			return loadRemoteApi(source.url);
+			return loadRemoteApi(source.url, source.traceToken);
 	}
 }

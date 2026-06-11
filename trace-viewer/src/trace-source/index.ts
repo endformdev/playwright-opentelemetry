@@ -6,5 +6,6 @@ export type {
 } from "./traceSource";
 export {
 	createTraceLoadRequestSignal,
-	parseTraceSourceQuery,
+	parseTraceSourceInput,
+	readTraceTokenQueryParam,
 } from "./traceSource";

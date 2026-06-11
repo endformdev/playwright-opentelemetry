@@ -30,28 +30,35 @@ interface RemoteZipTraceSource {
 interface RemoteApiTraceSource {
 	kind: "remote-api";
 	url: string;
+	traceToken: string | null;
 }
 
-const QUERY_PARAM_NAME = "traceSource";
+const TRACE_SOURCE_QUERY_PARAM_NAME = "traceSource";
+const TRACE_TOKEN_QUERY_PARAM_NAME = "traceToken";
+const URL_PARSE_BASE = "http://trace-viewer.local";
 
 export function createTraceLoadRequestSignal(): [
 	Accessor<TraceLoadRequest | null>,
 	TraceLoadRequestSetter,
 ] {
+	const initialRequest = requestFromQueryParam();
 	const [request, setRequestInternal] = createSignal<TraceLoadRequest | null>(
-		requestFromQueryParam(),
+		initialRequest,
 	);
+	if (initialRequest) writeToQueryParam(initialRequest.source, "replace");
 
 	const setRequest: TraceLoadRequestSetter = (source, origin = "ui") => {
 		setRequestInternal(source ? { source, origin } : null);
-		writeToQueryParam(source);
+		writeToQueryParam(source, "push");
 	};
 
 	// Handle browser back/forward navigation
 	if (typeof window !== "undefined") {
 		window.addEventListener("popstate", () => {
 			// Update signal from URL without pushing to history
-			setRequestInternal(requestFromQueryParam());
+			const nextRequest = requestFromQueryParam();
+			setRequestInternal(nextRequest);
+			if (nextRequest) writeToQueryParam(nextRequest.source, "replace");
 		});
 	}
 
@@ -65,42 +72,109 @@ function requestFromQueryParam(): TraceLoadRequest | null {
 
 function readFromQueryParam(): TraceSource | null {
 	const params = new URLSearchParams(window.location.search);
-	return parseTraceSourceQuery(params.get(QUERY_PARAM_NAME));
+	return parseTraceSourceInput(
+		params.get(TRACE_SOURCE_QUERY_PARAM_NAME),
+		readTraceTokenQueryParam(),
+	);
 }
 
-function writeToQueryParam(source: TraceSource | null): void {
+export function readTraceTokenQueryParam(): string | null {
+	if (typeof window === "undefined") return null;
+	const params = new URLSearchParams(window.location.search);
+	return params.get(TRACE_TOKEN_QUERY_PARAM_NAME);
+}
+
+function writeToQueryParam(
+	source: TraceSource | null,
+	historyMode: "push" | "replace",
+): void {
 	const params = new URLSearchParams(window.location.search);
 
 	if (source && source.kind !== "local-zip") {
-		params.set(QUERY_PARAM_NAME, serializeTraceSource(source));
+		params.set(TRACE_SOURCE_QUERY_PARAM_NAME, serializeTraceSource(source));
 	} else {
-		params.delete(QUERY_PARAM_NAME);
+		params.delete(TRACE_SOURCE_QUERY_PARAM_NAME);
+	}
+
+	if (source?.kind === "remote-api" && source.traceToken) {
+		params.set(TRACE_TOKEN_QUERY_PARAM_NAME, source.traceToken);
+	} else {
+		params.delete(TRACE_TOKEN_QUERY_PARAM_NAME);
 	}
 
 	const url = new URL(window.location.href);
 	url.search = params.toString();
 
-	window.history.pushState(null, "", url.toString());
+	if (historyMode === "replace") {
+		window.history.replaceState(null, "", url.toString());
+	} else {
+		window.history.pushState(null, "", url.toString());
+	}
 }
 
-export function parseTraceSourceQuery(
-	value: string | null,
+export function parseTraceSourceInput(
+	traceSource: string | null,
+	fallbackTraceToken: string | null,
 ): TraceSource | null {
-	if (!value || value.trim() === "") {
+	if (!traceSource || traceSource.trim() === "") {
 		return null;
 	}
 
-	const trimmed = value.trim();
+	const trimmedTraceSource = traceSource.trim();
 
-	if (trimmed === "local-zip" || trimmed.startsWith("local-zip:")) {
+	if (
+		trimmedTraceSource === "local-zip" ||
+		trimmedTraceSource.startsWith("local-zip:")
+	) {
 		return null;
 	}
 
-	if (trimmed.endsWith(".zip")) {
-		return { kind: "remote-zip", url: trimmed };
+	const normalized = normalizeTraceSourceUrl(
+		trimmedTraceSource,
+		fallbackTraceToken,
+	);
+
+	if (isZipUrl(normalized.url)) {
+		return { kind: "remote-zip", url: normalized.url };
 	}
 
-	return { kind: "remote-api", url: trimmed };
+	return {
+		kind: "remote-api",
+		url: normalized.url,
+		traceToken: normalized.traceToken,
+	};
+}
+
+function normalizeTraceSourceUrl(
+	value: string,
+	topLevelTraceToken: string | null,
+): { url: string; traceToken: string | null } {
+	const trimmedTopLevelTraceToken = topLevelTraceToken?.trim();
+
+	try {
+		const parsedUrl = new URL(value, URL_PARSE_BASE);
+		const embeddedTraceToken = parsedUrl.searchParams
+			.get(TRACE_TOKEN_QUERY_PARAM_NAME)
+			?.trim();
+
+		return {
+			url: withoutQueryOrHash(value),
+			traceToken: embeddedTraceToken || trimmedTopLevelTraceToken || null,
+		};
+	} catch {
+		return {
+			url: withoutQueryOrHash(value),
+			traceToken: trimmedTopLevelTraceToken || null,
+		};
+	}
+}
+
+function isZipUrl(value: string): boolean {
+	return value.toLowerCase().endsWith(".zip");
+}
+
+function withoutQueryOrHash(value: string): string {
+	return value.split(/[?#]/, 1)[0];
 }
 
 function serializeTraceSource(source: TraceSource): string {

@@ -36,6 +36,7 @@ describe("loading a trace from the remote trace API", () => {
 
 		const traceInfo = await loadRemoteApi(
 			`https://traces.example.com/${traceId}/`,
+			null,
 		);
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -71,6 +72,34 @@ describe("loading a trace from the remote trace API", () => {
 		);
 	});
 
+	it("propagates trace tokens to trace API requests", async () => {
+		const traceId = "7709187832dca84f02f413a312421586";
+		const fetchMock = vi.fn(async (url: string) => {
+			if (
+				url ===
+				`https://traces.example.com/${traceId}/traces?traceToken=token%20123`
+			) {
+				return jsonResponse(otlpExport(traceId));
+			}
+			return textResponse("not found", 404);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const traceInfo = await loadRemoteApi(
+			`https://traces.example.com/${traceId}/`,
+			"token 123",
+		);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			`https://traces.example.com/${traceId}/traces?traceToken=token%20123`,
+		);
+		await traceInfo.loadScreenshots();
+		expect(loadScreenshotsForTrace).toHaveBeenCalledWith(
+			traceId,
+			`https://traces.example.com/${traceId}/screenshots.zip?traceToken=token%20123`,
+		);
+	});
+
 	it("surfaces a missing trace before trying to load screenshots", async () => {
 		const traceId = "7709187832dca84f02f413a312421586";
 		const fetchMock = vi.fn(async (url: string) => {
@@ -82,7 +111,7 @@ describe("loading a trace from the remote trace API", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(
-			loadRemoteApi(`https://traces.example.com/${traceId}`),
+			loadRemoteApi(`https://traces.example.com/${traceId}`, null),
 		).rejects.toThrow("Failed to fetch trace data");
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
@@ -100,7 +129,7 @@ describe("loading a trace from the remote trace API", () => {
 		);
 
 		await expect(
-			loadRemoteApi(`https://traces.example.com/${traceId}`),
+			loadRemoteApi(`https://traces.example.com/${traceId}`, null),
 		).rejects.toThrow("no playwright.test span found");
 	});
 });
