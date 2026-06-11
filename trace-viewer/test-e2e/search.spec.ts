@@ -6,6 +6,7 @@ test.describe("Search Functionality", () => {
 	test.describe.configure({ mode: "serial" });
 
 	const traceId = generateTraceId("searchtest001");
+	const zoomTraceId = generateTraceId("searchzoom001");
 	let startTime: number;
 
 	test.beforeAll(async ({ request }) => {
@@ -31,6 +32,18 @@ test.describe("Search Functionality", () => {
 			.addDbSpan("DB query users", "postgresql");
 
 		await builder.send(request);
+
+		const zoomBuilder = new TraceDataBuilder(zoomTraceId, startTime + 10_000);
+		zoomBuilder
+			.addTestSpan("Search zoom selection test", 10000, {
+				status: "passed",
+				file: "search/zoom-selection.spec.ts",
+				line: 10,
+			})
+			.addStepSpan("Early searchable step", 500, { startOffsetMs: 500 })
+			.addStepSpan("Late filler step", 1000, { startOffsetMs: 8000 });
+
+		await zoomBuilder.send(request);
 	});
 
 	test("complete search interaction flow", async ({ page }) => {
@@ -96,5 +109,31 @@ test.describe("Search Functionality", () => {
 
 		// No result items should be present
 		await expect(viewer.search.resultItems).toHaveCount(0);
+	});
+
+	test("zooms out when selecting an off-screen search result", async ({
+		page,
+	}) => {
+		const viewer = new TraceViewerPage(page);
+		await viewer.loadTraceFromApi(zoomTraceId);
+
+		await expect(viewer.header.testName).toHaveText("Search zoom selection test");
+
+		const earlyStep = viewer.steps.spanByName("Early searchable step");
+		await viewer.timelineContent.dblclick();
+		await expect(earlyStep).toBeVisible();
+
+		await viewer.zoomTimelineToRange(0.7, 0.95);
+		await expect(earlyStep).toHaveCount(0);
+
+		await viewer.search.input.click();
+		await viewer.search.input.fill("Early searchable step");
+		await page.waitForTimeout(300);
+		await viewer.search.resultItems
+			.filter({ hasText: "Early searchable step" })
+			.first()
+			.click();
+
+		await expect(earlyStep).toBeVisible();
 	});
 });

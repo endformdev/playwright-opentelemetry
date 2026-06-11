@@ -34,7 +34,7 @@ interface SpanData {
 	startTimeUnixNano: string;
 	endTimeUnixNano: string;
 	attributes: Attribute[];
-	status: { code: number };
+	status: { code: number; message?: string };
 	events: unknown[];
 	links: unknown[];
 }
@@ -90,9 +90,13 @@ export class TraceDataBuilder {
 		return `span${String(this.spanCounter).padStart(8, "0")}`;
 	}
 
-	private nextTimeRange(durationMs = 200): { start: string; end: string } {
-		const start = this.startTime + this.timeOffset;
-		this.timeOffset += durationMs + 50; // Add small gap between spans
+	private nextTimeRange(
+		durationMs = 200,
+		startOffsetMs?: number,
+	): { start: string; end: string } {
+		const offset = startOffsetMs ?? this.timeOffset;
+		const start = this.startTime + offset;
+		this.timeOffset = Math.max(this.timeOffset, offset + durationMs + 50); // Add small gap between spans
 		return {
 			start: `${start}000000`,
 			end: `${start + durationMs}000000`,
@@ -122,11 +126,16 @@ export class TraceDataBuilder {
 		name: string,
 		kind: SpanKindType,
 		attributes: Attribute[],
-		options: { parentSpanId?: string; durationMs?: number } = {},
+		options: {
+			parentSpanId?: string;
+			durationMs?: number;
+			startOffsetMs?: number;
+			status?: { code: number; message?: string };
+		} = {},
 	): string {
 		const resource = this.getOrCreateResourceSpan(serviceName, scopeName);
 		const spanId = this.nextSpanId();
-		const time = this.nextTimeRange(options.durationMs);
+		const time = this.nextTimeRange(options.durationMs, options.startOffsetMs);
 
 		resource.spans.push({
 			traceId: this.traceId,
@@ -137,7 +146,7 @@ export class TraceDataBuilder {
 			startTimeUnixNano: time.start,
 			endTimeUnixNano: time.end,
 			attributes,
-			status: { code: 1 },
+			status: options.status ?? { code: 1 },
 			events: [],
 			links: [],
 		});
@@ -193,14 +202,22 @@ export class TraceDataBuilder {
 	/**
 	 * Add a Playwright test step span (child of test span)
 	 */
-	addStepSpan(title: string, durationMs = 400): this {
+	addStepSpan(
+		title: string,
+		durationMs = 400,
+		options: { startOffsetMs?: number } = {},
+	): this {
 		this.addSpan(
 			"playwright-tests",
 			"playwright",
 			"playwright.test.step",
 			SpanKind.INTERNAL,
 			[{ key: "test.step.title", value: { stringValue: title } }],
-			{ parentSpanId: this.testSpanId ?? undefined, durationMs },
+			{
+				parentSpanId: this.testSpanId ?? undefined,
+				durationMs,
+				startOffsetMs: options.startOffsetMs,
+			},
 		);
 		return this;
 	}
@@ -279,6 +296,8 @@ export class TraceDataBuilder {
 		attributes?: Record<string, string | number | boolean>;
 		parentSpanId?: string;
 		durationMs?: number;
+		startOffsetMs?: number;
+		status?: { code: number; message?: string };
 	}): this {
 		const attributes: Attribute[] = Object.entries(
 			options.attributes ?? {},
@@ -298,7 +317,12 @@ export class TraceDataBuilder {
 			options.name,
 			options.kind,
 			attributes,
-			{ parentSpanId: options.parentSpanId, durationMs: options.durationMs },
+			{
+				parentSpanId: options.parentSpanId,
+				durationMs: options.durationMs,
+				startOffsetMs: options.startOffsetMs,
+				status: options.status,
+			},
 		);
 		return this;
 	}
