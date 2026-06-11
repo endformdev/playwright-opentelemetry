@@ -6,11 +6,17 @@ import { ensureServiceWorker, loadScreenshotsForTrace } from "./zipLoader";
 const TRACES_PATH = "traces";
 const SCREENSHOTS_ZIP_PATH = "screenshots.zip";
 
-export async function loadRemoteApi(baseUrl: string): Promise<TraceInfoData> {
+export async function loadRemoteApi(
+	baseUrl: string,
+	traceToken: string | null,
+): Promise<TraceInfoData> {
 	// Normalize base URL (remove trailing slash)
 	const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
 
-	const tracesUrl = `${normalizedBaseUrl}/${TRACES_PATH}`;
+	const tracesUrl = withTraceToken(
+		`${normalizedBaseUrl}/${TRACES_PATH}`,
+		traceToken,
+	);
 	const tracesResponse = await fetch(tracesUrl);
 	if (!tracesResponse.ok) {
 		const body = await tracesResponse.text();
@@ -20,7 +26,10 @@ export async function loadRemoteApi(baseUrl: string): Promise<TraceInfoData> {
 	}
 	const traceData = parseOtlpExport(await tracesResponse.json());
 	const testInfo = deriveTestInfoFromOtlpExport(traceData);
-	const screenshotsZipUrl = `${normalizedBaseUrl}/${SCREENSHOTS_ZIP_PATH}`;
+	const screenshotsZipUrl = withTraceToken(
+		`${normalizedBaseUrl}/${SCREENSHOTS_ZIP_PATH}`,
+		traceToken,
+	);
 
 	return {
 		testInfo,
@@ -31,6 +40,11 @@ export async function loadRemoteApi(baseUrl: string): Promise<TraceInfoData> {
 				screenshotsZipUrl,
 			}),
 	};
+}
+
+function withTraceToken(url: string, traceToken: string | null): string {
+	if (traceToken === null) return url;
+	return `${url}?traceToken=${encodeURIComponent(traceToken)}`;
 }
 
 async function loadScreenshotsFromApi({

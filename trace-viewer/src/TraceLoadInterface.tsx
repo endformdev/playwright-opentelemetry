@@ -6,7 +6,11 @@ import {
 	type FileUploadFileRejectDetails,
 } from "@ark-ui/solid/file-upload";
 import { createEffect, createSignal, Show } from "solid-js";
-import { parseTraceSourceQuery, type TraceSource } from "./trace-source";
+import {
+	parseTraceSourceInput,
+	readTraceTokenQueryParam,
+	type TraceSource,
+} from "./trace-source";
 
 const ZIP_ACCEPT = ".zip,application/zip,application/x-zip-compressed";
 
@@ -75,7 +79,7 @@ export function TraceLoadInterface(props: TraceLoadInterfaceProps) {
 			return;
 		}
 
-		const source = parseTraceSourceQuery(url);
+		const source = parseTraceSourceInput(url, readTraceTokenQueryParam());
 		if (!source) {
 			setApiError("Enter a trace API URL or trace ZIP URL.");
 			return;
