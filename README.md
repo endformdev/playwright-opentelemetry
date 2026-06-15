@@ -34,6 +34,8 @@ const playwrightOpentelemetry: PlaywrightOpentelemetryConfig = {
 	// Playwright-generated test trace. Export Playwright telemetry to the
 	// same backend as your app telemetry to avoid missing root spans.
 	propagateTraceHeaders: true,
+	// Optional. Defaults to following Playwright's trace setting below.
+	// trace: "on",
 };
 
 export default defineConfig<PlaywrightOpentelemetryUseOptions>({
@@ -41,7 +43,8 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 	use: {
 		playwrightOpentelemetry,
 	},
-	// Reporter output follows Playwright trace retention.
+	// Playwright trace retention. OpenTelemetry output follows this unless
+	// playwrightOpentelemetry.trace is configured above.
 	trace: "retain-on-failure",
 	reporter: [["playwright-opentelemetry/reporter"]],
     // ... rest of Playwright config
@@ -90,14 +93,29 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 
 ### Trace retention
 
-Reporter output follows Playwright trace retention. If Playwright does not produce or retain a `trace` attachment for a test, `playwright-opentelemetry` will not send OTLP data, upload Trace API data, or write a local `*-pw-otel.zip` for that test.
+By default, reporter output follows Playwright trace retention. If Playwright does not produce or retain a `trace` attachment for a test, `playwright-opentelemetry` will not send OTLP data, upload Trace API data, or write a local `*-pw-otel.zip` for that test.
 
-Configure `use.trace` to control when output is produced:
+Configure `use.trace` to control when Playwright traces and OpenTelemetry output are produced:
 
 - `trace: "on"` exports every test.
 - `trace: "retain-on-failure"` exports failed or unexpected tests.
 - `trace: "on-first-retry"` exports first retries.
 - `trace: "off"` exports nothing.
+
+To control OpenTelemetry output independently, set `use.playwrightOpentelemetry.trace`. It accepts the same values as Playwright's `use.trace` and overrides Playwright's trace setting for both the fixture and reporter:
+
+```ts
+export default defineConfig<PlaywrightOpentelemetryUseOptions>({
+	use: {
+		playwrightOpentelemetry: {
+			trace: "on",
+		},
+		trace: "retain-on-failure",
+	},
+});
+```
+
+When `playwrightOpentelemetry.trace` keeps a test but Playwright's own `trace` setting does not retain a trace attachment, OpenTelemetry spans are still exported, but Playwright screenshots are not available in the local or Trace API zip output.
 
 ### Showing a trace
 

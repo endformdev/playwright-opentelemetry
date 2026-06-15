@@ -50,6 +50,7 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 			otlpEndpoint: "",
 			playwrightTraceApiEndpoint: "",
 			storeTraceZip: false,
+			trace: null,
 			propagateTraceHeaders: true,
 		});
 	});
@@ -61,6 +62,28 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 			}),
 		).toMatchObject({
 			propagateTraceHeaders: false,
+		});
+	});
+
+	it("preserves a Playwright-style trace override", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				trace: {
+					mode: "retain-on-failure",
+					screenshots: true,
+					snapshots: false,
+					sources: false,
+					attachments: false,
+				},
+			}),
+		).toMatchObject({
+			trace: {
+				mode: "retain-on-failure",
+				screenshots: true,
+				snapshots: false,
+				sources: false,
+				attachments: false,
+			},
 		});
 	});
 

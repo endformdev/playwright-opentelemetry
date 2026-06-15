@@ -24,6 +24,7 @@ import {
 	type SendSpansOptions,
 	type Span,
 } from "../shared/otel";
+import { shouldRetainPlaywrightTrace } from "../shared/playwright-trace";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -105,19 +106,27 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
 
 	onTestEnd(test: TestCase, result: TestResult): void {
+		const config = getTestConfig(test);
 		const traceAttachment = result.attachments.find(
 			(attachment) =>
 				attachment.name === "trace" &&
 				attachment.contentType === "application/zip" &&
 				attachment.path,
 		);
-		if (!traceAttachment) {
+		const shouldProduceTrace =
+			config.trace === null
+				? Boolean(traceAttachment)
+				: shouldRetainPlaywrightTrace(config.trace, {
+						expectedStatus: test.expectedStatus,
+						retry: result.retry,
+						status: result.status,
+					});
+		if (!shouldProduceTrace) {
 			return;
 		}
 
 		const testId = test.id;
 		const outputDir = getTestOutputDir(test);
-		const config = getTestConfig(test);
 		const { traceId, rootSpanId: testSpanId } = readTraceContextAttachment(
 			result,
 			testId,

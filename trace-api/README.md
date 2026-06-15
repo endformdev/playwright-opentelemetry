@@ -6,7 +6,7 @@ H3-based API library for storing and serving Playwright OpenTelemetry traces in 
 
 The Trace API is a customizable library that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers. It provides endpoints for writing OTLP trace data and Playwright screenshots, and serves them in a format compatible with the trace viewer. Test metadata is stored on the root `playwright.test` span.
 
-Reporter uploads follow Playwright trace retention. If Playwright does not produce or retain a trace for a test, no remote trace data is uploaded for that test and viewer read endpoints may return `404`.
+Reporter uploads follow Playwright trace retention by default. If Playwright does not produce or retain a trace for a test, no remote trace data is uploaded for that test and viewer read endpoints may return `404`. Configure `use.playwrightOpentelemetry.trace` to override that decision for OpenTelemetry output independently of Playwright's own `use.trace` setting.
 
 ## Usage
 

@@ -1,4 +1,5 @@
 import { parseOtlpHeaders } from "./otel";
+import type { PlaywrightTraceOption } from "./playwright-trace";
 
 export interface PlaywrightOpentelemetryConfig {
 	otlpEndpoint?: string;
@@ -6,6 +7,7 @@ export interface PlaywrightOpentelemetryConfig {
 	playwrightTraceApiEndpoint?: string;
 	playwrightTraceApiHeaders?: Record<string, string>;
 	storeTraceZip?: boolean;
+	trace?: PlaywrightTraceOption;
 	propagateTraceHeaders?: boolean;
 	serviceName?: string;
 	debug?: boolean;
@@ -21,6 +23,7 @@ export interface ResolvedPlaywrightOpentelemetryConfig {
 	playwrightTraceApiEndpoint: string;
 	playwrightTraceApiHeaders: Record<string, string>;
 	storeTraceZip: boolean;
+	trace: PlaywrightTraceOption | null;
 	propagateTraceHeaders: boolean;
 	serviceName: string;
 	debug: boolean;
@@ -58,6 +61,7 @@ export function resolvePlaywrightOpentelemetryConfig(
 			...envTraceApiHeaders,
 		},
 		storeTraceZip: config?.storeTraceZip === true,
+		trace: config?.trace ?? null,
 		propagateTraceHeaders: config?.propagateTraceHeaders ?? true,
 		serviceName:
 			process.env.OTEL_SERVICE_NAME ||

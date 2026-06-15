@@ -51,6 +51,7 @@ export interface ResultDefinition {
 	status?: "passed" | "failed" | "skipped" | "timedOut" | "interrupted";
 	startTime?: Date;
 	duration?: number;
+	retry?: number;
 	steps?: StepDefinition[];
 	attachments?: Array<{
 		name: string;
@@ -397,6 +398,7 @@ export function buildTestResult(
 
 	return {
 		status: def?.status ?? "passed",
+		retry: def?.retry ?? 0,
 		startTime,
 		duration,
 		steps,

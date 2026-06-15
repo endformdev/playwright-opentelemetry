@@ -70,7 +70,10 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				);
 				const traceContext = await createTestTraceContext(testInfo);
 				await use(traceContext);
-				await flushFixtureSpans(traceContext, config, { trace, testInfo });
+				await flushFixtureSpans(traceContext, config, {
+					trace: config.trace ?? trace,
+					testInfo,
+				});
 			},
 			{ auto: true },
 		],

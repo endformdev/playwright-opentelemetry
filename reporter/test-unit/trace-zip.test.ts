@@ -417,6 +417,67 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(sendSpans).not.toHaveBeenCalled();
 		});
 
+		it("creates zip without screenshots when trace override keeps a test without a Playwright trace attachment", async () => {
+			outputDir = createTestOutputDir("trace-override-no-attachment");
+
+			const testId = "trace-override-no-attachment-123";
+			const testLocation = {
+				file: "/Users/test/project/test-e2e/simple.spec.ts",
+				line: 5,
+			};
+			const playwrightOpentelemetry = {
+				...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
+				storeTraceZip: true,
+				trace: "on" as const,
+			};
+			const reporter = new PlaywrightOpentelemetryReporter();
+			const config = buildConfig({ rootDir: DEFAULT_ROOT_DIR });
+			const testCase = buildTestCase(
+				{
+					id: testId,
+					title: "test with otel trace override",
+					titlePath: [
+						"",
+						"chromium",
+						"simple.spec.ts",
+						"test with otel trace override",
+					],
+					location: testLocation,
+				},
+				outputDir,
+				playwrightOpentelemetry,
+			);
+			const testResult = buildTestResult(
+				{
+					status: "passed",
+					duration: 1000,
+					steps: [],
+					attachments: [],
+				},
+				DEFAULT_START_TIME,
+			);
+			const mockSuite = {
+				allTests: () => [testCase],
+			} as Suite;
+
+			reporter.onBegin(config, mockSuite);
+			reporter.onTestBegin(testCase, testResult);
+			reporter.onTestEnd(testCase, testResult);
+			await reporter.onEnd({} as FullResult);
+
+			const expectedZipName = `simple.spec.ts:5-${testId}-pw-otel.zip`;
+			const expectedZipPath = path.join(outputDir, expectedZipName);
+			expect(existsSync(expectedZipPath)).toBe(true);
+			expect(sendSpans).toHaveBeenCalledTimes(1);
+
+			const zipEntries = await readZipEntries(expectedZipPath);
+			expect(zipEntries.has("traces/playwright-opentelemetry.json")).toBe(true);
+			expect(JSON.parse(zipEntries.get("manifest.json") as string)).toEqual({
+				version: 1,
+				screenshots: [],
+			});
+		});
+
 		it("includes fixture browser spans as a separate trace fragment", async () => {
 			outputDir = createTestOutputDir("fixture-browser-spans");
 
