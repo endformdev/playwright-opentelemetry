@@ -468,10 +468,15 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			e.preventDefault();
 
 			const rect = contentAreaRef.getBoundingClientRect();
-			const focalPosition = Math.max(
+			const pointerPosition = Math.max(
 				0,
 				Math.min(1, (e.clientX - rect.left) / rect.width),
 			);
+			const lockPosition = mode() === "hover" ? null : lockedPosition();
+			const focalPosition =
+				lockPosition !== null && lockPosition >= 0 && lockPosition <= 1
+					? lockPosition
+					: pointerPosition;
 
 			// Negative deltaY (scroll up) = zoom in (positive zoomDelta)
 			const zoomDelta = -e.deltaY * ZOOM_SENSITIVITY;

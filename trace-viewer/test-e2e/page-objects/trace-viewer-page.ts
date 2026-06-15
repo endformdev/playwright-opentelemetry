@@ -260,7 +260,7 @@ export class TraceViewerPage {
 	async wheelTimelineAtRatio(
 		ratio: number,
 		deltaY: number,
-		options: { repeat?: number; control?: boolean } = {},
+		options: { repeat?: number; control?: boolean; shift?: boolean } = {},
 	): Promise<void> {
 		const box = await this.timelineContent.boundingBox();
 		if (!box) {
@@ -272,11 +272,13 @@ export class TraceViewerPage {
 			box.y + box.height / 2,
 		);
 		if (options.control) await this.page.keyboard.down("Control");
+		if (options.shift) await this.page.keyboard.down("Shift");
 		try {
 			for (let i = 0; i < (options.repeat ?? 1); i++) {
 				await this.page.mouse.wheel(0, deltaY);
 			}
 		} finally {
+			if (options.shift) await this.page.keyboard.up("Shift");
 			if (options.control) await this.page.keyboard.up("Control");
 		}
 	}

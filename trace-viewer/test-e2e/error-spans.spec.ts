@@ -233,7 +233,7 @@ test("keeps a selected tiny nested error step locked while zooming into it", asy
 	await expect(expectationStep).toBeVisible();
 });
 
-test("keeps a selected tiny nested error step locked while wheel-zooming at it", async ({
+test("keeps a selected tiny nested error step locked while shift-wheel-zooming away from it", async ({
 	page,
 	request,
 }) => {
@@ -262,19 +262,15 @@ test("keeps a selected tiny nested error step locked while wheel-zooming at it",
 	).toBeVisible();
 
 	const initialBox = await boundingBoxFor(expectationStep);
-	const spanData = await viewer.steps.spanDataById(expectationStepId);
-	const spanCenterRatio =
-		(spanData.startMs + spanData.durationMs / 2) /
-		LONG_NESTED_TRACE_DURATION_MS;
 
-	await viewer.wheelTimelineAtRatio(spanCenterRatio, -200, {
-		control: true,
+	await viewer.wheelTimelineAtRatio(0.9, -200, {
+		shift: true,
 		repeat: 7,
 	});
 
+	await expect(expectationStep).toBeVisible();
 	const zoomedBox = await boundingBoxFor(expectationStep);
 	expect(zoomedBox.width).toBeGreaterThan(initialBox.width);
-	await expect(expectationStep).toBeVisible();
 	await expect(viewer.details.spanDetailsById(expectationStepId)).toBeVisible();
 	await expect(
 		viewer.header.root.getByText(`${NESTED_EXPECTATION_END_MS}ms`, {
