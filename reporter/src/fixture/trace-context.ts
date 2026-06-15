@@ -32,6 +32,27 @@ export interface PlaywrightOtelFixtureSpansAttachment {
 	>;
 }
 
+type PlaywrightTraceMode =
+	| "off"
+	| "on"
+	| "retain-on-failure"
+	| "on-first-retry"
+	| "on-all-retries"
+	| "retain-on-first-failure"
+	| "retain-on-failure-and-retries"
+	| "retain-all-failures";
+
+export type PlaywrightTraceOption =
+	| PlaywrightTraceMode
+	| "retry-with-trace"
+	| { mode?: PlaywrightTraceMode | "retry-with-trace" }
+	| undefined;
+
+type FlushFixtureSpansOptions = {
+	trace: PlaywrightTraceOption;
+	testInfo?: Pick<TestInfo, "attach" | "expectedStatus" | "retry" | "status">;
+};
+
 export interface NetworkRequestTraceContext {
 	traceId: string;
 	spanId: string;
@@ -72,14 +93,18 @@ export async function createTestTraceContext(
 export async function flushFixtureSpans(
 	traceContext: TestTraceContext,
 	config: ResolvedPlaywrightOpentelemetryConfig,
-	testInfo?: Pick<TestInfo, "attach">,
+	options: FlushFixtureSpansOptions,
 ): Promise<void> {
 	if (traceContext.spans.length === 0) {
 		return;
 	}
 
-	if (config.storeTraceZip && testInfo) {
-		await testInfo.attach(FIXTURE_SPANS_ATTACHMENT_NAME, {
+	if (!shouldRetainPlaywrightTrace(options.trace, options.testInfo)) {
+		return;
+	}
+
+	if (config.storeTraceZip && options.testInfo) {
+		await options.testInfo.attach(FIXTURE_SPANS_ATTACHMENT_NAME, {
 			body: JSON.stringify({
 				spans: traceContext.spans.map(serializeSpanForAttachment),
 			}),
@@ -103,6 +128,40 @@ export async function flushFixtureSpans(
 			}),
 		),
 	);
+}
+
+export function shouldRetainPlaywrightTrace(
+	trace: PlaywrightTraceOption,
+	testInfo?: Pick<TestInfo, "expectedStatus" | "retry" | "status">,
+): boolean {
+	const mode = normalizeTraceMode(trace);
+	const retry = testInfo?.retry ?? 0;
+	const testFailed =
+		(testInfo?.status ?? "passed") !== (testInfo?.expectedStatus ?? "passed");
+
+	switch (mode) {
+		case "on":
+			return true;
+		case "on-first-retry":
+			return retry === 1;
+		case "on-all-retries":
+			return retry > 0;
+		case "retain-on-failure":
+			return testFailed;
+		case "retain-on-first-failure":
+			return retry === 0 && testFailed;
+		case "retain-on-failure-and-retries":
+			return testFailed || retry > 0;
+		case "retain-all-failures":
+			return testFailed;
+		case "off":
+			return false;
+	}
+}
+
+function normalizeTraceMode(trace: PlaywrightTraceOption): PlaywrightTraceMode {
+	const mode = typeof trace === "string" ? trace : (trace?.mode ?? "off");
+	return mode === "retry-with-trace" ? "on-first-retry" : mode;
 }
 
 function serializeSpanForAttachment(

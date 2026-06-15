@@ -42,7 +42,7 @@ import {
  * Helper to create a unique test output directory
  */
 function createTestOutputDir(testName: string): string {
-	const outputDir = `/tmp/trace-zip-test-${testName}-${Date.now()}`;
+	const outputDir = `/tmp/trace-zip-test-${testName}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 	mkdirSync(outputDir, { recursive: true });
 	return outputDir;
 }
@@ -362,7 +362,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			}
 		});
 
-		it("creates zip without screenshots when trace attachment is missing", async () => {
+		it("does not create zip when Playwright did not retain a trace attachment", async () => {
 			outputDir = createTestOutputDir("no-trace-attachment");
 
 			const testId = "no-trace-123";
@@ -394,7 +394,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					status: "passed",
 					duration: 1000,
 					steps: [],
-					// No attachments - tracing not enabled
+					attachments: [],
 				},
 				DEFAULT_START_TIME,
 			);
@@ -410,26 +410,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			reporter.onTestEnd(testCase, testResult);
 			await reporter.onEnd({} as FullResult);
 
-			// Verify the zip file was created
+			// Verify no reporter trace zip was created
 			const expectedZipName = `simple.spec.ts:5-${testId}-pw-otel.zip`;
 			const expectedZipPath = path.join(outputDir, expectedZipName);
-			expect(existsSync(expectedZipPath)).toBe(true);
-
-			// Read and verify zip contents
-			const zipEntries = await readZipEntries(expectedZipPath);
-
-			// Should have trace JSON, but no screenshots
-			expect(zipEntries.has("traces/playwright-opentelemetry.json")).toBe(true);
-
-			// No screenshots should be present
-			const screenshotFiles = Array.from(zipEntries.keys()).filter((f) =>
-				f.startsWith("screenshots/"),
-			);
-			expect(screenshotFiles).toHaveLength(0);
-			expect(JSON.parse(zipEntries.get("manifest.json") as string)).toEqual({
-				version: 1,
-				screenshots: [],
-			});
+			expect(existsSync(expectedZipPath)).toBe(false);
+			expect(sendSpans).not.toHaveBeenCalled();
 		});
 
 		it("includes fixture browser spans as a separate trace fragment", async () => {
@@ -470,6 +455,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					duration: 1000,
 					steps: [],
 					attachments: [
+						{
+							name: "trace",
+							contentType: "application/zip",
+							path: "/tmp/playwright-trace.zip",
+						},
 						{
 							name: TRACE_CONTEXT_ATTACHMENT_NAME,
 							contentType: "application/json",

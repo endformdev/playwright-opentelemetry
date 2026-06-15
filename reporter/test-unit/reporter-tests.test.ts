@@ -126,6 +126,11 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				result: {
 					attachments: [
 						{
+							name: "trace",
+							contentType: "application/zip",
+							path: "/tmp/playwright-trace.zip",
+						},
+						{
 							name: "playwright-opentelemetry-trace-context",
 							contentType: "application/json",
 							body: Buffer.from(JSON.stringify({ traceId: "abc" })),

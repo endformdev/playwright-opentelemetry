@@ -41,6 +41,8 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 	use: {
 		playwrightOpentelemetry,
 	},
+	// Reporter output follows Playwright trace retention.
+	trace: "retain-on-failure",
 	reporter: [["playwright-opentelemetry/reporter"]],
     // ... rest of Playwright config
 });
@@ -86,6 +88,17 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 });
 ```
 
+### Trace retention
+
+Reporter output follows Playwright trace retention. If Playwright does not produce or retain a `trace` attachment for a test, `playwright-opentelemetry` will not send OTLP data, upload Trace API data, or write a local `*-pw-otel.zip` for that test.
+
+Configure `use.trace` to control when output is produced:
+
+- `trace: "on"` exports every test.
+- `trace: "retain-on-failure"` exports failed or unexpected tests.
+- `trace: "on-first-retry"` exports first retries.
+- `trace: "off"` exports nothing.
+
 ### Showing a trace
 
 Go to the [hosted trace viewer](https://trace.endform.dev).
@@ -103,7 +116,7 @@ Then load your zip file or an API url responding with telemetry.
 
 ### `opentelemetry-trace.zip` format
 
-When running the reporter with `storeTraceZip: true`, a local copy of trace data will be stored to your results folder with the format:
+When `storeTraceZip: true` and Playwright retained a trace for the test, a local copy of trace data will be stored to your results folder with the format:
 
 ```
 {file.spec}:{linenumber}-{testId}-pw-otel.zip

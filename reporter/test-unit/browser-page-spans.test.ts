@@ -4,6 +4,7 @@ import type {
 	Request,
 	Response,
 	Route,
+	TestInfo,
 } from "@playwright/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -209,8 +210,7 @@ describe("fixture browser span hierarchy", () => {
 		expect(traceContext.spans[1]?.status).toEqual({ code: 0 });
 	});
 
-	it("flushes fixture spans directly to the trace API", async () => {
-		process.env.PLAYWRIGHT_TRACE_API_ENDPOINT = "https://traces.example.com";
+	it("flushes fixture spans directly when Playwright trace retention would keep the trace", async () => {
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 		global.fetch = fetchMock;
 		const traceContext = createTraceContext();
@@ -226,14 +226,18 @@ describe("fixture browser span hierarchy", () => {
 			status: { code: 0 },
 			serviceName: "playwright-browser",
 		});
+		const attach = vi.fn<TestInfo["attach"]>(async () => {});
+		const testInfo = createFlushTestInfo({ attach });
 
 		await flushFixtureSpans(
 			traceContext,
 			resolvePlaywrightOpentelemetryConfig({
 				playwrightTraceApiEndpoint: "https://traces.example.com",
 			}),
+			{ trace: "on", testInfo },
 		);
 
+		expect(attach).not.toHaveBeenCalled();
 		expect(fetchMock).toHaveBeenCalledWith(
 			"https://traces.example.com/v1/traces",
 			expect.objectContaining({ method: "POST" }),
@@ -262,19 +266,22 @@ describe("fixture browser span hierarchy", () => {
 			status: { code: 0 },
 			serviceName: "playwright-browser",
 		});
-		const attach = vi.fn();
+		const attach = vi.fn<TestInfo["attach"]>(async () => {});
+		const testInfo = createFlushTestInfo({ attach });
 
 		await flushFixtureSpans(
 			traceContext,
 			resolvePlaywrightOpentelemetryConfig({ storeTraceZip: true }),
-			{ attach },
+			{ trace: "on", testInfo },
 		);
 
 		expect(attach).toHaveBeenCalledWith(FIXTURE_SPANS_ATTACHMENT_NAME, {
 			body: expect.any(String),
 			contentType: "application/json",
 		});
-		const body = JSON.parse(attach.mock.calls[0][1].body);
+		const attachmentBody = attach.mock.calls[0]?.[1]?.body;
+		expect(typeof attachmentBody).toBe("string");
+		const body = JSON.parse(attachmentBody as string);
 		expect(body.spans).toEqual([
 			expect.objectContaining({
 				traceId: traceContext.traceId,
@@ -284,6 +291,38 @@ describe("fixture browser span hierarchy", () => {
 				serviceName: "playwright-browser",
 			}),
 		]);
+	});
+
+	it("does not flush fixture spans when Playwright trace retention would discard the trace", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		global.fetch = fetchMock;
+		const traceContext = createTraceContext();
+		traceContext.addSpan({
+			traceId: traceContext.traceId,
+			spanId: generateSpanId(),
+			parentSpanId: traceContext.rootSpanId,
+			name: "browser.page",
+			startTime: new Date("2025-11-06T10:00:00.000Z"),
+			endTime: new Date("2025-11-06T10:00:01.000Z"),
+			attributes: { "browser.resource.type": "page" },
+			events: [],
+			status: { code: 0 },
+			serviceName: "playwright-browser",
+		});
+		const attach = vi.fn<TestInfo["attach"]>(async () => {});
+		const testInfo = createFlushTestInfo({ attach });
+
+		await flushFixtureSpans(
+			traceContext,
+			resolvePlaywrightOpentelemetryConfig({
+				playwrightTraceApiEndpoint: "https://traces.example.com",
+				storeTraceZip: true,
+			}),
+			{ trace: "retain-on-failure", testInfo },
+		);
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(attach).not.toHaveBeenCalled();
 	});
 
 	it("does not create a same-document route for hash-only scroll updates", () => {
@@ -336,6 +375,25 @@ function createTraceContext(): TestTraceContext {
 		addSpan(span) {
 			this.spans.push(span);
 		},
+	};
+}
+
+function createFlushTestInfo({
+	attach,
+	status = "passed",
+	expectedStatus = "passed",
+	retry = 0,
+}: {
+	attach: TestInfo["attach"];
+	status?: NonNullable<TestInfo["status"]>;
+	expectedStatus?: TestInfo["expectedStatus"];
+	retry?: number;
+}) {
+	return {
+		attach,
+		status,
+		expectedStatus,
+		retry,
 	};
 }
 

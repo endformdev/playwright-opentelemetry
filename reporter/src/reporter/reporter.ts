@@ -105,19 +105,22 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
 
 	onTestEnd(test: TestCase, result: TestResult): void {
+		const traceAttachment = result.attachments.find(
+			(attachment) =>
+				attachment.name === "trace" &&
+				attachment.contentType === "application/zip" &&
+				attachment.path,
+		);
+		if (!traceAttachment) {
+			return;
+		}
+
 		const testId = test.id;
 		const outputDir = getTestOutputDir(test);
 		const config = getTestConfig(test);
 		const { traceId, rootSpanId: testSpanId } = readTraceContextAttachment(
 			result,
 			testId,
-		);
-
-		const traceAttachment = result.attachments.find(
-			(attachment) =>
-				attachment.name === "trace" &&
-				attachment.contentType === "application/zip" &&
-				attachment.path,
 		);
 		const fixtureSpans = config.storeTraceZip
 			? readFixtureSpansAttachment(result, testId)
@@ -210,7 +213,8 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Build the final spans array with test span first
 		const testSpans: Span[] = [span, ...stepSpans];
 
-		// Add all test spans to the global spans array
+		// Fixture/browser spans are sent directly by the fixture to avoid serializing
+		// them through the reporter except when local ZIP storage needs them.
 		this.spanBatches.push({ spans: testSpans, config });
 
 		if (config.storeTraceZip || config.playwrightTraceApiEndpoint) {
