@@ -159,6 +159,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		hoverPosition,
 		setHoverPosition,
 		lockedPosition,
+		lockedTimeMs,
 		lock,
 		unlock,
 		enterSearchOverride,
@@ -407,8 +408,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				const currentMode = mode();
 				switch (currentMode) {
 					case "hover":
-						// Lock to this position
-						lock(selection.startPosition, hoveredElement());
+						// Lock to the selected time so zooming does not move the lock.
+						lock(
+							viewportPositionToTime(selection.startPosition, viewport()),
+							hoveredElement(),
+						);
 						break;
 					case "locked":
 					case "search-override":
@@ -539,12 +543,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				setViewport(selectionViewport);
 			}
 
-			const position = timeToViewportPosition(selectionTimeMs, selectionViewport);
-			const clampedPosition = Math.max(0, Math.min(1, position));
-
 			const isStep =
 				span.name === "playwright.test" || span.name === "playwright.test.step";
-			lock(clampedPosition, {
+			lock(selectionTimeMs, {
 				type: isStep ? "step" : "span",
 				id: spanId,
 			});
@@ -559,14 +560,14 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			const isStep =
 				span.name === "playwright.test" || span.name === "playwright.test.step";
 
-			// When navigating within locked mode, we need to update the locked element
-			// This is used by the details panel breadcrumb navigation
+			// When navigating within locked mode, update the focused element while
+			// preserving the locked time.
 			const currentMode = mode();
 			if (currentMode === "locked" || currentMode === "search-override") {
 				// Re-lock at the current position but with the new element
-				const pos = lockedPosition();
-				if (pos !== null) {
-					lock(pos, {
+				const timeMs = lockedTimeMs();
+				if (timeMs !== null) {
+					lock(timeMs, {
 						type: isStep ? "step" : "span",
 						id: spanId,
 					});

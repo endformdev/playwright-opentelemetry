@@ -241,7 +241,10 @@ export class TraceViewerPage {
 		await this.page.goto(`/?traceSource=${encodeURIComponent(apiUrl)}`);
 	}
 
-	async zoomTimelineToRange(startRatio: number, endRatio: number): Promise<void> {
+	async zoomTimelineToRange(
+		startRatio: number,
+		endRatio: number,
+	): Promise<void> {
 		const box = await this.timelineContent.boundingBox();
 		if (!box) {
 			throw new Error("Trace timeline is not visible");
@@ -252,5 +255,29 @@ export class TraceViewerPage {
 		await this.page.mouse.down();
 		await this.page.mouse.move(box.x + box.width * endRatio, y, { steps: 8 });
 		await this.page.mouse.up();
+	}
+
+	async wheelTimelineAtRatio(
+		ratio: number,
+		deltaY: number,
+		options: { repeat?: number; control?: boolean } = {},
+	): Promise<void> {
+		const box = await this.timelineContent.boundingBox();
+		if (!box) {
+			throw new Error("Trace timeline is not visible");
+		}
+
+		await this.page.mouse.move(
+			box.x + box.width * ratio,
+			box.y + box.height / 2,
+		);
+		if (options.control) await this.page.keyboard.down("Control");
+		try {
+			for (let i = 0; i < (options.repeat ?? 1); i++) {
+				await this.page.mouse.wheel(0, deltaY);
+			}
+		} finally {
+			if (options.control) await this.page.keyboard.up("Control");
+		}
 	}
 }
