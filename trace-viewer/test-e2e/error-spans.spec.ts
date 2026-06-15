@@ -1,8 +1,93 @@
 import { readFileSync } from "node:fs";
-import { expect, test } from "@playwright/test";
+import {
+	type APIRequestContext,
+	expect,
+	type Locator,
+	test,
+} from "@playwright/test";
 import { TraceViewerPage } from "./page-objects/trace-viewer-page";
 import { ERROR_SPANS_TRACE_ID_FILE } from "./setup/global-setup";
-import { generateTraceId, SpanKind, TraceDataBuilder } from "./test-data-builder";
+import {
+	generateTraceId,
+	SpanKind,
+	TraceDataBuilder,
+} from "./test-data-builder";
+
+const LONG_NESTED_TRACE_DURATION_MS = 120_000;
+const NESTED_EXPECTATION_START_MS = 61_234;
+const NESTED_EXPECTATION_DURATION_MS = 2;
+const NESTED_EXPECTATION_END_MS =
+	NESTED_EXPECTATION_START_MS + NESTED_EXPECTATION_DURATION_MS;
+const NESTED_EXPECTATION_TITLE = "expect order status to be confirmed";
+const NESTED_EXPECTATION_ERROR = `expect(received).toBe(expected)
+
+Expected: "confirmed"
+Received: "submitted"`;
+
+async function sendLongNestedExpectationErrorTrace(
+	request: APIRequestContext,
+	traceId: string,
+): Promise<{ expectationStepId: string }> {
+	const builder = new TraceDataBuilder(traceId, Date.now());
+
+	builder.addTestSpan(
+		"long nested expectation error trace",
+		LONG_NESTED_TRACE_DURATION_MS,
+		{
+			status: "failed",
+			file: "errors/long-nested-expectation.spec.ts",
+			line: 10,
+		},
+	);
+
+	const checkoutStepId = builder.addStepSpanAndGetId(
+		"Complete checkout journey",
+		118_000,
+		{ startOffsetMs: 1_000 },
+	);
+	builder.addStepSpanAndGetId("Seed cart with products", 18_000, {
+		parentSpanId: checkoutStepId,
+		startOffsetMs: 2_000,
+	});
+	builder.addStepSpanAndGetId("Open checkout page", 16_000, {
+		parentSpanId: checkoutStepId,
+		startOffsetMs: 21_000,
+	});
+	const paymentStepId = builder.addStepSpanAndGetId(
+		"Submit payment and wait for confirmation",
+		48_000,
+		{ parentSpanId: checkoutStepId, startOffsetMs: 38_000 },
+	);
+	const expectationStepId = builder.addStepSpanAndGetId(
+		NESTED_EXPECTATION_TITLE,
+		NESTED_EXPECTATION_DURATION_MS,
+		{
+			parentSpanId: paymentStepId,
+			startOffsetMs: NESTED_EXPECTATION_START_MS,
+			status: { code: 2, message: NESTED_EXPECTATION_ERROR },
+		},
+	);
+	builder.addStepSpanAndGetId(
+		"Collect diagnostics after failed checkout",
+		28_000,
+		{
+			parentSpanId: checkoutStepId,
+			startOffsetMs: 88_000,
+		},
+	);
+
+	await builder.send(request);
+
+	return { expectationStepId };
+}
+
+async function boundingBoxFor(locator: Locator) {
+	const box = await locator.boundingBox();
+	if (!box) {
+		throw new Error("Expected span bar to have a bounding box");
+	}
+	return box;
+}
 
 test("shows reporter error spans in the header dropdown", async ({ page }) => {
 	const traceId = readFileSync(ERROR_SPANS_TRACE_ID_FILE, "utf-8").trim();
@@ -93,7 +178,107 @@ test("zooms out when selecting an off-screen error span", async ({
 	await expect(earlyError).toHaveCount(0);
 
 	await viewer.errors.button.click();
-	await viewer.errors.items.filter({ hasText: "Early failure" }).first().click();
+	await viewer.errors.items
+		.filter({ hasText: "Early failure" })
+		.first()
+		.click();
 
 	await expect(earlyError).toBeVisible();
+});
+
+test("keeps a selected tiny nested error step locked while zooming into it", async ({
+	page,
+	request,
+}) => {
+	const traceId = generateTraceId("nestederrlock001");
+	const { expectationStepId } = await sendLongNestedExpectationErrorTrace(
+		request,
+		traceId,
+	);
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	await expect(viewer.header.testName).toHaveText(
+		"long nested expectation error trace",
+	);
+
+	const expectationStep = viewer.steps.spanById(expectationStepId).first();
+	await viewer.errors.button.click();
+	await viewer.errors.items
+		.filter({ hasText: NESTED_EXPECTATION_TITLE })
+		.first()
+		.click();
+
+	const selectedDetails = viewer.details.spanDetailsById(expectationStepId);
+	await expect(selectedDetails).toBeVisible();
+	await expect(selectedDetails).toContainText(NESTED_EXPECTATION_TITLE);
+	await expect(selectedDetails.getByTestId("span-error-message")).toContainText(
+		NESTED_EXPECTATION_ERROR,
+	);
+	await expect(
+		viewer.header.root.getByText(`${NESTED_EXPECTATION_END_MS}ms`, {
+			exact: true,
+		}),
+	).toBeVisible();
+
+	await viewer.zoomTimelineToRange(0.49, 0.53);
+
+	await expect(
+		viewer.header.root.getByText(`${NESTED_EXPECTATION_END_MS}ms`, {
+			exact: true,
+		}),
+	).toBeVisible();
+	await expect(selectedDetails).toBeVisible();
+	await expect(selectedDetails).toContainText(NESTED_EXPECTATION_TITLE);
+	await expect(expectationStep).toBeVisible();
+});
+
+test("keeps a selected tiny nested error step locked while wheel-zooming at it", async ({
+	page,
+	request,
+}) => {
+	const traceId = generateTraceId("nestederrwheel001");
+	const { expectationStepId } = await sendLongNestedExpectationErrorTrace(
+		request,
+		traceId,
+	);
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	await expect(viewer.header.testName).toHaveText(
+		"long nested expectation error trace",
+	);
+
+	const expectationStep = viewer.steps.spanById(expectationStepId).first();
+	await viewer.errors.button.click();
+	await viewer.errors.items
+		.filter({ hasText: NESTED_EXPECTATION_TITLE })
+		.first()
+		.click();
+	await expect(
+		viewer.header.root.getByText(`${NESTED_EXPECTATION_END_MS}ms`, {
+			exact: true,
+		}),
+	).toBeVisible();
+
+	const initialBox = await boundingBoxFor(expectationStep);
+	const spanData = await viewer.steps.spanDataById(expectationStepId);
+	const spanCenterRatio =
+		(spanData.startMs + spanData.durationMs / 2) /
+		LONG_NESTED_TRACE_DURATION_MS;
+
+	await viewer.wheelTimelineAtRatio(spanCenterRatio, -200, {
+		control: true,
+		repeat: 7,
+	});
+
+	const zoomedBox = await boundingBoxFor(expectationStep);
+	expect(zoomedBox.width).toBeGreaterThan(initialBox.width);
+	await expect(expectationStep).toBeVisible();
+	await expect(viewer.details.spanDetailsById(expectationStepId)).toBeVisible();
+	await expect(
+		viewer.header.root.getByText(`${NESTED_EXPECTATION_END_MS}ms`, {
+			exact: true,
+		}),
+	).toBeVisible();
 });

@@ -207,19 +207,35 @@ export class TraceDataBuilder {
 		durationMs = 400,
 		options: { startOffsetMs?: number } = {},
 	): this {
-		this.addSpan(
+		this.addStepSpanAndGetId(title, durationMs, options);
+		return this;
+	}
+
+	/**
+	 * Add a Playwright test step span and return its span ID for nesting.
+	 */
+	addStepSpanAndGetId(
+		title: string,
+		durationMs = 400,
+		options: {
+			startOffsetMs?: number;
+			parentSpanId?: string;
+			status?: { code: number; message?: string };
+		} = {},
+	): string {
+		return this.addSpan(
 			"playwright-tests",
 			"playwright",
 			"playwright.test.step",
 			SpanKind.INTERNAL,
 			[{ key: "test.step.title", value: { stringValue: title } }],
 			{
-				parentSpanId: this.testSpanId ?? undefined,
+				parentSpanId: options.parentSpanId ?? this.testSpanId ?? undefined,
 				durationMs,
 				startOffsetMs: options.startOffsetMs,
+				status: options.status,
 			},
 		);
-		return this;
 	}
 
 	/**

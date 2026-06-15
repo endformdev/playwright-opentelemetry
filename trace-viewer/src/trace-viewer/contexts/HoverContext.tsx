@@ -9,7 +9,7 @@ import {
 import type { Span } from "../../trace-data-loader/exportToSpans";
 import type { ScreenshotInfo } from "../../trace-info-loader";
 import { getElementsAtTime, type HoveredElements } from "../getElementsAtTime";
-import { viewportPositionToTime } from "../viewport";
+import { timeToViewportPosition, viewportPositionToTime } from "../viewport";
 import { useViewportContext } from "./ViewportContext";
 
 export type HoverMode = "hover" | "locked" | "search-override";
@@ -29,9 +29,10 @@ export interface HoverContextValue {
 	hoverPosition: Accessor<number | null>;
 	setHoverPosition: (position: number | null) => void;
 	lockedPosition: Accessor<number | null>;
+	lockedTimeMs: Accessor<number | null>;
 
 	// Actions
-	lock: (position: number, element: FocusedElement | null) => void;
+	lock: (timeMs: number, element: FocusedElement | null) => void;
 	unlock: () => void;
 	enterSearchOverride: () => void;
 	exitSearchOverride: () => void;
@@ -62,7 +63,7 @@ export function HoverProvider(props: HoverProviderProps) {
 
 	const [mode, setMode] = createSignal<HoverMode>("hover");
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
-	const [lockedPosition, setLockedPosition] = createSignal<number | null>(null);
+	const [lockedTimeMs, setLockedTimeMs] = createSignal<number | null>(null);
 	const [hoveredElement, setHoveredElement] =
 		createSignal<FocusedElement | null>(null);
 	const [lockedElement, setLockedElement] = createSignal<FocusedElement | null>(
@@ -75,10 +76,10 @@ export function HoverProvider(props: HoverProviderProps) {
 		return viewportPositionToTime(pos, viewport());
 	};
 
-	const lockedTimeMs = () => {
-		const pos = lockedPosition();
-		if (pos === null) return null;
-		return viewportPositionToTime(pos, viewport());
+	const lockedPosition = () => {
+		const timeMs = lockedTimeMs();
+		if (timeMs === null) return null;
+		return timeToViewportPosition(timeMs, viewport());
 	};
 
 	const hoveredElements = createMemo((): HoveredElements | null => {
@@ -138,15 +139,15 @@ export function HoverProvider(props: HoverProviderProps) {
 		}
 	};
 
-	const lock = (position: number, element: FocusedElement | null) => {
+	const lock = (timeMs: number, element: FocusedElement | null) => {
 		setMode("locked");
-		setLockedPosition(position);
+		setLockedTimeMs(timeMs);
 		setLockedElement(element);
 	};
 
 	const unlock = () => {
 		setMode("hover");
-		setLockedPosition(null);
+		setLockedTimeMs(null);
 		setLockedElement(null);
 	};
 
@@ -169,6 +170,7 @@ export function HoverProvider(props: HoverProviderProps) {
 		hoverPosition,
 		setHoverPosition,
 		lockedPosition,
+		lockedTimeMs,
 		lock,
 		unlock,
 		enterSearchOverride,
