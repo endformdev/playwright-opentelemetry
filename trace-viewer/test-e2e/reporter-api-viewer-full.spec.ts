@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
+import { MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE } from "./setup/global-setup";
 
 test.describe("reporter, trace-api, trace-viewer flow", () => {
 	test("loads and displays a real trace from reporter e2e tests", async ({
@@ -120,6 +122,52 @@ test.describe("reporter, trace-api, trace-viewer flow", () => {
 		);
 		expect(responseAfterStateLoss.status).toBe(200);
 		expect(responseAfterStateLoss.contentType).toMatch(/^image\//);
+	});
+
+	test("renders separate screenshot rows for multiple browser contexts", async ({
+		page,
+	}) => {
+		const traceId = readFileSync(
+			MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE,
+			"utf-8",
+		).trim();
+		const viewer = new TraceViewerPage(page);
+		await viewer.loadTraceFromApi(traceId);
+
+		await expect(viewer.header.root).toBeVisible({ timeout: 10000 });
+		await expect(viewer.screenshots.root).toBeVisible();
+
+		const rows = viewer.screenshots.rows();
+		await expect(rows).toHaveCount(2, { timeout: 10000 });
+
+		const rowContextIds = await rows.evaluateAll((elements) =>
+			elements.map((element) =>
+				element.getAttribute("data-screenshot-context-id"),
+			),
+		);
+		expect(new Set(rowContextIds).size).toBe(2);
+
+		const sourceCounts = (
+			await rows.evaluateAll((elements) =>
+				elements.map((element) =>
+					Number(element.getAttribute("data-screenshot-source-count")),
+				),
+			)
+		).sort((a, b) => a - b);
+		expect(sourceCounts[0]).toBeGreaterThan(0);
+		expect(sourceCounts[1]).toBeGreaterThan(sourceCounts[0]);
+
+		for (let rowIndex = 0; rowIndex < 2; rowIndex++) {
+			const firstImage = rows.nth(rowIndex).getByRole("img", {
+				name: /Screenshot at/,
+			}).first();
+			await expect(firstImage).toBeVisible({ timeout: 10000 });
+			await expect
+				.poll(async () =>
+					firstImage.evaluate((image) => (image as HTMLImageElement).naturalWidth),
+				)
+				.toBeGreaterThan(0);
+		}
 	});
 });
 

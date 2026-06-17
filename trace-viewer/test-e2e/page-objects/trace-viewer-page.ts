@@ -152,6 +152,10 @@ export class ScreenshotSection {
 	screenshots(): Locator {
 		return this.root.locator("[data-screenshot-timestamp]");
 	}
+
+	rows(): Locator {
+		return this.root.getByTestId("screenshot-row");
+	}
 }
 
 export class SearchComponent {

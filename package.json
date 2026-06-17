@@ -1,15 +1,15 @@
 {
 	"name": "playwright-opentelemetry",
-	"packageManager": "pnpm@11.7.0",
-	"engines": {
-		"node": "^24.0.0"
-	},
 	"scripts": {
 		"build": "pnpm --recursive build",
 		"format": "biome format --write",
 		"test": "vitest",
 		"tsc": "tsc --build",
 		"release": "pnpx bumpp reporter/package.json trace-viewer/package.json trace-api/package.json --commit --tag --push"
+	},
+	"packageManager": "pnpm@11.7.0",
+	"engines": {
+		"node": "^24.0.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
