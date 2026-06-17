@@ -46,12 +46,24 @@ interface SelectedScreenshotRow extends ScreenshotRow {
 	selectedScreenshots: SelectedSlot[];
 }
 
+const ROW_GAP_PX = 8;
+const MAX_VISIBLE_ROWS = 3;
+
 export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	let contentRef: HTMLDivElement | undefined;
 
 	const [slotCount, setSlotCount] = createSignal(0);
 	const screenshots = () => props.screenshots() ?? [];
-	const screenshotRows = createMemo(() => groupScreenshotsByContext(screenshots()));
+	const screenshotRows = createMemo(() =>
+		groupScreenshotsByContext(screenshots()),
+	);
+	const visibleRowCount = createMemo(() =>
+		Math.min(Math.max(1, screenshotRows().length), MAX_VISIBLE_ROWS),
+	);
+	const rowHeight = createMemo(
+		() =>
+			`calc((100% - ${(visibleRowCount() - 1) * ROW_GAP_PX}px) / ${visibleRowCount()})`,
+	);
 
 	// Convert screenshots to relative timestamps (offset from test start)
 	const screenshotsWithRelativeTime = createMemo((): RelativeScreenshot[] => {
@@ -76,11 +88,10 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 
 				// Recalculate how many screenshots fit
 				if (height > 0 && width > 0) {
-					const rowCount = Math.max(1, screenshotRows().length);
-					const rowGap = 8;
-					const availableHeight = height - 16 - rowGap * (rowCount - 1); // padding and row gaps
-					const screenshotHeight = availableHeight;
-					const screenshotWidth = (screenshotHeight / rowCount) * (16 / 9);
+					const rowCount = visibleRowCount();
+					const availableHeight = height - 16 - ROW_GAP_PX * (rowCount - 1); // padding and visible row gaps
+					const screenshotHeight = availableHeight / rowCount;
+					const screenshotWidth = screenshotHeight * (16 / 9);
 					const gap = 8;
 
 					const count = Math.floor((width + gap) / (screenshotWidth + gap));
@@ -107,7 +118,11 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 			const rowScreenshots = screenshotsWithRelativeTime().filter(
 				(screenshot) => screenshot.original.contextId === row.contextId,
 			);
-			const selected = selectScreenshots(rowScreenshots, slotCount(), timeRange);
+			const selected = selectScreenshots(
+				rowScreenshots,
+				slotCount(),
+				timeRange,
+			);
 			return {
 				...row,
 				selectedScreenshots: selected.map((s) => (s ? s.original : null)),
@@ -125,7 +140,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	return (
 		<div
 			ref={contentRef}
-			class="h-full bg-gray-50 overflow-hidden p-2"
+			class="h-full bg-gray-50 overflow-y-auto overflow-x-hidden p-2"
 			role="region"
 			aria-label="Screenshots"
 		>
@@ -181,7 +196,8 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 							<For each={selectedScreenshotRows()}>
 								{(row, rowIndex) => (
 									<div
-										class="flex gap-2 flex-1 min-h-0"
+										class="flex gap-2 flex-shrink-0 min-h-0"
+										style={{ height: rowHeight() }}
 										data-testid="screenshot-row"
 										data-screenshot-row-index={rowIndex()}
 										data-screenshot-context-id={row.contextId}
@@ -203,8 +219,12 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 															data-screenshot-timestamp={s().timestamp}
 															data-screenshot-context-id={s().contextId}
 															data-screenshot-page-id={s().pageId}
-															onMouseEnter={() => props.onScreenshotHover?.(s().url)}
-															onMouseLeave={() => props.onScreenshotHover?.(null)}
+															onMouseEnter={() =>
+																props.onScreenshotHover?.(s().url)
+															}
+															onMouseLeave={() =>
+																props.onScreenshotHover?.(null)
+															}
 														>
 															<img
 																src={s().url}
@@ -229,7 +249,9 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	);
 }
 
-function groupScreenshotsByContext(screenshots: ScreenshotInfo[]): ScreenshotRow[] {
+function groupScreenshotsByContext(
+	screenshots: ScreenshotInfo[],
+): ScreenshotRow[] {
 	const rows = new Map<string, ScreenshotRow>();
 	for (const screenshot of screenshots) {
 		const row = rows.get(screenshot.contextId) ?? {
