@@ -83,7 +83,6 @@ const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
 const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
-const MAX_DEFAULT_SCREENSHOT_ROWS = 3;
 
 /** Convert spans to SpanInput format for depth calculation */
 function spansToSpanInput(
@@ -104,9 +103,19 @@ function spansToSpanInput(
 	}));
 }
 
-function countScreenshotContexts(screenshots: ScreenshotInfo[]): number {
+function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
 	if (screenshots.length === 0) return 1;
-	return new Set(screenshots.map((screenshot) => screenshot.contextId)).size;
+	return new Set(
+		screenshots.map(
+			(screenshot) => `${screenshot.contextId}:${screenshot.pageId}`,
+		),
+	).size;
+}
+
+function getDefaultVisibleScreenshotRows(rowCount: number): number {
+	if (rowCount <= 1) return 1;
+	if (rowCount === 2) return 2;
+	return 2.5;
 }
 
 export function TraceViewer(props: TraceViewerProps) {
@@ -217,13 +226,13 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		(props.traceInfo.screenshots() ?? []).length > 0;
 	const hasScreenshots = () =>
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
-	const screenshotContextCount = createMemo(() =>
-		countScreenshotContexts(props.traceInfo.screenshots() ?? []),
+	const screenshotPageCount = createMemo(() =>
+		countScreenshotPages(props.traceInfo.screenshots() ?? []),
 	);
 	const screenshotPanelInitialSize = createMemo(
 		() =>
 			SCREENSHOT_PANEL_ROW_SIZE_PERCENT *
-			Math.min(screenshotContextCount(), MAX_DEFAULT_SCREENSHOT_ROWS),
+			getDefaultVisibleScreenshotRows(screenshotPageCount()),
 	);
 	const hasSteps = () => stepsDepth() > 0;
 	const hasBrowserSpans = () => browserDepth() > 0;
@@ -765,7 +774,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 							direction="vertical"
 							initialFirstPanelSize={screenshotPanelInitialSize()}
 							minFirstPanelSize={7}
-							maxFirstPanelSize={40}
+							maxFirstPanelSize={80}
 							firstPanel={
 								<ScreenshotFilmstrip
 									screenshots={props.traceInfo.screenshots}

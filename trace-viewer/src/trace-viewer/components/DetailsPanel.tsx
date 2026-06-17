@@ -211,6 +211,9 @@ export function DetailsPanel(props: DetailsPanelProps) {
 							{(screenshot) => (
 								<div
 									data-screenshot
+									data-screenshot-timestamp={screenshot().timestamp}
+									data-screenshot-context-id={screenshot().contextId}
+									data-screenshot-page-id={screenshot().pageId}
 									class="bg-gray-100 rounded-md overflow-hidden border-2 transition-colors duration-150"
 									classList={{
 										"border-blue-500 ring-2 ring-blue-200":

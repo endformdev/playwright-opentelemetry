@@ -37,6 +37,7 @@ interface RelativeScreenshot extends Screenshot {
 type SelectedSlot = SlotScreenshot<ScreenshotInfo>;
 
 interface ScreenshotRow {
+	id: string;
 	contextId: string;
 	pageIds: string[];
 	screenshots: ScreenshotInfo[];
@@ -47,22 +48,33 @@ interface SelectedScreenshotRow extends ScreenshotRow {
 }
 
 const ROW_GAP_PX = 8;
-const MAX_VISIBLE_ROWS = 3;
+const PANEL_PADDING_Y_PX = 16;
+const SCREENSHOT_ASPECT_RATIO = 16 / 9;
 
 export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	let contentRef: HTMLDivElement | undefined;
 
 	const [slotCount, setSlotCount] = createSignal(0);
+	const [contentSize, setContentSize] = createSignal<{
+		width: number;
+		height: number;
+	} | null>(null);
+	const [defaultRowHeightPx, setDefaultRowHeightPx] = createSignal<
+		number | undefined
+	>();
+	const [defaultSingleRowPanelHeightPx, setDefaultSingleRowPanelHeightPx] =
+		createSignal<number | undefined>();
+	const [defaultMeasurementPending, setDefaultMeasurementPending] =
+		createSignal(true);
+	const [rowHeightPx, setRowHeightPx] = createSignal(0);
 	const screenshots = () => props.screenshots() ?? [];
 	const screenshotRows = createMemo(() =>
-		groupScreenshotsByContext(screenshots()),
+		groupScreenshotsByPage(screenshots()),
 	);
-	const visibleRowCount = createMemo(() =>
-		Math.min(Math.max(1, screenshotRows().length), MAX_VISIBLE_ROWS),
-	);
-	const rowHeight = createMemo(
-		() =>
-			`calc((100% - ${(visibleRowCount() - 1) * ROW_GAP_PX}px) / ${visibleRowCount()})`,
+	const screenshotRowsKey = createMemo(() =>
+		screenshotRows()
+			.map((row) => row.id)
+			.join("|"),
 	);
 
 	// Convert screenshots to relative timestamps (offset from test start)
@@ -77,26 +89,33 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		Array.from({ length: Math.max(1, slotCount()) }),
 	);
 
+	createEffect(() => {
+		screenshotRowsKey();
+		setDefaultRowHeightPx(undefined);
+		setDefaultSingleRowPanelHeightPx(undefined);
+		setDefaultMeasurementPending(true);
+
+		const frameId = requestAnimationFrame(() => {
+			if (contentRef) {
+				const rect = contentRef.getBoundingClientRect();
+				setContentSize({ width: rect.width, height: rect.height });
+			}
+			setDefaultMeasurementPending(false);
+		});
+
+		onCleanup(() => cancelAnimationFrame(frameId));
+	});
+
 	// Set up ResizeObserver to track content area size
 	createEffect(() => {
 		if (!contentRef) return;
 
 		const resizeObserver = new ResizeObserver((entries) => {
 			for (const entry of entries) {
-				const height = entry.contentRect.height;
-				const width = entry.contentRect.width;
-
-				// Recalculate how many screenshots fit
-				if (height > 0 && width > 0) {
-					const rowCount = visibleRowCount();
-					const availableHeight = height - 16 - ROW_GAP_PX * (rowCount - 1); // padding and visible row gaps
-					const screenshotHeight = availableHeight / rowCount;
-					const screenshotWidth = screenshotHeight * (16 / 9);
-					const gap = 8;
-
-					const count = Math.floor((width + gap) / (screenshotWidth + gap));
-					setSlotCount(Math.max(0, count));
-				}
+				setContentSize({
+					width: entry.contentRect.width,
+					height: entry.contentRect.height,
+				});
 			}
 		});
 
@@ -105,6 +124,49 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		onCleanup(() => {
 			resizeObserver.disconnect();
 		});
+	});
+
+	createEffect(() => {
+		const size = contentSize();
+		if (!size || size.height <= 0 || size.width <= 0) return;
+		if (defaultRowHeightPx() === undefined && defaultMeasurementPending()) {
+			return;
+		}
+
+		const rowCount = Math.max(1, screenshotRows().length);
+		const availableHeight = Math.max(0, size.height - PANEL_PADDING_Y_PX);
+		const visibleRows = getDefaultVisibleRowCount(rowCount);
+		const currentDefaultRowHeight =
+			defaultRowHeightPx() ??
+			calculateDefaultRowHeight(availableHeight, rowCount);
+		const currentDefaultSingleRowPanelHeight =
+			defaultSingleRowPanelHeightPx() ?? size.height / visibleRows;
+
+		if (defaultRowHeightPx() === undefined) {
+			setDefaultRowHeightPx(currentDefaultRowHeight);
+		}
+		if (defaultSingleRowPanelHeightPx() === undefined) {
+			setDefaultSingleRowPanelHeightPx(currentDefaultSingleRowPanelHeight);
+		}
+
+		const rowHeight = calculateRowHeight(
+			size.height,
+			availableHeight,
+			rowCount,
+			currentDefaultRowHeight,
+			currentDefaultSingleRowPanelHeight,
+		);
+		setRowHeightPx(rowHeight);
+		if (rowHeight <= 0) {
+			setSlotCount(0);
+			return;
+		}
+
+		const screenshotWidth = rowHeight * SCREENSHOT_ASPECT_RATIO;
+		const count = Math.floor(
+			(size.width + ROW_GAP_PX) / (screenshotWidth + ROW_GAP_PX),
+		);
+		setSlotCount(Math.max(0, count));
 	});
 
 	// Select screenshots based on viewport - this handles:
@@ -116,7 +178,9 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		const timeRange = viewportToTimeRange(props.viewport);
 		return screenshotRows().map((row) => {
 			const rowScreenshots = screenshotsWithRelativeTime().filter(
-				(screenshot) => screenshot.original.contextId === row.contextId,
+				(screenshot) =>
+					screenshot.original.contextId === row.contextId &&
+					screenshot.original.pageId === row.pageIds[0],
 			);
 			const selected = selectScreenshots(
 				rowScreenshots,
@@ -197,7 +261,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 								{(row, rowIndex) => (
 									<div
 										class="flex gap-2 flex-shrink-0 min-h-0"
-										style={{ height: rowHeight() }}
+										style={{ height: `${rowHeightPx()}px` }}
 										data-testid="screenshot-row"
 										data-screenshot-row-index={rowIndex()}
 										data-screenshot-context-id={row.contextId}
@@ -249,12 +313,12 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	);
 }
 
-function groupScreenshotsByContext(
-	screenshots: ScreenshotInfo[],
-): ScreenshotRow[] {
+function groupScreenshotsByPage(screenshots: ScreenshotInfo[]): ScreenshotRow[] {
 	const rows = new Map<string, ScreenshotRow>();
 	for (const screenshot of screenshots) {
-		const row = rows.get(screenshot.contextId) ?? {
+		const id = `${screenshot.contextId}:${screenshot.pageId}`;
+		const row = rows.get(id) ?? {
+			id,
 			contextId: screenshot.contextId,
 			pageIds: [],
 			screenshots: [],
@@ -263,7 +327,7 @@ function groupScreenshotsByContext(
 			row.pageIds.push(screenshot.pageId);
 		}
 		row.screenshots.push(screenshot);
-		rows.set(screenshot.contextId, row);
+		rows.set(id, row);
 	}
 
 	return Array.from(rows.values()).map((row) => ({
@@ -271,4 +335,46 @@ function groupScreenshotsByContext(
 		pageIds: row.pageIds.sort(),
 		screenshots: row.screenshots.sort((a, b) => a.timestamp - b.timestamp),
 	}));
+}
+
+function getDefaultVisibleRowCount(rowCount: number): number {
+	if (rowCount <= 1) return 1;
+	if (rowCount === 2) return 2;
+	return 2.5;
+}
+
+function calculateDefaultRowHeight(
+	availableHeight: number,
+	rowCount: number,
+): number {
+	const visibleRows = getDefaultVisibleRowCount(rowCount);
+	const visibleGaps = Math.max(0, Math.ceil(visibleRows) - 1);
+	return Math.max(
+		0,
+		(availableHeight - visibleGaps * ROW_GAP_PX) / visibleRows,
+	);
+}
+
+function calculateRowHeight(
+	contentHeight: number,
+	availableHeight: number,
+	rowCount: number,
+	defaultRowHeight: number,
+	defaultSingleRowPanelHeight: number,
+): number {
+	const defaultTotalHeight =
+		defaultRowHeight * rowCount + ROW_GAP_PX * (rowCount - 1);
+
+	if (contentHeight < defaultSingleRowPanelHeight) {
+		return availableHeight;
+	}
+
+	if (availableHeight > defaultTotalHeight) {
+		return Math.max(
+			0,
+			(availableHeight - ROW_GAP_PX * (rowCount - 1)) / rowCount,
+		);
+	}
+
+	return defaultRowHeight;
 }

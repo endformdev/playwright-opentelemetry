@@ -57,9 +57,12 @@ test("renders separate screenshot rows for multiple browser contexts", async ({
 			)
 			.toBeGreaterThan(0);
 	}
+
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(0));
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(1));
 });
 
-test("shows three screenshot rows by default and scrolls to additional rows", async ({
+test("shows separate page rows with two and a half rows by default", async ({
 	page,
 	request,
 }) => {
@@ -97,7 +100,7 @@ test("shows three screenshot rows by default and scrolls to additional rows", as
 	);
 
 	const rows = viewer.screenshots.rows();
-	await expect(rows).toHaveCount(4, { timeout: 10000 });
+	await expect(rows).toHaveCount(8, { timeout: 10000 });
 	await expect
 		.poll(() =>
 			viewer.screenshots.root.evaluate(
@@ -106,26 +109,38 @@ test("shows three screenshot rows by default and scrolls to additional rows", as
 		)
 		.toBe(true);
 
-	for (let rowIndex = 0; rowIndex < 4; rowIndex++) {
+	for (let rowIndex = 0; rowIndex < 8; rowIndex++) {
 		await expect(rows.nth(rowIndex)).toHaveAttribute(
 			"data-screenshot-source-count",
-			"2",
+			"1",
 		);
 		const pageIds = await rows
 			.nth(rowIndex)
 			.getAttribute("data-screenshot-page-ids");
-		expect(pageIds?.split(",")).toHaveLength(2);
+		expect(pageIds?.split(",")).toHaveLength(1);
 	}
+	const pageIdRows = await rows.evaluateAll((elements) =>
+		elements.map((element) => ({
+			contextId: element.getAttribute("data-screenshot-context-id"),
+			pageIds: element.getAttribute("data-screenshot-page-ids"),
+		})),
+	);
+	expect(
+		new Set(pageIdRows.map((row) => `${row.contextId}:${row.pageIds}`)).size,
+	).toBe(8);
 
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(0)))
 		.toBeGreaterThan(0.95);
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(0));
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(1)))
 		.toBeGreaterThan(0.95);
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(1));
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(2)))
-		.toBeGreaterThan(0.95);
+		.toBeGreaterThan(0.35);
+	expect(await visibleRatioInScreenshotRegion(rows.nth(2))).toBeLessThan(0.65);
 	expect(await visibleRatioInScreenshotRegion(rows.nth(3))).toBeLessThan(0.05);
 
 	await viewer.screenshots.root.hover();
@@ -137,8 +152,9 @@ test("shows three screenshot rows by default and scrolls to additional rows", as
 		)
 		.toBeGreaterThan(0);
 	await expect
-		.poll(() => visibleRatioInScreenshotRegion(rows.nth(3)))
+		.poll(() => visibleRatioInScreenshotRegion(rows.nth(7)))
 		.toBeGreaterThan(0.95);
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(7));
 });
 
 interface CreateScreenshotsZipOptions {
@@ -221,4 +237,34 @@ async function visibleRatioInScreenshotRegion(row: Locator): Promise<number> {
 		);
 		return visibleHeight / rowRect.height;
 	});
+}
+
+async function expectDetailsToMatchHoveredScreenshot(
+	viewer: TraceViewerPage,
+	row: Locator,
+): Promise<void> {
+	const screenshot = row.locator("[data-screenshot-timestamp]").first();
+	const [timestamp, contextId, pageId] = await Promise.all([
+		screenshot.getAttribute("data-screenshot-timestamp"),
+		screenshot.getAttribute("data-screenshot-context-id"),
+		screenshot.getAttribute("data-screenshot-page-id"),
+	]);
+
+	if (!timestamp || !contextId || !pageId) {
+		throw new Error("Screenshot row is missing screenshot metadata");
+	}
+
+	await screenshot.hover();
+	await expect(viewer.details.screenshot()).toHaveAttribute(
+		"data-screenshot-timestamp",
+		timestamp,
+	);
+	await expect(viewer.details.screenshot()).toHaveAttribute(
+		"data-screenshot-context-id",
+		contextId,
+	);
+	await expect(viewer.details.screenshot()).toHaveAttribute(
+		"data-screenshot-page-id",
+		pageId,
+	);
 }

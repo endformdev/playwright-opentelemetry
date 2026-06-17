@@ -136,6 +136,10 @@ export class DetailsPanel {
 			`button[data-parent-span-id="${parentSpanId}"]`,
 		);
 	}
+
+	screenshot(): Locator {
+		return this.root.locator("[data-screenshot]");
+	}
 }
 
 export class ScreenshotSection {
