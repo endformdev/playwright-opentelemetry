@@ -74,19 +74,58 @@ function createMinimalJpeg(): Buffer {
  */
 async function createMockPlaywrightTraceZip(
 	outputDir: string,
-	screenshots: Array<{ pageGuid: string; timestamp: number }>,
+	screenshots: Array<{
+		pageGuid: string;
+		timestamp: number;
+		contextId?: string;
+		pageId?: string;
+	}>,
 ): Promise<string> {
 	const traceZipPath = path.join(outputDir, "trace.zip");
 
 	const blobWriter = new BlobWriter("application/zip");
 	const zipWriter = new ZipWriter(blobWriter);
 
-	// Add a minimal trace.trace file (JSON lines format)
-	const traceEvents = JSON.stringify({ name: "trace", version: 1 });
-	await zipWriter.add(
-		"trace.trace",
-		new Blob([traceEvents]).stream() as ReadableStream,
-	);
+	const screenshotsByContext = new Map<
+		string,
+		Array<{ pageGuid: string; timestamp: number; pageId: string }>
+	>();
+	for (const screenshot of screenshots) {
+		const contextId = screenshot.contextId ?? "browser-context@default";
+		const contextScreenshots = screenshotsByContext.get(contextId) ?? [];
+		contextScreenshots.push({
+			pageGuid: screenshot.pageGuid,
+			timestamp: screenshot.timestamp,
+			pageId: screenshot.pageId ?? screenshot.pageGuid,
+		});
+		screenshotsByContext.set(contextId, contextScreenshots);
+	}
+
+	let contextIndex = 0;
+	for (const [contextId, contextScreenshots] of screenshotsByContext) {
+		const traceEvents = [
+			{
+				version: 8,
+				type: "context-options",
+				contextId,
+				origin: "library",
+			},
+			...contextScreenshots.map((screenshot) => ({
+				type: "screencast-frame",
+				pageId: screenshot.pageId,
+				sha1: `${screenshot.pageGuid}-${screenshot.timestamp}.jpeg`,
+				timestamp: screenshot.timestamp,
+				frameSwapWallTime: screenshot.timestamp,
+			})),
+		]
+			.map((event) => JSON.stringify(event))
+			.join("\n");
+		await zipWriter.add(
+			`${contextIndex}-trace.trace`,
+			new Blob([traceEvents]).stream() as ReadableStream,
+		);
+		contextIndex += 1;
+	}
 
 	// Add screenshots to resources/ directory
 	const jpegBuffer = createMinimalJpeg();
@@ -338,7 +377,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			);
 			expect(screenshotFiles).toHaveLength(2);
 			expect(JSON.parse(zipEntries.get("manifest.json") as string)).toEqual({
-				version: 1,
+				version: 2,
 				screenshots: screenshotFiles
 					.map((filepath) => {
 						const filename = path.basename(filepath);
@@ -350,6 +389,8 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 							file: filename,
 							path: filepath,
 							contentType: "image/jpeg",
+							contextId: "browser-context@default",
+							pageId: pageGuid,
 						};
 					})
 					.sort((a, b) => a.timestamp - b.timestamp),
@@ -473,7 +514,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			const zipEntries = await readZipEntries(expectedZipPath);
 			expect(zipEntries.has("traces/playwright-opentelemetry.json")).toBe(true);
 			expect(JSON.parse(zipEntries.get("manifest.json") as string)).toEqual({
-				version: 1,
+				version: 2,
 				screenshots: [],
 			});
 		});
@@ -1150,6 +1191,48 @@ describe("extractScreenshotsFromPlaywrightTrace", () => {
 			),
 		).toBe(true);
 		expect(screenshots.has("page@abc123-999999.jpeg")).toBe(true);
+	});
+
+	it("extracts browser context and page metadata from trace events", async () => {
+		outputDir = createTestOutputDir("extract-multi-context-screenshots");
+		const firstContextId = "browser-context@first";
+		const secondContextId = "browser-context@second";
+		const firstPageId = "page@111aaa";
+		const secondPageId = "page@222bbb";
+
+		const traceZipPath = await createMockPlaywrightTraceZip(outputDir, [
+			{
+				pageGuid: firstPageId,
+				pageId: firstPageId,
+				contextId: firstContextId,
+				timestamp: 1766833384425,
+			},
+			{
+				pageGuid: secondPageId,
+				pageId: secondPageId,
+				contextId: secondContextId,
+				timestamp: 1766833384525,
+			},
+			{
+				pageGuid: secondPageId,
+				pageId: secondPageId,
+				contextId: secondContextId,
+				timestamp: 1766833384625,
+			},
+		]);
+
+		const screenshots = await extractScreenshotsFromPlaywrightTrace(traceZipPath);
+
+		expect(screenshots.get(`${firstPageId}-1766833384425.jpeg`)).toMatchObject({
+			contextId: firstContextId,
+			pageId: firstPageId,
+			timestamp: 1766833384425,
+		});
+		expect(screenshots.get(`${secondPageId}-1766833384525.jpeg`)).toMatchObject({
+			contextId: secondContextId,
+			pageId: secondPageId,
+			timestamp: 1766833384525,
+		});
 	});
 
 	it("extracts screenshots with different prefixes (frame@, element@, etc.)", async () => {

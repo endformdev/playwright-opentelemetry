@@ -29,6 +29,16 @@ describe("getElementsAtTime", () => {
 		serviceName: "test-service",
 	});
 
+	const createScreenshot = (
+		timestamp: number,
+		url: string,
+	): ScreenshotInfo => ({
+		timestamp,
+		url,
+		contextId: "browser-context@test",
+		pageId: "page@test",
+	});
+
 	describe("screenshot selection", () => {
 		it("returns null when no screenshots available", () => {
 			const result = getElementsAtTime(100, [], [], [], testStartTimeMs);
@@ -37,9 +47,9 @@ describe("getElementsAtTime", () => {
 
 		it("returns the most recent screenshot before hover time", () => {
 			const screenshots: ScreenshotInfo[] = [
-				{ timestamp: testStartTimeMs + 50, url: "a.png" },
-				{ timestamp: testStartTimeMs + 100, url: "b.png" },
-				{ timestamp: testStartTimeMs + 200, url: "c.png" },
+				createScreenshot(testStartTimeMs + 50, "a.png"),
+				createScreenshot(testStartTimeMs + 100, "b.png"),
+				createScreenshot(testStartTimeMs + 200, "c.png"),
 			];
 
 			const result = getElementsAtTime(
@@ -54,8 +64,8 @@ describe("getElementsAtTime", () => {
 
 		it("returns null when hover time is before all screenshots (respects causality)", () => {
 			const screenshots: ScreenshotInfo[] = [
-				{ timestamp: testStartTimeMs + 100, url: "a.png" },
-				{ timestamp: testStartTimeMs + 200, url: "b.png" },
+				createScreenshot(testStartTimeMs + 100, "a.png"),
+				createScreenshot(testStartTimeMs + 200, "b.png"),
 			];
 
 			const result = getElementsAtTime(
@@ -71,7 +81,7 @@ describe("getElementsAtTime", () => {
 
 		it("returns exact match screenshot", () => {
 			const screenshots: ScreenshotInfo[] = [
-				{ timestamp: testStartTimeMs + 100, url: "exact.png" },
+				createScreenshot(testStartTimeMs + 100, "exact.png"),
 			];
 
 			const result = getElementsAtTime(

@@ -42,6 +42,8 @@ function traceInfoFromLoadedTrace(
 	const screenshots = loadedTrace.screenshotMetas.map((screenshot) => ({
 		timestamp: screenshot.timestamp,
 		url: screenshotUrl(baseUrl, screenshot.file, source),
+		contextId: screenshot.contextId,
+		pageId: screenshot.pageId,
 	}));
 
 	return {
@@ -65,6 +67,8 @@ export async function loadScreenshotsForTrace(
 		url: screenshotUrl(baseUrl, screenshot.file, {
 			screenshotsZip: screenshotsZipUrl,
 		}),
+		contextId: screenshot.contextId,
+		pageId: screenshot.pageId,
 	}));
 }
 
@@ -80,6 +84,8 @@ export async function loadScreenshotsZipForTrace(
 	return screenshotMetas.map((screenshot) => ({
 		timestamp: screenshot.timestamp,
 		url: screenshotUrl(baseUrl, screenshot.file),
+		contextId: screenshot.contextId,
+		pageId: screenshot.pageId,
 	}));
 }
 

@@ -2,7 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { TestCase } from "@playwright/test/reporter";
 import type { Entry, FileEntry } from "@zip.js/zip.js";
-import { BlobReader, BlobWriter, ZipReader, ZipWriter } from "@zip.js/zip.js";
+import {
+	BlobReader,
+	BlobWriter,
+	TextWriter,
+	ZipReader,
+	ZipWriter,
+} from "@zip.js/zip.js";
 import type { Span } from "../shared/otel";
 import { buildOtlpRequest } from "./sender";
 
@@ -11,11 +17,27 @@ export interface ScreenshotManifestEntry {
 	file: string;
 	path: string;
 	contentType: string;
+	contextId: string;
+	pageId: string;
 }
 
 export interface ScreenshotManifest {
-	version: 1;
+	version: 2;
 	screenshots: ScreenshotManifestEntry[];
+}
+
+export interface ScreenshotResource {
+	timestamp: number;
+	file: string;
+	contentType: string;
+	contextId: string;
+	pageId: string;
+	blob: Blob;
+}
+
+interface ScreenshotTraceMetadata {
+	contextId: string;
+	pageId: string;
 }
 
 /**
@@ -45,12 +67,12 @@ const PLAYWRIGHT_SCREENSHOT_PATTERN = /^.+@[a-f0-9]+-\d+\.jpe?g$/i;
  * {pageGuid}-{timestamp}.jpeg (e.g., page@abc123-1766929201038.jpeg)
  *
  * @param traceZipPath - Path to the Playwright trace.zip file
- * @returns Map of filename (without resources/ prefix) to Blob
+ * @returns Map of filename (without resources/ prefix) to screenshot resources
  */
 export async function extractScreenshotsFromPlaywrightTrace(
 	traceZipPath: string,
-): Promise<Map<string, Blob>> {
-	const screenshots = new Map<string, Blob>();
+): Promise<Map<string, ScreenshotResource>> {
+	const screenshots = new Map<string, ScreenshotResource>();
 
 	try {
 		// Read the trace ZIP file
@@ -60,6 +82,7 @@ export async function extractScreenshotsFromPlaywrightTrace(
 		// Open the ZIP and get entries
 		const zipReader = new ZipReader(new BlobReader(zipBlob));
 		const entries = await zipReader.getEntries();
+		const screenshotMetadata = await extractScreenshotTraceMetadata(entries);
 
 		// Extract screenshot files from resources/ directory
 		// Process concurrently for efficiency
@@ -79,7 +102,15 @@ export async function extractScreenshotsFromPlaywrightTrace(
 						PLAYWRIGHT_TRACE_RESOURCES_DIR.length,
 					);
 					const blob = await entry.getData(new BlobWriter("image/jpeg"));
-					screenshots.set(filename, blob);
+					const metadata = screenshotMetadata.get(filename);
+					screenshots.set(filename, {
+						blob,
+						file: filename,
+						timestamp: extractTimestampFromFilename(filename),
+						contentType: getMimeType(filename),
+						contextId: metadata?.contextId ?? "unknown-context",
+						pageId: metadata?.pageId ?? extractResourceIdFromFilename(filename),
+					});
 				}),
 		);
 
@@ -98,7 +129,7 @@ export async function extractScreenshotsFromPlaywrightTrace(
 }
 
 export async function createScreenshotsZip(
-	screenshots: Map<string, Blob>,
+	screenshots: Map<string, ScreenshotResource>,
 ): Promise<Blob> {
 	const blobWriter = new BlobWriter("application/zip");
 	const zipWriter = new ZipWriter(blobWriter);
@@ -115,8 +146,8 @@ export interface CreateTraceZipOptions {
 	fixtureSpans: Span[];
 	serviceName: string;
 	playwrightVersion: string;
-	/** Screenshots extracted from Playwright trace ZIP (filename -> Blob) */
-	screenshots: Map<string, Blob>;
+	/** Screenshots extracted from Playwright trace ZIP (filename -> resource) */
+	screenshots: Map<string, ScreenshotResource>;
 }
 
 export type CreateTraceZipBlobOptions = Omit<
@@ -185,7 +216,7 @@ export async function writeTraceZip(
 
 async function addScreenshotsToZip(
 	zipWriter: ZipWriter<Blob>,
-	screenshots: Map<string, Blob>,
+	screenshots: Map<string, ScreenshotResource>,
 ): Promise<void> {
 	const manifest = createScreenshotManifest(screenshots);
 	await zipWriter.add(
@@ -195,27 +226,85 @@ async function addScreenshotsToZip(
 		}).stream(),
 	);
 
-	for (const [filename, blob] of screenshots.entries()) {
-		await zipWriter.add(`screenshots/${filename}`, blob.stream());
+	for (const [filename, screenshot] of screenshots.entries()) {
+		await zipWriter.add(`screenshots/${filename}`, screenshot.blob.stream());
 	}
 }
 
 function createScreenshotManifest(
-	screenshots: Map<string, Blob>,
+	screenshots: Map<string, ScreenshotResource>,
 ): ScreenshotManifest {
-	const entries = Array.from(screenshots.keys())
-		.map((filename) => ({
-			timestamp: extractTimestampFromFilename(filename),
-			file: filename,
-			path: `screenshots/${filename}`,
-			contentType: getMimeType(filename),
+	const entries = Array.from(screenshots.values())
+		.map((screenshot) => ({
+			timestamp: screenshot.timestamp,
+			file: screenshot.file,
+			path: `screenshots/${screenshot.file}`,
+			contentType: screenshot.contentType,
+			contextId: screenshot.contextId,
+			pageId: screenshot.pageId,
 		}))
 		.sort((a, b) => a.timestamp - b.timestamp);
 
 	return {
-		version: 1,
+		version: 2,
 		screenshots: entries,
 	};
+}
+
+async function extractScreenshotTraceMetadata(
+	entries: Entry[],
+): Promise<Map<string, ScreenshotTraceMetadata>> {
+	const metadata = new Map<string, ScreenshotTraceMetadata>();
+	const traceEntries = entries.filter(
+		(entry): entry is FileEntry =>
+			isFileEntry(entry) && isPlaywrightTraceEntry(entry.filename),
+	);
+
+	await Promise.all(
+		traceEntries.map(async (entry) => {
+			const text = await entry.getData(new TextWriter());
+			let contextId = "unknown-context";
+
+			for (const line of text.split("\n")) {
+				if (!line.trim()) continue;
+				const event = parseTraceEvent(line);
+				if (!event) continue;
+
+				if (event.type === "context-options" && typeof event.contextId === "string") {
+					contextId = event.contextId;
+					continue;
+				}
+
+				if (
+					event.type === "screencast-frame" &&
+					typeof event.sha1 === "string" &&
+					typeof event.pageId === "string"
+				) {
+					metadata.set(event.sha1, {
+						contextId,
+						pageId: event.pageId,
+					});
+				}
+			}
+		}),
+	);
+
+	return metadata;
+}
+
+function isPlaywrightTraceEntry(filename: string): boolean {
+	return filename === "trace.trace" || filename.endsWith("-trace.trace");
+}
+
+function parseTraceEvent(line: string): Record<string, unknown> | undefined {
+	try {
+		const value = JSON.parse(line) as unknown;
+		return typeof value === "object" && value !== null
+			? (value as Record<string, unknown>)
+			: undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 function extractTimestampFromFilename(filename: string): number {
@@ -227,6 +316,12 @@ function extractTimestampFromFilename(filename: string): number {
 		10,
 	);
 	return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function extractResourceIdFromFilename(filename: string): string {
+	const lastDashIndex = filename.lastIndexOf("-");
+	if (lastDashIndex === -1) return "unknown-page";
+	return filename.slice(0, lastDashIndex) || "unknown-page";
 }
 
 function getMimeType(filename: string): string {

@@ -13,8 +13,10 @@ export interface ServiceWorkerState {
 export interface ScreenshotMeta {
 	timestamp: number;
 	file: string;
-	path?: string;
-	contentType?: string;
+	path: string;
+	contentType: string;
+	contextId: string;
+	pageId: string;
 }
 
 /**
