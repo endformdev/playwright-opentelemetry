@@ -62,8 +62,6 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	const [defaultRowHeightPx, setDefaultRowHeightPx] = createSignal<
 		number | undefined
 	>();
-	const [defaultSingleRowPanelHeightPx, setDefaultSingleRowPanelHeightPx] =
-		createSignal<number | undefined>();
 	const [defaultMeasurementPending, setDefaultMeasurementPending] =
 		createSignal(true);
 	const [rowHeightPx, setRowHeightPx] = createSignal(0);
@@ -92,7 +90,6 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	createEffect(() => {
 		screenshotRowsKey();
 		setDefaultRowHeightPx(undefined);
-		setDefaultSingleRowPanelHeightPx(undefined);
 		setDefaultMeasurementPending(true);
 
 		const frameId = requestAnimationFrame(() => {
@@ -112,9 +109,10 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 
 		const resizeObserver = new ResizeObserver((entries) => {
 			for (const entry of entries) {
+				const rect = entry.target.getBoundingClientRect();
 				setContentSize({
-					width: entry.contentRect.width,
-					height: entry.contentRect.height,
+					width: rect.width,
+					height: rect.height,
 				});
 			}
 		});
@@ -135,26 +133,18 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 
 		const rowCount = Math.max(1, screenshotRows().length);
 		const availableHeight = Math.max(0, size.height - PANEL_PADDING_Y_PX);
-		const visibleRows = getDefaultVisibleRowCount(rowCount);
 		const currentDefaultRowHeight =
 			defaultRowHeightPx() ??
 			calculateDefaultRowHeight(availableHeight, rowCount);
-		const currentDefaultSingleRowPanelHeight =
-			defaultSingleRowPanelHeightPx() ?? size.height / visibleRows;
 
 		if (defaultRowHeightPx() === undefined) {
 			setDefaultRowHeightPx(currentDefaultRowHeight);
 		}
-		if (defaultSingleRowPanelHeightPx() === undefined) {
-			setDefaultSingleRowPanelHeightPx(currentDefaultSingleRowPanelHeight);
-		}
 
 		const rowHeight = calculateRowHeight(
-			size.height,
 			availableHeight,
 			rowCount,
 			currentDefaultRowHeight,
-			currentDefaultSingleRowPanelHeight,
 		);
 		setRowHeightPx(rowHeight);
 		if (rowHeight <= 0) {
@@ -356,16 +346,14 @@ function calculateDefaultRowHeight(
 }
 
 function calculateRowHeight(
-	contentHeight: number,
 	availableHeight: number,
 	rowCount: number,
 	defaultRowHeight: number,
-	defaultSingleRowPanelHeight: number,
 ): number {
 	const defaultTotalHeight =
 		defaultRowHeight * rowCount + ROW_GAP_PX * (rowCount - 1);
 
-	if (contentHeight < defaultSingleRowPanelHeight) {
+	if (availableHeight < defaultRowHeight) {
 		return availableHeight;
 	}
 
