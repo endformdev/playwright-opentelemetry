@@ -10,7 +10,7 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "../src/reporter/reporter-attributes";
-import { runReporterTest } from "./reporter-harness";
+import { runReporterTest, type TestResult } from "./reporter-harness";
 
 // Mock the sender module
 vi.mock("../src/reporter/sender", () => ({
@@ -109,10 +109,10 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			}),
 		);
 
-		const traceIdAttachment = testResult.attachments.find(
-			(attachment) => attachment.name === "playwright-opentelemetry-trace-id",
+		const traceIdAnnotation = testResult.annotations.find(
+			(annotation) => annotation.type === "playwrightOpentelemetryTraceId",
 		);
-		expect(traceIdAttachment?.body?.toString("utf-8")).toBe(testSpan.traceId);
+		expect(traceIdAnnotation?.description).toBe(testSpan.traceId);
 	});
 
 	it("keeps invalid fixture trace context attachments as errors", async () => {
@@ -367,7 +367,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 		);
 	});
 
-	it("attaches trace ID to test result for downstream reporters", async () => {
+	it("annotates trace ID on test result for downstream reporters", async () => {
 		const { testResult } = await runReporterTest({
 			test: {
 				title: "test with trace attachment",
@@ -384,20 +384,40 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			},
 		});
 
-		// Verify attachment was added with correct structure
-		expect(testResult.attachments).toContainEqual({
-			name: "playwright-opentelemetry-trace-id",
-			contentType: "text/plain",
-			body: expect.any(Buffer),
+		const traceId = testResult.annotations.find(
+			(annotation) => annotation.type === "playwrightOpentelemetryTraceId",
+		)?.description;
+		expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+
+		expect(testResult.annotations).toContainEqual({
+			type: "playwrightOpentelemetryTraceId",
+			description: traceId,
+		});
+	});
+
+	it("makes trace ID annotation synchronously available to later reporters", async () => {
+		let downstreamTraceId: string | undefined;
+		const downstreamReporter = {
+			onTestEnd: (
+				_test: unknown,
+				result: { annotations: TestResult["annotations"] },
+			) => {
+				downstreamTraceId = result.annotations.find(
+					(annotation) => annotation.type === "playwrightOpentelemetryTraceId",
+				)?.description;
+			},
+		};
+
+		await runReporterTest({
+			test: {
+				title: "downstream reporter trace metadata",
+			},
+			afterOtelOnTestEnd(test, result) {
+				downstreamReporter.onTestEnd(test, result);
+			},
 		});
 
-		// Verify the body contains a valid trace ID (32 hex characters)
-		const attachment = testResult.attachments.find(
-			(a) => a.name === "playwright-opentelemetry-trace-id",
-		);
-		expect(attachment).toBeDefined();
-		const traceId = attachment?.body?.toString("utf-8");
-		expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+		expect(downstreamTraceId).toMatch(/^[0-9a-f]{32}$/);
 	});
 });
 

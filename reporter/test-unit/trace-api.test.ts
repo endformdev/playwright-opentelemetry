@@ -211,10 +211,10 @@ describe("Trace API Integration", () => {
 			Authorization: "Bearer test-token",
 		});
 
-		const traceIdAttachment = testResult.attachments.find(
-			(attachment) => attachment.name === "playwright-opentelemetry-trace-id",
-		);
-		expect(traceIdAttachment?.body?.toString("utf-8")).toBe(testSpan.traceId);
+		expect(testResult.annotations).toContainEqual({
+			type: "playwrightOpentelemetryTraceId",
+			description: testSpan.traceId,
+		});
 	});
 
 	it("sends data to both OTLP endpoint and trace API endpoint when both configured", async () => {

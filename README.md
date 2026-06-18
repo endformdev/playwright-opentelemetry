@@ -130,6 +130,18 @@ This boots the trace viewer on `localhost:9294`.
 
 Then load your zip file or an API url responding with telemetry.
 
+### Using trace IDs in other reporters
+
+Reporters configured after `playwright-opentelemetry/reporter` can read the trace ID from `TestResult.annotations` in `onTestEnd`:
+
+```ts
+const traceId = result.annotations.find(
+	(annotation) => annotation.type === "playwrightOpentelemetryTraceId",
+)?.description;
+```
+
+The annotation type is `playwrightOpentelemetryTraceId`. Its `description` is the 32-character OpenTelemetry trace ID, and it is only present when a trace was created for that test attempt.
+
 ## Output Formats
 
 ### `opentelemetry-trace.zip` format

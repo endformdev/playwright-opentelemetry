@@ -2,7 +2,6 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Reporter, TestCase, TestResult } from "@playwright/test/reporter";
 
-const TRACE_ID_ATTACHMENT_NAME = "playwright-opentelemetry-trace-id";
 const BROWSER_PAGE_SPANS_TEST_NAME =
 	"playwright.dev browser page navigation trace";
 const ERROR_SPANS_TEST_NAME = "expected failing step trace";
@@ -38,13 +37,15 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 			return;
 		}
 
-		const traceId = result.attachments
-			.find((attachment) => attachment.name === TRACE_ID_ATTACHMENT_NAME)
-			?.body?.toString("utf-8")
-			.trim();
+		const traceId = result.annotations
+			.find(
+				(annotation) =>
+					annotation.type === "playwrightOpentelemetryTraceId",
+			)
+			?.description?.trim();
 
 		if (!traceId) {
-			throw new Error(`Missing ${TRACE_ID_ATTACHMENT_NAME} attachment`);
+			throw new Error("Missing playwrightOpentelemetryTraceId annotation");
 		}
 
 		if (test.title === BROWSER_PAGE_SPANS_TEST_NAME) {

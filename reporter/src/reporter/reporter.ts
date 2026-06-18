@@ -136,11 +136,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			? readFixtureSpansAttachment(result, testId)
 			: [];
 
-		// Attach trace ID early so other reporters can consume it during onTestEnd.
-		result.attachments.push({
-			name: "playwright-opentelemetry-trace-id",
-			contentType: "text/plain",
-			body: Buffer.from(traceId, "utf-8"),
+		result.annotations.push({
+			type: "playwrightOpentelemetryTraceId",
+			description: traceId,
 		});
 
 		const attributes: Record<string, string | number | boolean | string[]> = {};
@@ -297,9 +295,12 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private async prepareTraceArtifact(
 		options: PrepareTraceArtifactOptions,
 	): Promise<PreparedTraceArtifact> {
-		const screenshots: Map<string, ScreenshotResource> = options.traceAttachmentPath
-			? await extractScreenshotsFromPlaywrightTrace(options.traceAttachmentPath)
-			: new Map();
+		const screenshots: Map<string, ScreenshotResource> =
+			options.traceAttachmentPath
+				? await extractScreenshotsFromPlaywrightTrace(
+						options.traceAttachmentPath,
+					)
+				: new Map();
 
 		const traceZipBlobPromise = options.config.storeTraceZip
 			? createTraceZipBlob({

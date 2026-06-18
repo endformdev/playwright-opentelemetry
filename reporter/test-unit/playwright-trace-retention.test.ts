@@ -18,10 +18,10 @@ describe("PlaywrightOpentelemetryReporter trace retention", () => {
 		});
 
 		expect(sendSpans).toHaveBeenCalledTimes(1);
-		expect(testResult.attachments).toContainEqual(
+		expect(testResult.annotations).toContainEqual(
 			expect.objectContaining({
-				name: "playwright-opentelemetry-trace-id",
-				contentType: "text/plain",
+				type: "playwrightOpentelemetryTraceId",
+				description: expect.stringMatching(/^[0-9a-f]{32}$/),
 			}),
 		);
 	});
@@ -33,10 +33,9 @@ describe("PlaywrightOpentelemetryReporter trace retention", () => {
 		});
 
 		expect(sendSpans).not.toHaveBeenCalled();
-		expect(testResult.attachments).not.toContainEqual(
+		expect(testResult.annotations).not.toContainEqual(
 			expect.objectContaining({
-				name: "playwright-opentelemetry-trace-id",
-				contentType: "text/plain",
+				type: "playwrightOpentelemetryTraceId",
 			}),
 		);
 	});
@@ -49,10 +48,10 @@ describe("PlaywrightOpentelemetryReporter trace retention", () => {
 		});
 
 		expect(sendSpans).toHaveBeenCalledTimes(1);
-		expect(testResult.attachments).toContainEqual(
+		expect(testResult.annotations).toContainEqual(
 			expect.objectContaining({
-				name: "playwright-opentelemetry-trace-id",
-				contentType: "text/plain",
+				type: "playwrightOpentelemetryTraceId",
+				description: expect.stringMatching(/^[0-9a-f]{32}$/),
 			}),
 		);
 	});
@@ -64,10 +63,9 @@ describe("PlaywrightOpentelemetryReporter trace retention", () => {
 		});
 
 		expect(sendSpans).not.toHaveBeenCalled();
-		expect(testResult.attachments).not.toContainEqual(
+		expect(testResult.annotations).not.toContainEqual(
 			expect.objectContaining({
-				name: "playwright-opentelemetry-trace-id",
-				contentType: "text/plain",
+				type: "playwrightOpentelemetryTraceId",
 			}),
 		);
 	});

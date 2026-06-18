@@ -26,6 +26,7 @@ export interface TestHarnessOptions {
 	test: TestDefinition;
 	result?: ResultDefinition;
 	includeTraceContextAttachment?: boolean;
+	afterOtelOnTestEnd?: (test: TestCase, result: TestResult) => void;
 }
 
 export interface ConfigDefinition {
@@ -58,6 +59,10 @@ export interface ResultDefinition {
 		contentType: string;
 		path?: string;
 		body?: Buffer;
+	}>;
+	annotations?: Array<{
+		type: string;
+		description?: string;
 	}>;
 }
 
@@ -174,6 +179,7 @@ export async function runReporterTest({
 	test,
 	result,
 	includeTraceContextAttachment = true,
+	afterOtelOnTestEnd,
 }: TestHarnessOptions): Promise<TestHarnessResult> {
 	const mergedPlaywrightOpentelemetry: PlaywrightOpentelemetryConfig = {
 		...DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG,
@@ -233,6 +239,7 @@ export async function runReporterTest({
 	}
 
 	reporter.onTestEnd(testCase, testResult);
+	afterOtelOnTestEnd?.(testCase, testResult);
 	await reporter.onEnd({} as FullResult);
 
 	return { reporter, testResult };
@@ -403,6 +410,7 @@ export function buildTestResult(
 		duration,
 		steps,
 		attachments: def?.attachments ?? [retainedTraceAttachment()],
+		annotations: def?.annotations ?? [],
 	} as Partial<TestResult> as TestResult;
 }
 
