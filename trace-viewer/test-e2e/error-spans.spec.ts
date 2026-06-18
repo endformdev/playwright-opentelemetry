@@ -130,6 +130,55 @@ test("shows reporter error spans in the header dropdown", async ({ page }) => {
 	await expect(errorMessage).not.toContainText(/\[\d+m/);
 });
 
+test("orders error spans by trace time in the header dropdown", async ({
+	page,
+	request,
+}) => {
+	const traceId = generateTraceId("errororder001");
+	const builder = new TraceDataBuilder(traceId, Date.now());
+
+	builder.addTestSpan("error ordering trace", 5000, {
+		status: "failed",
+		file: "errors/order.spec.ts",
+		line: 10,
+	});
+	builder.addStepSpanAndGetId("Late step error", 300, {
+		startOffsetMs: 3000,
+		status: { code: 2, message: "Late step failure" },
+	});
+	builder.addCustomSpan({
+		serviceName: "playwright-browser",
+		scopeName: "playwright-browser",
+		name: "Early browser error",
+		kind: SpanKind.CLIENT,
+		durationMs: 200,
+		startOffsetMs: 1000,
+		status: { code: 2, message: "Early browser failure" },
+	});
+	builder.addCustomSpan({
+		serviceName: "api-service",
+		scopeName: "api",
+		name: "Middle external error",
+		kind: SpanKind.INTERNAL,
+		durationMs: 200,
+		startOffsetMs: 2000,
+		status: { code: 2, message: "Middle external failure" },
+	});
+
+	await builder.send(request);
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	await expect(viewer.header.testName).toHaveText("error ordering trace");
+
+	await viewer.errors.button.click();
+	await expect(viewer.errors.items).toHaveText([
+		/Early browser error.*1\.00s.*Early browser failure.*playwright-browser/,
+		/Middle external error.*2\.00s.*Middle external failure.*api-service/,
+		/Late step error.*3\.00s.*Late step failure.*playwright-tests/,
+	]);
+});
+
 test("zooms out when selecting an off-screen error span", async ({
 	page,
 	request,

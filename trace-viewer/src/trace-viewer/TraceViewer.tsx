@@ -200,7 +200,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		...props.traceData.browserSpans(),
 		...props.traceData.externalSpans(),
 	]);
-	const errorSpans = createMemo(() => allSpans().filter(isErrorSpan));
+	const errorSpans = createMemo(() =>
+		allSpans()
+			.filter(isErrorSpan)
+			.sort((a, b) => a.startOffsetMs - b.startOffsetMs),
+	);
 
 	let contentAreaRef: HTMLDivElement | undefined;
 	const stepsDepth = createMemo(() => {
@@ -712,7 +716,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 
 		if (configs.length === 1) {
-			return <div class="h-full">{configs[0].content}</div>;
+			return <div class="h-full min-h-0 overflow-hidden">{configs[0].content}</div>;
 		}
 
 		return <MultiResizablePanel direction="vertical" panels={configs} />;
@@ -747,7 +751,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				onDblClick={handleDoubleClick}
 			>
 				{/* Active panels section */}
-				<div class="flex-1 min-h-0">
+				<div class="flex-1 min-h-0 overflow-hidden">
 					<Show
 						when={hasScreenshots() && hasAnySpanPanels()}
 						fallback={
