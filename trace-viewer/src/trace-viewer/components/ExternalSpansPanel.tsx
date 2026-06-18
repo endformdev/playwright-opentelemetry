@@ -93,7 +93,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 					</div>
 				}
 			>
-				<div class="flex-1 overflow-y-auto overflow-x-hidden p-3" role="list">
+				<div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3" role="list">
 					<div class="relative" style={{ height: `${containerHeight()}px` }}>
 						<For each={visibleSpans()}>
 							{(packedSpan: PackedSpan) => {
