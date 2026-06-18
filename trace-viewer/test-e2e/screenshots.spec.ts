@@ -456,7 +456,13 @@ async function expectDetailsToMatchHoveredScreenshot(
 		throw new Error("Screenshot row is missing screenshot metadata");
 	}
 
-	await screenshot.hover();
+	const box = await screenshot.boundingBox();
+	if (!box) {
+		throw new Error("Screenshot is not visible");
+	}
+	await screenshot.hover({
+		position: { x: Math.max(0, box.width - 2), y: box.height / 2 },
+	});
 	await expect(viewer.details.screenshot()).toHaveAttribute(
 		"data-screenshot-timestamp",
 		timestamp,
