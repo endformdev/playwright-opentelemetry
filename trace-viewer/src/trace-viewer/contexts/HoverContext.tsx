@@ -120,35 +120,48 @@ export function HoverProvider(props: HoverProviderProps) {
 	const displayElements = (): HoveredElements | null => {
 		switch (mode()) {
 			case "hover":
-				return withFocusedScreenshot(
+				return withFocusedScreenshotPage(
 					hoveredElements(),
 					hoveredElement(),
 					props.screenshots(),
+					hoverTimeMs(),
+					props.testStartTimeMs(),
 				);
 			case "locked":
-				return withFocusedScreenshot(
+				return withFocusedScreenshotPage(
 					lockedElements(),
 					lockedElement(),
 					props.screenshots(),
+					lockedTimeMs(),
+					props.testStartTimeMs(),
 				);
 			case "search-override":
-				return withFocusedScreenshot(
+				return withFocusedScreenshotPage(
 					hoveredElements(),
 					hoveredElement(),
 					props.screenshots(),
+					hoverTimeMs(),
+					props.testStartTimeMs(),
 				);
 		}
 	};
 
 	const displayFocusedElement = (): FocusedElement | null => {
+		let focused: FocusedElement | null;
 		switch (mode()) {
 			case "hover":
-				return hoveredElement();
+				focused = hoveredElement();
+				break;
 			case "locked":
-				return lockedElement();
+				focused = lockedElement();
+				break;
 			case "search-override":
-				return hoveredElement();
+				focused = hoveredElement();
+				break;
 		}
+
+		if (focused?.type !== "screenshot") return focused;
+		return displayElements()?.screenshot?.url === focused.id ? focused : null;
 	};
 
 	const lock = (timeMs: number, element: FocusedElement | null) => {
@@ -202,18 +215,38 @@ export function HoverProvider(props: HoverProviderProps) {
 	);
 }
 
-function withFocusedScreenshot(
+function withFocusedScreenshotPage(
 	elements: HoveredElements | null,
 	focused: FocusedElement | null,
 	screenshots: ScreenshotInfo[],
+	timeMs: number | null,
+	testStartTimeMs: number,
 ): HoveredElements | null {
-	if (!elements || focused?.type !== "screenshot") return elements;
-	const screenshot =
-		screenshots.find((screenshot) => screenshot.url === focused.id) ??
-		elements.screenshot;
+	if (!elements || focused?.type !== "screenshot" || timeMs === null) {
+		return elements;
+	}
+
+	const focusedScreenshot = screenshots.find(
+		(screenshot) => screenshot.url === focused.id,
+	);
+	if (!focusedScreenshot) return elements;
+
+	const absoluteTimeMs = testStartTimeMs + timeMs;
+	let bestScreenshot: ScreenshotInfo | null = null;
+	for (const screenshot of screenshots) {
+		if (
+			screenshot.contextId === focusedScreenshot.contextId &&
+			screenshot.pageId === focusedScreenshot.pageId &&
+			screenshot.timestamp <= absoluteTimeMs &&
+			(!bestScreenshot || screenshot.timestamp > bestScreenshot.timestamp)
+		) {
+			bestScreenshot = screenshot;
+		}
+	}
+
 	return {
 		...elements,
-		screenshot,
+		screenshot: bestScreenshot ?? elements.screenshot,
 	};
 }
 

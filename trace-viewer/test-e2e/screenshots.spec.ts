@@ -157,10 +157,98 @@ test("shows separate page rows with two and a half rows by default", async ({
 	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(7));
 });
 
+test("shows the most recent screenshot at the hovered timestamp when filmstrip frames are sampled", async ({
+	page,
+	request,
+}) => {
+	const traceId = "55000000000000000000000000000002";
+	const testStartTime = Date.now();
+	const testDurationMs = 10_000;
+	const screenshotOffsetsMs = Array.from(
+		{ length: 101 },
+		(_, index) => index * 100,
+	);
+	const screenshotsZip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs,
+	});
+
+	await new TraceDataBuilder(traceId, testStartTime)
+		.addTestSpan(
+			"Dense screenshots are sampled in the filmstrip",
+			testDurationMs,
+			{
+				file: "screenshots.spec.ts",
+				line: 1,
+			},
+		)
+		.addStepSpan("Interact with the page", testDurationMs, { startOffsetMs: 0 })
+		.send(request);
+
+	await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await screenshotsZip.arrayBuffer()),
+			headers: {
+				"Content-Type": "application/zip",
+				"X-Trace-Id": traceId,
+			},
+		},
+	);
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	await expect(viewer.header.testName).toHaveText(
+		"Dense screenshots are sampled in the filmstrip",
+	);
+
+	const row = viewer.screenshots.rows().first();
+	await expect(row).toHaveAttribute(
+		"data-screenshot-source-count",
+		String(screenshotOffsetsMs.length),
+		{ timeout: 10000 },
+	);
+	await expect(viewer.screenshots.images().first()).toBeVisible({
+		timeout: 10000,
+	});
+	await expect
+		.poll(() => row.locator("[data-screenshot-timestamp]").count())
+		.toBeLessThan(screenshotOffsetsMs.length);
+
+	const target = await findHiddenScreenshotHoverTarget(row, {
+		testStartTime,
+		testDurationMs,
+		screenshotOffsetsMs,
+	});
+	expect(target.displayedTimestamp).not.toBe(target.expectedTimestamp);
+
+	await page.mouse.move(target.x, target.y);
+	await expect(viewer.details.screenshot()).toHaveAttribute(
+		"data-screenshot-timestamp",
+		String(target.expectedTimestamp),
+	);
+});
+
 interface CreateScreenshotsZipOptions {
 	testStartTime: number;
 	contextCount: number;
 	pagesPerContext: number;
+}
+
+interface CreateScreenshotsZipFromOffsetsOptions {
+	testStartTime: number;
+	screenshotOffsetsMs: number[];
+	contextId?: string;
+	pageId?: string;
+}
+
+interface ScreenshotManifestEntry {
+	timestamp: number;
+	file: string;
+	path: string;
+	contentType: string;
+	contextId: string;
+	pageId: string;
 }
 
 async function createScreenshotsZip({
@@ -170,14 +258,7 @@ async function createScreenshotsZip({
 }: CreateScreenshotsZipOptions): Promise<Blob> {
 	const blobWriter = new BlobWriter("application/zip");
 	const zipWriter = new ZipWriter(blobWriter);
-	const screenshots: Array<{
-		timestamp: number;
-		file: string;
-		path: string;
-		contentType: string;
-		contextId: string;
-		pageId: string;
-	}> = [];
+	const screenshots: ScreenshotManifestEntry[] = [];
 
 	for (let contextIndex = 1; contextIndex <= contextCount; contextIndex++) {
 		const contextId = `context-${contextIndex}`;
@@ -217,6 +298,49 @@ async function createScreenshotsZip({
 	return zipWriter.close();
 }
 
+async function createScreenshotsZipFromOffsets({
+	testStartTime,
+	screenshotOffsetsMs,
+	contextId = "context-1",
+	pageId = "context-1-page-1",
+}: CreateScreenshotsZipFromOffsetsOptions): Promise<Blob> {
+	const blobWriter = new BlobWriter("application/zip");
+	const zipWriter = new ZipWriter(blobWriter);
+	const screenshots: ScreenshotManifestEntry[] = [];
+
+	for (const offsetMs of screenshotOffsetsMs) {
+		const timestamp = testStartTime + offsetMs;
+		const file = `${pageId}-${timestamp}.svg`;
+		const path = `screenshots/${file}`;
+		screenshots.push({
+			timestamp,
+			file,
+			path,
+			contentType: "image/svg+xml",
+			contextId,
+			pageId,
+		});
+		await zipWriter.add(
+			path,
+			new Blob([screenshotSvg(contextId, `${pageId} @ ${offsetMs}ms`)], {
+				type: "image/svg+xml",
+			}).stream(),
+		);
+	}
+
+	await zipWriter.add(
+		"manifest.json",
+		new Blob([
+			JSON.stringify({
+				version: 2,
+				screenshots,
+			}),
+		]).stream(),
+	);
+
+	return zipWriter.close();
+}
+
 function screenshotSvg(contextId: string, pageId: string): string {
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#dbeafe"/><text x="320" y="165" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#1e3a8a">${contextId}</text><text x="320" y="215" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#1e40af">${pageId}</text></svg>`;
 }
@@ -237,6 +361,84 @@ async function visibleRatioInScreenshotRegion(row: Locator): Promise<number> {
 		);
 		return visibleHeight / rowRect.height;
 	});
+}
+
+async function findHiddenScreenshotHoverTarget(
+	row: Locator,
+	options: {
+		testStartTime: number;
+		testDurationMs: number;
+		screenshotOffsetsMs: number[];
+	},
+): Promise<{
+	x: number;
+	y: number;
+	displayedTimestamp: number;
+	expectedTimestamp: number;
+}> {
+	return row.evaluate(
+		(element, { testStartTime, testDurationMs, screenshotOffsetsMs }) => {
+			const timeline = element.closest(
+				'[role="region"][aria-label="Trace timeline"]',
+			) as HTMLElement | null;
+			if (!timeline) {
+				throw new Error("Could not find trace timeline region");
+			}
+
+			const timelineRect = timeline.getBoundingClientRect();
+			const renderedScreenshots = Array.from(
+				element.querySelectorAll<HTMLElement>("[data-screenshot-timestamp]"),
+			).map((screenshot) => ({
+				element: screenshot,
+				timestamp: Number(screenshot.dataset.screenshotTimestamp),
+				rect: screenshot.getBoundingClientRect(),
+			}));
+			const renderedTimestamps = new Set(
+				renderedScreenshots.map((screenshot) => screenshot.timestamp),
+			);
+
+			for (
+				let hoverOffsetMs = 0;
+				hoverOffsetMs <= testDurationMs;
+				hoverOffsetMs += 10
+			) {
+				const expectedOffsetMs = screenshotOffsetsMs
+					.filter((offsetMs) => offsetMs <= hoverOffsetMs)
+					.at(-1);
+				if (expectedOffsetMs === undefined) continue;
+				if (hoverOffsetMs - expectedOffsetMs < 50) continue;
+
+				const expectedTimestamp = testStartTime + expectedOffsetMs;
+				if (renderedTimestamps.has(expectedTimestamp)) continue;
+
+				const x =
+					timelineRect.left +
+					(hoverOffsetMs / testDurationMs) * timelineRect.width;
+				const renderedScreenshot = renderedScreenshots.find(
+					(screenshot) =>
+						x > screenshot.rect.left + 2 && x < screenshot.rect.right - 2,
+				);
+				if (
+					!renderedScreenshot ||
+					expectedTimestamp <= renderedScreenshot.timestamp
+				) {
+					continue;
+				}
+
+				return {
+					x,
+					y: renderedScreenshot.rect.top + renderedScreenshot.rect.height / 2,
+					displayedTimestamp: renderedScreenshot.timestamp,
+					expectedTimestamp,
+				};
+			}
+
+			throw new Error(
+				"Could not find a hidden screenshot timestamp inside a rendered filmstrip frame",
+			);
+		},
+		options,
+	);
 }
 
 async function expectDetailsToMatchHoveredScreenshot(
