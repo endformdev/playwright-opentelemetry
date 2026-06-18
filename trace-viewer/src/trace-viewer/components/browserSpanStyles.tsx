@@ -72,16 +72,16 @@ export function getResourceType(span: Span): ResourceType {
 export function getResourceColor(resourceType: ResourceType): string {
 	// chrome devtools style colors
 	const colors: Record<ResourceType, string> = {
-		page: "#7c8cf8", // Soft periwinkle
+		page: "#7484f5", // Soft periwinkle
 		route: "#5b6ee1", // Indigo
 		document: "#4285f4", // Blue
 		stylesheet: "#34a853", // Green
 		image: "#9c27b0", // Purple
-		script: "#f5a623", // Orange
-		fetch: "#fbbc04", // Yellow
-		font: "#14b8a6", // Teal
-		media: "#00bcd4", // Teal
-		other: "#9e9e9e", // Gray
+		script: "#eb9c42", // Orange
+		fetch: "#d8660e", // Amber
+		font: "#0fa599", // Teal
+		media: "#09a1c7", // Teal
+		other: "#808080", // Gray
 	};
 	return colors[resourceType];
 }
