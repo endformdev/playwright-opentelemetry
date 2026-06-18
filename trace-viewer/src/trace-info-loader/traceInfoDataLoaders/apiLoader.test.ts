@@ -20,10 +20,14 @@ describe("loading a trace from the remote trace API", () => {
 			{
 				timestamp: 1766927492100,
 				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
+				contextId: "browser-context@abc",
+				pageId: "page@abc",
 			},
 			{
 				timestamp: 1766927492300,
 				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
+				contextId: "browser-context@abc",
+				pageId: "page@abc",
 			},
 		]);
 		const fetchMock = vi.fn(async (url: string) => {
@@ -60,10 +64,14 @@ describe("loading a trace from the remote trace API", () => {
 			{
 				timestamp: 1766927492100,
 				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
+				contextId: "browser-context@abc",
+				pageId: "page@abc",
 			},
 			{
 				timestamp: 1766927492300,
 				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
+				contextId: "browser-context@abc",
+				pageId: "page@abc",
 			},
 		]);
 		expect(loadScreenshotsForTrace).toHaveBeenCalledWith(

@@ -7,6 +7,8 @@ const BROWSER_PAGE_SPANS_TEST_NAME =
 	"playwright.dev browser page navigation trace";
 const ERROR_SPANS_TEST_NAME = "expected failing step trace";
 const SPAN_EVENTS_TEST_NAME = "browser console and page error span events";
+const MULTI_CONTEXT_SCREENSHOTS_TEST_NAME =
+	"multiple browser contexts screenshot trace";
 
 export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 	onTestEnd(test: TestCase, result: TestResult): void {
@@ -16,18 +18,22 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 			process.env.BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE;
 		const errorSpansTraceIdFile = process.env.ERROR_SPANS_TRACE_ID_FILE;
 		const spanEventsTraceIdFile = process.env.SPAN_EVENTS_TRACE_ID_FILE;
+		const multiContextScreenshotsTraceIdFile =
+			process.env.MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE;
 		if (
 			!browserPageSpansTraceIdFile &&
 			!browserPageSpansTraceZipPathFile &&
 			!errorSpansTraceIdFile &&
-			!spanEventsTraceIdFile
+			!spanEventsTraceIdFile &&
+			!multiContextScreenshotsTraceIdFile
 		) {
 			return;
 		}
 		if (
 			test.title !== BROWSER_PAGE_SPANS_TEST_NAME &&
 			test.title !== ERROR_SPANS_TEST_NAME &&
-			test.title !== SPAN_EVENTS_TEST_NAME
+			test.title !== SPAN_EVENTS_TEST_NAME &&
+			test.title !== MULTI_CONTEXT_SCREENSHOTS_TEST_NAME
 		) {
 			return;
 		}
@@ -57,6 +63,13 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 
 		if (test.title === SPAN_EVENTS_TEST_NAME && spanEventsTraceIdFile) {
 			writeFile(spanEventsTraceIdFile, traceId);
+		}
+
+		if (
+			test.title === MULTI_CONTEXT_SCREENSHOTS_TEST_NAME &&
+			multiContextScreenshotsTraceIdFile
+		) {
+			writeFile(multiContextScreenshotsTraceIdFile, traceId);
 		}
 	}
 }

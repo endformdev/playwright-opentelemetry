@@ -120,11 +120,23 @@ export function HoverProvider(props: HoverProviderProps) {
 	const displayElements = (): HoveredElements | null => {
 		switch (mode()) {
 			case "hover":
-				return hoveredElements();
+				return withFocusedScreenshot(
+					hoveredElements(),
+					hoveredElement(),
+					props.screenshots(),
+				);
 			case "locked":
-				return lockedElements();
+				return withFocusedScreenshot(
+					lockedElements(),
+					lockedElement(),
+					props.screenshots(),
+				);
 			case "search-override":
-				return hoveredElements();
+				return withFocusedScreenshot(
+					hoveredElements(),
+					hoveredElement(),
+					props.screenshots(),
+				);
 		}
 	};
 
@@ -188,6 +200,21 @@ export function HoverProvider(props: HoverProviderProps) {
 			{props.children}
 		</HoverContext.Provider>
 	);
+}
+
+function withFocusedScreenshot(
+	elements: HoveredElements | null,
+	focused: FocusedElement | null,
+	screenshots: ScreenshotInfo[],
+): HoveredElements | null {
+	if (!elements || focused?.type !== "screenshot") return elements;
+	const screenshot =
+		screenshots.find((screenshot) => screenshot.url === focused.id) ??
+		elements.screenshot;
+	return {
+		...elements,
+		screenshot,
+	};
 }
 
 export function useHoverContext(): HoverContextValue {

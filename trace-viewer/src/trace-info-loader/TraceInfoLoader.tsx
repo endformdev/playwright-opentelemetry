@@ -47,6 +47,8 @@ export type TestStatus =
 export interface ScreenshotInfo {
 	timestamp: number;
 	url: string;
+	contextId: string;
+	pageId: string;
 }
 
 export interface TraceInfoLoaderResult {

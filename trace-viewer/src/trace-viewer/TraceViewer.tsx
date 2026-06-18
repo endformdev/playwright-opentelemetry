@@ -9,7 +9,7 @@ import {
 } from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import { isErrorSpan } from "../trace-data-loader/exportToSpans";
-import type { TraceInfo } from "../trace-info-loader";
+import type { ScreenshotInfo, TraceInfo } from "../trace-info-loader";
 import { BrowserSpansPanel } from "./components/BrowserSpansPanel";
 import { DetailsPanel } from "./components/DetailsPanel";
 import { ExternalSpansPanel } from "./components/ExternalSpansPanel";
@@ -82,6 +82,7 @@ const SECTION_TOOLTIPS: Record<SectionId, string> = {
 const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
+const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
 
 /** Convert spans to SpanInput format for depth calculation */
 function spansToSpanInput(
@@ -100,6 +101,21 @@ function spansToSpanInput(
 		duration: span.durationMs,
 		parentId: span.parentId,
 	}));
+}
+
+function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
+	if (screenshots.length === 0) return 1;
+	return new Set(
+		screenshots.map(
+			(screenshot) => `${screenshot.contextId}:${screenshot.pageId}`,
+		),
+	).size;
+}
+
+function getDefaultVisibleScreenshotRows(rowCount: number): number {
+	if (rowCount <= 1) return 1;
+	if (rowCount === 2) return 2;
+	return 2.5;
 }
 
 export function TraceViewer(props: TraceViewerProps) {
@@ -210,6 +226,14 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		(props.traceInfo.screenshots() ?? []).length > 0;
 	const hasScreenshots = () =>
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
+	const screenshotPageCount = createMemo(() =>
+		countScreenshotPages(props.traceInfo.screenshots() ?? []),
+	);
+	const screenshotPanelInitialSize = createMemo(
+		() =>
+			SCREENSHOT_PANEL_ROW_SIZE_PERCENT *
+			getDefaultVisibleScreenshotRows(screenshotPageCount()),
+	);
 	const hasSteps = () => stepsDepth() > 0;
 	const hasBrowserSpans = () => browserDepth() > 0;
 	const hasExternalSpans = () => externalDepth() > 0;
@@ -748,9 +772,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						{/* Both screenshots and span panels active */}
 						<ResizablePanel
 							direction="vertical"
-							initialFirstPanelSize={12}
+							initialFirstPanelSize={screenshotPanelInitialSize()}
 							minFirstPanelSize={7}
-							maxFirstPanelSize={40}
+							maxFirstPanelSize={80}
 							firstPanel={
 								<ScreenshotFilmstrip
 									screenshots={props.traceInfo.screenshots}

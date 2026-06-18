@@ -11,11 +11,14 @@ export interface ResizablePanelProps {
 }
 
 export function ResizablePanel(props: ResizablePanelProps) {
-	const initialSize = props.initialFirstPanelSize ?? 50;
+	const initialSize = () => props.initialFirstPanelSize ?? 50;
 	const minSize = props.minFirstPanelSize ?? 10;
 	const maxSize = props.maxFirstPanelSize ?? 90;
 
-	const [firstPanelSize, setFirstPanelSize] = createSignal(initialSize);
+	const [userFirstPanelSize, setUserFirstPanelSize] = createSignal<
+		number | undefined
+	>();
+	const firstPanelSize = () => userFirstPanelSize() ?? initialSize();
 	const [isDragging, setIsDragging] = createSignal(false);
 
 	let containerRef: HTMLDivElement | undefined;
@@ -38,7 +41,7 @@ export function ResizablePanel(props: ResizablePanelProps) {
 
 			// Clamp to min/max
 			newSize = Math.max(minSize, Math.min(maxSize, newSize));
-			setFirstPanelSize(newSize);
+			setUserFirstPanelSize(newSize);
 		};
 
 		const handleMouseUp = () => {

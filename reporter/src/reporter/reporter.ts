@@ -44,6 +44,7 @@ import {
 	createScreenshotsZip,
 	createTraceZipBlob,
 	extractScreenshotsFromPlaywrightTrace,
+	type ScreenshotResource,
 	writeTraceZip,
 } from "./trace-zip-builder";
 
@@ -296,9 +297,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private async prepareTraceArtifact(
 		options: PrepareTraceArtifactOptions,
 	): Promise<PreparedTraceArtifact> {
-		const screenshots = options.traceAttachmentPath
+		const screenshots: Map<string, ScreenshotResource> = options.traceAttachmentPath
 			? await extractScreenshotsFromPlaywrightTrace(options.traceAttachmentPath)
-			: new Map<string, Blob>();
+			: new Map();
 
 		const traceZipBlobPromise = options.config.storeTraceZip
 			? createTraceZipBlob({
@@ -491,7 +492,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	private async sendScreenshotsZipToTraceApi(params: {
 		traceId: string;
-		screenshots: Map<string, Blob>;
+		screenshots: Map<string, ScreenshotResource>;
 		config: ResolvedPlaywrightOpentelemetryConfig;
 	}): Promise<void> {
 		const { traceId, screenshots, config } = params;

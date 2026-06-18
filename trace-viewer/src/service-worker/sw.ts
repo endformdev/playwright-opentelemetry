@@ -22,6 +22,25 @@ interface ScreenshotMeta {
 	file: string;
 	path: string;
 	contentType: string;
+	contextId: string;
+	pageId: string;
+}
+
+interface ScreenshotManifestV2 {
+	version: 2;
+	screenshots: ScreenshotMeta[];
+}
+
+interface ScreenshotManifestV1Entry {
+	timestamp?: number;
+	file?: string;
+	path?: string;
+	contentType?: string;
+}
+
+interface ScreenshotManifestV1 {
+	version?: 1;
+	screenshots?: ScreenshotManifestV1Entry[];
 }
 
 interface ZipLoadResult {
@@ -497,25 +516,126 @@ async function parseScreenshotManifest(
 	);
 	if (!manifestEntry) return [];
 
-	const manifest = JSON.parse(
-		await manifestEntry.getData(new TextWriter()),
-	) as {
-		screenshots?: Array<Partial<ScreenshotMeta>>;
-	};
-	return (manifest.screenshots ?? [])
-		.filter(
-			(screenshot): screenshot is ScreenshotMeta =>
-				typeof screenshot.timestamp === "number" &&
-				typeof screenshot.file === "string" &&
-				screenshot.file.length > 0,
-		)
-		.map((screenshot) => ({
-			timestamp: screenshot.timestamp,
-			file: screenshot.file,
-			path: screenshot.path || `screenshots/${screenshot.file}`,
-			contentType: screenshot.contentType || getMimeType(screenshot.file),
-		}))
+	const manifest = parseScreenshotManifestJson(
+		JSON.parse(await manifestEntry.getData(new TextWriter())),
+	);
+	return manifest.screenshots
 		.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function parseScreenshotManifestJson(value: unknown): ScreenshotManifestV2 {
+	if (!isObject(value)) {
+		throw new Error("Invalid screenshot manifest: expected object");
+	}
+
+	if (value.version === 2) {
+		return parseScreenshotManifestV2(value);
+	}
+
+	if (value.version === 1 || value.version === undefined) {
+		return parseScreenshotManifestV2(upgradeScreenshotManifestV1ToV2(value));
+	}
+
+	throw new Error(
+		`Unsupported screenshot manifest version: ${String(value.version)}`,
+	);
+}
+
+function parseScreenshotManifestV2(value: unknown): ScreenshotManifestV2 {
+	if (!isObject(value)) {
+		throw new Error("Invalid screenshot manifest v2: expected object");
+	}
+	if (value.version !== 2) {
+		throw new Error("Invalid screenshot manifest v2: expected version 2");
+	}
+	if (!Array.isArray(value.screenshots)) {
+		throw new Error("Invalid screenshot manifest v2: expected screenshots array");
+	}
+
+	return {
+		version: 2,
+		screenshots: value.screenshots.map((screenshot, index) =>
+			parseScreenshotManifestV2Entry(screenshot, index),
+		),
+	};
+}
+
+function parseScreenshotManifestV2Entry(
+	value: unknown,
+	index: number,
+): ScreenshotMeta {
+	if (!isObject(value)) {
+		throw new Error(
+			`Invalid screenshot manifest v2 entry at index ${index}: expected object`,
+		);
+	}
+
+	return {
+		timestamp: requiredNumber(value.timestamp, "timestamp", index),
+		file: requiredString(value.file, "file", index),
+		path: requiredString(value.path, "path", index),
+		contentType: requiredString(value.contentType, "contentType", index),
+		contextId: requiredString(value.contextId, "contextId", index),
+		pageId: requiredString(value.pageId, "pageId", index),
+	};
+}
+
+function upgradeScreenshotManifestV1ToV2(
+	manifest: ScreenshotManifestV1,
+): ScreenshotManifestV2 {
+	if (!Array.isArray(manifest.screenshots)) {
+		throw new Error("Invalid screenshot manifest v1: expected screenshots array");
+	}
+
+	return {
+		version: 2,
+		screenshots: manifest.screenshots.map((screenshot, index) => {
+			if (
+				typeof screenshot.timestamp !== "number" ||
+				typeof screenshot.file !== "string" ||
+				screenshot.file.length === 0
+			) {
+				throw new Error(
+					`Invalid screenshot manifest v1 entry at index ${index}: expected timestamp and file`,
+				);
+			}
+
+			const pageId = extractResourceIdFromFilename(screenshot.file);
+
+			return {
+				timestamp: screenshot.timestamp,
+				file: screenshot.file,
+				path: screenshot.path || `screenshots/${screenshot.file}`,
+				contentType: screenshot.contentType || getMimeType(screenshot.file),
+				contextId: pageId,
+				pageId,
+			};
+		}),
+	};
+}
+
+function requiredString(value: unknown, field: string, index: number): string {
+	if (typeof value === "string" && value.length > 0) return value;
+	throw new Error(
+		`Invalid screenshot manifest v2 entry at index ${index}: expected ${field}`,
+	);
+}
+
+function requiredNumber(value: unknown, field: string, index: number): number {
+	if (typeof value === "number") return value;
+	throw new Error(
+		`Invalid screenshot manifest v2 entry at index ${index}: expected ${field}`,
+	);
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function extractResourceIdFromFilename(filename: string): string {
+	const lastDashIndex = filename.lastIndexOf("-");
+	if (lastDashIndex === -1) return "unknown-page";
+	return filename.slice(0, lastDashIndex) || "unknown-page";
 }
 
 async function screenshotResponse(

@@ -10,7 +10,7 @@ allowBuilds:
 
 catalog:
   "@biomejs/biome": 2.4.16
-  "@playwright/test": 1.60.0
+  "@playwright/test": 1.61.0
   "@types/node": ^25.9.1
   "@zip.js/zip.js": ^2.8.26
   h3: 2.0.1-rc.22

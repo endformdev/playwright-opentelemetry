@@ -36,11 +36,44 @@ interface RelativeScreenshot extends Screenshot {
 /** Selected screenshot for a slot - null means empty slot */
 type SelectedSlot = SlotScreenshot<ScreenshotInfo>;
 
+interface ScreenshotRow {
+	id: string;
+	contextId: string;
+	pageIds: string[];
+	screenshots: ScreenshotInfo[];
+}
+
+interface SelectedScreenshotRow extends ScreenshotRow {
+	selectedScreenshots: SelectedSlot[];
+}
+
+const ROW_GAP_PX = 8;
+const PANEL_PADDING_Y_PX = 16;
+const SCREENSHOT_ASPECT_RATIO = 16 / 9;
+
 export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	let contentRef: HTMLDivElement | undefined;
 
 	const [slotCount, setSlotCount] = createSignal(0);
+	const [contentSize, setContentSize] = createSignal<{
+		width: number;
+		height: number;
+	} | null>(null);
+	const [defaultRowHeightPx, setDefaultRowHeightPx] = createSignal<
+		number | undefined
+	>();
+	const [defaultMeasurementPending, setDefaultMeasurementPending] =
+		createSignal(true);
+	const [rowHeightPx, setRowHeightPx] = createSignal(0);
 	const screenshots = () => props.screenshots() ?? [];
+	const screenshotRows = createMemo(() =>
+		groupScreenshotsByPage(screenshots()),
+	);
+	const screenshotRowsKey = createMemo(() =>
+		screenshotRows()
+			.map((row) => row.id)
+			.join("|"),
+	);
 
 	// Convert screenshots to relative timestamps (offset from test start)
 	const screenshotsWithRelativeTime = createMemo((): RelativeScreenshot[] => {
@@ -54,25 +87,33 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		Array.from({ length: Math.max(1, slotCount()) }),
 	);
 
+	createEffect(() => {
+		screenshotRowsKey();
+		setDefaultRowHeightPx(undefined);
+		setDefaultMeasurementPending(true);
+
+		const frameId = requestAnimationFrame(() => {
+			if (contentRef) {
+				const rect = contentRef.getBoundingClientRect();
+				setContentSize({ width: rect.width, height: rect.height });
+			}
+			setDefaultMeasurementPending(false);
+		});
+
+		onCleanup(() => cancelAnimationFrame(frameId));
+	});
+
 	// Set up ResizeObserver to track content area size
 	createEffect(() => {
 		if (!contentRef) return;
 
 		const resizeObserver = new ResizeObserver((entries) => {
 			for (const entry of entries) {
-				const height = entry.contentRect.height;
-				const width = entry.contentRect.width;
-
-				// Recalculate how many screenshots fit
-				if (height > 0 && width > 0) {
-					const availableHeight = height - 16; // padding
-					const screenshotHeight = availableHeight;
-					const screenshotWidth = screenshotHeight * (16 / 9);
-					const gap = 8;
-
-					const count = Math.floor((width + gap) / (screenshotWidth + gap));
-					setSlotCount(Math.max(0, count));
-				}
+				const rect = entry.target.getBoundingClientRect();
+				setContentSize({
+					width: rect.width,
+					height: rect.height,
+				});
 			}
 		});
 
@@ -83,35 +124,81 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		});
 	});
 
+	createEffect(() => {
+		const size = contentSize();
+		if (!size || size.height <= 0 || size.width <= 0) return;
+		if (defaultRowHeightPx() === undefined && defaultMeasurementPending()) {
+			return;
+		}
+
+		const rowCount = Math.max(1, screenshotRows().length);
+		const availableHeight = Math.max(0, size.height - PANEL_PADDING_Y_PX);
+		const currentDefaultRowHeight =
+			defaultRowHeightPx() ??
+			calculateDefaultRowHeight(availableHeight, rowCount);
+
+		if (defaultRowHeightPx() === undefined) {
+			setDefaultRowHeightPx(currentDefaultRowHeight);
+		}
+
+		const rowHeight = calculateRowHeight(
+			availableHeight,
+			rowCount,
+			currentDefaultRowHeight,
+		);
+		setRowHeightPx(rowHeight);
+		if (rowHeight <= 0) {
+			setSlotCount(0);
+			return;
+		}
+
+		const screenshotWidth = rowHeight * SCREENSHOT_ASPECT_RATIO;
+		const count = Math.floor(
+			(size.width + ROW_GAP_PX) / (screenshotWidth + ROW_GAP_PX),
+		);
+		setSlotCount(Math.max(0, count));
+	});
+
 	// Select screenshots based on viewport - this handles:
 	// 1. Showing screenshots within the visible range (closest to slot center)
 	// 2. When no screenshot in slot bounds, showing closest earlier screenshot
 	// 3. When zoomed into an empty region, showing closest earlier screenshot repeated
 	// 4. null entries for slots where no screenshot exists yet (respects causality)
-	const selectedScreenshots = createMemo((): SelectedSlot[] => {
+	const selectedScreenshotRows = createMemo((): SelectedScreenshotRow[] => {
 		const timeRange = viewportToTimeRange(props.viewport);
-		const selected = selectScreenshots(
-			screenshotsWithRelativeTime(),
-			slotCount(),
-			timeRange,
-		);
-		// Return the original ScreenshotInfo objects (or null for empty slots)
-		return selected.map((s) => (s ? s.original : null));
+		return screenshotRows().map((row) => {
+			const rowScreenshots = screenshotsWithRelativeTime().filter(
+				(screenshot) =>
+					screenshot.original.contextId === row.contextId &&
+					screenshot.original.pageId === row.pageIds[0],
+			);
+			const selected = selectScreenshots(
+				rowScreenshots,
+				slotCount(),
+				timeRange,
+			);
+			return {
+				...row,
+				selectedScreenshots: selected.map((s) => (s ? s.original : null)),
+			};
+		});
 	});
 
 	// Check if we have any non-null slots to display
 	const hasAnyScreenshots = createMemo(() =>
-		selectedScreenshots().some((s) => s !== null),
+		selectedScreenshotRows().some((row) =>
+			row.selectedScreenshots.some((s) => s !== null),
+		),
 	);
 
 	return (
 		<div
 			ref={contentRef}
-			class="h-full bg-gray-50 overflow-hidden p-2"
+			class="h-full bg-gray-50 overflow-y-auto overflow-x-hidden p-2"
 			role="region"
 			aria-label="Screenshots"
 		>
-			<div class="flex gap-2 h-full">
+			<div class="flex flex-col gap-2 h-full">
 				<Show when={props.screenshots.loading && screenshots().length === 0}>
 					<Show
 						when={slotCount() > 0}
@@ -121,13 +208,15 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 							</div>
 						}
 					>
-						<For each={skeletonSlots()}>
-							{() => (
-								<div class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm">
-									<div class="h-full w-full animate-pulse bg-gradient-to-br from-gray-100 via-gray-200 to-gray-100" />
-								</div>
-							)}
-						</For>
+						<div class="flex gap-2 h-full">
+							<For each={skeletonSlots()}>
+								{() => (
+									<div class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm">
+										<div class="h-full w-full animate-pulse bg-gradient-to-br from-gray-100 via-gray-200 to-gray-100" />
+									</div>
+								)}
+							</For>
+						</div>
 					</Show>
 				</Show>
 				<Show when={!props.screenshots.loading || screenshots().length > 0}>
@@ -158,32 +247,52 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 								</div>
 							}
 						>
-							<For each={selectedScreenshots()}>
-								{(screenshot) => (
-									<Show
-										when={screenshot}
-										fallback={
-											// Empty slot - takes up space but shows nothing
-											<div class="flex-shrink-0 h-full aspect-video" />
-										}
+							<For each={selectedScreenshotRows()}>
+								{(row, rowIndex) => (
+									<div
+										class="flex gap-2 flex-shrink-0 min-h-0"
+										style={{ height: `${rowHeightPx()}px` }}
+										data-testid="screenshot-row"
+										data-screenshot-row-index={rowIndex()}
+										data-screenshot-context-id={row.contextId}
+										data-screenshot-page-ids={row.pageIds.join(",")}
+										data-screenshot-source-count={row.screenshots.length}
 									>
-										{(s) => (
-											<div
-												class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm"
-												data-screenshot-timestamp={s().timestamp}
-												onMouseEnter={() => props.onScreenshotHover?.(s().url)}
-												onMouseLeave={() => props.onScreenshotHover?.(null)}
-											>
-												<img
-													src={s().url}
-													alt={`Screenshot at ${s().timestamp}`}
-													class="w-full h-full object-contain select-none"
-													loading="lazy"
-													draggable={false}
-												/>
-											</div>
-										)}
-									</Show>
+										<For each={row.selectedScreenshots}>
+											{(screenshot) => (
+												<Show
+													when={screenshot}
+													fallback={
+														// Empty slot - takes up space but shows nothing
+														<div class="flex-shrink-0 h-full aspect-video" />
+													}
+												>
+													{(s) => (
+														<div
+															class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm"
+															data-screenshot-timestamp={s().timestamp}
+															data-screenshot-context-id={s().contextId}
+															data-screenshot-page-id={s().pageId}
+															onMouseEnter={() =>
+																props.onScreenshotHover?.(s().url)
+															}
+															onMouseLeave={() =>
+																props.onScreenshotHover?.(null)
+															}
+														>
+															<img
+																src={s().url}
+																alt={`Screenshot at ${s().timestamp}`}
+																class="w-full h-full object-contain select-none"
+																loading="lazy"
+																draggable={false}
+															/>
+														</div>
+													)}
+												</Show>
+											)}
+										</For>
+									</div>
 								)}
 							</For>
 						</Show>
@@ -192,4 +301,68 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 			</div>
 		</div>
 	);
+}
+
+function groupScreenshotsByPage(screenshots: ScreenshotInfo[]): ScreenshotRow[] {
+	const rows = new Map<string, ScreenshotRow>();
+	for (const screenshot of screenshots) {
+		const id = `${screenshot.contextId}:${screenshot.pageId}`;
+		const row = rows.get(id) ?? {
+			id,
+			contextId: screenshot.contextId,
+			pageIds: [],
+			screenshots: [],
+		};
+		if (!row.pageIds.includes(screenshot.pageId)) {
+			row.pageIds.push(screenshot.pageId);
+		}
+		row.screenshots.push(screenshot);
+		rows.set(id, row);
+	}
+
+	return Array.from(rows.values()).map((row) => ({
+		...row,
+		pageIds: row.pageIds.sort(),
+		screenshots: row.screenshots.sort((a, b) => a.timestamp - b.timestamp),
+	}));
+}
+
+function getDefaultVisibleRowCount(rowCount: number): number {
+	if (rowCount <= 1) return 1;
+	if (rowCount === 2) return 2;
+	return 2.5;
+}
+
+function calculateDefaultRowHeight(
+	availableHeight: number,
+	rowCount: number,
+): number {
+	const visibleRows = getDefaultVisibleRowCount(rowCount);
+	const visibleGaps = Math.max(0, Math.ceil(visibleRows) - 1);
+	return Math.max(
+		0,
+		(availableHeight - visibleGaps * ROW_GAP_PX) / visibleRows,
+	);
+}
+
+function calculateRowHeight(
+	availableHeight: number,
+	rowCount: number,
+	defaultRowHeight: number,
+): number {
+	const defaultTotalHeight =
+		defaultRowHeight * rowCount + ROW_GAP_PX * (rowCount - 1);
+
+	if (availableHeight < defaultRowHeight) {
+		return availableHeight;
+	}
+
+	if (availableHeight > defaultTotalHeight) {
+		return Math.max(
+			0,
+			(availableHeight - ROW_GAP_PX * (rowCount - 1)) / rowCount,
+		);
+	}
+
+	return defaultRowHeight;
 }
