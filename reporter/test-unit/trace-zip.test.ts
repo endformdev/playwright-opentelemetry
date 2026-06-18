@@ -1221,18 +1221,21 @@ describe("extractScreenshotsFromPlaywrightTrace", () => {
 			},
 		]);
 
-		const screenshots = await extractScreenshotsFromPlaywrightTrace(traceZipPath);
+		const screenshots =
+			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
 
 		expect(screenshots.get(`${firstPageId}-1766833384425.jpeg`)).toMatchObject({
 			contextId: firstContextId,
 			pageId: firstPageId,
 			timestamp: 1766833384425,
 		});
-		expect(screenshots.get(`${secondPageId}-1766833384525.jpeg`)).toMatchObject({
-			contextId: secondContextId,
-			pageId: secondPageId,
-			timestamp: 1766833384525,
-		});
+		expect(screenshots.get(`${secondPageId}-1766833384525.jpeg`)).toMatchObject(
+			{
+				contextId: secondContextId,
+				pageId: secondPageId,
+				timestamp: 1766833384525,
+			},
+		);
 	});
 
 	it("extracts screenshots with different prefixes (frame@, element@, etc.)", async () => {

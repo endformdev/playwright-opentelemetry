@@ -28,8 +28,7 @@ import {
 	type TestPhase,
 } from "./detectTestPhases";
 import { MultiResizablePanel } from "./MultiResizablePanel";
-import { packSpans, type SpanInput } from "./packSpans";
-import { calculateDepthBasedSizes } from "./panelSizing";
+import { calculateInitialPanelSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import {
@@ -83,25 +82,6 @@ const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
 const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
-
-/** Convert spans to SpanInput format for depth calculation */
-function spansToSpanInput(
-	spans: Array<{
-		id: string;
-		title: string;
-		startOffsetMs: number;
-		durationMs: number;
-		parentId: string | null;
-	}>,
-): SpanInput[] {
-	return spans.map((span) => ({
-		id: span.id,
-		name: span.title,
-		startOffset: span.startOffsetMs,
-		duration: span.durationMs,
-		parentId: span.parentId,
-	}));
-}
 
 function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
 	if (screenshots.length === 0) return 1;
@@ -207,24 +187,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	);
 
 	let contentAreaRef: HTMLDivElement | undefined;
-	const stepsDepth = createMemo(() => {
-		const steps = props.traceData.steps();
-		if (steps.length === 0) return 0;
-		return packSpans(spansToSpanInput(steps)).totalRows;
-	});
-
-	const browserDepth = createMemo(() => {
-		const spans = props.traceData.browserSpans();
-		if (spans.length === 0) return 0;
-		return packSpans(spansToSpanInput(spans)).totalRows;
-	});
-
-	const externalDepth = createMemo(() => {
-		const spans = props.traceData.externalSpans();
-		if (spans.length === 0) return 0;
-		return packSpans(spansToSpanInput(spans)).totalRows;
-	});
-
 	// Determine which sections are active/disabled
 	const hasLoadedScreenshots = () =>
 		(props.traceInfo.screenshots() ?? []).length > 0;
@@ -238,9 +200,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			SCREENSHOT_PANEL_ROW_SIZE_PERCENT *
 			getDefaultVisibleScreenshotRows(screenshotPageCount()),
 	);
-	const hasSteps = () => stepsDepth() > 0;
-	const hasBrowserSpans = () => browserDepth() > 0;
-	const hasExternalSpans = () => externalDepth() > 0;
+	const hasSteps = () => props.traceData.steps().length > 0;
+	const hasBrowserSpans = () => props.traceData.browserSpans().length > 0;
+	const hasExternalSpans = () => props.traceData.externalSpans().length > 0;
 
 	// Get list of disabled sections for the footer
 	const disabledSections = createMemo((): DisabledSection[] => {
@@ -308,12 +270,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		zoomToRange(phase.startMs, phase.endMs);
 	};
 
-	// Calculate depth-based sizes for span panels (just the sizing data, not content)
+	// Calculate initial sizes for span panels (just the sizing data, not content)
 	const spanPanelSizeConfigs = createMemo((): PanelSizeConfig[] => {
-		const sizes = calculateDepthBasedSizes({
-			stepsDepth: stepsDepth(),
-			browserDepth: browserDepth(),
-			externalDepth: externalDepth(),
+		const sizes = calculateInitialPanelSizes({
+			steps: hasSteps(),
+			browser: hasBrowserSpans(),
+			external: hasExternalSpans(),
 		});
 		const configs: PanelSizeConfig[] = [];
 
@@ -716,7 +678,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 
 		if (configs.length === 1) {
-			return <div class="h-full min-h-0 overflow-hidden">{configs[0].content}</div>;
+			return (
+				<div class="h-full min-h-0 overflow-hidden">{configs[0].content}</div>
+			);
 		}
 
 		return <MultiResizablePanel direction="vertical" panels={configs} />;

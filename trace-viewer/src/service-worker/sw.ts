@@ -519,8 +519,7 @@ async function parseScreenshotManifest(
 	const manifest = parseScreenshotManifestJson(
 		JSON.parse(await manifestEntry.getData(new TextWriter())),
 	);
-	return manifest.screenshots
-		.sort((a, b) => a.timestamp - b.timestamp);
+	return manifest.screenshots.sort((a, b) => a.timestamp - b.timestamp);
 }
 
 function parseScreenshotManifestJson(value: unknown): ScreenshotManifestV2 {
@@ -549,7 +548,9 @@ function parseScreenshotManifestV2(value: unknown): ScreenshotManifestV2 {
 		throw new Error("Invalid screenshot manifest v2: expected version 2");
 	}
 	if (!Array.isArray(value.screenshots)) {
-		throw new Error("Invalid screenshot manifest v2: expected screenshots array");
+		throw new Error(
+			"Invalid screenshot manifest v2: expected screenshots array",
+		);
 	}
 
 	return {
@@ -584,7 +585,9 @@ function upgradeScreenshotManifestV1ToV2(
 	manifest: ScreenshotManifestV1,
 ): ScreenshotManifestV2 {
 	if (!Array.isArray(manifest.screenshots)) {
-		throw new Error("Invalid screenshot manifest v1: expected screenshots array");
+		throw new Error(
+			"Invalid screenshot manifest v1: expected screenshots array",
+		);
 	}
 
 	return {

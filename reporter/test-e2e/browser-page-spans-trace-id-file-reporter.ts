@@ -39,8 +39,7 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 
 		const traceId = result.annotations
 			.find(
-				(annotation) =>
-					annotation.type === "playwrightOpentelemetryTraceId",
+				(annotation) => annotation.type === "playwrightOpentelemetryTraceId",
 			)
 			?.description?.trim();
 

@@ -117,7 +117,9 @@ test.describe("Search Functionality", () => {
 		const viewer = new TraceViewerPage(page);
 		await viewer.loadTraceFromApi(zoomTraceId);
 
-		await expect(viewer.header.testName).toHaveText("Search zoom selection test");
+		await expect(viewer.header.testName).toHaveText(
+			"Search zoom selection test",
+		);
 
 		const earlyStep = viewer.steps.spanByName("Early searchable step");
 		await viewer.timelineContent.dblclick();

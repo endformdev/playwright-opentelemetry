@@ -84,7 +84,10 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 					</div>
 				}
 			>
-				<div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3" role="list">
+				<div
+					class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3"
+					role="list"
+				>
 					<div class="relative" style={{ height: `${containerHeight()}px` }}>
 						<For each={visibleSpans()}>
 							{(packedSpan: PackedSpan) => {

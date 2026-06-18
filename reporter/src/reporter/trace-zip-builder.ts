@@ -270,7 +270,10 @@ async function extractScreenshotTraceMetadata(
 				const event = parseTraceEvent(line);
 				if (!event) continue;
 
-				if (event.type === "context-options" && typeof event.contextId === "string") {
+				if (
+					event.type === "context-options" &&
+					typeof event.contextId === "string"
+				) {
 					contextId = event.contextId;
 					continue;
 				}

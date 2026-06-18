@@ -100,7 +100,10 @@ export function StepsTimeline(props: StepsTimelineProps) {
 			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
 				Steps Timeline
 			</div>
-			<div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3" role="list">
+			<div
+				class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3"
+				role="list"
+			>
 				<div class="relative" style={{ height: `${containerHeight()}px` }}>
 					<For each={visibleSteps()}>
 						{(step: PackedSpan) => {

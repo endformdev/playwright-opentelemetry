@@ -2,8 +2,12 @@ import { expect } from "@playwright/test";
 import { test } from "../dist/fixture.mjs";
 
 test("multiple browser contexts screenshot trace", async ({ browser }) => {
-	const contextA = await browser.newContext({ viewport: { width: 640, height: 360 } });
-	const contextB = await browser.newContext({ viewport: { width: 640, height: 360 } });
+	const contextA = await browser.newContext({
+		viewport: { width: 640, height: 360 },
+	});
+	const contextB = await browser.newContext({
+		viewport: { width: 640, height: 360 },
+	});
 
 	try {
 		const pageA = await contextA.newPage();

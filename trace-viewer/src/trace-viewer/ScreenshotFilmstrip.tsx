@@ -303,7 +303,9 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	);
 }
 
-function groupScreenshotsByPage(screenshots: ScreenshotInfo[]): ScreenshotRow[] {
+function groupScreenshotsByPage(
+	screenshots: ScreenshotInfo[],
+): ScreenshotRow[] {
 	const rows = new Map<string, ScreenshotRow>();
 	for (const screenshot of screenshots) {
 		const id = `${screenshot.contextId}:${screenshot.pageId}`;
