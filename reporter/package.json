@@ -39,12 +39,6 @@
 			"require": "./dist/fixture.cjs",
 			"default": "./dist/fixture.mjs"
 		},
-		"./fixture/factory": {
-			"types": "./dist/fixture/factory.d.mts",
-			"import": "./dist/fixture/factory.mjs",
-			"require": "./dist/fixture/factory.cjs",
-			"default": "./dist/fixture/factory.mjs"
-		},
 		"./reporter": {
 			"types": "./dist/reporter.d.mts",
 			"import": "./dist/reporter.mjs",
