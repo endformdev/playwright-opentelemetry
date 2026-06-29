@@ -9,7 +9,6 @@ export interface PlaywrightOpentelemetryConfig {
 	storeTraceZip?: boolean;
 	trace?: PlaywrightTraceOption;
 	propagateTraceHeaders?: boolean;
-	serviceName?: string;
 	debug?: boolean;
 }
 
@@ -25,7 +24,6 @@ export interface ResolvedPlaywrightOpentelemetryConfig {
 	storeTraceZip: boolean;
 	trace: PlaywrightTraceOption | null;
 	propagateTraceHeaders: boolean;
-	serviceName: string;
 	debug: boolean;
 }
 
@@ -63,10 +61,6 @@ export function resolvePlaywrightOpentelemetryConfig(
 		storeTraceZip: config?.storeTraceZip === true,
 		trace: config?.trace ?? null,
 		propagateTraceHeaders: config?.propagateTraceHeaders ?? true,
-		serviceName:
-			process.env.OTEL_SERVICE_NAME ||
-			config?.serviceName ||
-			"playwright-tests",
 		debug:
 			debugEnv === undefined
 				? (config?.debug ?? false)
@@ -98,8 +92,7 @@ function getConfigurationErrorMessage(): string {
 		`playwright-opentelemetry reporter requires an OTLP endpoint, trace API endpoint, or storeTraceZip to be configured.\n\n` +
 		`You can configure it using environment variables:\n\n` +
 		`  export OTEL_EXPORTER_OTLP_ENDPOINT="https://api.honeycomb.io"\n` +
-		`  export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=YOUR_API_KEY"\n` +
-		`  export OTEL_SERVICE_NAME="my-service"\n\n` +
+		`  export OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=YOUR_API_KEY"\n\n` +
 		`Or via playwright.config.ts:\n\n` +
 		`import { defineConfig } from '@playwright/test';\n` +
 		`import type { PlaywrightOpentelemetryUseOptions } from 'playwright-opentelemetry/fixture';\n\n` +
@@ -110,7 +103,6 @@ function getConfigurationErrorMessage(): string {
 		`      otlpHeaders: {\n` +
 		`        Authorization: 'Bearer YOUR_TOKEN',\n` +
 		`      },\n` +
-		`      serviceName: 'my-service',\n` +
 		`    },\n` +
 		`  },\n` +
 		`  reporter: [['playwright-opentelemetry/reporter']],\n` +

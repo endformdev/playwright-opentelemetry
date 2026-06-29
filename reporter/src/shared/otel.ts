@@ -26,10 +26,11 @@ export type Span = {
 export interface SendSpansOptions {
 	tracesEndpoint: string;
 	headers?: Record<string, string>;
-	serviceName: string;
 	playwrightVersion: string;
 	debug?: boolean;
 }
+
+export const PLAYWRIGHT_TESTS_SERVICE_NAME = "playwright-tests";
 
 /** Generate a random 32-character hex trace ID. */
 export function generateTraceId(): string {
@@ -162,13 +163,12 @@ function buildResourceSpan(
 
 export function buildOtlpRequest(
 	spans: Span[],
-	serviceName: string,
 	playwrightVersion: string,
 ) {
 	const spansByService = new Map<string, Span[]>();
 
 	for (const span of spans) {
-		const spanServiceName = span.serviceName ?? serviceName;
+		const spanServiceName = span.serviceName ?? PLAYWRIGHT_TESTS_SERVICE_NAME;
 		const serviceSpans = spansByService.get(spanServiceName);
 		if (serviceSpans) {
 			serviceSpans.push(span);
@@ -194,7 +194,7 @@ export async function sendSpans(
 	}
 
 	const body = JSON.stringify(
-		buildOtlpRequest(spans, options.serviceName, options.playwrightVersion),
+		buildOtlpRequest(spans, options.playwrightVersion),
 	);
 
 	if (options.debug) {

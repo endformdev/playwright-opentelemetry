@@ -144,7 +144,6 @@ export interface CreateTraceZipOptions {
 	test: TestCase;
 	spans: Span[];
 	fixtureSpans: Span[];
-	serviceName: string;
 	playwrightVersion: string;
 	/** Screenshots extracted from Playwright trace ZIP (filename -> resource) */
 	screenshots: Map<string, ScreenshotResource>;
@@ -168,11 +167,10 @@ export async function createTraceZip(
 export async function createTraceZipBlob(
 	options: CreateTraceZipBlobOptions,
 ): Promise<Blob> {
-	const { spans, fixtureSpans, serviceName, playwrightVersion, screenshots } =
-		options;
+	const { spans, fixtureSpans, playwrightVersion, screenshots } = options;
 
 	// Build OTLP request JSON
-	const otlpRequest = buildOtlpRequest(spans, serviceName, playwrightVersion);
+	const otlpRequest = buildOtlpRequest(spans, playwrightVersion);
 	const traceJson = JSON.stringify(otlpRequest, null, 2);
 
 	// Create zip file
@@ -188,7 +186,6 @@ export async function createTraceZipBlob(
 	if (fixtureSpans.length > 0) {
 		const fixtureOtlpRequest = buildOtlpRequest(
 			fixtureSpans,
-			serviceName,
 			playwrightVersion,
 		);
 		await zipWriter.add(

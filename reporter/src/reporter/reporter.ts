@@ -270,7 +270,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				addDestinationSpans(destinations, batch.spans, {
 					tracesEndpoint: batch.config.otlpEndpoint,
 					headers: batch.config.otlpHeaders,
-					serviceName: batch.config.serviceName,
 					playwrightVersion: this.playwrightVersion || "unknown",
 					debug: batch.config.debug,
 				});
@@ -280,7 +279,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				addDestinationSpans(destinations, batch.spans, {
 					tracesEndpoint: `${batch.config.playwrightTraceApiEndpoint}/v1/traces`,
 					headers: batch.config.playwrightTraceApiHeaders,
-					serviceName: batch.config.serviceName,
 					playwrightVersion: this.playwrightVersion || "unknown",
 					debug: batch.config.debug,
 				});
@@ -307,7 +305,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					test: options.test,
 					spans: options.spans,
 					fixtureSpans: options.fixtureSpans,
-					serviceName: options.config.serviceName,
 					playwrightVersion: options.playwrightVersion,
 					screenshots,
 				})

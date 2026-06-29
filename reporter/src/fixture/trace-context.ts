@@ -109,7 +109,6 @@ export async function flushFixtureSpans(
 			sendSpans(traceContext.spans, {
 				tracesEndpoint: destination.tracesEndpoint,
 				headers: destination.headers,
-				serviceName: config.serviceName,
 				playwrightVersion: "unknown",
 				debug: config.debug,
 			}),

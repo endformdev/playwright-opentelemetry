@@ -59,7 +59,6 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
 				debug: true,
 			}),
@@ -165,7 +164,6 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
 				debug: true,
 			}),
@@ -199,7 +197,6 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
 				debug: true,
 			}),
@@ -240,7 +237,6 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
 				debug: true,
 			}),
@@ -285,7 +281,6 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
 				debug: true,
 			}),
@@ -323,7 +318,6 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
 				debug: true,
 			}),
@@ -360,7 +354,6 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				serviceName: "playwright-tests",
 				playwrightVersion: "1.56.1",
 				debug: true,
 			}),
