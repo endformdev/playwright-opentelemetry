@@ -9,6 +9,7 @@ import {
 import type { Span } from "../../trace-data-loader/exportToSpans";
 import type { ScreenshotInfo } from "../../trace-info-loader";
 import { getElementsAtTime, type HoveredElements } from "../getElementsAtTime";
+import { findScreenshotAtTime, isSameScreenshotPage } from "../screenshots";
 import { timeToViewportPosition, viewportPositionToTime } from "../viewport";
 import { useViewportContext } from "./ViewportContext";
 
@@ -161,7 +162,16 @@ export function HoverProvider(props: HoverProviderProps) {
 		}
 
 		if (focused?.type !== "screenshot") return focused;
-		return displayElements()?.screenshot?.url === focused.id ? focused : null;
+
+		const screenshot = displayElements()?.screenshot;
+		const focusedScreenshot = props
+			.screenshots()
+			.find((candidate) => candidate.url === focused.id);
+		return screenshot &&
+			focusedScreenshot &&
+			isSameScreenshotPage(screenshot, focusedScreenshot)
+			? focused
+			: null;
 	};
 
 	const lock = (timeMs: number, element: FocusedElement | null) => {
@@ -232,17 +242,10 @@ function withFocusedScreenshotPage(
 	if (!focusedScreenshot) return elements;
 
 	const absoluteTimeMs = testStartTimeMs + timeMs;
-	let bestScreenshot: ScreenshotInfo | null = null;
-	for (const screenshot of screenshots) {
-		if (
-			screenshot.contextId === focusedScreenshot.contextId &&
-			screenshot.pageId === focusedScreenshot.pageId &&
-			screenshot.timestamp <= absoluteTimeMs &&
-			(!bestScreenshot || screenshot.timestamp > bestScreenshot.timestamp)
-		) {
-			bestScreenshot = screenshot;
-		}
-	}
+	const pageScreenshots = screenshots.filter((screenshot) =>
+		isSameScreenshotPage(screenshot, focusedScreenshot),
+	);
+	const bestScreenshot = findScreenshotAtTime(pageScreenshots, absoluteTimeMs);
 
 	return {
 		...elements,

@@ -191,6 +191,13 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		),
 	);
 
+	const handleRowMouseEnter = (row: SelectedScreenshotRow) => {
+		const screenshot = row.selectedScreenshots.find((s) => s !== null);
+		if (screenshot) {
+			props.onScreenshotHover?.(screenshot.url);
+		}
+	};
+
 	return (
 		<div
 			ref={contentRef}
@@ -257,6 +264,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 										data-screenshot-context-id={row.contextId}
 										data-screenshot-page-ids={row.pageIds.join(",")}
 										data-screenshot-source-count={row.screenshots.length}
+										onMouseEnter={() => handleRowMouseEnter(row)}
 									>
 										<For each={row.selectedScreenshots}>
 											{(screenshot) => (

@@ -229,6 +229,89 @@ test("shows the most recent screenshot at the hovered timestamp when filmstrip f
 	);
 });
 
+test("focuses the active screenshot when moving from a span into a filmstrip gap", async ({
+	page,
+	request,
+}) => {
+	const traceId = "55000000000000000000000000000003";
+	const testStartTime = Date.now();
+	const testDurationMs = 10_000;
+	const screenshotsZip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [0, 2_000, 4_000, 6_000, 8_000],
+	});
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Screenshot focus from span hover",
+		testDurationMs,
+		{
+			file: "screenshots.spec.ts",
+			line: 1,
+		},
+	);
+
+	for (let index = 1; index <= 24; index++) {
+		builder.addStepSpan(
+			index === 24 ? "Focus target step" : `Active step ${index}`,
+			testDurationMs,
+			{ startOffsetMs: 0 },
+		);
+	}
+
+	await builder.send(request);
+	await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await screenshotsZip.arrayBuffer()),
+			headers: {
+				"Content-Type": "application/zip",
+				"X-Trace-Id": traceId,
+			},
+		},
+	);
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	await expect(viewer.header.testName).toHaveText(
+		"Screenshot focus from span hover",
+	);
+	await expect(viewer.screenshots.images().first()).toBeVisible({
+		timeout: 10000,
+	});
+
+	const row = viewer.screenshots.rows().first();
+	const gapTarget = await findFilmstripGapHoverTarget(row);
+	const targetStep = viewer.steps.spanByName("Focus target step").first();
+	await targetStep.scrollIntoViewIfNeeded();
+	await expect(targetStep).toBeVisible();
+
+	const targetStepId = await targetStep.getAttribute("data-span-id");
+	if (!targetStepId) {
+		throw new Error("Focus target step is missing data-span-id");
+	}
+	const targetStepBox = await targetStep.boundingBox();
+	if (!targetStepBox) {
+		throw new Error("Focus target step is not visible");
+	}
+
+	await page.mouse.move(
+		gapTarget.x,
+		targetStepBox.y + targetStepBox.height / 2,
+	);
+	await expect(viewer.details.spanDetailsById(targetStepId)).toBeVisible();
+	await expect
+		.poll(() => viewer.details.root.evaluate((element) => element.scrollTop))
+		.toBeGreaterThan(0);
+
+	await page.mouse.move(gapTarget.x, gapTarget.y, { steps: 8 });
+	await expect(viewer.details.screenshot()).toHaveAttribute(
+		"data-screenshot-timestamp",
+		/\d+/,
+	);
+	await expect
+		.poll(() => viewer.details.root.evaluate((element) => element.scrollTop))
+		.toBeLessThanOrEqual(2);
+});
+
 interface CreateScreenshotsZipOptions {
 	testStartTime: number;
 	contextCount: number;
@@ -439,6 +522,35 @@ async function findHiddenScreenshotHoverTarget(
 		},
 		options,
 	);
+}
+
+async function findFilmstripGapHoverTarget(
+	row: Locator,
+): Promise<{ x: number; y: number }> {
+	return row.evaluate((element) => {
+		const renderedScreenshots = Array.from(
+			element.querySelectorAll<HTMLElement>("[data-screenshot-timestamp]"),
+		)
+			.map((screenshot) => ({
+				rect: screenshot.getBoundingClientRect(),
+			}))
+			.sort((a, b) => a.rect.left - b.rect.left);
+
+		for (let index = 0; index < renderedScreenshots.length - 1; index++) {
+			const left = renderedScreenshots[index].rect.right;
+			const right = renderedScreenshots[index + 1].rect.left;
+			if (right - left >= 4) {
+				return {
+					x: left + (right - left) / 2,
+					y:
+						renderedScreenshots[index].rect.top +
+						renderedScreenshots[index].rect.height / 2,
+				};
+			}
+		}
+
+		throw new Error("Could not find a gap between filmstrip screenshots");
+	});
 }
 
 async function expectDetailsToMatchHoveredScreenshot(

@@ -1,5 +1,6 @@
 import type { Span } from "../trace-data-loader/exportToSpans";
 import type { ScreenshotInfo } from "../trace-info-loader";
+import { findScreenshotAtTime } from "./screenshots";
 
 /**
  * A span with its depth in the hierarchy and nested children.
@@ -41,40 +42,10 @@ export function getElementsAtTime(
 	testStartTimeMs: number,
 ): HoveredElements {
 	return {
-		screenshot: findScreenshotAtTime(timeMs, screenshots, testStartTimeMs),
+		screenshot: findScreenshotAtTime(screenshots, testStartTimeMs + timeMs),
 		steps: findSpansAtTime(timeMs, steps),
 		spans: findSpansAtTime(timeMs, spans),
 	};
-}
-
-/**
- * Finds the most recent screenshot at or before the given time.
- * Returns null if no screenshot exists at or before the time (respects causality).
- */
-function findScreenshotAtTime(
-	timeMs: number,
-	screenshots: ScreenshotInfo[],
-	testStartTimeMs: number,
-): ScreenshotInfo | null {
-	if (screenshots.length === 0) return null;
-
-	// Convert hover time (relative) to absolute timestamp
-	const absoluteTimeMs = testStartTimeMs + timeMs;
-
-	// Find the most recent screenshot at or before this time
-	let bestScreenshot: ScreenshotInfo | null = null;
-
-	for (const screenshot of screenshots) {
-		if (screenshot.timestamp <= absoluteTimeMs) {
-			if (!bestScreenshot || screenshot.timestamp > bestScreenshot.timestamp) {
-				bestScreenshot = screenshot;
-			}
-		}
-	}
-
-	// Return null if no screenshot exists at or before this time
-	// (we don't show future screenshots - respects causality)
-	return bestScreenshot;
 }
 
 /**
