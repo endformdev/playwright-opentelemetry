@@ -1,5 +1,5 @@
 import type { Span } from "../../trace-data-loader/exportToSpans";
-import { getResourceColor, getResourceType } from "./browserSpanStyles";
+import { getResourceColor, getResourceType } from "./browserResourceStyles";
 
 export const NON_PLAYWRIGHT_STEP_COLOR = getResourceColor("other");
 
