@@ -21,12 +21,14 @@ describe("Trace API Integration", () => {
 		 *
 		 * All requests should include:
 		 * - X-Trace-Id header with the test's traceId
-		 * - Custom headers from playwrightTraceApiHeaders
+		 * - Custom headers from playwrightTraceApiEndpoint.headers
 		 */
 		const options: PlaywrightOpentelemetryConfig = {
-			playwrightTraceApiEndpoint: "https://traces.example.com",
-			playwrightTraceApiHeaders: {
-				Authorization: "Bearer test-token",
+			playwrightTraceApiEndpoint: {
+				url: "https://traces.example.com",
+				headers: {
+					Authorization: "Bearer test-token",
+				},
 			},
 		};
 
@@ -140,9 +142,11 @@ describe("Trace API Integration", () => {
 
 	it("uses generated trace context for trace API export when the fixture is missing", async () => {
 		const options: PlaywrightOpentelemetryConfig = {
-			playwrightTraceApiEndpoint: "https://traces.example.com",
-			playwrightTraceApiHeaders: {
-				Authorization: "Bearer test-token",
+			playwrightTraceApiEndpoint: {
+				url: "https://traces.example.com",
+				headers: {
+					Authorization: "Bearer test-token",
+				},
 			},
 		};
 
@@ -223,13 +227,17 @@ describe("Trace API Integration", () => {
 		 * spans should be sent to both endpoints, and screenshots should only go to the trace API endpoint.
 		 */
 		const options: PlaywrightOpentelemetryConfig = {
-			otlpEndpoint: "https://otel-collector.example.com/v1/traces",
-			otlpHeaders: {
-				"x-honeycomb-team": "honeycomb-api-key",
+			otlpEndpoint: {
+				url: "https://otel-collector.example.com/v1/traces",
+				headers: {
+					"x-honeycomb-team": "honeycomb-api-key",
+				},
 			},
-			playwrightTraceApiEndpoint: "https://traces.example.com",
-			playwrightTraceApiHeaders: {
-				Authorization: "Bearer trace-api-token",
+			playwrightTraceApiEndpoint: {
+				url: "https://traces.example.com",
+				headers: {
+					Authorization: "Bearer trace-api-token",
+				},
 			},
 		};
 
@@ -301,5 +309,86 @@ describe("Trace API Integration", () => {
 		expect(otelTraceId).toBe(traceApiTraceId);
 
 		expect(traceApiTraceId).toBe(otelTraceId);
+	});
+
+	it("sends Trace API spans and screenshots to every plural Trace API destination", async () => {
+		const options: PlaywrightOpentelemetryConfig = {
+			playwrightTraceApiEndpoints: [
+				{
+					url: "https://trace-a.example.com",
+					headers: { Authorization: "Bearer trace-a-token" },
+				},
+				{
+					url: "https://trace-b.example.com",
+					headers: { Authorization: "Bearer trace-b-token" },
+				},
+			],
+		};
+
+		await runReporterTest({
+			playwrightOpentelemetry: options,
+			test: {
+				title: "should fan out trace API uploads",
+			},
+		});
+
+		for (const [url, authorization] of [
+			["https://trace-a.example.com", "Bearer trace-a-token"],
+			["https://trace-b.example.com", "Bearer trace-b-token"],
+		] as const) {
+			const spansCall = mockFetch.mock.calls.find(
+				(call) => call[0] === `${url}/v1/traces` && call[1]?.method === "POST",
+			);
+			expect(spansCall?.[1].headers).toMatchObject({
+				"content-type": "application/json",
+				Authorization: authorization,
+			});
+
+			const screenshotsCall = mockFetch.mock.calls.find(
+				(call) =>
+					call[0] === `${url}/playwright-otel-reporter/v1/screenshots.zip` &&
+					call[1]?.method === "PUT",
+			);
+			expect(screenshotsCall?.[1].headers).toMatchObject({
+				"content-type": "application/zip",
+				Authorization: authorization,
+			});
+		}
+	});
+
+	it("sends spans to every plural OTLP destination", async () => {
+		const options: PlaywrightOpentelemetryConfig = {
+			otlpEndpoint: undefined,
+			otlpEndpoints: [
+				{
+					url: "https://otlp-a.example.com/v1/traces",
+					headers: { Authorization: "Bearer otlp-a-token" },
+				},
+				{
+					url: "https://otlp-b.example.com/v1/traces",
+					headers: { Authorization: "Bearer otlp-b-token" },
+				},
+			],
+		};
+
+		await runReporterTest({
+			playwrightOpentelemetry: options,
+			test: {
+				title: "should fan out otlp spans",
+			},
+		});
+
+		for (const [url, authorization] of [
+			["https://otlp-a.example.com/v1/traces", "Bearer otlp-a-token"],
+			["https://otlp-b.example.com/v1/traces", "Bearer otlp-b-token"],
+		] as const) {
+			const spansCall = mockFetch.mock.calls.find(
+				(call) => call[0] === url && call[1]?.method === "POST",
+			);
+			expect(spansCall?.[1].headers).toMatchObject({
+				"content-type": "application/json",
+				Authorization: authorization,
+			});
+		}
 	});
 });

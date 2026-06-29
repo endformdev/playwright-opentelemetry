@@ -53,7 +53,9 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 			debug: false,
 			storeTraceZip: true,
 			...(process.env.PLAYWRIGHT_TRACE_API_ENDPOINT && {
-				playwrightTraceApiEndpoint: process.env.PLAYWRIGHT_TRACE_API_ENDPOINT,
+				playwrightTraceApiEndpoint: {
+					url: process.env.PLAYWRIGHT_TRACE_API_ENDPOINT,
+				},
 			}),
 		},
 		/* Base URL to use in actions like `await page.goto('')`. */

@@ -22,11 +22,15 @@ import type {
 
 const playwrightOpentelemetry: PlaywrightOpentelemetryConfig = {
 	// Or use environment variable OTEL_EXPORTER_OTLP_ENDPOINT
-	otlpEndpoint: "https://api.eu1.honeycomb.io/v1/traces",
-	// Or use environment variable OTEL_EXPORTER_OTLP_HEADERS
-	otlpHeaders: {
-		"x-honeycomb-team": "xxxabc",
+	otlpEndpoint: {
+		url: "https://api.eu1.honeycomb.io/v1/traces",
+		// Or use environment variable OTEL_EXPORTER_OTLP_HEADERS
+		headers: {
+			"x-honeycomb-team": "xxxabc",
+		},
 	},
+	// Or send to multiple OTLP traces endpoints:
+	// otlpEndpoints: [{ url: "https://collector-a.example.com/v1/traces" }],
 	// Or output an opentelemetry report zip
 	storeTraceZip: true,
 	// Defaults to true. When enabled, browser requests receive a W3C

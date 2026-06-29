@@ -132,7 +132,7 @@ const DEFAULT_STEP_CATEGORY = "test.step";
 
 export const DEFAULT_PLAYWRIGHT_OPENTELEMETRY_CONFIG: PlaywrightOpentelemetryConfig =
 	{
-		otlpEndpoint: "http://localhost:4317/v1/traces",
+		otlpEndpoint: { url: "http://localhost:4317/v1/traces" },
 		debug: true,
 	};
 

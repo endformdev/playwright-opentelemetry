@@ -141,17 +141,25 @@ function fixtureSpanDestinations(
 		headers: Record<string, string>;
 	}> = [];
 
-	if (config.playwrightTraceApiEndpoint) {
+	for (const destination of config.playwrightTraceApiDestinations) {
+		if (!destination.url) {
+			continue;
+		}
+
 		destinations.push({
-			tracesEndpoint: `${config.playwrightTraceApiEndpoint}/v1/traces`,
-			headers: config.playwrightTraceApiHeaders,
+			tracesEndpoint: `${destination.url}/v1/traces`,
+			headers: destination.headers,
 		});
 	}
 
-	if (config.otlpEndpoint) {
+	for (const destination of config.otlpDestinations) {
+		if (!destination.url) {
+			continue;
+		}
+
 		destinations.push({
-			tracesEndpoint: config.otlpEndpoint,
-			headers: config.otlpHeaders,
+			tracesEndpoint: destination.url,
+			headers: destination.headers,
 		});
 	}
 

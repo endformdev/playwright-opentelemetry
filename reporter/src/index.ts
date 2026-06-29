@@ -2,6 +2,7 @@ import { PlaywrightOpentelemetryReporter } from "./reporter/reporter";
 
 export type {
 	PlaywrightOpentelemetryConfig,
+	PlaywrightOpentelemetryDestination,
 	PlaywrightOpentelemetryUseOptions,
 } from "./shared/config";
 export type { PlaywrightTraceOption } from "./shared/playwright-trace";
