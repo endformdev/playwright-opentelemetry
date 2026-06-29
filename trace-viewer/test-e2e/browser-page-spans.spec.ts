@@ -255,10 +255,11 @@ test("renders browser page, route, and network spans from independent trace frag
 	await expect(
 		viewer.browserSpans.spanByName("/python/docs/intro"),
 	).toBeVisible();
-	await expect(
-		viewer.externalSpans.spanById(fixtureFetch.spanId),
-	).toBeVisible();
+	await expect(viewer.steps.spanById(fixtureFetch.spanId)).toBeVisible();
 	await expect(viewer.browserSpans.spanById(fixtureFetch.spanId)).toHaveCount(
+		0,
+	);
+	await expect(viewer.externalSpans.spanById(fixtureFetch.spanId)).toHaveCount(
 		0,
 	);
 });

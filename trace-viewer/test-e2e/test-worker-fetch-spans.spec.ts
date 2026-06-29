@@ -81,8 +81,9 @@ test("renders test worker fetch fixture spans from the reporter API flow", async
 	await viewer.loadTraceFromApi(traceId);
 
 	await expect(viewer.header.testName).toHaveText("test worker fetch fixture trace");
-	await expect(viewer.externalSpans.root).toBeVisible();
-	await expect(viewer.externalSpans.spanById(fetchSpan.spanId)).toBeVisible();
+	await expect(viewer.steps.root).toBeVisible();
+	await expect(viewer.steps.spanById(fetchSpan.spanId)).toBeVisible();
+	await expect(viewer.externalSpans.spanById(fetchSpan.spanId)).toHaveCount(0);
 	await expect(viewer.browserSpans.spanById(fetchSpan.spanId)).toHaveCount(0);
 });
 

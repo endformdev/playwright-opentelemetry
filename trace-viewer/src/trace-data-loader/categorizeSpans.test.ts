@@ -3,14 +3,28 @@ import { categorizeSpan, categorizeSpans, mergeSpans } from "./categorizeSpans";
 import type { Span } from "./exportToSpans";
 
 describe("categorizeSpan", () => {
-	it("categorizes playwright.test as step", () => {
-		const span = createSpan({ name: "playwright.test" });
+	it("categorizes playwright-tests service spans as step", () => {
+		const span = createSpan({
+			name: "playwright.test",
+			serviceName: "playwright-tests",
+		});
 		expect(categorizeSpan(span)).toBe("step");
 	});
 
-	it("categorizes playwright.test.step as step", () => {
-		const span = createSpan({ name: "playwright.test.step" });
+	it("categorizes non-step playwright-tests service spans as step", () => {
+		const span = createSpan({
+			name: "HTTP GET",
+			serviceName: "playwright-tests",
+		});
 		expect(categorizeSpan(span)).toBe("step");
+	});
+
+	it("categorizes non-playwright-tests service spans as external even with a Playwright name", () => {
+		const span = createSpan({
+			name: "playwright.test.step",
+			serviceName: "custom-service",
+		});
+		expect(categorizeSpan(span)).toBe("externalSpan");
 	});
 
 	it("categorizes playwright-browser spans as browserSpan", () => {
@@ -53,13 +67,21 @@ describe("categorizeSpans", () => {
 
 	it("separates steps, browser spans, and external spans correctly", () => {
 		const allSpans = [
-			createSpan({ id: "1", name: "playwright.test" }),
+			createSpan({
+				id: "1",
+				name: "playwright.test",
+				serviceName: "playwright-tests",
+			}),
 			createSpan({
 				id: "2",
 				name: "HTTP GET",
 				serviceName: "playwright-browser",
 			}),
-			createSpan({ id: "3", name: "playwright.test.step" }),
+			createSpan({
+				id: "3",
+				name: "playwright.test.step",
+				serviceName: "playwright-tests",
+			}),
 			createSpan({ id: "4", name: "DB Query", serviceName: "db-service" }),
 			createSpan({
 				id: "5",
@@ -82,13 +104,26 @@ describe("categorizeSpans", () => {
 
 	it("handles all steps", () => {
 		const allSpans = [
-			createSpan({ id: "1", name: "playwright.test" }),
-			createSpan({ id: "2", name: "playwright.test.step" }),
+			createSpan({
+				id: "1",
+				name: "playwright.test",
+				serviceName: "playwright-tests",
+			}),
+			createSpan({
+				id: "2",
+				name: "playwright.test.step",
+				serviceName: "playwright-tests",
+			}),
+			createSpan({
+				id: "3",
+				name: "HTTP GET",
+				serviceName: "playwright-tests",
+			}),
 		];
 
 		const result = categorizeSpans(allSpans);
 
-		expect(result.steps).toHaveLength(2);
+		expect(result.steps).toHaveLength(3);
 		expect(result.browserSpans).toHaveLength(0);
 		expect(result.externalSpans).toHaveLength(0);
 	});

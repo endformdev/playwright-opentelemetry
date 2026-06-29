@@ -1,14 +1,15 @@
 import type { Span } from "./exportToSpans";
 
-const STEP_SPAN_NAMES = new Set(["playwright.test", "playwright.test.step"]);
+const PLAYWRIGHT_TESTS_SERVICE_NAME = "playwright-tests";
+const PLAYWRIGHT_BROWSER_SERVICE_NAME = "playwright-browser";
 
 export function categorizeSpan(
 	span: Span,
 ): "step" | "browserSpan" | "externalSpan" {
-	if (STEP_SPAN_NAMES.has(span.name)) {
+	if (span.serviceName === PLAYWRIGHT_TESTS_SERVICE_NAME) {
 		return "step";
 	}
-	if (span.serviceName === "playwright-browser") {
+	if (span.serviceName === PLAYWRIGHT_BROWSER_SERVICE_NAME) {
 		return "browserSpan";
 	}
 	return "externalSpan";
@@ -26,9 +27,9 @@ export function categorizeSpans(allSpans: Span[]): CategorizedSpans {
 	const externalSpans: Span[] = [];
 
 	for (const span of allSpans) {
-		if (STEP_SPAN_NAMES.has(span.name)) {
+		if (span.serviceName === PLAYWRIGHT_TESTS_SERVICE_NAME) {
 			steps.push(span);
-		} else if (span.serviceName === "playwright-browser") {
+		} else if (span.serviceName === PLAYWRIGHT_BROWSER_SERVICE_NAME) {
 			browserSpans.push(span);
 		} else {
 			externalSpans.push(span);
