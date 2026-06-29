@@ -14,6 +14,7 @@ import {
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
 } from "./reporter-config";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
+import { runWithTestFetchCapture } from "./test-fetch-capture";
 import {
 	createTestTraceContext,
 	flushFixtureSpans,
@@ -69,7 +70,7 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 					playwrightOpentelemetry,
 				);
 				const traceContext = await createTestTraceContext(testInfo);
-				await use(traceContext);
+				await runWithTestFetchCapture(traceContext, () => use(traceContext));
 				await flushFixtureSpans(traceContext, config, {
 					trace: config.trace ?? trace,
 					testInfo,

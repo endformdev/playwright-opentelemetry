@@ -11,6 +11,8 @@ import {
 
 const TEST_NAME = "playwright.dev browser page navigation trace";
 const TRACE_MARKER = "browser-page-span-e2e";
+const BROWSER_SERVICE_NAME = "playwright-browser";
+const TEST_SERVICE_NAME = "playwright-tests";
 
 interface OtlpAttribute {
 	key: string;
@@ -27,6 +29,7 @@ interface OtlpSpan {
 	spanId: string;
 	parentSpanId?: string;
 	name: string;
+	serviceName?: string;
 	startTimeUnixNano: string;
 	endTimeUnixNano: string;
 	attributes: OtlpAttribute[];
@@ -34,6 +37,7 @@ interface OtlpSpan {
 
 interface OtlpExport {
 	resourceSpans: Array<{
+		resource: { attributes: OtlpAttribute[] };
 		scopeSpans: Array<{
 			spans: OtlpSpan[];
 		}>;
@@ -51,7 +55,9 @@ function attributeValue(
 	);
 }
 
-function attributes(span: OtlpSpan): Record<string, string | number | boolean> {
+function attributes(
+	span: Pick<OtlpSpan, "attributes">,
+): Record<string, string | number | boolean> {
 	return Object.fromEntries(
 		span.attributes.flatMap((attribute) => {
 			const value = attributeValue(attribute);
@@ -127,11 +133,31 @@ function markedDocumentRequest(spans: OtlpSpan[], label: string): OtlpSpan {
 	return span;
 }
 
+function fixtureFetchSpan(spans: OtlpSpan[]): OtlpSpan {
+	return requiredSpan(spans, "fixture fetch span", (span) => {
+		const attrs = attributes(span);
+		return (
+			span.name === "HTTP GET" &&
+			span.serviceName === TEST_SERVICE_NAME &&
+			String(attrs["url.query"] ?? "").startsWith(
+				`${TRACE_MARKER}=fixture-fetch-`,
+			)
+		);
+	});
+}
+
 function flattenSpans(exports: OtlpExport[]): OtlpSpan[] {
 	return exports.flatMap((otlpExport) =>
-		otlpExport.resourceSpans.flatMap((resourceSpan) =>
-			resourceSpan.scopeSpans.flatMap((scopeSpan) => scopeSpan.spans),
-		),
+		otlpExport.resourceSpans.flatMap((resourceSpan) => {
+			const serviceName = String(
+				attributes({ attributes: resourceSpan.resource.attributes })[
+					"service.name"
+				] ?? "unknown",
+			);
+			return resourceSpan.scopeSpans.flatMap((scopeSpan) =>
+				scopeSpan.spans.map((span) => ({ ...span, serviceName })),
+			);
+		}),
 	);
 }
 
@@ -160,6 +186,12 @@ test("renders browser page, route, and network spans from independent trace frag
 	const homePage = pageSpan(spans, "/");
 	const docsRoute = routeSpan(spans, "/docs/intro");
 	const pythonDocsPage = pageSpan(spans, "/python/docs/intro");
+	const fixtureFetch = fixtureFetchSpan(spans);
+
+	expect(homePage.serviceName).toBe(BROWSER_SERVICE_NAME);
+	expect(docsRoute.serviceName).toBe(BROWSER_SERVICE_NAME);
+	expect(pythonDocsPage.serviceName).toBe(BROWSER_SERVICE_NAME);
+	expect(fixtureFetch.serviceName).toBe(TEST_SERVICE_NAME);
 
 	expect(attributes(docsRoute)).toEqual(
 		expect.objectContaining({
@@ -186,6 +218,10 @@ test("renders browser page, route, and network spans from independent trace frag
 		"after-hash-only-change",
 	);
 
+	expect(homeDocument.serviceName).toBe(BROWSER_SERVICE_NAME);
+	expect(docsDocument.serviceName).toBe(BROWSER_SERVICE_NAME);
+	expect(pythonDocsDocument.serviceName).toBe(BROWSER_SERVICE_NAME);
+	expect(afterHashDocument.serviceName).toBe(BROWSER_SERVICE_NAME);
 	expect(homeDocument.parentSpanId).toBe(homePage.spanId);
 	expect(docsDocument.parentSpanId).toBe(docsRoute.spanId);
 	expect(pythonDocsDocument.parentSpanId).toBe(pythonDocsPage.spanId);
@@ -219,6 +255,12 @@ test("renders browser page, route, and network spans from independent trace frag
 	await expect(
 		viewer.browserSpans.spanByName("/python/docs/intro"),
 	).toBeVisible();
+	await expect(
+		viewer.externalSpans.spanById(fixtureFetch.spanId),
+	).toBeVisible();
+	await expect(viewer.browserSpans.spanById(fixtureFetch.spanId)).toHaveCount(
+		0,
+	);
 });
 
 test("renders browser spans from reporter trace zip", async ({ page }) => {

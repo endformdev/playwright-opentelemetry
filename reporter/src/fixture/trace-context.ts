@@ -108,7 +108,7 @@ export async function flushFixtureSpans(
 			sendSpans(traceContext.spans, {
 				tracesEndpoint: destination.tracesEndpoint,
 				headers: destination.headers,
-				serviceName: "playwright-browser",
+				serviceName: config.serviceName,
 				playwrightVersion: "unknown",
 				debug: config.debug,
 			}),
