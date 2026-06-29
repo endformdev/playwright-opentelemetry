@@ -17,6 +17,9 @@ export const SPAN_EVENTS_TRACE_ID_FILE = path.resolve(
 export const MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE = path.resolve(
 	"test-results/multi-context-screenshots-trace-id.txt",
 );
+export const TEST_WORKER_FETCH_TRACE_ID_FILE = path.resolve(
+	"test-results/test-worker-fetch-trace-id.txt",
+);
 
 export default async function globalSetup() {
 	try {
@@ -31,6 +34,7 @@ export default async function globalSetup() {
 		rmSync(ERROR_SPANS_TRACE_ID_FILE, { force: true });
 		rmSync(SPAN_EVENTS_TRACE_ID_FILE, { force: true });
 		rmSync(MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE, { force: true });
+		rmSync(TEST_WORKER_FETCH_TRACE_ID_FILE, { force: true });
 
 		execFileSync("pnpm", ["--filter", "../reporter", "test:e2e"], {
 			env: {
@@ -45,6 +49,7 @@ export default async function globalSetup() {
 				ERROR_SPANS_TRACE_ID_FILE,
 				SPAN_EVENTS_TRACE_ID_FILE,
 				MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE,
+				TEST_WORKER_FETCH_TRACE_ID_FILE,
 			},
 			stdio: "pipe",
 		});
@@ -76,6 +81,12 @@ export default async function globalSetup() {
 		if (!existsSync(MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE)) {
 			throw new Error(
 				`Reporter e2e run did not write ${MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE}`,
+			);
+		}
+
+		if (!existsSync(TEST_WORKER_FETCH_TRACE_ID_FILE)) {
+			throw new Error(
+				`Reporter e2e run did not write ${TEST_WORKER_FETCH_TRACE_ID_FILE}`,
 			);
 		}
 

@@ -21,6 +21,7 @@ import {
 	getResourceType,
 } from "./browserSpanStyles";
 import { SpanDetails } from "./SpanDetails";
+import { getStepTimelineColor } from "./stepSpanStyles";
 
 const FOCUSED_ELEMENT_TOP_OFFSET_PX = 16;
 
@@ -243,8 +244,8 @@ export function DetailsPanel(props: DetailsPanelProps) {
 											<SpanDetails
 												hoveredSpan={hoveredSpan}
 												testStartTimeMs={props.testStartTimeMs}
-												colorFn={(depth) =>
-													`hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`
+												colorFn={(depth, span) =>
+													getStepTimelineColor(span, depth)
 												}
 												isFocused={isSpanFocused(hoveredSpan.span.id)}
 												onNavigateToSpan={props.onNavigateToSpan}

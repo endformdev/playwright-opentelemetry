@@ -1,7 +1,19 @@
 import { expect } from "@playwright/test";
-import { test } from "../dist/fixture.mjs";
+import { test as base } from "../dist/fixture.mjs";
 
 const TRACE_MARKER = "browser-page-span-e2e";
+
+const test = base.extend<{ fixtureFetch: void }>({
+	fixtureFetch: [
+		async ({ testTraceContext: _testTraceContext }, use) => {
+			await fetch(
+				`https://playwright.dev/?${TRACE_MARKER}=fixture-fetch-${Date.now()}`,
+			);
+			await use();
+		},
+		{ auto: true },
+	],
+});
 
 async function makeMarkedDocumentRequest(
 	page: import("@playwright/test").Page,

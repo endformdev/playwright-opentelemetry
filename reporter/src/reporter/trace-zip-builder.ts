@@ -188,11 +188,11 @@ export async function createTraceZipBlob(
 	if (fixtureSpans.length > 0) {
 		const fixtureOtlpRequest = buildOtlpRequest(
 			fixtureSpans,
-			"playwright-browser",
+			serviceName,
 			playwrightVersion,
 		);
 		await zipWriter.add(
-			"traces/playwright-browser.json",
+			"traces/playwright-fixture-spans.json",
 			new Blob([JSON.stringify(fixtureOtlpRequest, null, 2)]).stream(),
 		);
 	}

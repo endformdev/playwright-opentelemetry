@@ -1,5 +1,9 @@
 import type { Request, Response } from "@playwright/test";
-import type { FixtureSpan, TestTraceContext } from "./trace-context";
+import {
+	BROWSER_SERVICE_NAME,
+	type FixtureSpan,
+	type TestTraceContext,
+} from "./trace-context";
 
 export interface FixtureCaptureOptions {
 	request: Request;
@@ -300,7 +304,7 @@ export async function fixtureCaptureRequestResponse({
 		status: { code: statusCodeValue },
 		attributes,
 		events: [],
-		serviceName: "playwright-browser",
+		serviceName: BROWSER_SERVICE_NAME,
 	};
 
 	traceContext.addSpan(networkSpan);

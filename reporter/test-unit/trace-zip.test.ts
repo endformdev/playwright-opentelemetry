@@ -615,7 +615,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			const zipEntries = await readZipEntries(expectedZipPath);
 			expect(zipEntries.has("traces/playwright-opentelemetry.json")).toBe(true);
 			const browserTraceContent = zipEntries.get(
-				"traces/playwright-browser.json",
+				"traces/playwright-fixture-spans.json",
 			) as string;
 			expect(browserTraceContent).toBeDefined();
 

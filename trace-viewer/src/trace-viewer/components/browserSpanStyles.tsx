@@ -9,82 +9,14 @@ import PanelTop from "lucide-solid/icons/panel-top";
 import Type from "lucide-solid/icons/type";
 
 import type { JSX } from "solid-js";
-import type { Span } from "../../trace-data-loader/exportToSpans";
+import type { ResourceType } from "./browserResourceStyles";
 
-export type ResourceType =
-	| "page"
-	| "route"
-	| "document"
-	| "stylesheet"
-	| "image"
-	| "script"
-	| "fetch"
-	| "font"
-	| "media"
-	| "other";
-
-export function getResourceDisplayName(span: Span): string {
-	const urlPath = span.attributes["url.path"];
-	if (typeof urlPath === "string") {
-		if (getResourceType(span) === "page" || getResourceType(span) === "route") {
-			return urlPath;
-		}
-
-		const segments = urlPath.split("/").filter(Boolean);
-		return segments[segments.length - 1] || urlPath;
-	}
-	return span.title;
-}
-
-export function getResourceType(span: Span): ResourceType {
-	if (span.attributes["browser.resource.type"] === "page") {
-		return "page";
-	}
-	if (span.attributes["browser.resource.type"] === "route") {
-		return "route";
-	}
-
-	const resourceType = span.attributes["http.resource.type"];
-	if (typeof resourceType === "string") {
-		switch (resourceType) {
-			case "document":
-				return "document";
-			case "stylesheet":
-				return "stylesheet";
-			case "image":
-				return "image";
-			case "script":
-				return "script";
-			case "fetch":
-			case "xhr":
-				return "fetch";
-			case "font":
-				return "font";
-			case "media":
-				return "media";
-			default:
-				return "other";
-		}
-	}
-	return "other";
-}
-
-export function getResourceColor(resourceType: ResourceType): string {
-	// chrome devtools style colors
-	const colors: Record<ResourceType, string> = {
-		page: "#7484f5", // Soft periwinkle
-		route: "#5b6ee1", // Indigo
-		document: "#4285f4", // Blue
-		stylesheet: "#34a853", // Green
-		image: "#9c27b0", // Purple
-		script: "#e2b429",
-		fetch: "#eb7820",
-		font: "#0fa599", // Teal
-		media: "#09a1c7", // Teal
-		other: "#808080", // Gray
-	};
-	return colors[resourceType];
-}
+export {
+	getResourceColor,
+	getResourceDisplayName,
+	getResourceType,
+	type ResourceType,
+} from "./browserResourceStyles";
 
 export function getResourceIcon(
 	resourceType: ResourceType,

@@ -1,10 +1,13 @@
 import type { ConsoleMessage, Page, Request } from "@playwright/test";
 import { generateSpanId } from "../shared/otel";
-import type { FixtureSpan, TestTraceContext } from "./trace-context";
+import {
+	BROWSER_SERVICE_NAME,
+	type FixtureSpan,
+	type TestTraceContext,
+} from "./trace-context";
 
 const BROWSER_PAGE_SPAN_NAME = "browser.page";
 const BROWSER_ROUTE_SPAN_NAME = "browser.route";
-const BROWSER_SERVICE_NAME = "playwright-browser";
 const SPAN_STATUS_CODE_UNSET = 0;
 
 type NavigationType = "document" | "same-document";

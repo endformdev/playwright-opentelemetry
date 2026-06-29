@@ -4,6 +4,10 @@ import { useViewportContext } from "../contexts/ViewportContext";
 import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
 import { ROW_HEIGHT, SpanBar } from "./SpanBar";
+import {
+	getStepTimelineColor,
+	NON_PLAYWRIGHT_STEP_COLOR,
+} from "./stepSpanStyles";
 
 export interface StepsTimelineProps {
 	steps: Span[];
@@ -60,10 +64,6 @@ function buildDepthMap(spans: Span[]): Map<string, number> {
 	return depthMap;
 }
 
-function getStepColor(depth: number): string {
-	return `hsl(${210 + depth * 30}, 70%, ${55 + depth * 5}%)`;
-}
-
 const ERROR_SPAN_COLOR = "#dc2626";
 
 export function StepsTimeline(props: StepsTimelineProps) {
@@ -75,6 +75,9 @@ export function StepsTimeline(props: StepsTimelineProps) {
 	});
 
 	const depthMap = createMemo(() => buildDepthMap(props.steps));
+	const stepMap = createMemo(
+		() => new Map(props.steps.map((span) => [span.id, span])),
+	);
 	const errorSpanIds = createMemo(
 		() => new Set(props.steps.filter(isErrorSpan).map((span) => span.id)),
 	);
@@ -108,6 +111,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 					<For each={visibleSteps()}>
 						{(step: PackedSpan) => {
 							const depth = depthMap().get(step.id) ?? 0;
+							const span = stepMap().get(step.id);
 							const isError = errorSpanIds().has(step.id);
 							return (
 								<SpanBar
@@ -116,7 +120,13 @@ export function StepsTimeline(props: StepsTimelineProps) {
 									startOffset={step.startOffset}
 									duration={step.duration}
 									row={step.row}
-									color={isError ? ERROR_SPAN_COLOR : getStepColor(depth)}
+									color={
+										isError
+											? ERROR_SPAN_COLOR
+											: span
+												? getStepTimelineColor(span, depth)
+												: NON_PLAYWRIGHT_STEP_COLOR
+									}
 									isError={isError}
 									onHover={props.onStepHover}
 									matchedSpanIds={props.matchedSpanIds}
