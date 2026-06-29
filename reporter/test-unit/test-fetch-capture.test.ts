@@ -42,6 +42,7 @@ describe("test worker fetch capture", () => {
 				status: { code: 0 },
 				attributes: expect.objectContaining({
 					"http.request.method": "POST",
+					"http.resource.type": "fetch",
 					"url.full": "https://api.example.com:8443/users?q=1",
 					"url.path": "/users",
 					"url.query": "q=1",

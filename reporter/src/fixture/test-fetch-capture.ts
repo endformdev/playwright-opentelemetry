@@ -134,6 +134,7 @@ function createHttpAttributes({
 }): FixtureSpan["attributes"] {
 	const attributes: FixtureSpan["attributes"] = {
 		"http.request.method": method,
+		"http.resource.type": "fetch",
 		"url.full": url,
 	};
 
