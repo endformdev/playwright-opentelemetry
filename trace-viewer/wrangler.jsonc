@@ -1,5 +1,5 @@
 {
-	"$schema": "https://json.schemastore.org/wrangler",
+	"$schema": "./node_modules/wrangler/config-schema.json",
 	"name": "playwright-opentelemetry-trace-viewer",
 	"compatibility_date": "2024-12-01",
 	"assets": {
