@@ -120,10 +120,18 @@ function resolveDestinationKind(options: {
 	}
 
 	if (options.singular) {
-		return [resolveConfigDestination(options.singular)];
+		return [
+			{
+				url: options.singular.url,
+				headers: { ...options.singular.headers },
+			},
+		];
 	}
 
-	return (options.plural ?? []).map(resolveConfigDestination);
+	return (options.plural ?? []).map((destination) => ({
+		url: destination.url,
+		headers: { ...destination.headers },
+	}));
 }
 
 function resolveLegacyDestinationConfig(
@@ -135,15 +143,6 @@ function resolveLegacyDestinationConfig(
 	return typeof destination === "string"
 		? { url: destination, headers }
 		: destination;
-}
-
-function resolveConfigDestination(
-	destination: PlaywrightOpentelemetryDestination,
-): ResolvedPlaywrightOpentelemetryDestination {
-	return {
-		url: destination.url,
-		headers: { ...destination.headers },
-	};
 }
 
 function getConfigurationErrorMessage(): string {
