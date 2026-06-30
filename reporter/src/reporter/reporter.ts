@@ -15,6 +15,7 @@ import {
 import {
 	type PlaywrightOpentelemetryConfig,
 	type PlaywrightOpentelemetryUseOptions,
+	type ResolvedPlaywrightOpentelemetryDestination,
 	type ResolvedPlaywrightOpentelemetryConfig,
 	resolvePlaywrightOpentelemetryConfig,
 } from "../shared/config";
@@ -225,7 +226,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// them through the reporter except when local ZIP storage needs them.
 		this.spanBatches.push({ spans: testSpans, config });
 
-		if (config.storeTraceZip || config.playwrightTraceApiEndpoint) {
+		if (config.storeTraceZip || hasTraceApiDestination(config)) {
 			const prepared = this.prepareTraceArtifact({
 				test,
 				spans: testSpans,
@@ -266,19 +267,27 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		>();
 
 		for (const batch of this.spanBatches) {
-			if (batch.config.otlpEndpoint) {
+			for (const destination of batch.config.otlpDestinations) {
+				if (!destination.url) {
+					continue;
+				}
+
 				addDestinationSpans(destinations, batch.spans, {
-					tracesEndpoint: batch.config.otlpEndpoint,
-					headers: batch.config.otlpHeaders,
+					tracesEndpoint: destination.url,
+					headers: destination.headers,
 					playwrightVersion: this.playwrightVersion || "unknown",
 					debug: batch.config.debug,
 				});
 			}
 
-			if (batch.config.playwrightTraceApiEndpoint) {
+			for (const destination of batch.config.playwrightTraceApiDestinations) {
+				if (!destination.url) {
+					continue;
+				}
+
 				addDestinationSpans(destinations, batch.spans, {
-					tracesEndpoint: `${batch.config.playwrightTraceApiEndpoint}/v1/traces`,
-					headers: batch.config.playwrightTraceApiHeaders,
+					tracesEndpoint: `${destination.url}/v1/traces`,
+					headers: destination.headers,
 					playwrightVersion: this.playwrightVersion || "unknown",
 					debug: batch.config.debug,
 				});
@@ -310,17 +319,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				})
 			: undefined;
 
-		const uploadPromise = options.config.playwrightTraceApiEndpoint
-			? this.sendScreenshotsZipToTraceApi({
+		const uploadPromises = options.config.playwrightTraceApiDestinations
+			.filter((destination) => destination.url)
+			.map((destination) =>
+				this.sendScreenshotsZipToTraceApi({
 					traceId: options.traceId,
 					screenshots,
-					config: options.config,
-				})
-			: undefined;
+					destination,
+				}),
+			);
 
 		const [traceZipBlob] = await Promise.all([
 			traceZipBlobPromise,
-			uploadPromise,
+			...uploadPromises,
 		]);
 
 		return {
@@ -491,18 +502,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private async sendScreenshotsZipToTraceApi(params: {
 		traceId: string;
 		screenshots: Map<string, ScreenshotResource>;
-		config: ResolvedPlaywrightOpentelemetryConfig;
+		destination: ResolvedPlaywrightOpentelemetryDestination;
 	}): Promise<void> {
-		const { traceId, screenshots, config } = params;
+		const { traceId, screenshots, destination } = params;
 		const screenshotsZip = await createScreenshotsZip(screenshots);
 
-		const screenshotUrl = `${config.playwrightTraceApiEndpoint}/playwright-otel-reporter/v1/screenshots.zip`;
+		const screenshotUrl = `${destination.url}/playwright-otel-reporter/v1/screenshots.zip`;
 		const response = await fetch(screenshotUrl, {
 			method: "PUT",
 			headers: {
 				"content-type": "application/zip",
 				"x-trace-id": traceId,
-				...config.playwrightTraceApiHeaders,
+				...destination.headers,
 			},
 			body: screenshotsZip,
 		});
@@ -553,6 +564,14 @@ function addDestinationSpans(
 	}
 
 	destinations.set(key, { spans: [...spans], options });
+}
+
+function hasTraceApiDestination(
+	config: ResolvedPlaywrightOpentelemetryConfig,
+): boolean {
+	return config.playwrightTraceApiDestinations.some(
+		(destination) => destination.url,
+	);
 }
 
 function readTraceContextAttachment(

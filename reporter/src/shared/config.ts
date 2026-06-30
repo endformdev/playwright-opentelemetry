@@ -1,11 +1,21 @@
 import { parseOtlpHeaders } from "./otel";
 import type { PlaywrightTraceOption } from "./playwright-trace";
 
+export type PlaywrightOpentelemetryDestination = {
+	url: string;
+	headers?: Record<string, string>;
+};
+
+export type ResolvedPlaywrightOpentelemetryDestination = {
+	url: string;
+	headers: Record<string, string>;
+};
+
 export interface PlaywrightOpentelemetryConfig {
-	otlpEndpoint?: string;
-	otlpHeaders?: Record<string, string>;
-	playwrightTraceApiEndpoint?: string;
-	playwrightTraceApiHeaders?: Record<string, string>;
+	otlpEndpoint?: PlaywrightOpentelemetryDestination;
+	otlpEndpoints?: PlaywrightOpentelemetryDestination[];
+	playwrightTraceApiEndpoint?: PlaywrightOpentelemetryDestination;
+	playwrightTraceApiEndpoints?: PlaywrightOpentelemetryDestination[];
 	storeTraceZip?: boolean;
 	trace?: PlaywrightTraceOption;
 	propagateTraceHeaders?: boolean;
@@ -17,10 +27,8 @@ export interface PlaywrightOpentelemetryUseOptions {
 }
 
 export interface ResolvedPlaywrightOpentelemetryConfig {
-	otlpEndpoint: string;
-	otlpHeaders: Record<string, string>;
-	playwrightTraceApiEndpoint: string;
-	playwrightTraceApiHeaders: Record<string, string>;
+	otlpDestinations: ResolvedPlaywrightOpentelemetryDestination[];
+	playwrightTraceApiDestinations: ResolvedPlaywrightOpentelemetryDestination[];
 	storeTraceZip: boolean;
 	trace: PlaywrightTraceOption | null;
 	propagateTraceHeaders: boolean;
@@ -35,29 +43,27 @@ export function resolvePlaywrightOpentelemetryConfig(
 	config: PlaywrightOpentelemetryConfig | undefined,
 	options: ResolvePlaywrightOpentelemetryConfigOptions = {},
 ): ResolvedPlaywrightOpentelemetryConfig {
-	const envOtlpHeaders = parseOtlpHeaders(
-		process.env.OTEL_EXPORTER_OTLP_HEADERS,
-	);
-	const envTraceApiHeaders = parseOtlpHeaders(
-		process.env.PLAYWRIGHT_TRACE_API_HEADERS,
-	);
 	const debugEnv = process.env.PLAYWRIGHT_OPENTELEMETRY_DEBUG;
 
 	const resolvedConfig = {
-		otlpEndpoint:
-			process.env.OTEL_EXPORTER_OTLP_ENDPOINT || config?.otlpEndpoint || "",
-		otlpHeaders: {
-			...config?.otlpHeaders,
-			...envOtlpHeaders,
-		},
-		playwrightTraceApiEndpoint:
-			process.env.PLAYWRIGHT_TRACE_API_ENDPOINT ||
-			config?.playwrightTraceApiEndpoint ||
-			"",
-		playwrightTraceApiHeaders: {
-			...config?.playwrightTraceApiHeaders,
-			...envTraceApiHeaders,
-		},
+		otlpDestinations: resolveDestinationKind({
+			envEndpointName: "OTEL_EXPORTER_OTLP_ENDPOINT",
+			envHeadersName: "OTEL_EXPORTER_OTLP_HEADERS",
+			singular: resolveLegacyDestinationConfig(
+				config?.otlpEndpoint,
+				(config as any)?.otlpHeaders,
+			),
+			plural: config?.otlpEndpoints,
+		}),
+		playwrightTraceApiDestinations: resolveDestinationKind({
+			envEndpointName: "PLAYWRIGHT_TRACE_API_ENDPOINT",
+			envHeadersName: "PLAYWRIGHT_TRACE_API_HEADERS",
+			singular: resolveLegacyDestinationConfig(
+				config?.playwrightTraceApiEndpoint,
+				(config as any)?.playwrightTraceApiHeaders,
+			),
+			plural: config?.playwrightTraceApiEndpoints,
+		}),
 		storeTraceZip: config?.storeTraceZip === true,
 		trace: config?.trace ?? null,
 		propagateTraceHeaders: config?.propagateTraceHeaders ?? true,
@@ -81,10 +87,62 @@ function hasPlaywrightOpentelemetryDestination(
 	config: ResolvedPlaywrightOpentelemetryConfig,
 ): boolean {
 	return Boolean(
-		config.otlpEndpoint ||
-			config.playwrightTraceApiEndpoint ||
+		config.otlpDestinations.some((destination) => destination.url) ||
+			config.playwrightTraceApiDestinations.some(
+				(destination) => destination.url,
+			) ||
 			config.storeTraceZip,
 	);
+}
+
+function resolveDestinationKind(options: {
+	envEndpointName: string;
+	envHeadersName: string;
+	singular?: PlaywrightOpentelemetryDestination;
+	plural?: PlaywrightOpentelemetryDestination[];
+}): ResolvedPlaywrightOpentelemetryDestination[] {
+	const envEndpoint = process.env[options.envEndpointName];
+	const envHeaders = process.env[options.envHeadersName];
+
+	if (envHeaders && !envEndpoint) {
+		throw new Error(
+			`${options.envHeadersName} is set but ${options.envEndpointName} is not set.`,
+		);
+	}
+
+	if (envEndpoint) {
+		return [
+			{
+				url: envEndpoint,
+				headers: parseOtlpHeaders(envHeaders),
+			},
+		];
+	}
+
+	if (options.singular) {
+		return [
+			{
+				url: options.singular.url,
+				headers: { ...options.singular.headers },
+			},
+		];
+	}
+
+	return (options.plural ?? []).map((destination) => ({
+		url: destination.url,
+		headers: { ...destination.headers },
+	}));
+}
+
+function resolveLegacyDestinationConfig(
+	destination: PlaywrightOpentelemetryDestination | string | undefined,
+	headers: Record<string, string> | undefined,
+): PlaywrightOpentelemetryDestination | undefined {
+	// Before destination objects, singular endpoint config was a string and
+	// headers lived beside it as otlpHeaders/playwrightTraceApiHeaders.
+	return typeof destination === "string"
+		? { url: destination, headers }
+		: destination;
 }
 
 function getConfigurationErrorMessage(): string {
@@ -99,9 +157,11 @@ function getConfigurationErrorMessage(): string {
 		`export default defineConfig<PlaywrightOpentelemetryUseOptions>({\n` +
 		`  use: {\n` +
 		`    playwrightOpentelemetry: {\n` +
-		`      otlpEndpoint: 'http://localhost:4317/v1/traces',\n` +
-		`      otlpHeaders: {\n` +
-		`        Authorization: 'Bearer YOUR_TOKEN',\n` +
+		`      otlpEndpoint: {\n` +
+		`        url: 'http://localhost:4317/v1/traces',\n` +
+		`        headers: {\n` +
+		`          Authorization: 'Bearer YOUR_TOKEN',\n` +
+		`        },\n` +
 		`      },\n` +
 		`    },\n` +
 		`  },\n` +

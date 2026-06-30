@@ -13,10 +13,13 @@ const ENV_KEYS = [
 ] as const;
 
 const DESTINATION_CONFIGS = [
-	["OTLP endpoint", { otlpEndpoint: "http://localhost:4317/v1/traces" }],
+	[
+		"OTLP endpoint",
+		{ otlpEndpoint: { url: "http://localhost:4317/v1/traces" } },
+	],
 	[
 		"trace API endpoint",
-		{ playwrightTraceApiEndpoint: "https://traces.example.com" },
+		{ playwrightTraceApiEndpoint: { url: "https://traces.example.com" } },
 	],
 	["trace ZIP storage", { storeTraceZip: true }],
 ] satisfies Array<[string, PlaywrightOpentelemetryConfig]>;
@@ -46,8 +49,8 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 
 	it("allows missing destinations by default", () => {
 		expect(resolvePlaywrightOpentelemetryConfig(undefined)).toMatchObject({
-			otlpEndpoint: "",
-			playwrightTraceApiEndpoint: "",
+			otlpDestinations: [],
+			playwrightTraceApiDestinations: [],
 			storeTraceZip: false,
 			trace: null,
 			propagateTraceHeaders: true,
@@ -114,5 +117,189 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 				requireDestination: true,
 			}),
 		).not.toThrow();
+	});
+
+	it("resolves a singular OTLP destination with headers", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				otlpEndpoint: {
+					url: "http://localhost:4317/v1/traces",
+					headers: { Authorization: "Bearer config-token" },
+				},
+			}),
+		).toMatchObject({
+			otlpDestinations: [
+				{
+					url: "http://localhost:4317/v1/traces",
+					headers: { Authorization: "Bearer config-token" },
+				},
+			],
+		});
+	});
+
+	it("converts legacy string endpoints at runtime", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				otlpEndpoint: "https://legacy-otlp.example.com/v1/traces",
+				otlpHeaders: { Authorization: "Bearer legacy-otlp-token" },
+				playwrightTraceApiEndpoint: "https://legacy-trace.example.com",
+				playwrightTraceApiHeaders: {
+					Authorization: "Bearer legacy-trace-token",
+				},
+			} as unknown as PlaywrightOpentelemetryConfig),
+		).toMatchObject({
+			otlpDestinations: [
+				{
+					url: "https://legacy-otlp.example.com/v1/traces",
+					headers: { Authorization: "Bearer legacy-otlp-token" },
+				},
+			],
+			playwrightTraceApiDestinations: [
+				{
+					url: "https://legacy-trace.example.com",
+					headers: { Authorization: "Bearer legacy-trace-token" },
+				},
+			],
+		});
+	});
+
+	it("uses singular destinations before plural destinations", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				otlpEndpoint: { url: "https://primary.example.com/v1/traces" },
+				otlpEndpoints: [
+					{ url: "https://secondary-a.example.com/v1/traces" },
+					{ url: "https://secondary-b.example.com/v1/traces" },
+				],
+				playwrightTraceApiEndpoint: {
+					url: "https://trace-primary.example.com",
+				},
+				playwrightTraceApiEndpoints: [
+					{ url: "https://trace-secondary.example.com" },
+				],
+			}),
+		).toMatchObject({
+			otlpDestinations: [{ url: "https://primary.example.com/v1/traces" }],
+			playwrightTraceApiDestinations: [
+				{ url: "https://trace-primary.example.com" },
+			],
+		});
+	});
+
+	it("uses plural destinations when singular destinations are absent", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				otlpEndpoints: [
+					{
+						url: "https://otlp-a.example.com/v1/traces",
+						headers: { "x-otlp": "a" },
+					},
+					{ url: "https://otlp-b.example.com/v1/traces" },
+				],
+				playwrightTraceApiEndpoints: [
+					{
+						url: "https://trace-a.example.com",
+						headers: { "x-trace-api": "a" },
+					},
+					{ url: "https://trace-b.example.com" },
+				],
+			}),
+		).toMatchObject({
+			otlpDestinations: [
+				{
+					url: "https://otlp-a.example.com/v1/traces",
+					headers: { "x-otlp": "a" },
+				},
+				{ url: "https://otlp-b.example.com/v1/traces", headers: {} },
+			],
+			playwrightTraceApiDestinations: [
+				{
+					url: "https://trace-a.example.com",
+					headers: { "x-trace-api": "a" },
+				},
+				{ url: "https://trace-b.example.com", headers: {} },
+			],
+		});
+	});
+
+	it("uses OTLP environment endpoint and headers before config destinations", () => {
+		process.env.OTEL_EXPORTER_OTLP_ENDPOINT =
+			"https://env-otlp.example.com/v1/traces";
+		process.env.OTEL_EXPORTER_OTLP_HEADERS =
+			"authorization=Bearer env-token,x-scope=a=b";
+
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				otlpEndpoint: {
+					url: "https://config-otlp.example.com/v1/traces",
+					headers: { Authorization: "Bearer config-token" },
+				},
+				otlpEndpoints: [{ url: "https://plural-otlp.example.com/v1/traces" }],
+			}),
+		).toMatchObject({
+			otlpDestinations: [
+				{
+					url: "https://env-otlp.example.com/v1/traces",
+					headers: {
+						authorization: "Bearer env-token",
+						"x-scope": "a=b",
+					},
+				},
+			],
+		});
+	});
+
+	it("uses Trace API environment endpoint and headers before config destinations", () => {
+		process.env.PLAYWRIGHT_TRACE_API_ENDPOINT = "https://env-trace.example.com";
+		process.env.PLAYWRIGHT_TRACE_API_HEADERS =
+			"authorization=Bearer env-token,x-scope=a=b";
+
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				playwrightTraceApiEndpoint: {
+					url: "https://config-trace.example.com",
+					headers: { Authorization: "Bearer config-token" },
+				},
+				playwrightTraceApiEndpoints: [
+					{ url: "https://plural-trace.example.com" },
+				],
+			}),
+		).toMatchObject({
+			playwrightTraceApiDestinations: [
+				{
+					url: "https://env-trace.example.com",
+					headers: {
+						authorization: "Bearer env-token",
+						"x-scope": "a=b",
+					},
+				},
+			],
+		});
+	});
+
+	it("throws when OTLP environment headers are set without the OTLP environment endpoint", () => {
+		process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer env-token";
+
+		expect(() =>
+			resolvePlaywrightOpentelemetryConfig({
+				otlpEndpoint: { url: "https://config-otlp.example.com/v1/traces" },
+			}),
+		).toThrowError(
+			"OTEL_EXPORTER_OTLP_HEADERS is set but OTEL_EXPORTER_OTLP_ENDPOINT is not set.",
+		);
+	});
+
+	it("throws when Trace API environment headers are set without the Trace API environment endpoint", () => {
+		process.env.PLAYWRIGHT_TRACE_API_HEADERS = "authorization=Bearer env-token";
+
+		expect(() =>
+			resolvePlaywrightOpentelemetryConfig({
+				playwrightTraceApiEndpoint: {
+					url: "https://config-trace.example.com",
+				},
+			}),
+		).toThrowError(
+			"PLAYWRIGHT_TRACE_API_HEADERS is set but PLAYWRIGHT_TRACE_API_ENDPOINT is not set.",
+		);
 	});
 });

@@ -232,7 +232,7 @@ describe("fixture browser span hierarchy", () => {
 		await flushFixtureSpans(
 			traceContext,
 			resolvePlaywrightOpentelemetryConfig({
-				playwrightTraceApiEndpoint: "https://traces.example.com",
+				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
 			}),
 			{ trace: "on", testInfo },
 		);
@@ -315,7 +315,7 @@ describe("fixture browser span hierarchy", () => {
 		await flushFixtureSpans(
 			traceContext,
 			resolvePlaywrightOpentelemetryConfig({
-				playwrightTraceApiEndpoint: "https://traces.example.com",
+				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
 				storeTraceZip: true,
 			}),
 			{ trace: "retain-on-failure", testInfo },
