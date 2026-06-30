@@ -29,7 +29,7 @@ const playwrightOpentelemetry: PlaywrightOpentelemetryConfig = {
 			"x-honeycomb-team": "xxxabc",
 		},
 	},
-	// Or send to multiple OTLP traces endpoints:
+	// Add more OTLP traces endpoints:
 	// otlpEndpoints: [{ url: "https://collector-a.example.com/v1/traces" }],
 	// Or output an opentelemetry report zip
 	storeTraceZip: true,

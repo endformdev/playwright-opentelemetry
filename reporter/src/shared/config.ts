@@ -110,28 +110,29 @@ function resolveDestinationKind(options: {
 		);
 	}
 
+	let primaryDestination:
+		| ResolvedPlaywrightOpentelemetryDestination
+		| undefined;
 	if (envEndpoint) {
-		return [
-			{
-				url: envEndpoint,
-				headers: parseOtlpHeaders(envHeaders),
-			},
-		];
+		primaryDestination = {
+			url: envEndpoint,
+			headers: parseOtlpHeaders(envHeaders),
+		};
+	} else if (options.singular) {
+		primaryDestination = {
+			url: options.singular.url,
+			headers: { ...options.singular.headers },
+		};
 	}
 
-	if (options.singular) {
-		return [
-			{
-				url: options.singular.url,
-				headers: { ...options.singular.headers },
-			},
-		];
-	}
-
-	return (options.plural ?? []).map((destination) => ({
+	const additionalDestinations = (options.plural ?? []).map((destination) => ({
 		url: destination.url,
 		headers: { ...destination.headers },
 	}));
+
+	return primaryDestination
+		? [primaryDestination, ...additionalDestinations]
+		: additionalDestinations;
 }
 
 function resolveLegacyDestinationConfig(

@@ -163,7 +163,7 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 		});
 	});
 
-	it("uses singular destinations before plural destinations", () => {
+	it("appends plural destinations after singular destinations", () => {
 		expect(
 			resolvePlaywrightOpentelemetryConfig({
 				otlpEndpoint: { url: "https://primary.example.com/v1/traces" },
@@ -178,12 +178,19 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 					{ url: "https://trace-secondary.example.com" },
 				],
 			}),
-		).toMatchObject({
-			otlpDestinations: [{ url: "https://primary.example.com/v1/traces" }],
-			playwrightTraceApiDestinations: [
-				{ url: "https://trace-primary.example.com" },
-			],
-		});
+		).toEqual(
+			expect.objectContaining({
+				otlpDestinations: [
+					{ url: "https://primary.example.com/v1/traces", headers: {} },
+					{ url: "https://secondary-a.example.com/v1/traces", headers: {} },
+					{ url: "https://secondary-b.example.com/v1/traces", headers: {} },
+				],
+				playwrightTraceApiDestinations: [
+					{ url: "https://trace-primary.example.com", headers: {} },
+					{ url: "https://trace-secondary.example.com", headers: {} },
+				],
+			}),
+		);
 	});
 
 	it("uses plural destinations when singular destinations are absent", () => {
@@ -222,7 +229,7 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 		});
 	});
 
-	it("uses OTLP environment endpoint and headers before config destinations", () => {
+	it("uses OTLP environment endpoint and headers before config singular destination while preserving plural destinations", () => {
 		process.env.OTEL_EXPORTER_OTLP_ENDPOINT =
 			"https://env-otlp.example.com/v1/traces";
 		process.env.OTEL_EXPORTER_OTLP_HEADERS =
@@ -236,20 +243,23 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 				},
 				otlpEndpoints: [{ url: "https://plural-otlp.example.com/v1/traces" }],
 			}),
-		).toMatchObject({
-			otlpDestinations: [
-				{
-					url: "https://env-otlp.example.com/v1/traces",
-					headers: {
-						authorization: "Bearer env-token",
-						"x-scope": "a=b",
+		).toEqual(
+			expect.objectContaining({
+				otlpDestinations: [
+					{
+						url: "https://env-otlp.example.com/v1/traces",
+						headers: {
+							authorization: "Bearer env-token",
+							"x-scope": "a=b",
+						},
 					},
-				},
-			],
-		});
+					{ url: "https://plural-otlp.example.com/v1/traces", headers: {} },
+				],
+			}),
+		);
 	});
 
-	it("uses Trace API environment endpoint and headers before config destinations", () => {
+	it("uses Trace API environment endpoint and headers before config singular destination while preserving plural destinations", () => {
 		process.env.PLAYWRIGHT_TRACE_API_ENDPOINT = "https://env-trace.example.com";
 		process.env.PLAYWRIGHT_TRACE_API_HEADERS =
 			"authorization=Bearer env-token,x-scope=a=b";
@@ -264,17 +274,20 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 					{ url: "https://plural-trace.example.com" },
 				],
 			}),
-		).toMatchObject({
-			playwrightTraceApiDestinations: [
-				{
-					url: "https://env-trace.example.com",
-					headers: {
-						authorization: "Bearer env-token",
-						"x-scope": "a=b",
+		).toEqual(
+			expect.objectContaining({
+				playwrightTraceApiDestinations: [
+					{
+						url: "https://env-trace.example.com",
+						headers: {
+							authorization: "Bearer env-token",
+							"x-scope": "a=b",
+						},
 					},
-				},
-			],
-		});
+					{ url: "https://plural-trace.example.com", headers: {} },
+				],
+			}),
+		);
 	});
 
 	it("throws when OTLP environment headers are set without the OTLP environment endpoint", () => {
