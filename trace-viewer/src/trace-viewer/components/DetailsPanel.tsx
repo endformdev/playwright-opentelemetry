@@ -270,7 +270,9 @@ export function DetailsPanel(props: DetailsPanelProps) {
 												<SpanDetails
 													hoveredSpan={hoveredSpan}
 													testStartTimeMs={props.testStartTimeMs}
-													colorFn={() => getResourceColor(resourceType)}
+													colorFn={(_, span) =>
+														getResourceColor(getResourceType(span))
+													}
 													isFocused={isSpanFocused(hoveredSpan.span.id)}
 													icon={getResourceIcon(resourceType, 16)}
 													displayTitle={getResourceDisplayName(

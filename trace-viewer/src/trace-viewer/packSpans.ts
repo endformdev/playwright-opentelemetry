@@ -83,7 +83,7 @@ export function findAvailableRow(
  *
  * Algorithm:
  * 1. Build a parent-child lookup map
- * 2. Process spans in their original order (respecting relative ordering)
+ * 2. Process spans in parent-before-child order (respecting relative ordering)
  * 3. For each span:
  *    - Determine minimum row (parent's row + 1, or 0 for root spans)
  *    - Find the first available row >= minRow where span doesn't overlap
@@ -92,7 +92,7 @@ export function findAvailableRow(
  * This ensures:
  * - Children are always below their parents
  * - No horizontal overlap within a row
- * - Relative ordering is preserved (earlier spans in input get priority for rows)
+ * - Relative ordering is preserved among roots and siblings
  *
  * @param spans - Array of spans with timing and parent information
  * @returns PackedSpansResult with row assignments and total row count
@@ -126,16 +126,18 @@ export function packSpans(spans: SpanInput[]): PackedSpansResult {
 		return { spans: [], totalRows: 0 };
 	}
 
+	const orderedSpans = orderParentsBeforeChildren(spans);
+
 	// Map from span ID to assigned row
 	const spanRowMap = new Map<string, number>();
 
 	// Rows array: each element is an array of spans on that row (for overlap checking)
 	const rows: Array<Array<{ startOffset: number; duration: number }>> = [];
 
-	// Process spans in order
+	// Process spans in hierarchy-aware order
 	const packedSpans: PackedSpan[] = [];
 
-	for (const span of spans) {
+	for (const span of orderedSpans) {
 		// Determine minimum row based on parent
 		let minRow = 0;
 		if (span.parentId !== null) {
@@ -168,6 +170,53 @@ export function packSpans(spans: SpanInput[]): PackedSpansResult {
 		spans: packedSpans,
 		totalRows: rows.length,
 	};
+}
+
+function orderParentsBeforeChildren(spans: SpanInput[]): SpanInput[] {
+	const spanMap = new Map(spans.map((span) => [span.id, span]));
+	const childrenMap = new Map<string, SpanInput[]>();
+	const roots: SpanInput[] = [];
+
+	for (const span of spans) {
+		if (span.parentId === null || !spanMap.has(span.parentId)) {
+			roots.push(span);
+			continue;
+		}
+
+		const children = childrenMap.get(span.parentId) ?? [];
+		children.push(span);
+		childrenMap.set(span.parentId, children);
+	}
+
+	const ordered: SpanInput[] = [];
+	const visited = new Set<string>();
+	const visiting = new Set<string>();
+
+	const visit = (span: SpanInput) => {
+		if (visited.has(span.id)) return;
+		if (visiting.has(span.id)) return;
+
+		visiting.add(span.id);
+		ordered.push(span);
+		visited.add(span.id);
+
+		for (const child of childrenMap.get(span.id) ?? []) {
+			visit(child);
+		}
+
+		visiting.delete(span.id);
+	};
+
+	for (const root of roots) {
+		visit(root);
+	}
+
+	// Cycles have no root. Keep those spans renderable in their input order.
+	for (const span of spans) {
+		visit(span);
+	}
+
+	return ordered;
 }
 
 /**

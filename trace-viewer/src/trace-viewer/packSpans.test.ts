@@ -157,6 +157,31 @@ describe("packSpans", () => {
 		expect(result.totalRows).toBe(2);
 	});
 
+	it("places child below parent when child starts before parent", () => {
+		const result = packSpans([
+			{
+				id: "child",
+				name: "Child",
+				startOffset: 4500,
+				duration: 800,
+				parentId: "parent",
+			},
+			{
+				id: "parent",
+				name: "Parent",
+				startOffset: 5000,
+				duration: 4000,
+				parentId: null,
+			},
+		]);
+
+		const parent = result.spans.find((span) => span.id === "parent");
+		const child = result.spans.find((span) => span.id === "child");
+
+		expect(parent?.row).toBe(0);
+		expect(child?.row).toBe(1);
+	});
+
 	it("places grandchild below child", () => {
 		const result = packSpans([
 			{
