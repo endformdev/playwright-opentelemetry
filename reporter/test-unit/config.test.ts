@@ -137,6 +137,32 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 		});
 	});
 
+	it("converts legacy string endpoints at runtime", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				otlpEndpoint: "https://legacy-otlp.example.com/v1/traces",
+				otlpHeaders: { Authorization: "Bearer legacy-otlp-token" },
+				playwrightTraceApiEndpoint: "https://legacy-trace.example.com",
+				playwrightTraceApiHeaders: {
+					Authorization: "Bearer legacy-trace-token",
+				},
+			} as unknown as PlaywrightOpentelemetryConfig),
+		).toMatchObject({
+			otlpDestinations: [
+				{
+					url: "https://legacy-otlp.example.com/v1/traces",
+					headers: { Authorization: "Bearer legacy-otlp-token" },
+				},
+			],
+			playwrightTraceApiDestinations: [
+				{
+					url: "https://legacy-trace.example.com",
+					headers: { Authorization: "Bearer legacy-trace-token" },
+				},
+			],
+		});
+	});
+
 	it("uses singular destinations before plural destinations", () => {
 		expect(
 			resolvePlaywrightOpentelemetryConfig({

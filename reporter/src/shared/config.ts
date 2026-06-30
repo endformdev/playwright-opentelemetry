@@ -49,13 +49,19 @@ export function resolvePlaywrightOpentelemetryConfig(
 		otlpDestinations: resolveDestinationKind({
 			envEndpointName: "OTEL_EXPORTER_OTLP_ENDPOINT",
 			envHeadersName: "OTEL_EXPORTER_OTLP_HEADERS",
-			singular: config?.otlpEndpoint,
+			singular: resolveLegacyDestinationConfig(
+				config?.otlpEndpoint,
+				(config as any)?.otlpHeaders,
+			),
 			plural: config?.otlpEndpoints,
 		}),
 		playwrightTraceApiDestinations: resolveDestinationKind({
 			envEndpointName: "PLAYWRIGHT_TRACE_API_ENDPOINT",
 			envHeadersName: "PLAYWRIGHT_TRACE_API_HEADERS",
-			singular: config?.playwrightTraceApiEndpoint,
+			singular: resolveLegacyDestinationConfig(
+				config?.playwrightTraceApiEndpoint,
+				(config as any)?.playwrightTraceApiHeaders,
+			),
 			plural: config?.playwrightTraceApiEndpoints,
 		}),
 		storeTraceZip: config?.storeTraceZip === true,
@@ -118,6 +124,17 @@ function resolveDestinationKind(options: {
 	}
 
 	return (options.plural ?? []).map(resolveConfigDestination);
+}
+
+function resolveLegacyDestinationConfig(
+	destination: PlaywrightOpentelemetryDestination | string | undefined,
+	headers: Record<string, string> | undefined,
+): PlaywrightOpentelemetryDestination | undefined {
+	// Before destination objects, singular endpoint config was a string and
+	// headers lived beside it as otlpHeaders/playwrightTraceApiHeaders.
+	return typeof destination === "string"
+		? { url: destination, headers }
+		: destination;
 }
 
 function resolveConfigDestination(
