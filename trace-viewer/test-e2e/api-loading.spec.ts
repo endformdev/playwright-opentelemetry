@@ -1,8 +1,16 @@
+import {
+	PLAYWRIGHT_SOURCE_HEADER,
+	PLAYWRIGHT_SOURCE_REPORTER,
+} from "@playwright-opentelemetry/trace-api";
 import { expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
+
+const TRACE_API_REPORTER_HEADERS = {
+	[PLAYWRIGHT_SOURCE_HEADER]: PLAYWRIGHT_SOURCE_REPORTER,
+};
 
 test("loads trace from API and displays test info and spans", async ({
 	page,
@@ -15,6 +23,7 @@ test("loads trace from API and displays test info and spans", async ({
 
 	// Step 1: Send OTLP traces via POST /v1/traces
 	await request.post(`${TRACE_API_URL}/v1/traces`, {
+		headers: TRACE_API_REPORTER_HEADERS,
 		data: {
 			resourceSpans: [
 				// Playwright test spans
@@ -257,6 +266,7 @@ test("can load trace via URL query parameter", async ({ page, request }) => {
 
 	// Send OTLP traces
 	await request.post(`${TRACE_API_URL}/v1/traces`, {
+		headers: TRACE_API_REPORTER_HEADERS,
 		data: {
 			resourceSpans: [
 				{

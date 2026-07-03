@@ -1,5 +1,6 @@
 import type { EventHandler } from "h3";
 import { defineEventHandler, readBody } from "h3";
+import { PLAYWRIGHT_SOURCE_HEADER, PLAYWRIGHT_SOURCE_REPORTER } from "../api";
 import { applyCors } from "../cors";
 import type { TraceApiHandlerConfig } from "../createTraceApi";
 import { type OtlpExport, partitionOtlpExportByTraceId } from "../otlp";
@@ -34,9 +35,22 @@ export function createOtlpHandler(config: TraceApiHandlerConfig): EventHandler {
 		const payload = (await readBody(event)) as OtlpExport;
 		const traces = partitionOtlpExportByTraceId(payload);
 
-		// Store each trace group separately
+		const source = event.req.headers.get(PLAYWRIGHT_SOURCE_HEADER);
+		const trustedPlaywrightSource = source === PLAYWRIGHT_SOURCE_REPORTER;
+
 		const storePromises: Promise<void>[] = [];
 		for (const [traceId, tracePayload] of traces) {
+			if (!trustedPlaywrightSource) {
+				let expectedPath = `traces/${traceId}/.expected`;
+				if (config.resolvePath) {
+					expectedPath = await config.resolvePath(event, expectedPath);
+				}
+
+				if (!(await storage.head(expectedPath))) {
+					continue;
+				}
+			}
+
 			const filename = `${Date.now()}-${crypto.randomUUID()}.json`;
 			let path = `traces/${traceId}/traces/${filename}`;
 
@@ -52,6 +66,6 @@ export function createOtlpHandler(config: TraceApiHandlerConfig): EventHandler {
 
 		await Promise.all(storePromises);
 
-		return { status: "ok" };
+		return {};
 	});
 }

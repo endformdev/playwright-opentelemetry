@@ -4,7 +4,7 @@ H3-based API library for storing and serving Playwright OpenTelemetry traces in 
 
 ## Introduction
 
-The Trace API is a customizable library that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers. It provides endpoints for writing OTLP trace data and Playwright screenshots, and serves them in a format compatible with the trace viewer. Test metadata is stored on the root `playwright.test` span.
+The Trace API is a customizable library that can be deployed to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers. It provides endpoints for writing OTLP trace data, registering expected Playwright trace IDs, and Playwright screenshots, then serves them in a format compatible with the trace viewer. Test metadata is stored on the root `playwright.test` span.
 
 Reporter uploads follow Playwright trace retention by default. If Playwright does not produce or retain a trace for a test, no remote trace data is uploaded for that test and viewer read endpoints may return `404`. Configure `use.playwrightOpentelemetry.trace` to override that decision for OpenTelemetry output independently of Playwright's own `use.trace` setting.
 
@@ -146,6 +146,15 @@ Body: Standard OTLP JSON payload
 
 Partitions OTLP spans by trace ID and writes OTLP-shaped fragments to `traces/{traceId}/traces/{requestId}.json`. The fragment filename is a unique request ID, not a service name or span ID.
 
+OTLP requests from the Playwright reporter include `X-Playwright-Otel-Source: reporter` and are stored directly. Other OTLP requests are only stored when `traces/{traceId}/.expected` already exists. Unknown trace IDs are silently dropped with HTTP `200`, so exporters do not retry unrelated telemetry.
+
+```
+PUT /playwright-otel-reporter/v1/expected-trace
+X-Trace-Id: {traceId}
+```
+
+Writes a zero-byte expected-trace marker to `traces/{traceId}/.expected`. The Playwright fixture sends this before the test body runs, which allows app-under-test telemetry that received the propagated `traceparent` header to be admitted.
+
 ```
 PUT /playwright-otel-reporter/v1/screenshots.zip
 X-Trace-Id: {traceId}
@@ -199,6 +208,7 @@ wrangler r2 bucket lifecycle set my-traces --rules '[{
 s3://bucket/
 └── traces/
 	└── {traceId}/
+		├── .expected
 		├── traces/
 		│   └── {requestId}.json
 		└── screenshots.zip

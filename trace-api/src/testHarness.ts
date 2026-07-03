@@ -1,6 +1,8 @@
 import { H3, type H3Event } from "h3";
 import {
 	OTLP_TRACES_WRITE_PATH,
+	PLAYWRIGHT_SOURCE_HEADER,
+	PLAYWRIGHT_SOURCE_REPORTER,
 	PLAYWRIGHT_REPORTER_WRITE_PATH,
 	TRACE_VIEWER_READ_PATH,
 } from "./api";
@@ -145,6 +147,10 @@ export function createInMemoryStorage(): TraceStorage {
 			return obj ? obj.data : null;
 		},
 
+		async head(path: string): Promise<boolean> {
+			return store.has(path);
+		},
+
 		async list(prefix: string): Promise<string[]> {
 			const results: string[] = [];
 
@@ -157,4 +163,31 @@ export function createInMemoryStorage(): TraceStorage {
 			return results.sort();
 		},
 	};
+}
+
+export async function registerExpectedTrace(
+	app: H3,
+	traceId: string,
+	headers: Record<string, string> = {},
+): Promise<void> {
+	const response = await app.fetch(
+		new Request(
+			`http://localhost/playwright-otel-reporter/v1/expected-trace`,
+			{
+				method: "PUT",
+				headers: {
+					"X-Trace-Id": traceId,
+					[PLAYWRIGHT_SOURCE_HEADER]: PLAYWRIGHT_SOURCE_REPORTER,
+					...headers,
+				},
+			},
+		),
+	);
+	expectOk(response);
+}
+
+function expectOk(response: Response): void {
+	if (!response.ok) {
+		throw new Error(`Expected ok response, got ${response.status}`);
+	}
 }

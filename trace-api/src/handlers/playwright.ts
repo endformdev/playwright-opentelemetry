@@ -45,6 +45,20 @@ export function createPlaywrightHandler(
 			throw new Error("Path is required");
 		}
 
+		if (path === "expected-trace") {
+			let storagePath = `traces/${traceId}/.expected`;
+			if (config.resolvePath) {
+				storagePath = await config.resolvePath(event, storagePath);
+			}
+
+			await storage.put(
+				storagePath,
+				new ArrayBuffer(0),
+				"application/octet-stream",
+			);
+			return { status: "ok" };
+		}
+
 		if (path !== "screenshots.zip") {
 			throw new Error(`Unsupported Playwright artifact path: ${path}`);
 		}

@@ -31,6 +31,17 @@ export interface SendSpansOptions {
 }
 
 export const PLAYWRIGHT_TESTS_SERVICE_NAME = "playwright-tests";
+export const PLAYWRIGHT_TRACE_API_SOURCE_HEADER = "x-playwright-otel-source";
+export const PLAYWRIGHT_TRACE_API_SOURCE_REPORTER = "reporter";
+
+export function withPlaywrightTraceApiHeaders(
+	headers: Record<string, string>,
+): Record<string, string> {
+	return {
+		...headers,
+		[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]: PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
+	};
+}
 
 /** Generate a random 32-character hex trace ID. */
 export function generateTraceId(): string {
@@ -161,10 +172,7 @@ function buildResourceSpan(
 	};
 }
 
-export function buildOtlpRequest(
-	spans: Span[],
-	playwrightVersion: string,
-) {
+export function buildOtlpRequest(spans: Span[], playwrightVersion: string) {
 	const spansByService = new Map<string, Span[]>();
 
 	for (const span of spans) {
