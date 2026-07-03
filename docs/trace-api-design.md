@@ -22,7 +22,7 @@ s3://bucket/
 
 All data writes directly to `traces/{traceId}/`. A lifecycle rule expires traces after a configurable retention period (default: 30 days).
 
-The reporter fixture writes a zero-byte expected-trace marker at `traces/{traceId}/.expected` before the test body runs. Untrusted OTLP data is stored only when that marker already exists, so unrelated telemetry sent to the same OTLP endpoint is dropped instead of creating orphan trace prefixes. Reporter-originated data includes a predetermined source header and bypasses the marker check.
+The reporter fixture writes a zero-byte expected-trace marker at `traces/{traceId}/.expected` before the test body runs when the configured trace mode could retain that test attempt. Untrusted OTLP data is stored only when that marker already exists, so unrelated telemetry sent to the same OTLP endpoint is dropped instead of creating orphan trace prefixes. Reporter-originated data includes a predetermined source header and bypasses the marker check.
 
 ## Library Architecture
 
@@ -273,7 +273,7 @@ X-Playwright-Otel-Source: reporter
 **Backend logic:**
 1. Write a zero-byte marker to `traces/{traceId}/.expected`
 
-The fixture calls this endpoint at test setup, before it installs request tracing and before any browser request can receive a propagated `traceparent` header. That makes the marker available by the time app-under-test telemetry begins exporting spans.
+The fixture calls this endpoint at test setup when the trace mode could retain the current attempt, before it installs request tracing and before any browser request can receive a propagated `traceparent` header. That makes the marker available by the time app-under-test telemetry begins exporting spans.
 
 ```
 PUT /playwright-otel-reporter/v1/screenshots.zip
@@ -434,7 +434,7 @@ Any service can contribute spans to a trace by sending OTLP data with a matching
 }
 ```
 
-The `traceId` is propagated via the `traceparent` HTTP header by the Playwright fixture, so backend services using OpenTelemetry will automatically correlate their spans with the test trace. The fixture registers the trace ID before test code runs, so these backend spans pass the marker check when they are exported to the Trace API.
+The `traceId` is propagated via the `traceparent` HTTP header by the Playwright fixture, so backend services using OpenTelemetry will automatically correlate their spans with the test trace. The fixture registers the trace ID before test code runs when the trace mode could retain the attempt, so retained backend spans pass the marker check when they are exported to the Trace API.
 
 ## Multi-Tenancy Example
 

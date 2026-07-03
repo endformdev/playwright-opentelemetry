@@ -9,7 +9,12 @@ import {
 	withPlaywrightTraceApiHeaders,
 } from "../shared/otel";
 import type { ResolvedPlaywrightOpentelemetryConfig } from "../shared/config";
-import { shouldRetainPlaywrightTrace } from "../shared/playwright-trace";
+import { filterRetainedDestinations } from "../shared/destinations";
+import {
+	couldRetainPlaywrightTrace,
+	type PlaywrightTracePreTestInfo,
+	shouldRetainPlaywrightTrace,
+} from "../shared/playwright-trace";
 
 export const TRACE_CONTEXT_ATTACHMENT_NAME =
 	"playwright-opentelemetry-trace-context";
@@ -39,6 +44,11 @@ export interface PlaywrightOtelFixtureSpansAttachment {
 type FlushFixtureSpansOptions = {
 	trace: PlaywrightTraceOption | undefined;
 	testInfo?: Pick<TestInfo, "attach" | "expectedStatus" | "retry" | "status">;
+};
+
+type RegisterExpectedTraceOptions = {
+	trace: PlaywrightTraceOption | undefined;
+	testInfo?: PlaywrightTracePreTestInfo;
 };
 
 export interface NetworkRequestTraceContext {
@@ -81,9 +91,14 @@ export async function createTestTraceContext(
 export async function registerExpectedTrace(
 	traceContext: TestTraceContext,
 	config: ResolvedPlaywrightOpentelemetryConfig,
+	options: RegisterExpectedTraceOptions,
 ): Promise<void> {
-	const destinations = config.playwrightTraceApiDestinations.filter(
-		(destination) => destination.url,
+	const couldRetainTrace = (trace: PlaywrightTraceOption | null) =>
+		couldRetainPlaywrightTrace(trace ?? options.trace, options.testInfo);
+	const destinations = filterRetainedDestinations(
+		config.playwrightTraceApiDestinations,
+		config.trace,
+		couldRetainTrace,
 	);
 
 	if (destinations.length === 0) {
@@ -191,28 +206,22 @@ function fixtureSpanDestinations(
 		headers: Record<string, string>;
 	}> = [];
 
-	for (const destination of config.playwrightTraceApiDestinations) {
-		if (
-			!destination.url ||
-			!shouldRetainTrace(destination.trace ?? config.trace)
-		) {
-			continue;
-		}
-
+	for (const destination of filterRetainedDestinations(
+		config.playwrightTraceApiDestinations,
+		config.trace,
+		shouldRetainTrace,
+	)) {
 		destinations.push({
 			tracesEndpoint: `${destination.url}/v1/traces`,
 			headers: withPlaywrightTraceApiHeaders(destination.headers),
 		});
 	}
 
-	for (const destination of config.otlpDestinations) {
-		if (
-			!destination.url ||
-			!shouldRetainTrace(destination.trace ?? config.trace)
-		) {
-			continue;
-		}
-
+	for (const destination of filterRetainedDestinations(
+		config.otlpDestinations,
+		config.trace,
+		shouldRetainTrace,
+	)) {
 		destinations.push({
 			tracesEndpoint: destination.url,
 			headers: destination.headers,

@@ -153,7 +153,7 @@ PUT /playwright-otel-reporter/v1/expected-trace
 X-Trace-Id: {traceId}
 ```
 
-Writes a zero-byte expected-trace marker to `traces/{traceId}/.expected`. The Playwright fixture sends this before the test body runs, which allows app-under-test telemetry that received the propagated `traceparent` header to be admitted.
+Writes a zero-byte expected-trace marker to `traces/{traceId}/.expected`. The Playwright fixture sends this before the test body runs when the configured trace mode could retain the current attempt, which allows app-under-test telemetry that received the propagated `traceparent` header to be admitted.
 
 ```
 PUT /playwright-otel-reporter/v1/screenshots.zip

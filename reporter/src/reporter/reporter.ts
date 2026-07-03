@@ -32,6 +32,7 @@ import {
 	type PlaywrightTraceOption,
 	shouldRetainPlaywrightTrace,
 } from "../shared/playwright-trace";
+import { filterRetainedDestinations } from "../shared/destinations";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -134,17 +135,16 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			config.storeTraceZip && shouldRetainTrace(config.trace);
 		const retainedConfig: ResolvedPlaywrightOpentelemetryConfig = {
 			...config,
-			otlpDestinations: config.otlpDestinations.filter(
-				(destination) =>
-					destination.url &&
-					shouldRetainTrace(destination.trace ?? config.trace),
+			otlpDestinations: filterRetainedDestinations(
+				config.otlpDestinations,
+				config.trace,
+				shouldRetainTrace,
 			),
-			playwrightTraceApiDestinations:
-				config.playwrightTraceApiDestinations.filter(
-					(destination) =>
-						destination.url &&
-						shouldRetainTrace(destination.trace ?? config.trace),
-				),
+			playwrightTraceApiDestinations: filterRetainedDestinations(
+				config.playwrightTraceApiDestinations,
+				config.trace,
+				shouldRetainTrace,
+			),
 			storeTraceZip: shouldStoreTraceZip,
 		};
 

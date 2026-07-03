@@ -71,7 +71,10 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 					playwrightOpentelemetry,
 				);
 				const traceContext = await createTestTraceContext(testInfo);
-				await registerExpectedTrace(traceContext, config);
+				await registerExpectedTrace(traceContext, config, {
+					trace,
+					testInfo,
+				});
 				await runWithTestFetchCapture(traceContext, () => use(traceContext));
 				await flushFixtureSpans(traceContext, config, {
 					trace,
