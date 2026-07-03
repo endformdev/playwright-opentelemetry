@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+	createInMemoryStorage,
 	createOtlpPayload,
 	createScreenshotBuffer,
 	createTestHarness,
+	createTestHarnessWithStorage,
 	generateTraceId,
+	registerExpectedTrace,
 } from "./testHarness";
 
 const VIEWER_PATH = "/playwright-otel-trace-viewer/v1";
@@ -13,6 +16,7 @@ describe("Trace API", () => {
 	it("stores and returns merged OTLP traces by trace ID", async () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
+		await registerExpectedTrace(app, traceId);
 
 		await postOtlp(
 			app,
@@ -47,6 +51,8 @@ describe("Trace API", () => {
 		const app = createTestHarness();
 		const traceA = generateTraceId();
 		const traceB = generateTraceId();
+		await registerExpectedTrace(app, traceA);
+		await registerExpectedTrace(app, traceB);
 		const payload = createOtlpPayload({
 			traceId: traceA,
 			spans: [span("trace A", "aaaaaaaaaaaaaaaa")],
@@ -112,6 +118,19 @@ describe("Trace API", () => {
 		expect(await zipResponse.arrayBuffer()).toEqual(buffer);
 	});
 
+	it("stores expected trace markers as zero-byte objects", async () => {
+		const storage = createInMemoryStorage();
+		const app = createTestHarnessWithStorage(storage);
+		const traceId = generateTraceId();
+
+		await registerExpectedTrace(app, traceId);
+
+		expect(await storage.head(`traces/${traceId}/.expected`)).toBe(true);
+		expect(await storage.get(`traces/${traceId}/.expected`)).toEqual(
+			new ArrayBuffer(0),
+		);
+	});
+
 	it("isolates traces and screenshots with resolvePath", async () => {
 		const app = createTestHarness({
 			resolvePath(event, path) {
@@ -119,6 +138,8 @@ describe("Trace API", () => {
 			},
 		});
 		const traceId = generateTraceId();
+		await registerExpectedTrace(app, traceId, { "X-Org-Id": "org-a" });
+		await registerExpectedTrace(app, traceId, { "X-Org-Id": "org-b" });
 
 		await postOtlp(
 			app,

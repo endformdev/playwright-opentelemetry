@@ -20,6 +20,8 @@ export interface TraceStorage {
 
 	get(path: string): Promise<ArrayBuffer | null>;
 
+	head(path: string): Promise<boolean>;
+
 	list(prefix: string): Promise<string[]>;
 }
 
@@ -107,6 +109,29 @@ export function createS3Storage(config: StorageConfig): TraceStorage {
 			}
 
 			return response.arrayBuffer();
+		},
+
+		async head(path: string): Promise<boolean> {
+			// Construct the S3 URL
+			const url = `${baseUrl}/${bucket}/${path}`;
+
+			// Make signed HEAD request
+			const response = await aws.fetch(url, {
+				method: "HEAD",
+			});
+
+			if (response.status === 404) {
+				return false;
+			}
+
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(
+					`S3 HEAD failed for ${path}: ${response.status} ${response.statusText} - ${errorText}`,
+				);
+			}
+
+			return true;
 		},
 
 		async list(prefix: string): Promise<string[]> {

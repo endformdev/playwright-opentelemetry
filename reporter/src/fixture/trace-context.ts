@@ -6,9 +6,15 @@ import {
 	sendSpans,
 	type Span,
 	type SpanEvent,
+	withPlaywrightTraceApiHeaders,
 } from "../shared/otel";
 import type { ResolvedPlaywrightOpentelemetryConfig } from "../shared/config";
-import { shouldRetainPlaywrightTrace } from "../shared/playwright-trace";
+import { filterRetainedDestinations } from "../shared/destinations";
+import {
+	couldRetainPlaywrightTrace,
+	type PlaywrightTracePreTestInfo,
+	shouldRetainPlaywrightTrace,
+} from "../shared/playwright-trace";
 
 export const TRACE_CONTEXT_ATTACHMENT_NAME =
 	"playwright-opentelemetry-trace-context";
@@ -38,6 +44,11 @@ export interface PlaywrightOtelFixtureSpansAttachment {
 type FlushFixtureSpansOptions = {
 	trace: PlaywrightTraceOption | undefined;
 	testInfo?: Pick<TestInfo, "attach" | "expectedStatus" | "retry" | "status">;
+};
+
+type RegisterExpectedTraceOptions = {
+	trace: PlaywrightTraceOption | undefined;
+	testInfo?: PlaywrightTracePreTestInfo;
 };
 
 export interface NetworkRequestTraceContext {
@@ -77,6 +88,56 @@ export async function createTestTraceContext(
 	return traceContext;
 }
 
+export async function registerExpectedTrace(
+	traceContext: TestTraceContext,
+	config: ResolvedPlaywrightOpentelemetryConfig,
+	options: RegisterExpectedTraceOptions,
+): Promise<void> {
+	const couldRetainTrace = (trace: PlaywrightTraceOption | null) =>
+		couldRetainPlaywrightTrace(trace ?? options.trace, options.testInfo);
+	const destinations = filterRetainedDestinations(
+		config.playwrightTraceApiDestinations,
+		config.trace,
+		couldRetainTrace,
+	);
+
+	if (destinations.length === 0) {
+		return;
+	}
+
+	const failures = await Promise.all(
+		destinations.map(async (destination) => {
+			try {
+				const response = await fetch(
+					`${destination.url}/playwright-otel-reporter/v1/expected-trace`,
+					{
+						method: "PUT",
+						headers: withPlaywrightTraceApiHeaders({
+							...destination.headers,
+							"x-trace-id": traceContext.traceId,
+						}),
+					},
+				);
+
+				if (!response.ok) {
+					const error = await response.text();
+					return `${destination.url}: ${response.status} ${response.statusText}, ${error}`;
+				}
+			} catch (error) {
+				return `${destination.url}: ${error instanceof Error ? error.message : String(error)}`;
+			}
+		}),
+	);
+
+	for (const failure of failures) {
+		if (failure) {
+			console.warn(
+				`Failed to register expected Playwright trace ${traceContext.traceId}: ${failure}`,
+			);
+		}
+	}
+}
+
 export async function flushFixtureSpans(
 	traceContext: TestTraceContext,
 	config: ResolvedPlaywrightOpentelemetryConfig,
@@ -89,7 +150,11 @@ export async function flushFixtureSpans(
 	const shouldRetainTrace = (trace: PlaywrightTraceOption | null) =>
 		shouldRetainPlaywrightTrace(trace ?? options.trace, options.testInfo);
 
-	if (config.storeTraceZip && options.testInfo && shouldRetainTrace(config.trace)) {
+	if (
+		config.storeTraceZip &&
+		options.testInfo &&
+		shouldRetainTrace(config.trace)
+	) {
 		await options.testInfo.attach(FIXTURE_SPANS_ATTACHMENT_NAME, {
 			body: JSON.stringify({
 				spans: traceContext.spans.map(serializeSpanForAttachment),
@@ -141,22 +206,22 @@ function fixtureSpanDestinations(
 		headers: Record<string, string>;
 	}> = [];
 
-	for (const destination of config.playwrightTraceApiDestinations) {
-		if (!destination.url || !shouldRetainTrace(destination.trace ?? config.trace)) {
-			continue;
-		}
-
+	for (const destination of filterRetainedDestinations(
+		config.playwrightTraceApiDestinations,
+		config.trace,
+		shouldRetainTrace,
+	)) {
 		destinations.push({
 			tracesEndpoint: `${destination.url}/v1/traces`,
-			headers: destination.headers,
+			headers: withPlaywrightTraceApiHeaders(destination.headers),
 		});
 	}
 
-	for (const destination of config.otlpDestinations) {
-		if (!destination.url || !shouldRetainTrace(destination.trace ?? config.trace)) {
-			continue;
-		}
-
+	for (const destination of filterRetainedDestinations(
+		config.otlpDestinations,
+		config.trace,
+		shouldRetainTrace,
+	)) {
 		destinations.push({
 			tracesEndpoint: destination.url,
 			headers: destination.headers,

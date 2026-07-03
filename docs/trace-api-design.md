@@ -14,6 +14,7 @@ Single directory structure with lifecycle-based retention:
 s3://bucket/
 └── traces/
     └── {traceId}/
+        ├── .expected
         ├── traces/
         │   └── {requestId}.json
         └── screenshots.zip
@@ -21,7 +22,7 @@ s3://bucket/
 
 All data writes directly to `traces/{traceId}/`. A lifecycle rule expires traces after a configurable retention period (default: 30 days).
 
-**Orphan spans** (OTLP data without a root `playwright.test` span) will accumulate until the lifecycle rule cleans them up. This is an acceptable trade-off for the simplicity of not needing existence checks, conditional routing, or promotion logic.
+The reporter fixture writes a zero-byte expected-trace marker at `traces/{traceId}/.expected` before the test body runs when the configured trace mode could retain that test attempt. Untrusted OTLP data is stored only when that marker already exists, so unrelated telemetry sent to the same OTLP endpoint is dropped instead of creating orphan trace prefixes. Reporter-originated data includes a predetermined source header and bypasses the marker check.
 
 ## Library Architecture
 
@@ -251,17 +252,33 @@ Body: Standard OTLP JSON payload
 **Backend logic:**
 1. Parse `traceId` from each span in the payload
 2. Partition the OTLP export by trace ID
-3. Write one OTLP-shaped fragment per trace ID to `traces/{traceId}/traces/{requestId}.json`
+3. If the request came from the Playwright reporter (`X-Playwright-Otel-Source: reporter`), accept every trace ID in the payload
+4. Otherwise, `HEAD` `traces/{traceId}/.expected` for each trace ID and keep only registered traces
+5. Write one OTLP-shaped fragment per accepted trace ID to `traces/{traceId}/traces/{requestId}.json`
 
 The fragment filename is a unique request ID, not a service name or span ID. OTLP payloads can contain spans for multiple traces, so storing trace-scoped fragments keeps reads efficient without exposing object layout through the public API.
 
-Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, custom instrumentation, etc.).
+Unknown untrusted trace IDs are silently dropped with HTTP `200`. This prevents generic OpenTelemetry exporters from retrying data that the Trace API intentionally ignored, and avoids surfacing expected drops as exporter rejection noise.
+
+Any OTLP-compatible instrumentation can send spans here (OpenTelemetry SDKs, custom instrumentation, etc.), but app-under-test spans are only retained after the reporter fixture has registered the test trace ID.
 
 ### Playwright-Specific Endpoints
 
 ```
+PUT /playwright-otel-reporter/v1/expected-trace
+X-Trace-Id: {traceId}
+X-Playwright-Otel-Source: reporter
+```
+
+**Backend logic:**
+1. Write a zero-byte marker to `traces/{traceId}/.expected`
+
+The fixture calls this endpoint at test setup when the trace mode could retain the current attempt, before it installs request tracing and before any browser request can receive a propagated `traceparent` header. That makes the marker available by the time app-under-test telemetry begins exporting spans.
+
+```
 PUT /playwright-otel-reporter/v1/screenshots.zip
 X-Trace-Id: {traceId}
+X-Playwright-Otel-Source: reporter
 
 Body: ZIP containing manifest.json and screenshots/*
 ```
@@ -347,10 +364,8 @@ trace-api/
 │   │   ├── playwright.ts     # createPlaywrightHandler - PUT /playwright-otel-reporter/v1/*
 │   │   └── viewer.ts         # createViewerHandler - GET /playwright-otel-trace-viewer/v1/*
 │   ├── storage/
-│   │   ├── types.ts          # Storage interface
-│   │   └── s3.ts             # createS3Storage - S3 implementation using aws4fetch
-│   └── utils/
-│       └── otlp.ts           # OTLP parsing helpers
+│   │   └── s3.ts             # TraceStorage interface and S3 implementation using aws4fetch
+│   └── otlp.ts               # OTLP parsing helpers
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -375,23 +390,25 @@ export type { TraceApiConfig, StorageConfig, TraceStorage } from './types';
 ## Lifecycle and Garbage Collection
 
 - **All traces**: S3 lifecycle rule expires objects in `traces/` after the configured retention period (recommended: 30 days)
-- **Orphan spans**: Traces without a root `playwright.test` span are cleaned up by the same lifecycle rule
+- **Expected-trace markers**: zero-byte `.expected` markers expire under the same lifecycle rule
+- **Unrelated OTLP data**: untrusted data for trace IDs without a marker is dropped and does not create stored orphan spans
 
-This approach accepts that some orphan data may exist temporarily, trading perfect cleanup for operational simplicity.
+This approach favors keeping the bucket focused on Playwright-related traces while still allowing app-under-test OpenTelemetry spans to join the trace after the fixture has propagated the test trace ID.
 
 ## Cost Characteristics
 
 Per-request costs (S3 Standard pricing, R2 is similar):
 - PUT: $0.005/1,000 requests
+- HEAD/GET: $0.0004/1,000 requests
 - GET: $0.0004/1,000 requests
 - LIST: $0.005/1,000 requests
 - Storage: $0.023/GB/month (S3), $0.015/GB/month (R2)
 
-The simplified architecture eliminates HEAD checks entirely, reducing both latency and cost per request.
+Reporter flow adds one small marker PUT per test trace. Untrusted OTLP ingest adds one HEAD check per distinct trace ID in the OTLP request. That HEAD is substantially cheaper than storing an unrelated fragment, and it avoids permanent storage growth for non-test telemetry sent to the same endpoint.
 
 ## Adding External Traces
 
-Any service can contribute spans to a trace by sending OTLP data with matching `traceId`:
+Any service can contribute spans to a trace by sending OTLP data with a matching, registered `traceId`:
 
 ```json
 {
@@ -417,7 +434,7 @@ Any service can contribute spans to a trace by sending OTLP data with matching `
 }
 ```
 
-The `traceId` is propagated via the `traceparent` HTTP header by the Playwright fixture, so backend services using OpenTelemetry will automatically correlate their spans with the test trace.
+The `traceId` is propagated via the `traceparent` HTTP header by the Playwright fixture, so backend services using OpenTelemetry will automatically correlate their spans with the test trace. The fixture registers the trace ID before test code runs when the trace mode could retain the attempt, so retained backend spans pass the marker check when they are exported to the Trace API.
 
 ## Multi-Tenancy Example
 

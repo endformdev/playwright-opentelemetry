@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
+import {
+	PLAYWRIGHT_TRACE_API_SOURCE_HEADER,
+	PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
+} from "../src/shared/otel";
 import { runReporterTest } from "./reporter-harness";
 
 const mockFetch = vi.fn();
@@ -108,6 +112,8 @@ describe("Trace API Integration", () => {
 		const otlpCall = otlpCalls[0];
 		expect(otlpCall[1].headers).toMatchObject({
 			"content-type": "application/json",
+			[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
+				PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 			Authorization: "Bearer test-token",
 		});
 		const otlpBody = JSON.parse(otlpCall[1].body);
@@ -212,6 +218,8 @@ describe("Trace API Integration", () => {
 		}
 		expect(screenshotsCall[1].headers).toMatchObject({
 			"x-trace-id": testSpan.traceId,
+			[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
+				PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 			Authorization: "Bearer test-token",
 		});
 
@@ -296,6 +304,8 @@ describe("Trace API Integration", () => {
 		expect(traceApiOtlpCalls).toHaveLength(1);
 		expect(traceApiOtlpCalls[0][1].headers).toMatchObject({
 			"content-type": "application/json",
+			[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
+				PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 			Authorization: "Bearer trace-api-token",
 		});
 
@@ -341,6 +351,8 @@ describe("Trace API Integration", () => {
 			);
 			expect(spansCall?.[1].headers).toMatchObject({
 				"content-type": "application/json",
+				[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
+					PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 				Authorization: authorization,
 			});
 
@@ -351,6 +363,8 @@ describe("Trace API Integration", () => {
 			);
 			expect(screenshotsCall?.[1].headers).toMatchObject({
 				"content-type": "application/zip",
+				[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
+					PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 				Authorization: authorization,
 			});
 		}
@@ -389,6 +403,9 @@ describe("Trace API Integration", () => {
 				"content-type": "application/json",
 				Authorization: authorization,
 			});
+			expect(spansCall?.[1].headers).not.toHaveProperty(
+				PLAYWRIGHT_TRACE_API_SOURCE_HEADER,
+			);
 		}
 	});
 });

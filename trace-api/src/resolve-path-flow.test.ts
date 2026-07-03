@@ -5,6 +5,7 @@ import {
 	createScreenshotBuffer,
 	createTestHarness,
 	generateTraceId,
+	registerExpectedTrace,
 } from "./testHarness";
 
 const REPORTER_PATH = "/playwright-otel-reporter/v1";
@@ -14,6 +15,8 @@ describe("multi-tenant trace API flows", () => {
 	it("keeps two tenants with the same trace ID from seeing each other's traces or screenshots", async () => {
 		const app = createTestHarness({ resolvePath: tenantPath });
 		const traceId = generateTraceId();
+		await registerExpectedTrace(app, traceId, { "X-Org-Id": "org-a" });
+		await registerExpectedTrace(app, traceId, { "X-Org-Id": "org-b" });
 
 		await postTenantTrace(app, "org-a", traceId, "org A checkout");
 		await postTenantTrace(app, "org-b", traceId, "org B checkout");

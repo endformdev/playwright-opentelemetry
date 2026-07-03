@@ -1,9 +1,17 @@
+import {
+	PLAYWRIGHT_SOURCE_HEADER,
+	PLAYWRIGHT_SOURCE_REPORTER,
+} from "@playwright-opentelemetry/trace-api";
 import { expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
 import { generateTraceId, SpanKind } from "./test-data-builder";
+
+const TRACE_API_REPORTER_HEADERS = {
+	[PLAYWRIGHT_SOURCE_HEADER]: PLAYWRIGHT_SOURCE_REPORTER,
+};
 
 test("keeps nested browser spans visually below their parents", async ({
 	page,
@@ -16,6 +24,7 @@ test("keeps nested browser spans visually below their parents", async ({
 	const childSpanId = "browserchild001";
 
 	await request.post(`${TRACE_API_URL}/v1/traces`, {
+		headers: TRACE_API_REPORTER_HEADERS,
 		data: {
 			resourceSpans: [
 				{
@@ -159,5 +168,8 @@ test("keeps nested browser spans visually below their parents", async ({
 		parentSpanId,
 	);
 	await expect(parentButton).toBeVisible();
-	await expect(parentButton).toHaveCSS("background-color", "rgb(116, 132, 245)");
+	await expect(parentButton).toHaveCSS(
+		"background-color",
+		"rgb(116, 132, 245)",
+	);
 });

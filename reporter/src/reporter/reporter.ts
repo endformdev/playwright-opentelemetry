@@ -22,13 +22,17 @@ import {
 import {
 	generateSpanId,
 	generateTraceId,
+	PLAYWRIGHT_TRACE_API_SOURCE_HEADER,
+	PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 	type SendSpansOptions,
 	type Span,
+	withPlaywrightTraceApiHeaders,
 } from "../shared/otel";
 import {
 	type PlaywrightTraceOption,
 	shouldRetainPlaywrightTrace,
 } from "../shared/playwright-trace";
+import { filterRetainedDestinations } from "../shared/destinations";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -131,17 +135,16 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			config.storeTraceZip && shouldRetainTrace(config.trace);
 		const retainedConfig: ResolvedPlaywrightOpentelemetryConfig = {
 			...config,
-			otlpDestinations: config.otlpDestinations.filter(
-				(destination) =>
-					destination.url &&
-					shouldRetainTrace(destination.trace ?? config.trace),
+			otlpDestinations: filterRetainedDestinations(
+				config.otlpDestinations,
+				config.trace,
+				shouldRetainTrace,
 			),
-			playwrightTraceApiDestinations:
-				config.playwrightTraceApiDestinations.filter(
-					(destination) =>
-						destination.url &&
-						shouldRetainTrace(destination.trace ?? config.trace),
-				),
+			playwrightTraceApiDestinations: filterRetainedDestinations(
+				config.playwrightTraceApiDestinations,
+				config.trace,
+				shouldRetainTrace,
+			),
 			storeTraceZip: shouldStoreTraceZip,
 		};
 
@@ -248,7 +251,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// them through the reporter except when local ZIP storage needs them.
 		this.spanBatches.push({ spans: testSpans, config: retainedConfig });
 
-		if (retainedConfig.storeTraceZip || hasTraceApiDestination(retainedConfig)) {
+		if (
+			retainedConfig.storeTraceZip ||
+			hasTraceApiDestination(retainedConfig)
+		) {
 			const prepared = this.prepareTraceArtifact({
 				test,
 				spans: testSpans,
@@ -309,7 +315,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 				addDestinationSpans(destinations, batch.spans, {
 					tracesEndpoint: `${destination.url}/v1/traces`,
-					headers: destination.headers,
+					headers: withPlaywrightTraceApiHeaders(destination.headers),
 					playwrightVersion: this.playwrightVersion || "unknown",
 					debug: batch.config.debug,
 				});
@@ -536,6 +542,8 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				"content-type": "application/zip",
 				"x-trace-id": traceId,
 				...destination.headers,
+				[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
+					PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 			},
 			body: screenshotsZip,
 		});

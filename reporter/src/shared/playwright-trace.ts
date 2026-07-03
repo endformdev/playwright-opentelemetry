@@ -24,6 +24,11 @@ export type PlaywrightTraceRetentionTestInfo = {
 	status?: string;
 };
 
+export type PlaywrightTracePreTestInfo = Pick<
+	PlaywrightTraceRetentionTestInfo,
+	"expectedStatus" | "retry"
+>;
+
 export function shouldRetainPlaywrightTrace(
 	trace: PlaywrightTraceOption | undefined,
 	testInfo?: PlaywrightTraceRetentionTestInfo,
@@ -49,6 +54,21 @@ export function shouldRetainPlaywrightTrace(
 		case "off":
 			return false;
 	}
+}
+
+export function couldRetainPlaywrightTrace(
+	trace: PlaywrightTraceOption | undefined,
+	testInfo?: PlaywrightTracePreTestInfo,
+): boolean {
+	const expectedStatus = testInfo?.expectedStatus ?? "passed";
+	const failingStatus = expectedStatus === "passed" ? "failed" : "passed";
+
+	return shouldRetainPlaywrightTrace(trace, {
+		expectedStatus,
+		retry: testInfo?.retry,
+		// Before the test runs, assume the outcome may mismatch expectations.
+		status: failingStatus,
+	});
 }
 
 function normalizeTraceMode(

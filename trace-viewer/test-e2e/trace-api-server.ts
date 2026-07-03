@@ -8,7 +8,7 @@ import {
 	TRACE_VIEWER_READ_PATH,
 	type TraceApiHandlerConfig,
 } from "@playwright-opentelemetry/trace-api";
-import { defineEventHandler, H3, serve } from "h3";
+import { defineEventHandler, getRouterParam, H3, serve } from "h3";
 
 const PORT = 9295;
 const BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE =
@@ -33,6 +33,10 @@ const storage = {
 	async get(path: string): Promise<ArrayBuffer | null> {
 		const obj = store.get(path);
 		return obj ? obj.data : null;
+	},
+
+	async head(path: string): Promise<boolean> {
+		return store.has(path);
 	},
 
 	async list(prefix: string): Promise<string[]> {
@@ -64,7 +68,8 @@ app.put(
 	defineEventHandler(async (event) => {
 		// Extract trace ID from X-Trace-Id header
 		const traceId = event.req.headers.get("x-trace-id");
-		if (traceId) {
+		const path = getRouterParam(event, "_");
+		if (traceId && path === "screenshots.zip") {
 			traceIds.add(traceId);
 		}
 

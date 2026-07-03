@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { PLAYWRIGHT_SOURCE_HEADER, PLAYWRIGHT_SOURCE_REPORTER } from "./api";
 import {
 	createInMemoryStorage,
 	createOtlpPayload,
 	createTestHarness,
 	createTestHarnessWithStorage,
 	generateTraceId,
+	registerExpectedTrace,
 } from "./testHarness";
 
 const VIEWER_PATH = "/playwright-otel-trace-viewer/v1";
@@ -13,6 +15,7 @@ describe("reading trace data through the viewer API", () => {
 	it("shows Playwright and backend spans that arrive in separate OTLP batches", async () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
+		await registerExpectedTrace(app, traceId);
 
 		await postOtlp(
 			app,
@@ -50,6 +53,8 @@ describe("reading trace data through the viewer API", () => {
 		const app = createTestHarness();
 		const traceA = generateTraceId();
 		const traceB = generateTraceId();
+		await registerExpectedTrace(app, traceA);
+		await registerExpectedTrace(app, traceB);
 		const payload = createOtlpPayload({
 			traceId: traceA,
 			serviceName: "backend-api",
@@ -69,6 +74,7 @@ describe("reading trace data through the viewer API", () => {
 	it("preserves multi-resource and multi-scope OTLP structure in the returned trace", async () => {
 		const app = createTestHarness();
 		const traceId = generateTraceId();
+		await registerExpectedTrace(app, traceId);
 
 		await postOtlp(app, {
 			resourceSpans: [
@@ -147,20 +153,80 @@ describe("reading trace data through the viewer API", () => {
 
 		expect(response.status).toBe(500);
 	});
+
+	it("drops untrusted OTLP spans for trace IDs that were not registered", async () => {
+		const app = createTestHarness();
+		const traceId = generateTraceId();
+
+		const response = await postOtlp(
+			app,
+			createOtlpPayload({
+				traceId,
+				serviceName: "backend-api",
+				spans: [span("HTTP GET /api/users")],
+			}),
+		);
+
+		expect(await response.json()).toEqual({});
+		expect(await readTraceStatus(app, traceId)).toBe(404);
+	});
+
+	it("stores registered traces and drops unknown traces from the same untrusted OTLP batch", async () => {
+		const app = createTestHarness();
+		const registeredTrace = generateTraceId();
+		const unknownTrace = generateTraceId();
+		await registerExpectedTrace(app, registeredTrace);
+		const payload = createOtlpPayload({
+			traceId: registeredTrace,
+			serviceName: "backend-api",
+			spans: [span("registered trace request")],
+		});
+		payload.resourceSpans[0].scopeSpans[0].spans.push({
+			...span("unknown trace request"),
+			traceId: unknownTrace,
+		});
+
+		const response = await postOtlp(app, payload);
+
+		expect(await response.json()).toEqual({});
+		expect(await readSpanNames(app, registeredTrace)).toEqual([
+			"registered trace request",
+		]);
+		expect(await readTraceStatus(app, unknownTrace)).toBe(404);
+	});
+
+	it("stores trusted reporter OTLP spans without requiring an expected-trace marker", async () => {
+		const app = createTestHarness();
+		const traceId = generateTraceId();
+
+		await postOtlp(
+			app,
+			createOtlpPayload({
+				traceId,
+				serviceName: "playwright-tests",
+				spans: [span("playwright.test")],
+			}),
+			{ [PLAYWRIGHT_SOURCE_HEADER]: PLAYWRIGHT_SOURCE_REPORTER },
+		);
+
+		expect(await readSpanNames(app, traceId)).toEqual(["playwright.test"]);
+	});
 });
 
 async function postOtlp(
 	app: ReturnType<typeof createTestHarness>,
 	payload: unknown,
-) {
+	headers: Record<string, string> = {},
+): Promise<Response> {
 	const response = await app.fetch(
 		new Request("http://localhost/v1/traces", {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: { "Content-Type": "application/json", ...headers },
 			body: JSON.stringify(payload),
 		}),
 	);
 	expect(response.status).toBe(200);
+	return response;
 }
 
 async function readSpanNames(
@@ -172,6 +238,16 @@ async function readSpanNames(
 	);
 	expect(response.status).toBe(200);
 	return spanNames(await response.json());
+}
+
+async function readTraceStatus(
+	app: ReturnType<typeof createTestHarness>,
+	traceId: string,
+) {
+	const response = await app.fetch(
+		new Request(`http://localhost${VIEWER_PATH}/${traceId}/traces`),
+	);
+	return response.status;
 }
 
 function span(name: string, traceId?: string) {

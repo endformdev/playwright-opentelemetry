@@ -1,6 +1,13 @@
+import {
+	PLAYWRIGHT_SOURCE_HEADER,
+	PLAYWRIGHT_SOURCE_REPORTER,
+} from "@playwright-opentelemetry/trace-api";
 import type { APIRequestContext } from "@playwright/test";
 
 const TRACE_API_URL = "http://localhost:9295";
+const TRACE_API_REPORTER_HEADERS = {
+	[PLAYWRIGHT_SOURCE_HEADER]: PLAYWRIGHT_SOURCE_REPORTER,
+};
 
 /**
  * Span kind values as per OpenTelemetry spec
@@ -374,6 +381,7 @@ export class TraceDataBuilder {
 	 */
 	async send(request: APIRequestContext): Promise<void> {
 		await request.post(`${TRACE_API_URL}/v1/traces`, {
+			headers: TRACE_API_REPORTER_HEADERS,
 			data: this.build(),
 		});
 	}
