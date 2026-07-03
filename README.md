@@ -30,7 +30,7 @@ const playwrightOpentelemetry: PlaywrightOpentelemetryConfig = {
 		},
 	},
 	// Add more OTLP traces endpoints:
-	// otlpEndpoints: [{ url: "https://collector-a.example.com/v1/traces" }],
+	// otlpEndpoints: [{ url: "https://collector-a.example.com/v1/traces", trace: "on" }],
 	// Or output an opentelemetry report zip
 	storeTraceZip: true,
 	// Defaults to true. When enabled, browser requests receive a W3C
@@ -119,7 +119,25 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 });
 ```
 
-When `playwrightOpentelemetry.trace` keeps a test but Playwright's own `trace` setting does not retain a trace attachment, OpenTelemetry spans are still exported, but Playwright screenshots are not available in the local or Trace API zip output.
+You can also override trace retention for individual OpenTelemetry destinations. A destination-level `trace` setting overrides `use.playwrightOpentelemetry.trace` for that endpoint only. For example, you can keep local trace zips limited to failures while sending every test attempt to a specific OTLP backend:
+
+```ts
+export default defineConfig<PlaywrightOpentelemetryUseOptions>({
+	use: {
+		playwrightOpentelemetry: {
+			trace: "retain-on-failure",
+			storeTraceZip: true,
+			otlpEndpoint: {
+				url: "https://all-traces.example.com/v1/traces",
+				trace: "on",
+			},
+		},
+		trace: "retain-on-failure",
+	},
+});
+```
+
+Note: if a Playwright Trace API destination uses `trace: "on"` but Playwright uses `trace: "on-first-retry"` (or `off`), first-run spans still upload, but screenshots may be missing because Playwright did not write a trace file. `storeTraceZip` follows only the top-level trace setting.
 
 ### Showing a trace
 

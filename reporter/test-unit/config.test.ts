@@ -89,6 +89,33 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 		});
 	});
 
+	it("preserves destination-specific trace overrides", () => {
+		expect(
+			resolvePlaywrightOpentelemetryConfig({
+				trace: "retain-on-failure",
+				otlpEndpoint: {
+					url: "https://primary.example.com/v1/traces",
+					trace: "on",
+				},
+				otlpEndpoints: [
+					{ url: "https://secondary.example.com/v1/traces" },
+				],
+				playwrightTraceApiEndpoint: {
+					url: "https://trace.example.com",
+					trace: "off",
+				},
+			}),
+		).toMatchObject({
+			otlpDestinations: [
+				{ url: "https://primary.example.com/v1/traces", trace: "on" },
+				{ url: "https://secondary.example.com/v1/traces", trace: null },
+			],
+			playwrightTraceApiDestinations: [
+				{ url: "https://trace.example.com", trace: "off" },
+			],
+		});
+	});
+
 	it("throws a configuration error when a destination is required", () => {
 		expect(() =>
 			resolvePlaywrightOpentelemetryConfig(undefined, {
@@ -181,13 +208,33 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 		).toEqual(
 			expect.objectContaining({
 				otlpDestinations: [
-					{ url: "https://primary.example.com/v1/traces", headers: {} },
-					{ url: "https://secondary-a.example.com/v1/traces", headers: {} },
-					{ url: "https://secondary-b.example.com/v1/traces", headers: {} },
+					{
+						url: "https://primary.example.com/v1/traces",
+						headers: {},
+						trace: null,
+					},
+					{
+						url: "https://secondary-a.example.com/v1/traces",
+						headers: {},
+						trace: null,
+					},
+					{
+						url: "https://secondary-b.example.com/v1/traces",
+						headers: {},
+						trace: null,
+					},
 				],
 				playwrightTraceApiDestinations: [
-					{ url: "https://trace-primary.example.com", headers: {} },
-					{ url: "https://trace-secondary.example.com", headers: {} },
+					{
+						url: "https://trace-primary.example.com",
+						headers: {},
+						trace: null,
+					},
+					{
+						url: "https://trace-secondary.example.com",
+						headers: {},
+						trace: null,
+					},
 				],
 			}),
 		);
@@ -252,8 +299,13 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 							authorization: "Bearer env-token",
 							"x-scope": "a=b",
 						},
+						trace: null,
 					},
-					{ url: "https://plural-otlp.example.com/v1/traces", headers: {} },
+					{
+						url: "https://plural-otlp.example.com/v1/traces",
+						headers: {},
+						trace: null,
+					},
 				],
 			}),
 		);
@@ -283,8 +335,13 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 							authorization: "Bearer env-token",
 							"x-scope": "a=b",
 						},
+						trace: null,
 					},
-					{ url: "https://plural-trace.example.com", headers: {} },
+					{
+						url: "https://plural-trace.example.com",
+						headers: {},
+						trace: null,
+					},
 				],
 			}),
 		);

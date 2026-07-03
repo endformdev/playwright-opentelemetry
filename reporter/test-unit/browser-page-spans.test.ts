@@ -325,6 +325,47 @@ describe("fixture browser span hierarchy", () => {
 		expect(attach).not.toHaveBeenCalled();
 	});
 
+	it("uses destination-specific trace overrides when flushing fixture spans", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		global.fetch = fetchMock;
+		const traceContext = createTraceContext();
+		traceContext.addSpan({
+			traceId: traceContext.traceId,
+			spanId: generateSpanId(),
+			parentSpanId: traceContext.rootSpanId,
+			name: "browser.page",
+			startTime: new Date("2025-11-06T10:00:00.000Z"),
+			endTime: new Date("2025-11-06T10:00:01.000Z"),
+			attributes: { "browser.resource.type": "page" },
+			events: [],
+			status: { code: 0 },
+			serviceName: "playwright-browser",
+		});
+		const attach = vi.fn<TestInfo["attach"]>(async () => {});
+		const testInfo = createFlushTestInfo({ attach });
+
+		await flushFixtureSpans(
+			traceContext,
+			resolvePlaywrightOpentelemetryConfig({
+				trace: "retain-on-failure",
+				otlpEndpoint: { url: "https://inherited.example.com/v1/traces" },
+				playwrightTraceApiEndpoint: {
+					url: "https://kept.example.com",
+					trace: "on",
+				},
+				storeTraceZip: true,
+			}),
+			{ trace: "on", testInfo },
+		);
+
+		expect(attach).not.toHaveBeenCalled();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://kept.example.com/v1/traces",
+			expect.objectContaining({ method: "POST" }),
+		);
+	});
+
 	it("does not create a same-document route for hash-only scroll updates", () => {
 		expect(
 			shouldCreateSameDocumentPageSpan(

@@ -72,7 +72,7 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				const traceContext = await createTestTraceContext(testInfo);
 				await runWithTestFetchCapture(traceContext, () => use(traceContext));
 				await flushFixtureSpans(traceContext, config, {
-					trace: config.trace ?? trace,
+					trace,
 					testInfo,
 				});
 			},

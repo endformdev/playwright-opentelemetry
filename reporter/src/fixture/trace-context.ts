@@ -86,11 +86,10 @@ export async function flushFixtureSpans(
 		return;
 	}
 
-	if (!shouldRetainPlaywrightTrace(options.trace, options.testInfo)) {
-		return;
-	}
+	const shouldRetainTrace = (trace: PlaywrightTraceOption | null) =>
+		shouldRetainPlaywrightTrace(trace ?? options.trace, options.testInfo);
 
-	if (config.storeTraceZip && options.testInfo) {
+	if (config.storeTraceZip && options.testInfo && shouldRetainTrace(config.trace)) {
 		await options.testInfo.attach(FIXTURE_SPANS_ATTACHMENT_NAME, {
 			body: JSON.stringify({
 				spans: traceContext.spans.map(serializeSpanForAttachment),
@@ -99,7 +98,7 @@ export async function flushFixtureSpans(
 		});
 	}
 
-	const destinations = fixtureSpanDestinations(config);
+	const destinations = fixtureSpanDestinations(config, shouldRetainTrace);
 	if (destinations.length === 0) {
 		return;
 	}
@@ -132,6 +131,7 @@ function serializeSpanForAttachment(
 
 function fixtureSpanDestinations(
 	config: ResolvedPlaywrightOpentelemetryConfig,
+	shouldRetainTrace: (trace: PlaywrightTraceOption | null) => boolean,
 ): Array<{
 	tracesEndpoint: string;
 	headers: Record<string, string>;
@@ -142,7 +142,7 @@ function fixtureSpanDestinations(
 	}> = [];
 
 	for (const destination of config.playwrightTraceApiDestinations) {
-		if (!destination.url) {
+		if (!destination.url || !shouldRetainTrace(destination.trace ?? config.trace)) {
 			continue;
 		}
 
@@ -153,7 +153,7 @@ function fixtureSpanDestinations(
 	}
 
 	for (const destination of config.otlpDestinations) {
-		if (!destination.url) {
+		if (!destination.url || !shouldRetainTrace(destination.trace ?? config.trace)) {
 			continue;
 		}
 

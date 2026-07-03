@@ -25,7 +25,10 @@ import {
 	type SendSpansOptions,
 	type Span,
 } from "../shared/otel";
-import { shouldRetainPlaywrightTrace } from "../shared/playwright-trace";
+import {
+	type PlaywrightTraceOption,
+	shouldRetainPlaywrightTrace,
+} from "../shared/playwright-trace";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -115,15 +118,34 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				attachment.contentType === "application/zip" &&
 				attachment.path,
 		);
-		const shouldProduceTrace =
-			config.trace === null
+		const traceRetentionTestInfo = {
+			expectedStatus: test.expectedStatus,
+			retry: result.retry,
+			status: result.status,
+		};
+		const shouldRetainTrace = (trace: PlaywrightTraceOption | null) =>
+			trace === null
 				? Boolean(traceAttachment)
-				: shouldRetainPlaywrightTrace(config.trace, {
-						expectedStatus: test.expectedStatus,
-						retry: result.retry,
-						status: result.status,
-					});
-		if (!shouldProduceTrace) {
+				: shouldRetainPlaywrightTrace(trace, traceRetentionTestInfo);
+		const shouldStoreTraceZip =
+			config.storeTraceZip && shouldRetainTrace(config.trace);
+		const retainedConfig: ResolvedPlaywrightOpentelemetryConfig = {
+			...config,
+			otlpDestinations: config.otlpDestinations.filter(
+				(destination) =>
+					destination.url &&
+					shouldRetainTrace(destination.trace ?? config.trace),
+			),
+			playwrightTraceApiDestinations:
+				config.playwrightTraceApiDestinations.filter(
+					(destination) =>
+						destination.url &&
+						shouldRetainTrace(destination.trace ?? config.trace),
+				),
+			storeTraceZip: shouldStoreTraceZip,
+		};
+
+		if (!hasPlaywrightOpentelemetryDestination(retainedConfig)) {
 			return;
 		}
 
@@ -133,7 +155,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			result,
 			testId,
 		);
-		const fixtureSpans = config.storeTraceZip
+		const fixtureSpans = retainedConfig.storeTraceZip
 			? readFixtureSpansAttachment(result, testId)
 			: [];
 
@@ -224,16 +246,16 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		// Fixture/browser spans are sent directly by the fixture to avoid serializing
 		// them through the reporter except when local ZIP storage needs them.
-		this.spanBatches.push({ spans: testSpans, config });
+		this.spanBatches.push({ spans: testSpans, config: retainedConfig });
 
-		if (config.storeTraceZip || hasTraceApiDestination(config)) {
+		if (retainedConfig.storeTraceZip || hasTraceApiDestination(retainedConfig)) {
 			const prepared = this.prepareTraceArtifact({
 				test,
 				spans: testSpans,
 				fixtureSpans,
 				traceAttachmentPath: traceAttachment?.path,
 				traceId,
-				config,
+				config: retainedConfig,
 				playwrightVersion: this.playwrightVersion || "unknown",
 			}).catch((error: unknown) => ({ error }));
 
@@ -571,6 +593,18 @@ function hasTraceApiDestination(
 ): boolean {
 	return config.playwrightTraceApiDestinations.some(
 		(destination) => destination.url,
+	);
+}
+
+function hasPlaywrightOpentelemetryDestination(
+	config: ResolvedPlaywrightOpentelemetryConfig,
+): boolean {
+	return Boolean(
+		config.storeTraceZip ||
+			config.otlpDestinations.some((destination) => destination.url) ||
+			config.playwrightTraceApiDestinations.some(
+				(destination) => destination.url,
+			),
 	);
 }
 

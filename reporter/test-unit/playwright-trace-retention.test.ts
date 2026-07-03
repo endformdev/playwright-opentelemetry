@@ -79,4 +79,64 @@ describe("PlaywrightOpentelemetryReporter trace retention", () => {
 
 		expect(sendSpans).toHaveBeenCalledTimes(1);
 	});
+
+	it("uses destination-specific trace overrides for OTLP endpoints", async () => {
+		await runReporterTest({
+			playwrightOpentelemetry: {
+				trace: "retain-on-failure",
+				otlpEndpoint: {
+					url: "https://kept.example.com/v1/traces",
+					trace: "on",
+				},
+				otlpEndpoints: [
+					{ url: "https://inherited.example.com/v1/traces" },
+					{ url: "https://discarded.example.com/v1/traces", trace: "off" },
+				],
+			},
+			test: { title: "destination trace override" },
+			result: { attachments: [] },
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		expect(sendSpans).toHaveBeenCalledWith(
+			expect.any(Array),
+			expect.objectContaining({
+				tracesEndpoint: "https://kept.example.com/v1/traces",
+			}),
+		);
+	});
+
+	it("uses destination-specific trace overrides for Trace API endpoints without a Playwright trace attachment", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			status: 200,
+			statusText: "OK",
+			text: async () => "",
+		});
+		global.fetch = fetchMock;
+
+		await runReporterTest({
+			playwrightOpentelemetry: {
+				trace: "retain-on-failure",
+				playwrightTraceApiEndpoint: {
+					url: "https://trace-api.example.com",
+					trace: "on",
+				},
+			},
+			test: { title: "trace api destination override" },
+			result: { attachments: [] },
+		});
+
+		expect(sendSpans).toHaveBeenCalledTimes(1);
+		expect(sendSpans).toHaveBeenCalledWith(
+			expect.any(Array),
+			expect.objectContaining({
+				tracesEndpoint: "https://trace-api.example.com/v1/traces",
+			}),
+		);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://trace-api.example.com/playwright-otel-reporter/v1/screenshots.zip",
+			expect.objectContaining({ method: "PUT" }),
+		);
+	});
 });

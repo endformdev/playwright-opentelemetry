@@ -4,11 +4,13 @@ import type { PlaywrightTraceOption } from "./playwright-trace";
 export type PlaywrightOpentelemetryDestination = {
 	url: string;
 	headers?: Record<string, string>;
+	trace?: PlaywrightTraceOption;
 };
 
 export type ResolvedPlaywrightOpentelemetryDestination = {
 	url: string;
 	headers: Record<string, string>;
+	trace: PlaywrightTraceOption | null;
 };
 
 export interface PlaywrightOpentelemetryConfig {
@@ -117,17 +119,20 @@ function resolveDestinationKind(options: {
 		primaryDestination = {
 			url: envEndpoint,
 			headers: parseOtlpHeaders(envHeaders),
+			trace: null,
 		};
 	} else if (options.singular) {
 		primaryDestination = {
 			url: options.singular.url,
 			headers: { ...options.singular.headers },
+			trace: options.singular.trace ?? null,
 		};
 	}
 
 	const additionalDestinations = (options.plural ?? []).map((destination) => ({
 		url: destination.url,
 		headers: { ...destination.headers },
+		trace: destination.trace ?? null,
 	}));
 
 	return primaryDestination
