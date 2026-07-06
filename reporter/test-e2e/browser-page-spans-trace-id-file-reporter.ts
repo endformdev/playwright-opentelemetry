@@ -9,6 +9,8 @@ const SPAN_EVENTS_TEST_NAME = "browser console and page error span events";
 const MULTI_CONTEXT_SCREENSHOTS_TEST_NAME =
 	"multiple browser contexts screenshot trace";
 const TEST_WORKER_FETCH_TRACE_TEST_NAME = "test worker fetch fixture trace";
+const NATIVE_API_REQUEST_TRACE_TEST_NAME =
+	"native Playwright request fixture trace";
 
 export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 	onTestEnd(test: TestCase, result: TestResult): void {
@@ -22,13 +24,16 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 			process.env.MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE;
 		const testWorkerFetchTraceIdFile =
 			process.env.TEST_WORKER_FETCH_TRACE_ID_FILE;
+		const nativeApiRequestTraceIdFile =
+			process.env.NATIVE_API_REQUEST_TRACE_ID_FILE;
 		if (
 			!browserPageSpansTraceIdFile &&
 			!browserPageSpansTraceZipPathFile &&
 			!errorSpansTraceIdFile &&
 			!spanEventsTraceIdFile &&
 			!multiContextScreenshotsTraceIdFile &&
-			!testWorkerFetchTraceIdFile
+			!testWorkerFetchTraceIdFile &&
+			!nativeApiRequestTraceIdFile
 		) {
 			return;
 		}
@@ -37,7 +42,8 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 			test.title !== ERROR_SPANS_TEST_NAME &&
 			test.title !== SPAN_EVENTS_TEST_NAME &&
 			test.title !== MULTI_CONTEXT_SCREENSHOTS_TEST_NAME &&
-			test.title !== TEST_WORKER_FETCH_TRACE_TEST_NAME
+			test.title !== TEST_WORKER_FETCH_TRACE_TEST_NAME &&
+			test.title !== NATIVE_API_REQUEST_TRACE_TEST_NAME
 		) {
 			return;
 		}
@@ -82,6 +88,13 @@ export default class BrowserPageSpansTraceIdFileReporter implements Reporter {
 			testWorkerFetchTraceIdFile
 		) {
 			writeFile(testWorkerFetchTraceIdFile, traceId);
+		}
+
+		if (
+			test.title === NATIVE_API_REQUEST_TRACE_TEST_NAME &&
+			nativeApiRequestTraceIdFile
+		) {
+			writeFile(nativeApiRequestTraceIdFile, traceId);
 		}
 	}
 }

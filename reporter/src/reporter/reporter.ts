@@ -380,7 +380,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		// If this step is from our fixture file, mark it and remove any already-created span
 		// (Playwright sometimes reports the same fixture twice, once without location first)
-		if (isInternalFixtureStep(step)) {
+		if (isInternalFixtureStep(step) || isInternalApiRequestStep(step)) {
 			skippedStepIds.add(stepId);
 
 			// Remove any span we already created for this stepId (from a duplicate without location)
@@ -763,16 +763,38 @@ function isInternalFixtureStep(step: TestStep): boolean {
 		return false;
 	}
 
-	const file = step.location.file.replace(/\\/g, "/");
+	return isInternalFixtureFile(step.location.file);
+}
+
+function isInternalApiRequestStep(step: TestStep): boolean {
+	if (step.category !== "pw:api" || !step.location?.file) {
+		return false;
+	}
+
+	return (
+		isApiRequestStepTitle(step.title) &&
+		isInternalFixtureFile(step.location.file)
+	);
+}
+
+function isApiRequestStepTitle(title: string): boolean {
+	return /^(?:DELETE|FETCH|GET|HEAD|PATCH|POST|PUT)\s+"/.test(title);
+}
+
+function isInternalFixtureFile(filePath: string): boolean {
+	const file = filePath.replace(/\\/g, "/");
 	return INTERNAL_FIXTURE_FILE_PATTERNS.some((pattern) => pattern.test(file));
 }
 
 const INTERNAL_FIXTURE_FILE_PATTERNS = [
 	/(?:^|\/)dist\/playwright-opentelemetry-fixture-[^/]+\.(?:mjs|cjs|js)$/,
+	/(?:^|\/)dist\/fixture\.(?:mjs|cjs|js)$/,
 	/(?:^|\/)playwright-opentelemetry\/dist\/fixture\.(?:mjs|cjs|js)$/,
+	/(?:^|\/)playwright-opentelemetry\/reporter\/dist\/fixture\.(?:mjs|cjs|js)$/,
 	/(?:^|\/)playwright-opentelemetry\/dist\/playwright-opentelemetry-fixture-[^/]+\.(?:mjs|cjs|js)$/,
 	/(?:^|\/)playwright-opentelemetry\/dist\/fixture\/index\.(?:mjs|cjs|js)$/,
 	/(?:^|\/)playwright-opentelemetry\/(?:reporter\/)?src\/fixture\/playwright-opentelemetry-fixture\.ts$/,
+	/(?:^|\/)playwright-opentelemetry\/(?:reporter\/)?src\/fixture\/api-request-capture\.ts$/,
 ] as const;
 
 function isSpanAttributes(value: unknown): value is Span["attributes"] {

@@ -9,6 +9,7 @@ import {
 	propagateRouteTraceHeaders,
 	storeRequestTraceContext,
 } from "./network-propagator";
+import { createCapturedApiRequestContext } from "./api-request-capture";
 import {
 	hasPlaywrightOpentelemetryReporter,
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
@@ -91,6 +92,9 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ auto: true },
 		],
+		request: async ({ request, testTraceContext }, use) => {
+			await use(createCapturedApiRequestContext(request, testTraceContext));
+		},
 		context: async (
 			{
 				context,
