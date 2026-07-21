@@ -21,7 +21,6 @@
 
 <p align="center">
 	<a href="https://www.npmjs.com/package/playwright-opentelemetry"><img src="https://img.shields.io/npm/v/playwright-opentelemetry" alt="npm version" /></a>
-	<a href="https://github.com/endformdev/playwright-opentelemetry/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/endformdev/playwright-opentelemetry/ci.yml?branch=main&label=CI" alt="CI status" /></a>
 	<a href="LICENSE"><img src="https://img.shields.io/npm/l/playwright-opentelemetry" alt="license" /></a>
 </p>
 
