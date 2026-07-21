@@ -50,19 +50,15 @@ test("renders test worker fetch fixture spans from the reporter API flow", async
 		"playwright.test root span",
 		(span) => span.name === "playwright.test",
 	);
-	const fetchSpan = requiredSpan(
-		spans,
-		"test worker fetch span",
-		(span) => {
-			const attrs = attributes(span);
-			return (
-				span.name === "HTTP GET" &&
-				span.serviceName === "playwright-tests" &&
-				attrs["url.path"] === "/fixture-fetch" &&
-				attrs["url.query"] === "source=test-worker"
-			);
-		},
-	);
+	const fetchSpan = requiredSpan(spans, "test worker fetch span", (span) => {
+		const attrs = attributes(span);
+		return (
+			span.name === "HTTP GET" &&
+			span.serviceName === "playwright-tests" &&
+			attrs["url.path"] === "/fixture-fetch" &&
+			attrs["url.query"] === "source=test-worker"
+		);
+	});
 
 	expect(fetchSpan.kind).toBe(3);
 	expect(fetchSpan.parentSpanId).toBe(testSpan.spanId);
@@ -80,7 +76,9 @@ test("renders test worker fetch fixture spans from the reporter API flow", async
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
 
-	await expect(viewer.header.testName).toHaveText("test worker fetch fixture trace");
+	await expect(viewer.header.testName).toHaveText(
+		"test worker fetch fixture trace",
+	);
 	await expect(viewer.steps.root).toBeVisible();
 	await expect(viewer.steps.spanById(fetchSpan.spanId)).toBeVisible();
 	await expect(viewer.externalSpans.spanById(fetchSpan.spanId)).toHaveCount(0);
@@ -102,8 +100,9 @@ async function loadTraceSpans(
 function flattenSpans(otlpExport: OtlpExport): SpanWithService[] {
 	return otlpExport.resourceSpans.flatMap((resourceSpan) => {
 		const serviceName = String(
-			attributes({ attributes: resourceSpan.resource.attributes })["service.name"] ??
-				"unknown",
+			attributes({ attributes: resourceSpan.resource.attributes })[
+				"service.name"
+			] ?? "unknown",
 		);
 		return resourceSpan.scopeSpans.flatMap((scopeSpan) =>
 			scopeSpan.spans.map((span) => ({ ...span, serviceName })),
@@ -129,7 +128,9 @@ function requiredSpan(
 	return span;
 }
 
-function attributes(span: Pick<OtlpSpan, "attributes">): Record<string, string | number | boolean> {
+function attributes(
+	span: Pick<OtlpSpan, "attributes">,
+): Record<string, string | number | boolean> {
 	return Object.fromEntries(
 		span.attributes.flatMap((attribute) => {
 			const value = attributeValue(attribute);

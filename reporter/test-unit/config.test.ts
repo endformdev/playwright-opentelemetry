@@ -97,9 +97,7 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 					url: "https://primary.example.com/v1/traces",
 					trace: "on",
 				},
-				otlpEndpoints: [
-					{ url: "https://secondary.example.com/v1/traces" },
-				],
+				otlpEndpoints: [{ url: "https://secondary.example.com/v1/traces" }],
 				playwrightTraceApiEndpoint: {
 					url: "https://trace.example.com",
 					trace: "off",

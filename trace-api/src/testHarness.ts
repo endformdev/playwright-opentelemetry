@@ -171,17 +171,14 @@ export async function registerExpectedTrace(
 	headers: Record<string, string> = {},
 ): Promise<void> {
 	const response = await app.fetch(
-		new Request(
-			`http://localhost/playwright-otel-reporter/v1/expected-trace`,
-			{
-				method: "PUT",
-				headers: {
-					"X-Trace-Id": traceId,
-					[PLAYWRIGHT_SOURCE_HEADER]: PLAYWRIGHT_SOURCE_REPORTER,
-					...headers,
-				},
+		new Request(`http://localhost/playwright-otel-reporter/v1/expected-trace`, {
+			method: "PUT",
+			headers: {
+				"X-Trace-Id": traceId,
+				[PLAYWRIGHT_SOURCE_HEADER]: PLAYWRIGHT_SOURCE_REPORTER,
+				...headers,
 			},
-		),
+		}),
 	);
 	expectOk(response);
 }

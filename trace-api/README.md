@@ -1,6 +1,15 @@
 # @playwright-opentelemetry/trace-api
 
-H3-based API library for storing and serving Playwright OpenTelemetry traces in S3-compatible object storage.
+[![npm version](https://img.shields.io/npm/v/@playwright-opentelemetry/trace-api)](https://www.npmjs.com/package/@playwright-opentelemetry/trace-api)
+[![license](https://img.shields.io/npm/l/@playwright-opentelemetry/trace-api)](https://github.com/endformdev/playwright-opentelemetry/blob/main/LICENSE)
+
+H3-based API library for storing and serving [Playwright OpenTelemetry](https://github.com/endformdev/playwright-opentelemetry) traces in S3-compatible object storage.
+
+## Installation
+
+```bash
+npm install @playwright-opentelemetry/trace-api
+```
 
 ## Introduction
 

@@ -1,10 +1,21 @@
 # Playwright OpenTelemetry Trace Viewer
 
-A SolidJS single-page application for viewing Playwright test execution traces in OpenTelemetry format.
+[![npm version](https://img.shields.io/npm/v/@playwright-opentelemetry/trace-viewer)](https://www.npmjs.com/package/@playwright-opentelemetry/trace-viewer)
+[![license](https://img.shields.io/npm/l/@playwright-opentelemetry/trace-viewer)](https://github.com/endformdev/playwright-opentelemetry/blob/main/LICENSE)
+
+A trace viewer designed around tests, part of [Playwright OpenTelemetry](https://github.com/endformdev/playwright-opentelemetry). A hosted copy runs at [trace.endform.dev](https://trace.endform.dev).
+
+![One test attempt, traced from the Playwright step through the browser request into the backend span that failed](https://raw.githubusercontent.com/endformdev/playwright-opentelemetry/main/docs/assets/hero-trace.png)
 
 ## Overview
 
-This trace viewer provides a rich, interactive visualization of Playwright test runs that have been exported to OpenTelemetry format. It displays test steps, timing information, screenshots captured during execution, and additional trace data like HTTP requests.
+The viewer reads OpenTelemetry trace data directly rather than a proprietary test-result format. The layout uses a time-aligned flame graph with a screenshot filmstrip above it, separated into three views that match how you investigate a failure:
+
+- **Test steps** for the Playwright test, hooks, fixtures, and actions
+- **Browser spans** for navigation, routes, JavaScript, fonts, images, fetches, and other requests
+- **External spans** for your instrumented application and backend services
+
+Console messages and uncaught browser errors appear as span events on the timeline. You can search span names and attributes, inspect span details and events, jump between errors, and zoom into a time range, while the screenshots stay synchronized with the timeline and grouped by browser context and page.
 
 ## Run the trace viewer
 
