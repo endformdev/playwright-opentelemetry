@@ -47,7 +47,9 @@ function ensureFetchPatched(): void {
 const patchedFetch: typeof fetch = async (input, init) => {
 	const traceContext = activeTraceContext;
 	if (!traceContext) {
-		return originalFetch ? originalFetch(input, init) : globalThis.fetch(input, init);
+		return originalFetch
+			? originalFetch(input, init)
+			: globalThis.fetch(input, init);
 	}
 
 	if (!originalFetch) {
@@ -103,7 +105,8 @@ function createFetchSpan({
 	const method = getFetchMethod(input, init);
 	const url = getFetchUrl(input);
 	const attributes = createHttpAttributes({ method, url, statusCode, error });
-	const failed = error !== undefined || (statusCode !== undefined && statusCode >= 400);
+	const failed =
+		error !== undefined || (statusCode !== undefined && statusCode >= 400);
 
 	return {
 		traceId: traceContext.traceId,
@@ -163,7 +166,8 @@ function createHttpAttributes({
 }
 
 function getFetchMethod(input: FetchInput, init?: FetchInit): string {
-	const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+	const method =
+		init?.method ?? (input instanceof Request ? input.method : "GET");
 	return method.toUpperCase();
 }
 

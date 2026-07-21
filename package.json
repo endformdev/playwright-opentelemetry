@@ -1,5 +1,7 @@
 {
-	"name": "playwright-opentelemetry",
+	"name": "playwright-opentelemetry-monorepo",
+	"private": true,
+	"license": "Apache-2.0",
 	"scripts": {
 		"build": "pnpm --recursive build",
 		"format": "biome format --write",

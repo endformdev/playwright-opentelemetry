@@ -8,7 +8,9 @@ export function getStepDepthColor(depth: number): string {
 }
 
 export function isPlaywrightStepSpan(span: Pick<Span, "name">): boolean {
-	return span.name === "playwright.test" || span.name === "playwright.test.step";
+	return (
+		span.name === "playwright.test" || span.name === "playwright.test.step"
+	);
 }
 
 export function getStepTimelineColor(span: Span, depth: number): string {
