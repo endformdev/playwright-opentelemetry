@@ -19,7 +19,7 @@
 <p align="center">
 	<a href="#quick-start">Quick start</a> ·
 	<a href="#usage">Usage</a> ·
-	<a href="https://trace.endform.dev">Hosted trace viewer</a> ·
+	<a href="https://trace.endform.dev/?traceSource=https%3A%2F%2Fdemo-traces.endform.dev%2Fotel-traces%2Fplaywright-tutorial%2Fpayment-server-error%2Fv1.zip"><strong>View example trace</strong></a> ·
 	<a href="#contributing">Contributing</a>
 </p>
 
@@ -118,7 +118,9 @@ test("has title", async ({ page }) => {
 });
 ```
 
-Run your suite, then open the resulting trace ZIP in the [hosted viewer](https://trace.endform.dev), or boot the viewer locally:
+Run your suite, then open the resulting trace ZIP in the [hosted viewer](https://trace.endform.dev). To see the result before configuring anything, [open the example trace](https://trace.endform.dev/?traceSource=https%3A%2F%2Fdemo-traces.endform.dev%2Fotel-traces%2Fplaywright-tutorial%2Fpayment-server-error%2Fv1.zip).
+
+You can also boot the viewer locally:
 
 ```bash
 npx @playwright-opentelemetry/trace-viewer
@@ -267,7 +269,7 @@ Note: if a Playwright Trace API destination uses `trace: "on"` but Playwright us
 
 ### Viewing a trace
 
-Go to the [hosted trace viewer](https://trace.endform.dev).
+Open the [example trace](https://trace.endform.dev/?traceSource=https%3A%2F%2Fdemo-traces.endform.dev%2Fotel-traces%2Fplaywright-tutorial%2Fpayment-server-error%2Fv1.zip) to explore a complete failure with connected Playwright, browser, and backend spans, or go to the [hosted trace viewer](https://trace.endform.dev) to load your own trace ZIP.
 
 Or boot your own locally:
 
