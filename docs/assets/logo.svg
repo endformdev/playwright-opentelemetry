@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="56" height="24" viewBox="0 0 56 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-	<g>
+<svg xmlns="http://www.w3.org/2000/svg" width="39" height="24" viewBox="0 0 39 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+	<g transform="translate(2 4) scale(.8)">
 		<path d="M10 11h.01"/>
 		<path d="M14 6h.01"/>
 		<path d="M18 6h.01"/>
@@ -9,7 +9,7 @@
 		<path d="M10.1 7.1C9 7.2 7.7 7.7 6 8.6c-3.5 2-4.7 3.9-3.7 5.6 4.5 7.8 9.5 8.4 11.2 7.4.9-.5 1.9-2.1 1.9-4.7"/>
 		<path d="M9.1 16.5c.3-1.1 1.4-1.7 2.4-1.4"/>
 	</g>
-	<g transform="translate(32 0)">
+	<g transform="translate(14 -2)">
 		<path d="m10.065 12.493-6.18 1.318a.934.934 0 0 1-1.108-.702l-.537-2.15a1.07 1.07 0 0 1 .691-1.265l13.504-4.44"/>
 		<path d="m13.56 11.747 4.332-.924"/>
 		<path d="m16 21-3.105-6.21"/>
