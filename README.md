@@ -48,15 +48,19 @@ One trace ID connects the failed step to everything that ran beneath it.
 
 ## How it works
 
-Three parts combine into a single test-shaped trace. Each part is optional, so you can adopt as much or as little as fits your setup.
+A trace is produced by three sources of spans:
+
+- The **reporter** turns each retained test attempt into a root `playwright.test` span, with steps, hooks, fixtures, and actions as child spans.
+- The **fixture** records browser activity (navigations, requests, console messages, page errors) as spans and injects a W3C `traceparent` header into browser requests.
+- Your **backend spans**: the fixture's reach stops at the browser, but any service already instrumented with OpenTelemetry that honors the propagated `traceparent` header attaches its spans beneath the test automatically.
+
+This repo ships the reporter and fixture, plus tooling for viewing and storing the traces they produce:
 
 | Package | What it does |
 | --- | --- |
-| [`playwright-opentelemetry`](reporter/) | A **reporter** that turns each retained test attempt into a root `playwright.test` span, with steps, hooks, fixtures, and actions as child spans. A **fixture** that records browser activity (navigations, requests, console messages, page errors) and injects a W3C `traceparent` header into browser requests so instrumented backends attach their spans beneath the test. |
-| [`@playwright-opentelemetry/trace-viewer`](trace-viewer/) | A **trace viewer** designed around tests: a time-aligned flame graph with a screenshot filmstrip, split into test steps, browser spans, and external (backend) spans. Also [hosted at trace.endform.dev](https://trace.endform.dev). |
-| [`@playwright-opentelemetry/trace-api`](trace-api/) | An **OTLP-compatible Trace API** that stores trace fragments in S3-compatible object storage and serves Playwright screenshots as a separate, manifest-backed artifact. Deployable to Cloudflare Workers, Deno, Bun, or Node.js. |
-
-The fixture's reach stops at the browser. Every span deeper than that comes from your own services, continuing the context they received. Any service already running OpenTelemetry and honoring the `traceparent` header takes part automatically.
+| [`playwright-opentelemetry`](reporter/) | The **reporter** and **fixture** to produce OpenTelemetry traces. |
+| [`@playwright-opentelemetry/trace-viewer`](trace-viewer/) | A **trace viewer** for OpenTelemetry trace data rendered alongside Playwright's screenshot filmstrip: a time-aligned flame graph split into test steps, browser spans, and external (backend) spans. Also [hosted at trace.endform.dev](https://trace.endform.dev). |
+| [`@playwright-opentelemetry/trace-api`](trace-api/) | An **OTLP-compatible Trace API** that makes it easy to store trace data together with the screenshot artifacts, backed by S3-compatible object storage. Deployable to Cloudflare Workers, Deno, Bun, or Node.js. |
 
 ![One browser request, its backend descendants, and the database query that ran underneath, all in the same trace](docs/assets/browser-to-db.png)
 
