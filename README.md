@@ -19,7 +19,7 @@
 <p align="center">
 	<a href="#quick-start">Quick start</a> ·
 	<a href="#usage">Usage</a> ·
-	<a href="https://trace.endform.dev/?traceSource=https%3A%2F%2Fdemo-traces.endform.dev%2Fotel-traces%2Fplaywright-tutorial%2Fpayment-server-error%2Fv1.zip"><strong>View example trace</strong></a> ·
+	<a href="https://trace.endform.dev/?traceSource=https%3A%2F%2Fdemo-traces.endform.dev%2Fotel-traces%2Fplaywright-tutorial%2Fpayment-server-error%2Fv1.zip">View example trace</a> ·
 	<a href="#contributing">Contributing</a>
 </p>
 
