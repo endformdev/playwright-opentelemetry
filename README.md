@@ -31,9 +31,9 @@
 
 ## Why
 
-A failing end-to-end test can show you the click, the spinner, the outgoing network request, and a final screenshot of a page that never finished loading. Every one of those details is accurate, and not one of them tells you why the operation failed. The answer is usually beyond the network boundary, in an application handler, a failed queue consumer, or a database query that never ran. The browser only tells half the story.
+A failing end-to-end test shows you everything the browser saw and nothing about why it failed. The real cause is usually beyond the network boundary: an application handler, a failed queue consumer, a database query that never ran.
 
-The missing half becomes available the moment the test itself starts a distributed trace. Instead of the test ending at the browser, it becomes the root of a trace that reaches every instrumented service the user journey touched:
+When the test itself starts a distributed trace, it becomes the root of every instrumented service the user journey touched:
 
 ```text
 Playwright test
@@ -44,7 +44,7 @@ Playwright test
                     -> database query
 ```
 
-One trace ID runs the length of that chain. The failed test step is no longer an isolated screenshot, it is the top of a causal record you can read straight down into the backend. Because development and production run the same instrumentation, watching test traces during development also surfaces vague span names and missing attributes long before a production incident does.
+One trace ID connects the failed step to everything that ran beneath it.
 
 ## How it works
 
