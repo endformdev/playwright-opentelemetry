@@ -4,14 +4,6 @@
 		<img src="docs/assets/logo.svg" height="96" alt="Playwright OpenTelemetry" />
 	</picture>
 </p>
-<p align="center">
-	<a href="https://endform.dev">
-		<picture>
-			<source media="(prefers-color-scheme: dark)" srcset="docs/assets/endform-logo-dark.svg" />
-			<img src="docs/assets/endform-logo.svg" height="24" alt="Endform" />
-		</picture>
-	</a>
-</p>
 
 <h1 align="center">Playwright OpenTelemetry</h1>
 
@@ -347,6 +339,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and the 
 
 ## License
 
-[Apache-2.0](LICENSE), built by [Endform](https://endform.dev).
+[Apache-2.0](LICENSE).
 
 Playwright and OpenTelemetry are trademarks of their respective owners. This project is not affiliated with or endorsed by the Playwright or OpenTelemetry projects.
+
+---
+
+<p align="center">Built by</p>
+<p align="center">
+	<a href="https://endform.dev">
+		<picture>
+			<source media="(prefers-color-scheme: dark)" srcset="docs/assets/endform-logo-dark.svg" />
+			<img src="docs/assets/endform-logo.svg" height="24" alt="Endform" />
+		</picture>
+	</a>
+</p>
