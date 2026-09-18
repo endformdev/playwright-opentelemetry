@@ -139,7 +139,6 @@ export function MultiResizablePanel(props: MultiResizablePanelProps) {
 
 						{/* Resize handle (between panels, not after the last one) */}
 						{index() < props.panels.length - 1 && (
-							// biome-ignore lint/a11y/useSemanticElements: resize handle requires custom drag interaction
 							<div
 								role="separator"
 								aria-orientation={isHorizontal() ? "vertical" : "horizontal"}

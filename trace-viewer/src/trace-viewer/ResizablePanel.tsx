@@ -74,7 +74,6 @@ export function ResizablePanel(props: ResizablePanelProps) {
 			</div>
 
 			{/* Resize Handle */}
-			{/* biome-ignore lint/a11y/useSemanticElements: resize handle requires custom drag interaction */}
 			<div
 				role="separator"
 				aria-orientation={isHorizontal() ? "vertical" : "horizontal"}
