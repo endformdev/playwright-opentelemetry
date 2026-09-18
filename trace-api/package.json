@@ -39,7 +39,6 @@
 		"h3": "catalog:"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "catalog:",
 		"@types/node": "catalog:",
 		"tsdown": "catalog:",
 		"typescript": "catalog:",

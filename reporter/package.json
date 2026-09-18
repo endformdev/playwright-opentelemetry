@@ -61,7 +61,6 @@
 		"@zip.js/zip.js": "catalog:"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "catalog:",
 		"@playwright/test": "catalog:",
 		"@types/bun": "^1.3.14",
 		"@types/node": "catalog:",

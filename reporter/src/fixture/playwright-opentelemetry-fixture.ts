@@ -55,7 +55,7 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			{ scope: "worker", auto: true },
 		],
 		testTraceInfo: [
-			// biome-ignore lint/correctness/noUnusedFunctionParameters: playwright fails if object not used
+			// oxlint-disable-next-line no-unused-vars -- Playwright fails if the fixture dependency is omitted
 			async ({ playwright }, use, testInfo) => {
 				// Use the "global" / project output dir, not the test specific output dir
 				const outputDir = path.dirname(testInfo.outputDir);

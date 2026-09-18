@@ -4,7 +4,8 @@
 	"license": "Apache-2.0",
 	"scripts": {
 		"build": "pnpm --recursive build",
-		"format": "biome format --write",
+		"format": "oxfmt --write",
+		"lint": "oxlint",
 		"test": "vitest",
 		"tsc": "tsc --build",
 		"release": "pnpx bumpp reporter/package.json trace-viewer/package.json trace-api/package.json --commit --tag --push"
@@ -14,7 +15,8 @@
 		"node": "^24.0.0"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "catalog:",
+		"oxfmt": "^0.68.0",
+		"oxlint": "^1.83.0",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}
