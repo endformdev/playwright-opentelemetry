@@ -67,6 +67,8 @@ const patchedFetch: typeof fetch = async (input, init) => {
 				startTime,
 				endTime: new Date(),
 				statusCode: response.status,
+				contentType: response.headers.get("content-type"),
+				cacheControl: response.headers.get("cache-control"),
 			}),
 		);
 		return response;
@@ -92,6 +94,8 @@ function createFetchSpan({
 	startTime,
 	endTime,
 	statusCode,
+	contentType,
+	cacheControl,
 	error,
 }: {
 	input: FetchInput;
@@ -100,11 +104,20 @@ function createFetchSpan({
 	startTime: Date;
 	endTime: Date;
 	statusCode?: number;
+	contentType?: string | null;
+	cacheControl?: string | null;
 	error?: unknown;
 }): FixtureSpan {
 	const method = getFetchMethod(input, init);
 	const url = getFetchUrl(input);
-	const attributes = createHttpAttributes({ method, url, statusCode, error });
+	const attributes = createHttpAttributes({
+		method,
+		url,
+		statusCode,
+		contentType,
+		cacheControl,
+		error,
+	});
 	const failed =
 		error !== undefined || (statusCode !== undefined && statusCode >= 400);
 
@@ -128,11 +141,15 @@ function createHttpAttributes({
 	method,
 	url,
 	statusCode,
+	contentType,
+	cacheControl,
 	error,
 }: {
 	method: string;
 	url: string;
 	statusCode?: number;
+	contentType?: string | null;
+	cacheControl?: string | null;
 	error?: unknown;
 }): FixtureSpan["attributes"] {
 	const attributes: FixtureSpan["attributes"] = {
@@ -160,6 +177,13 @@ function createHttpAttributes({
 		}
 	} else if (error !== undefined) {
 		attributes["error.type"] = errorType(error);
+	}
+
+	if (contentType) {
+		attributes["http.response.header.content-type"] = [contentType];
+	}
+	if (cacheControl) {
+		attributes["http.response.header.cache-control"] = [cacheControl];
 	}
 
 	return attributes;
