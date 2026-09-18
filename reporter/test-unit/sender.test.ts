@@ -274,6 +274,10 @@ describe("sendSpans", () => {
 					"string.attr": "text",
 					"int.attr": 123,
 					"bool.attr": true,
+					"http.response.header.cache-control": [
+						"public, max-age=31536000, immutable",
+					],
+					"http.response.header.content-type": ["text/javascript"],
 				},
 				status: { code: 1 },
 			},
@@ -289,6 +293,22 @@ describe("sendSpans", () => {
 			{ key: "string.attr", value: { stringValue: "text" } },
 			{ key: "int.attr", value: { intValue: 123 } },
 			{ key: "bool.attr", value: { boolValue: true } },
+			{
+				key: "http.response.header.cache-control",
+				value: {
+					arrayValue: {
+						values: [{ stringValue: "public, max-age=31536000, immutable" }],
+					},
+				},
+			},
+			{
+				key: "http.response.header.content-type",
+				value: {
+					arrayValue: {
+						values: [{ stringValue: "text/javascript" }],
+					},
+				},
+			},
 		]);
 	});
 

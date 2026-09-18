@@ -17,7 +17,7 @@ describe("fixture request/response capture", () => {
 
 		await fixtureCaptureRequestResponse({
 			request: createRequest("https://example.com/fulfilled-by-user-route"),
-			response: createResponse(200, "application/json"),
+			response: createResponse(200, { "content-type": "application/json" }),
 			traceContext,
 		});
 
@@ -36,7 +36,9 @@ describe("fixture request/response capture", () => {
 
 		await fixtureCaptureRequestResponse({
 			request,
-			response: createResponse(404, "application/json"),
+			response: createResponse(404, {
+				"content-type": "application/json",
+			}),
 			traceContext,
 		});
 
@@ -62,6 +64,71 @@ describe("fixture request/response capture", () => {
 				}),
 			}),
 		]);
+		expect(traceContext.spans[0].attributes).not.toHaveProperty(
+			"http.response.header.cache-control",
+		);
+		expect(traceContext.spans[0].attributes).toHaveProperty(
+			"http.response.header.content-type",
+			["application/json"],
+		);
+	});
+
+	it("captures allow-listed response headers as string arrays", async () => {
+		const traceContext = createTraceContext();
+		const request = createRequest("https://example.com/assets/app.js");
+		traceContext.requestContexts.set(request, {
+			traceId: traceContext.traceId,
+			spanId: "2222222222222222",
+			parentSpanId: traceContext.rootSpanId,
+			routeAssociation: "active-page",
+		});
+
+		await fixtureCaptureRequestResponse({
+			request,
+			response: createResponse(200, {
+				"cache-control": "public, max-age=31536000, immutable",
+				"content-type": "text/javascript",
+			}),
+			traceContext,
+		});
+
+		expect(traceContext.spans[0].attributes).toEqual(
+			expect.objectContaining({
+				"http.response.header.cache-control": [
+					"public, max-age=31536000, immutable",
+				],
+				"http.response.header.content-type": ["text/javascript"],
+				"http.resource.type": "script",
+			}),
+		);
+	});
+
+	it("still emits the span when reading response headers fails", async () => {
+		const traceContext = createTraceContext();
+		const request = createRequest("https://example.com/assets/app.js");
+		traceContext.requestContexts.set(request, {
+			traceId: traceContext.traceId,
+			spanId: "2222222222222222",
+			parentSpanId: traceContext.rootSpanId,
+			routeAssociation: "active-page",
+		});
+
+		await fixtureCaptureRequestResponse({
+			request,
+			response: createResponse(200, new Error("page closed")),
+			traceContext,
+		});
+
+		expect(traceContext.spans[0].attributes).toEqual({
+			"http.request.method": "GET",
+			"url.full": "https://example.com/assets/app.js",
+			"url.path": "/assets/app.js",
+			"server.address": "example.com",
+			"server.port": 443,
+			"http.response.status_code": 200,
+			"http.resource.type": "script",
+			"browser.request.route_association": "active-page",
+		});
 	});
 
 	it("propagates traceparent headers by default", async () => {
@@ -106,7 +173,7 @@ describe("fixture request/response capture", () => {
 		await route.fallback();
 		await fixtureCaptureRequestResponse({
 			request,
-			response: createResponse(200, "application/json"),
+			response: createResponse(200, { "content-type": "application/json" }),
 			traceContext,
 		});
 
@@ -193,10 +260,17 @@ function createRoute(): Route & {
 	};
 }
 
-function createResponse(status: number, contentType: string): Response {
+function createResponse(
+	status: number,
+	headers: Record<string, string> | Error,
+): Response {
 	return {
 		status: () => status,
-		headerValue: async (name: string) =>
-			name.toLowerCase() === "content-type" ? contentType : null,
+		allHeaders: async () => {
+			if (headers instanceof Error) {
+				throw headers;
+			}
+			return headers;
+		},
 	} as Response;
 }

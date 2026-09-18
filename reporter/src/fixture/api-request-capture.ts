@@ -43,6 +43,7 @@ export function createCapturedApiRequestContext(
 							startTime,
 							endTime: new Date(),
 							statusCode: response.status(),
+							responseHeaders: response.headers(),
 						}),
 					);
 					return response;
@@ -71,6 +72,7 @@ function createApiRequestSpan({
 	startTime,
 	endTime,
 	statusCode,
+	responseHeaders,
 	error,
 }: {
 	methodName: string;
@@ -79,11 +81,18 @@ function createApiRequestSpan({
 	startTime: Date;
 	endTime: Date;
 	statusCode?: number;
+	responseHeaders?: Record<string, string>;
 	error?: unknown;
 }): FixtureSpan {
 	const method = getRequestMethod(methodName, args);
 	const url = getRequestUrl(args[0]);
-	const attributes = createHttpAttributes({ method, url, statusCode, error });
+	const attributes = createHttpAttributes({
+		method,
+		url,
+		statusCode,
+		responseHeaders,
+		error,
+	});
 	const failed =
 		error !== undefined || (statusCode !== undefined && statusCode >= 400);
 
@@ -107,11 +116,13 @@ function createHttpAttributes({
 	method,
 	url,
 	statusCode,
+	responseHeaders,
 	error,
 }: {
 	method: string;
 	url: string;
 	statusCode?: number;
+	responseHeaders?: Record<string, string>;
 	error?: unknown;
 }): FixtureSpan["attributes"] {
 	const attributes: FixtureSpan["attributes"] = {
@@ -140,6 +151,15 @@ function createHttpAttributes({
 		}
 	} else if (error !== undefined) {
 		attributes["error.type"] = errorType(error);
+	}
+
+	const contentType = responseHeaders?.["content-type"];
+	const cacheControl = responseHeaders?.["cache-control"];
+	if (contentType) {
+		attributes["http.response.header.content-type"] = [contentType];
+	}
+	if (cacheControl) {
+		attributes["http.response.header.cache-control"] = [cacheControl];
 	}
 
 	return attributes;

@@ -19,6 +19,10 @@ describe("test worker fetch capture", () => {
 		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
 			new Response("{}", {
 				status: 201,
+				headers: {
+					"cache-control": "public, max-age=31536000, immutable",
+					"content-type": "application/json",
+				},
 			}),
 		);
 		globalThis.fetch = fetchMock;
@@ -49,6 +53,10 @@ describe("test worker fetch capture", () => {
 					"server.address": "api.example.com",
 					"server.port": 8443,
 					"http.response.status_code": 201,
+					"http.response.header.cache-control": [
+						"public, max-age=31536000, immutable",
+					],
+					"http.response.header.content-type": ["application/json"],
 				}),
 			}),
 		]);

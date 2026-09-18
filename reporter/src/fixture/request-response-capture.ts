@@ -265,13 +265,15 @@ export async function fixtureCaptureRequestResponse({
 	}
 
 	// Response events can outlive page teardown; resource detection can fall back to the URL.
-	const contentType = await getResponseHeaderValue(response, "content-type");
+	const responseHeaders = await getResponseHeaders(response);
+	const contentType = responseHeaders?.["content-type"] ?? null;
+	const cacheControl = responseHeaders?.["cache-control"];
 
 	// Detect resource type from Content-Type with URL extension fallback
 	const resourceType = detectResourceType(contentType, url);
 
 	// Build attributes following OpenTelemetry HTTP semantic conventions
-	const attributes: Record<string, string | number | boolean> = {
+	const attributes: FixtureSpan["attributes"] = {
 		"http.request.method": method,
 		"url.full": url,
 		"url.path": parsedUrl.pathname,
@@ -285,6 +287,12 @@ export async function fixtureCaptureRequestResponse({
 	// Add query string if present (without the leading '?')
 	if (parsedUrl.search) {
 		attributes["url.query"] = parsedUrl.search.slice(1);
+	}
+	if (contentType) {
+		attributes["http.response.header.content-type"] = [contentType];
+	}
+	if (cacheControl) {
+		attributes["http.response.header.cache-control"] = [cacheControl];
 	}
 
 	// For error responses, set error.type to the status code
@@ -310,12 +318,11 @@ export async function fixtureCaptureRequestResponse({
 	traceContext.addSpan(networkSpan);
 }
 
-async function getResponseHeaderValue(
+async function getResponseHeaders(
 	response: Response,
-	name: string,
-): Promise<string | null> {
+): Promise<Record<string, string> | null> {
 	try {
-		return await response.headerValue(name);
+		return await response.allHeaders();
 	} catch {
 		return null;
 	}
