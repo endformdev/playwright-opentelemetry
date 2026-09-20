@@ -56,8 +56,10 @@ test("renders separate screenshot rows for multiple browser contexts", async ({
 			.toBeGreaterThan(0);
 	}
 
-	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(0));
-	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(1));
+	// Real traces can contain frames omitted from the sampled filmstrip. The
+	// details panel selects the latest frame at the cursor time on the same page.
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(0), true);
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(1), true);
 });
 
 test("shows separate page rows with two and a half rows by default", async ({
@@ -544,6 +546,7 @@ async function findFilmstripGapHoverTarget(
 async function expectDetailsToMatchHoveredScreenshot(
 	viewer: TraceViewerPage,
 	row: Locator,
+	sampled = false,
 ): Promise<void> {
 	const screenshot = row.locator("[data-screenshot-timestamp]").first();
 	const [timestamp, pageId] = await Promise.all([
@@ -564,7 +567,7 @@ async function expectDetailsToMatchHoveredScreenshot(
 	});
 	await expect(viewer.details.screenshot()).toHaveAttribute(
 		"data-screenshot-timestamp",
-		timestamp,
+		sampled ? /\d+/ : timestamp,
 	);
 	await expect(viewer.details.screenshot()).toHaveAttribute(
 		"data-screenshot-page-id",
