@@ -54,6 +54,7 @@ export function getZipFilename(test: TestCase, testId: string): string {
 }
 
 const PLAYWRIGHT_TRACE_RESOURCES_DIR = "resources/";
+const PLAYWRIGHT_TRACE_SCREENCAST_DIR = "screencast/";
 
 /**
  * Pattern to match Playwright screenshot filenames: {name}@{hex-hash}-{timestamp}.jpeg
@@ -90,19 +91,12 @@ export async function extractScreenshotsFromPlaywrightTrace(
 			entries
 				.filter((entry): entry is FileEntry => {
 					if (!isFileEntry(entry)) return false;
-					if (!entry.filename.startsWith(PLAYWRIGHT_TRACE_RESOURCES_DIR))
-						return false;
-					const name = entry.filename.slice(
-						PLAYWRIGHT_TRACE_RESOURCES_DIR.length,
-					);
-					return PLAYWRIGHT_SCREENSHOT_PATTERN.test(name);
+					return screenshotResourceName(entry.filename) !== null;
 				})
 				.map(async (entry) => {
-					const filename = entry.filename.slice(
-						PLAYWRIGHT_TRACE_RESOURCES_DIR.length,
-					);
+					const filename = screenshotResourceName(entry.filename)!;
 					const blob = await entry.getData(new BlobWriter("image/jpeg"));
-					const metadata = screenshotMetadata.get(filename);
+					const metadata = screenshotMetadata.get(entry.filename);
 					screenshots.set(filename, {
 						blob,
 						file: filename,
@@ -260,7 +254,7 @@ async function extractScreenshotTraceMetadata(
 	await Promise.all(
 		traceEntries.map(async (entry) => {
 			const text = await entry.getData(new TextWriter());
-			let contextId = "unknown-context";
+			let contextId = entry.filename;
 
 			for (const line of text.split("\n")) {
 				if (!line.trim()) continue;
@@ -275,12 +269,18 @@ async function extractScreenshotTraceMetadata(
 					continue;
 				}
 
+				const screenshotPath =
+					typeof event.file === "string"
+						? event.file
+						: typeof event.sha1 === "string"
+							? `${PLAYWRIGHT_TRACE_RESOURCES_DIR}${event.sha1}`
+							: null;
 				if (
 					event.type === "screencast-frame" &&
-					typeof event.sha1 === "string" &&
+					screenshotPath &&
 					typeof event.pageId === "string"
 				) {
-					metadata.set(event.sha1, {
+					metadata.set(screenshotPath, {
 						contextId,
 						pageId: event.pageId,
 					});
@@ -341,4 +341,14 @@ function getMimeType(filename: string): string {
 
 function isFileEntry(entry: Entry): entry is FileEntry {
 	return !entry.directory;
+}
+
+function screenshotResourceName(filename: string): string | null {
+	const prefix = [
+		PLAYWRIGHT_TRACE_RESOURCES_DIR,
+		PLAYWRIGHT_TRACE_SCREENCAST_DIR,
+	].find((directory) => filename.startsWith(directory));
+	if (!prefix) return null;
+	const name = filename.slice(prefix.length);
+	return PLAYWRIGHT_SCREENSHOT_PATTERN.test(name) ? name : null;
 }

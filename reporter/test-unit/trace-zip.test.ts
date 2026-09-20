@@ -1193,6 +1193,50 @@ describe("extractScreenshotsFromPlaywrightTrace", () => {
 		expect(screenshots.has("page@abc123-999999.jpeg")).toBe(true);
 	});
 
+	it("extracts Playwright 1.63 screencast files and keeps contexts without IDs separate", async () => {
+		const filenames = [
+			"page@abc123-1789891675551.jpeg",
+			"page@def456-1789891676408.jpeg",
+		];
+		const files = filenames.flatMap((filename, index) => [
+			{ filename: `screencast/${filename}`, content: minimalJpeg },
+			{
+				filename: `${index}-trace.trace`,
+				content: Buffer.from(
+					[
+						{ version: 9, type: "context-options", origin: "library" },
+						{
+							type: "screencast-frame",
+							file: `screencast/${filename}`,
+							pageId: `page-${index}`,
+							timestamp: 100 + index,
+						},
+					]
+						.map((event) => JSON.stringify(event))
+						.join("\n"),
+				),
+			},
+		]);
+		const traceZipPath = await createTraceZipWithResources(files);
+		const screenshots =
+			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
+		expect(screenshots.size).toBe(2);
+		for (const [index, filename] of filenames.entries()) {
+			const screenshot = screenshots.get(filename)!;
+			expect(screenshot).toMatchObject({
+				file: filename,
+				contextId: `${index}-trace.trace`,
+				pageId: `page-${index}`,
+				contentType: "image/jpeg",
+			});
+			expect(Buffer.from(await screenshot.blob.arrayBuffer())).toEqual(
+				minimalJpeg,
+			);
+		}
+		expect(screenshots.get(filenames[0]!)!.timestamp).toBe(1789891675551);
+		expect(screenshots.get(filenames[1]!)!.timestamp).toBe(1789891676408);
+	});
+
 	it("extracts browser context and page metadata from trace events", async () => {
 		outputDir = createTestOutputDir("extract-multi-context-screenshots");
 		const firstContextId = "browser-context@first";
