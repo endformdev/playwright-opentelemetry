@@ -35,7 +35,6 @@ describe("getElementsAtTime", () => {
 	): ScreenshotInfo => ({
 		timestamp,
 		url,
-		contextId: "browser-context@test",
 		pageId: "page@test",
 	});
 

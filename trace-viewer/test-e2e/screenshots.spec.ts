@@ -24,12 +24,10 @@ test("renders separate screenshot rows for multiple browser contexts", async ({
 	const rows = viewer.screenshots.rows();
 	await expect(rows).toHaveCount(2, { timeout: 10000 });
 
-	const rowContextIds = await rows.evaluateAll((elements) =>
-		elements.map((element) =>
-			element.getAttribute("data-screenshot-context-id"),
-		),
+	const rowPageIds = await rows.evaluateAll((elements) =>
+		elements.map((element) => element.getAttribute("data-screenshot-page-id")),
 	);
-	expect(new Set(rowContextIds).size).toBe(2);
+	expect(new Set(rowPageIds).size).toBe(2);
 
 	const sourceCounts = (
 		await rows.evaluateAll((elements) =>
@@ -114,20 +112,15 @@ test("shows separate page rows with two and a half rows by default", async ({
 			"data-screenshot-source-count",
 			"1",
 		);
-		const pageIds = await rows
-			.nth(rowIndex)
-			.getAttribute("data-screenshot-page-ids");
-		expect(pageIds?.split(",")).toHaveLength(1);
+		await expect(rows.nth(rowIndex)).toHaveAttribute(
+			"data-screenshot-page-id",
+			/.+/,
+		);
 	}
-	const pageIdRows = await rows.evaluateAll((elements) =>
-		elements.map((element) => ({
-			contextId: element.getAttribute("data-screenshot-context-id"),
-			pageIds: element.getAttribute("data-screenshot-page-ids"),
-		})),
+	const pageIds = await rows.evaluateAll((elements) =>
+		elements.map((element) => element.getAttribute("data-screenshot-page-id")),
 	);
-	expect(
-		new Set(pageIdRows.map((row) => `${row.contextId}:${row.pageIds}`)).size,
-	).toBe(8);
+	expect(new Set(pageIds).size).toBe(8);
 
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(0)))
@@ -321,7 +314,6 @@ interface CreateScreenshotsZipOptions {
 interface CreateScreenshotsZipFromOffsetsOptions {
 	testStartTime: number;
 	screenshotOffsetsMs: number[];
-	contextId?: string;
 	pageId?: string;
 }
 
@@ -330,7 +322,6 @@ interface ScreenshotManifestEntry {
 	file: string;
 	path: string;
 	contentType: string;
-	contextId: string;
 	pageId: string;
 }
 
@@ -344,9 +335,9 @@ async function createScreenshotsZip({
 	const screenshots: ScreenshotManifestEntry[] = [];
 
 	for (let contextIndex = 1; contextIndex <= contextCount; contextIndex++) {
-		const contextId = `context-${contextIndex}`;
+		const contextLabel = `context-${contextIndex}`;
 		for (let pageIndex = 1; pageIndex <= pagesPerContext; pageIndex++) {
-			const pageId = `${contextId}-page-${pageIndex}`;
+			const pageId = `${contextLabel}-page-${pageIndex}`;
 			const timestamp = testStartTime + contextIndex * 100 + pageIndex * 10;
 			const file = `${pageId}-${timestamp}.svg`;
 			const path = `screenshots/${file}`;
@@ -356,12 +347,11 @@ async function createScreenshotsZip({
 				file,
 				path,
 				contentType: "image/svg+xml",
-				contextId,
 				pageId,
 			});
 			await zipWriter.add(
 				path,
-				new Blob([screenshotSvg(contextId, pageId)], {
+				new Blob([screenshotSvg(contextLabel, pageId)], {
 					type: "image/svg+xml",
 				}).stream(),
 			);
@@ -372,7 +362,7 @@ async function createScreenshotsZip({
 		"manifest.json",
 		new Blob([
 			JSON.stringify({
-				version: 2,
+				version: 3,
 				screenshots,
 			}),
 		]).stream(),
@@ -384,7 +374,6 @@ async function createScreenshotsZip({
 async function createScreenshotsZipFromOffsets({
 	testStartTime,
 	screenshotOffsetsMs,
-	contextId = "context-1",
 	pageId = "context-1-page-1",
 }: CreateScreenshotsZipFromOffsetsOptions): Promise<Blob> {
 	const blobWriter = new BlobWriter("application/zip");
@@ -400,12 +389,11 @@ async function createScreenshotsZipFromOffsets({
 			file,
 			path,
 			contentType: "image/svg+xml",
-			contextId,
 			pageId,
 		});
 		await zipWriter.add(
 			path,
-			new Blob([screenshotSvg(contextId, `${pageId} @ ${offsetMs}ms`)], {
+			new Blob([screenshotSvg("context-1", `${pageId} @ ${offsetMs}ms`)], {
 				type: "image/svg+xml",
 			}).stream(),
 		);
@@ -415,7 +403,7 @@ async function createScreenshotsZipFromOffsets({
 		"manifest.json",
 		new Blob([
 			JSON.stringify({
-				version: 2,
+				version: 3,
 				screenshots,
 			}),
 		]).stream(),
@@ -424,8 +412,8 @@ async function createScreenshotsZipFromOffsets({
 	return zipWriter.close();
 }
 
-function screenshotSvg(contextId: string, pageId: string): string {
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#dbeafe"/><text x="320" y="165" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#1e3a8a">${contextId}</text><text x="320" y="215" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#1e40af">${pageId}</text></svg>`;
+function screenshotSvg(label: string, pageId: string): string {
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#dbeafe"/><text x="320" y="165" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#1e3a8a">${label}</text><text x="320" y="215" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#1e40af">${pageId}</text></svg>`;
 }
 
 async function visibleRatioInScreenshotRegion(row: Locator): Promise<number> {
@@ -558,13 +546,12 @@ async function expectDetailsToMatchHoveredScreenshot(
 	row: Locator,
 ): Promise<void> {
 	const screenshot = row.locator("[data-screenshot-timestamp]").first();
-	const [timestamp, contextId, pageId] = await Promise.all([
+	const [timestamp, pageId] = await Promise.all([
 		screenshot.getAttribute("data-screenshot-timestamp"),
-		screenshot.getAttribute("data-screenshot-context-id"),
 		screenshot.getAttribute("data-screenshot-page-id"),
 	]);
 
-	if (!timestamp || !contextId || !pageId) {
+	if (!timestamp || !pageId) {
 		throw new Error("Screenshot row is missing screenshot metadata");
 	}
 
@@ -578,10 +565,6 @@ async function expectDetailsToMatchHoveredScreenshot(
 	await expect(viewer.details.screenshot()).toHaveAttribute(
 		"data-screenshot-timestamp",
 		timestamp,
-	);
-	await expect(viewer.details.screenshot()).toHaveAttribute(
-		"data-screenshot-context-id",
-		contextId,
 	);
 	await expect(viewer.details.screenshot()).toHaveAttribute(
 		"data-screenshot-page-id",

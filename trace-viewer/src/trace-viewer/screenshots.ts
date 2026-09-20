@@ -20,5 +20,5 @@ export function isSameScreenshotPage(
 	first: ScreenshotInfo,
 	second: ScreenshotInfo,
 ): boolean {
-	return first.contextId === second.contextId && first.pageId === second.pageId;
+	return first.pageId === second.pageId;
 }

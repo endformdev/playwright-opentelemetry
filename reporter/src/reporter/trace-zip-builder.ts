@@ -17,12 +17,11 @@ export interface ScreenshotManifestEntry {
 	file: string;
 	path: string;
 	contentType: string;
-	contextId: string;
 	pageId: string;
 }
 
 export interface ScreenshotManifest {
-	version: 2;
+	version: 3;
 	screenshots: ScreenshotManifestEntry[];
 }
 
@@ -30,14 +29,8 @@ export interface ScreenshotResource {
 	timestamp: number;
 	file: string;
 	contentType: string;
-	contextId: string;
 	pageId: string;
 	blob: Blob;
-}
-
-interface ScreenshotTraceMetadata {
-	contextId: string;
-	pageId: string;
 }
 
 /**
@@ -64,11 +57,12 @@ const PLAYWRIGHT_SCREENSHOT_PATTERN = /^.+@[a-f0-9]+-\d+\.jpe?g$/i;
 
 /**
  * Extract screenshots from a Playwright trace ZIP file.
- * Screenshots are stored in the resources/ directory with names like:
- * {pageGuid}-{timestamp}.jpeg (e.g., page@abc123-1766929201038.jpeg)
+ * Screencast frames are named {pageGuid}-{timestamp}.jpeg
+ * (e.g., page@abc123-1766929201038.jpeg) and live in resources/ for
+ * Playwright <= 1.62 or screencast/ for Playwright >= 1.63.
  *
  * @param traceZipPath - Path to the Playwright trace.zip file
- * @returns Map of filename (without resources/ prefix) to screenshot resources
+ * @returns Map of filename (without directory prefix) to screenshot resources
  */
 export async function extractScreenshotsFromPlaywrightTrace(
 	traceZipPath: string,
@@ -83,29 +77,28 @@ export async function extractScreenshotsFromPlaywrightTrace(
 		// Open the ZIP and get entries
 		const zipReader = new ZipReader(new BlobReader(zipBlob));
 		const entries = await zipReader.getEntries();
-		const screenshotMetadata = await extractScreenshotTraceMetadata(entries);
+		const pageIdByPath = await extractScreencastPageIds(entries);
 
-		// Extract screenshot files from resources/ directory
+		const screenshotEntries = entries.flatMap((entry) => {
+			if (!isFileEntry(entry)) return [];
+			const filename = screenshotResourceName(entry.filename);
+			return filename ? [{ entry, filename }] : [];
+		});
+
 		// Process concurrently for efficiency
 		await Promise.all(
-			entries
-				.filter((entry): entry is FileEntry => {
-					if (!isFileEntry(entry)) return false;
-					return screenshotResourceName(entry.filename) !== null;
-				})
-				.map(async (entry) => {
-					const filename = screenshotResourceName(entry.filename)!;
-					const blob = await entry.getData(new BlobWriter("image/jpeg"));
-					const metadata = screenshotMetadata.get(entry.filename);
-					screenshots.set(filename, {
-						blob,
-						file: filename,
-						timestamp: extractTimestampFromFilename(filename),
-						contentType: getMimeType(filename),
-						contextId: metadata?.contextId ?? "unknown-context",
-						pageId: metadata?.pageId ?? extractResourceIdFromFilename(filename),
-					});
-				}),
+			screenshotEntries.map(async ({ entry, filename }) => {
+				const blob = await entry.getData(new BlobWriter("image/jpeg"));
+				screenshots.set(filename, {
+					blob,
+					file: filename,
+					timestamp: extractTimestampFromFilename(filename),
+					contentType: getMimeType(filename),
+					pageId:
+						pageIdByPath.get(entry.filename) ??
+						extractResourceIdFromFilename(filename),
+				});
+			}),
 		);
 
 		await zipReader.close();
@@ -231,21 +224,25 @@ function createScreenshotManifest(
 			file: screenshot.file,
 			path: `screenshots/${screenshot.file}`,
 			contentType: screenshot.contentType,
-			contextId: screenshot.contextId,
 			pageId: screenshot.pageId,
 		}))
 		.sort((a, b) => a.timestamp - b.timestamp);
 
 	return {
-		version: 2,
+		version: 3,
 		screenshots: entries,
 	};
 }
 
-async function extractScreenshotTraceMetadata(
+/**
+ * Map screencast frame zip paths to the page that produced them.
+ * Playwright <= 1.62 (trace v8) references frames via `sha1` relative to
+ * resources/; Playwright >= 1.63 (trace v9+) uses a zip-relative `file` path.
+ */
+async function extractScreencastPageIds(
 	entries: Entry[],
-): Promise<Map<string, ScreenshotTraceMetadata>> {
-	const metadata = new Map<string, ScreenshotTraceMetadata>();
+): Promise<Map<string, string>> {
+	const pageIdByPath = new Map<string, string>();
 	const traceEntries = entries.filter(
 		(entry): entry is FileEntry =>
 			isFileEntry(entry) && isPlaywrightTraceEntry(entry.filename),
@@ -254,20 +251,13 @@ async function extractScreenshotTraceMetadata(
 	await Promise.all(
 		traceEntries.map(async (entry) => {
 			const text = await entry.getData(new TextWriter());
-			let contextId = entry.filename;
 
 			for (const line of text.split("\n")) {
 				if (!line.trim()) continue;
 				const event = parseTraceEvent(line);
 				if (!event) continue;
-
-				if (
-					event.type === "context-options" &&
-					typeof event.contextId === "string"
-				) {
-					contextId = event.contextId;
-					continue;
-				}
+				if (event.type !== "screencast-frame") continue;
+				if (typeof event.pageId !== "string") continue;
 
 				const screenshotPath =
 					typeof event.file === "string"
@@ -275,21 +265,12 @@ async function extractScreenshotTraceMetadata(
 						: typeof event.sha1 === "string"
 							? `${PLAYWRIGHT_TRACE_RESOURCES_DIR}${event.sha1}`
 							: null;
-				if (
-					event.type === "screencast-frame" &&
-					screenshotPath &&
-					typeof event.pageId === "string"
-				) {
-					metadata.set(screenshotPath, {
-						contextId,
-						pageId: event.pageId,
-					});
-				}
+				if (screenshotPath) pageIdByPath.set(screenshotPath, event.pageId);
 			}
 		}),
 	);
 
-	return metadata;
+	return pageIdByPath;
 }
 
 function isPlaywrightTraceEntry(filename: string): boolean {

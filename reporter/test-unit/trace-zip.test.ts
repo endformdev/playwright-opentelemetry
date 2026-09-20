@@ -77,7 +77,8 @@ async function createMockPlaywrightTraceZip(
 	screenshots: Array<{
 		pageGuid: string;
 		timestamp: number;
-		contextId?: string;
+		/** Which browser context (and therefore which N-trace.trace file) the frame belongs to. */
+		context?: string;
 		pageId?: string;
 	}>,
 ): Promise<string> {
@@ -91,23 +92,22 @@ async function createMockPlaywrightTraceZip(
 		Array<{ pageGuid: string; timestamp: number; pageId: string }>
 	>();
 	for (const screenshot of screenshots) {
-		const contextId = screenshot.contextId ?? "browser-context@default";
-		const contextScreenshots = screenshotsByContext.get(contextId) ?? [];
+		const context = screenshot.context ?? "default";
+		const contextScreenshots = screenshotsByContext.get(context) ?? [];
 		contextScreenshots.push({
 			pageGuid: screenshot.pageGuid,
 			timestamp: screenshot.timestamp,
 			pageId: screenshot.pageId ?? screenshot.pageGuid,
 		});
-		screenshotsByContext.set(contextId, contextScreenshots);
+		screenshotsByContext.set(context, contextScreenshots);
 	}
 
 	let contextIndex = 0;
-	for (const [contextId, contextScreenshots] of screenshotsByContext) {
+	for (const contextScreenshots of screenshotsByContext.values()) {
 		const traceEvents = [
 			{
 				version: 8,
 				type: "context-options",
-				contextId,
 				origin: "library",
 			},
 			...contextScreenshots.map((screenshot) => ({
@@ -377,7 +377,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			);
 			expect(screenshotFiles).toHaveLength(2);
 			expect(JSON.parse(zipEntries.get("manifest.json") as string)).toEqual({
-				version: 2,
+				version: 3,
 				screenshots: screenshotFiles
 					.map((filepath) => {
 						const filename = path.basename(filepath);
@@ -389,7 +389,6 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 							file: filename,
 							path: filepath,
 							contentType: "image/jpeg",
-							contextId: "browser-context@default",
 							pageId: pageGuid,
 						};
 					})
@@ -514,7 +513,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			const zipEntries = await readZipEntries(expectedZipPath);
 			expect(zipEntries.has("traces/playwright-opentelemetry.json")).toBe(true);
 			expect(JSON.parse(zipEntries.get("manifest.json") as string)).toEqual({
-				version: 2,
+				version: 3,
 				screenshots: [],
 			});
 		});
@@ -1193,7 +1192,7 @@ describe("extractScreenshotsFromPlaywrightTrace", () => {
 		expect(screenshots.has("page@abc123-999999.jpeg")).toBe(true);
 	});
 
-	it("extracts Playwright 1.63 screencast files and keeps contexts without IDs separate", async () => {
+	it("extracts Playwright 1.63 screencast files referenced by zip-relative path", async () => {
 		const filenames = [
 			"page@abc123-1789891675551.jpeg",
 			"page@def456-1789891676408.jpeg",
@@ -1225,7 +1224,6 @@ describe("extractScreenshotsFromPlaywrightTrace", () => {
 			const screenshot = screenshots.get(filename)!;
 			expect(screenshot).toMatchObject({
 				file: filename,
-				contextId: `${index}-trace.trace`,
 				pageId: `page-${index}`,
 				contentType: "image/jpeg",
 			});
@@ -1237,30 +1235,25 @@ describe("extractScreenshotsFromPlaywrightTrace", () => {
 		expect(screenshots.get(filenames[1]!)!.timestamp).toBe(1789891676408);
 	});
 
-	it("extracts browser context and page metadata from trace events", async () => {
+	it("attributes pre-1.63 sha1-referenced frames to pages across multiple contexts", async () => {
 		outputDir = createTestOutputDir("extract-multi-context-screenshots");
-		const firstContextId = "browser-context@first";
-		const secondContextId = "browser-context@second";
 		const firstPageId = "page@111aaa";
 		const secondPageId = "page@222bbb";
 
 		const traceZipPath = await createMockPlaywrightTraceZip(outputDir, [
 			{
 				pageGuid: firstPageId,
-				pageId: firstPageId,
-				contextId: firstContextId,
+				context: "first",
 				timestamp: 1766833384425,
 			},
 			{
 				pageGuid: secondPageId,
-				pageId: secondPageId,
-				contextId: secondContextId,
+				context: "second",
 				timestamp: 1766833384525,
 			},
 			{
 				pageGuid: secondPageId,
-				pageId: secondPageId,
-				contextId: secondContextId,
+				context: "second",
 				timestamp: 1766833384625,
 			},
 		]);
@@ -1268,14 +1261,13 @@ describe("extractScreenshotsFromPlaywrightTrace", () => {
 		const screenshots =
 			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
 
+		expect(screenshots.size).toBe(3);
 		expect(screenshots.get(`${firstPageId}-1766833384425.jpeg`)).toMatchObject({
-			contextId: firstContextId,
 			pageId: firstPageId,
 			timestamp: 1766833384425,
 		});
 		expect(screenshots.get(`${secondPageId}-1766833384525.jpeg`)).toMatchObject(
 			{
-				contextId: secondContextId,
 				pageId: secondPageId,
 				timestamp: 1766833384525,
 			},

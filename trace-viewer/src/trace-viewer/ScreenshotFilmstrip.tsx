@@ -37,9 +37,7 @@ interface RelativeScreenshot extends Screenshot {
 type SelectedSlot = SlotScreenshot<ScreenshotInfo>;
 
 interface ScreenshotRow {
-	id: string;
-	contextId: string;
-	pageIds: string[];
+	pageId: string;
 	screenshots: ScreenshotInfo[];
 }
 
@@ -71,7 +69,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	);
 	const screenshotRowsKey = createMemo(() =>
 		screenshotRows()
-			.map((row) => row.id)
+			.map((row) => row.pageId)
 			.join("|"),
 	);
 
@@ -168,9 +166,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		const timeRange = viewportToTimeRange(props.viewport);
 		return screenshotRows().map((row) => {
 			const rowScreenshots = screenshotsWithRelativeTime().filter(
-				(screenshot) =>
-					screenshot.original.contextId === row.contextId &&
-					screenshot.original.pageId === row.pageIds[0],
+				(screenshot) => screenshot.original.pageId === row.pageId,
 			);
 			const selected = selectScreenshots(
 				rowScreenshots,
@@ -261,8 +257,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 										style={{ height: `${rowHeightPx()}px` }}
 										data-testid="screenshot-row"
 										data-screenshot-row-index={rowIndex()}
-										data-screenshot-context-id={row.contextId}
-										data-screenshot-page-ids={row.pageIds.join(",")}
+										data-screenshot-page-id={row.pageId}
 										data-screenshot-source-count={row.screenshots.length}
 										onMouseEnter={() => handleRowMouseEnter(row)}
 									>
@@ -279,7 +274,6 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 														<div
 															class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm"
 															data-screenshot-timestamp={s().timestamp}
-															data-screenshot-context-id={s().contextId}
 															data-screenshot-page-id={s().pageId}
 															onMouseEnter={() =>
 																props.onScreenshotHover?.(s().url)
@@ -316,23 +310,16 @@ function groupScreenshotsByPage(
 ): ScreenshotRow[] {
 	const rows = new Map<string, ScreenshotRow>();
 	for (const screenshot of screenshots) {
-		const id = `${screenshot.contextId}:${screenshot.pageId}`;
-		const row = rows.get(id) ?? {
-			id,
-			contextId: screenshot.contextId,
-			pageIds: [],
+		const row = rows.get(screenshot.pageId) ?? {
+			pageId: screenshot.pageId,
 			screenshots: [],
 		};
-		if (!row.pageIds.includes(screenshot.pageId)) {
-			row.pageIds.push(screenshot.pageId);
-		}
 		row.screenshots.push(screenshot);
-		rows.set(id, row);
+		rows.set(screenshot.pageId, row);
 	}
 
 	return Array.from(rows.values()).map((row) => ({
 		...row,
-		pageIds: row.pageIds.sort(),
 		screenshots: row.screenshots.sort((a, b) => a.timestamp - b.timestamp),
 	}));
 }

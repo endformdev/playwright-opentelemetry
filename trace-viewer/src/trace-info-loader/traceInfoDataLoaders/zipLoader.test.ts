@@ -35,7 +35,6 @@ describe("loading ZIP traces", () => {
 					file: "page@abc-1766927492300.jpeg",
 					path: "screenshots/page@abc-1766927492300.jpeg",
 					contentType: "image/jpeg",
-					contextId: "browser-context@abc",
 					pageId: "page@abc",
 				},
 			],
@@ -59,7 +58,6 @@ describe("loading ZIP traces", () => {
 						`^/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page%40abc-1766927492300\\.jpeg\\?traceSource=local-zip-`,
 					),
 				),
-				contextId: "browser-context@abc",
 				pageId: "page@abc",
 			},
 		]);
@@ -76,7 +74,6 @@ describe("loading ZIP traces", () => {
 					file: "page@abc-1766927492300.jpeg",
 					path: "screenshots/page@abc-1766927492300.jpeg",
 					contentType: "image/jpeg",
-					contextId: "browser-context@abc",
 					pageId: "page@abc",
 				},
 			],
@@ -92,7 +89,6 @@ describe("loading ZIP traces", () => {
 			{
 				timestamp: 1766927492300,
 				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page%40abc-1766927492300.jpeg?traceZip=https%3A%2F%2Fexample.com%2Ftrace.zip`,
-				contextId: "browser-context@abc",
 				pageId: "page@abc",
 			},
 		]);
