@@ -12,7 +12,7 @@ export type PlaywrightTraceOption =
 	| "retry-with-trace"
 	| {
 			mode: PlaywrightTraceMode;
-			snapshots?: boolean;
+			snapshots?: boolean | { dom?: boolean; aria?: boolean; screen?: boolean };
 			screenshots?: boolean;
 			sources?: boolean;
 			attachments?: boolean;
