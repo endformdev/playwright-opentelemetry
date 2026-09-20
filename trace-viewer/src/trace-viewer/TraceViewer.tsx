@@ -85,11 +85,7 @@ const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
 
 function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
 	if (screenshots.length === 0) return 1;
-	return new Set(
-		screenshots.map(
-			(screenshot) => `${screenshot.contextId}:${screenshot.pageId}`,
-		),
-	).size;
+	return new Set(screenshots.map((screenshot) => screenshot.pageId)).size;
 }
 
 function getDefaultVisibleScreenshotRows(rowCount: number): number {

@@ -15,7 +15,6 @@ export interface ScreenshotMeta {
 	file: string;
 	path: string;
 	contentType: string;
-	contextId: string;
 	pageId: string;
 }
 

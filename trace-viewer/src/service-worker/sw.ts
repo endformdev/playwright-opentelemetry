@@ -22,12 +22,11 @@ interface ScreenshotMeta {
 	file: string;
 	path: string;
 	contentType: string;
-	contextId: string;
 	pageId: string;
 }
 
-interface ScreenshotManifestV2 {
-	version: 2;
+interface ScreenshotManifest {
+	version: 3;
 	screenshots: ScreenshotMeta[];
 }
 
@@ -522,17 +521,18 @@ async function parseScreenshotManifest(
 	return manifest.screenshots.sort((a, b) => a.timestamp - b.timestamp);
 }
 
-function parseScreenshotManifestJson(value: unknown): ScreenshotManifestV2 {
+function parseScreenshotManifestJson(value: unknown): ScreenshotManifest {
 	if (!isObject(value)) {
 		throw new Error("Invalid screenshot manifest: expected object");
 	}
 
-	if (value.version === 2) {
-		return parseScreenshotManifestV2(value);
+	// v2 carried a contextId per entry which is no longer used; v3 dropped it.
+	if (value.version === 3 || value.version === 2) {
+		return parseScreenshotManifestEntries(value);
 	}
 
 	if (value.version === 1 || value.version === undefined) {
-		return parseScreenshotManifestV2(upgradeScreenshotManifestV1ToV2(value));
+		return parseScreenshotManifestEntries(upgradeScreenshotManifestV1(value));
 	}
 
 	throw new Error(
@@ -540,34 +540,29 @@ function parseScreenshotManifestJson(value: unknown): ScreenshotManifestV2 {
 	);
 }
 
-function parseScreenshotManifestV2(value: unknown): ScreenshotManifestV2 {
+function parseScreenshotManifestEntries(value: unknown): ScreenshotManifest {
 	if (!isObject(value)) {
-		throw new Error("Invalid screenshot manifest v2: expected object");
-	}
-	if (value.version !== 2) {
-		throw new Error("Invalid screenshot manifest v2: expected version 2");
+		throw new Error("Invalid screenshot manifest: expected object");
 	}
 	if (!Array.isArray(value.screenshots)) {
-		throw new Error(
-			"Invalid screenshot manifest v2: expected screenshots array",
-		);
+		throw new Error("Invalid screenshot manifest: expected screenshots array");
 	}
 
 	return {
-		version: 2,
+		version: 3,
 		screenshots: value.screenshots.map((screenshot, index) =>
-			parseScreenshotManifestV2Entry(screenshot, index),
+			parseScreenshotManifestEntry(screenshot, index),
 		),
 	};
 }
 
-function parseScreenshotManifestV2Entry(
+function parseScreenshotManifestEntry(
 	value: unknown,
 	index: number,
 ): ScreenshotMeta {
 	if (!isObject(value)) {
 		throw new Error(
-			`Invalid screenshot manifest v2 entry at index ${index}: expected object`,
+			`Invalid screenshot manifest entry at index ${index}: expected object`,
 		);
 	}
 
@@ -576,14 +571,13 @@ function parseScreenshotManifestV2Entry(
 		file: requiredString(value.file, "file", index),
 		path: requiredString(value.path, "path", index),
 		contentType: requiredString(value.contentType, "contentType", index),
-		contextId: requiredString(value.contextId, "contextId", index),
 		pageId: requiredString(value.pageId, "pageId", index),
 	};
 }
 
-function upgradeScreenshotManifestV1ToV2(
+function upgradeScreenshotManifestV1(
 	manifest: ScreenshotManifestV1,
-): ScreenshotManifestV2 {
+): ScreenshotManifest {
 	if (!Array.isArray(manifest.screenshots)) {
 		throw new Error(
 			"Invalid screenshot manifest v1: expected screenshots array",
@@ -591,7 +585,7 @@ function upgradeScreenshotManifestV1ToV2(
 	}
 
 	return {
-		version: 2,
+		version: 3,
 		screenshots: manifest.screenshots.map((screenshot, index) => {
 			if (
 				typeof screenshot.timestamp !== "number" ||
@@ -603,15 +597,12 @@ function upgradeScreenshotManifestV1ToV2(
 				);
 			}
 
-			const pageId = extractResourceIdFromFilename(screenshot.file);
-
 			return {
 				timestamp: screenshot.timestamp,
 				file: screenshot.file,
 				path: screenshot.path || `screenshots/${screenshot.file}`,
 				contentType: screenshot.contentType || getMimeType(screenshot.file),
-				contextId: pageId,
-				pageId,
+				pageId: extractResourceIdFromFilename(screenshot.file),
 			};
 		}),
 	};
@@ -620,14 +611,14 @@ function upgradeScreenshotManifestV1ToV2(
 function requiredString(value: unknown, field: string, index: number): string {
 	if (typeof value === "string" && value.length > 0) return value;
 	throw new Error(
-		`Invalid screenshot manifest v2 entry at index ${index}: expected ${field}`,
+		`Invalid screenshot manifest entry at index ${index}: expected ${field}`,
 	);
 }
 
 function requiredNumber(value: unknown, field: string, index: number): number {
 	if (typeof value === "number") return value;
 	throw new Error(
-		`Invalid screenshot manifest v2 entry at index ${index}: expected ${field}`,
+		`Invalid screenshot manifest entry at index ${index}: expected ${field}`,
 	);
 }
 
