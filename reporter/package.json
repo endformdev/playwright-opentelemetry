@@ -17,6 +17,12 @@
 	"keywords": [
 		"playwright",
 		"opentelemetry",
+		"otel",
+		"otlp",
+		"tracing",
+		"distributed-tracing",
+		"observability",
+		"e2e",
 		"reporting",
 		"testing",
 		"automation"
