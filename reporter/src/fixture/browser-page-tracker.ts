@@ -14,6 +14,8 @@ type NavigationType = "document" | "same-document";
 
 interface PageState {
 	pageId: string;
+	documentIndex: number;
+	routeIndex: number;
 	lastUrl: string;
 	documentUrl?: string;
 	activeDocumentSpan?: ActiveBrowserSpan;
@@ -181,9 +183,12 @@ export class BrowserPageTracker {
 	): void {
 		const state = this.stateFor(page);
 		this.finishPageSpans(page, startTime);
+		state.documentIndex += 1;
+		state.routeIndex = -1;
 
 		const span = this.createBrowserSpan({
 			pageId: state.pageId,
+			documentIndex: state.documentIndex,
 			name: BROWSER_PAGE_SPAN_NAME,
 			url,
 			navigationType: "document",
@@ -208,6 +213,8 @@ export class BrowserPageTracker {
 
 		const span = this.createBrowserSpan({
 			pageId: state.pageId,
+			documentIndex: state.documentIndex >= 0 ? state.documentIndex : undefined,
+			routeIndex: ++state.routeIndex,
 			name: BROWSER_ROUTE_SPAN_NAME,
 			url,
 			navigationType: "same-document",
@@ -256,6 +263,8 @@ export class BrowserPageTracker {
 		const state = {
 			pageId: `page-${this.nextPageId++}`,
 			lastUrl: page.url(),
+			documentIndex: -1,
+			routeIndex: -1,
 		};
 		this.pageStates.set(page, state);
 		return state;
@@ -263,6 +272,8 @@ export class BrowserPageTracker {
 
 	private createBrowserSpan({
 		pageId,
+		documentIndex,
+		routeIndex,
 		name,
 		url,
 		navigationType,
@@ -272,6 +283,8 @@ export class BrowserPageTracker {
 		documentUrl,
 	}: {
 		pageId: string;
+		documentIndex?: number;
+		routeIndex?: number;
 		name: string;
 		url: string;
 		navigationType: NavigationType;
@@ -290,6 +303,8 @@ export class BrowserPageTracker {
 			status: { code: SPAN_STATUS_CODE_UNSET },
 			attributes: pageAttributes({
 				pageId,
+				documentIndex,
+				routeIndex,
 				url,
 				navigationType,
 				previousUrl,
@@ -328,12 +343,16 @@ function consoleLocationLine(location: ConsoleLocation): number | undefined {
 
 function pageAttributes({
 	pageId,
+	documentIndex,
+	routeIndex,
 	url,
 	navigationType,
 	previousUrl,
 	documentUrl,
 }: {
 	pageId: string;
+	documentIndex?: number;
+	routeIndex?: number;
 	url: string;
 	navigationType: NavigationType;
 	previousUrl?: string;
@@ -354,6 +373,13 @@ function pageAttributes({
 		}
 	} catch {
 		// Leave only url.full for non-standard browser URLs.
+	}
+
+	if (documentIndex !== undefined) {
+		attributes["browser.page.navigation.index"] = documentIndex;
+	}
+	if (routeIndex !== undefined) {
+		attributes["browser.route.navigation.index"] = routeIndex;
 	}
 
 	if (previousUrl) {

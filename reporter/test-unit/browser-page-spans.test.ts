@@ -91,6 +91,47 @@ describe("fixture browser span hierarchy", () => {
 		);
 	});
 
+	it("indexes documents per page and routes per document", () => {
+		const traceContext = createTraceContext();
+		const tracker = new BrowserPageTracker(traceContext);
+		const page = createPage("about:blank");
+		const otherPage = createPage("about:blank");
+		tracker.registerPage(page);
+		tracker.registerPage(otherPage);
+		const navigate = (target: Page) =>
+			tracker.startDocumentNavigation(
+				createRequest({
+					page: target,
+					url: "https://example.com/products",
+					isNavigationRequest: true,
+				}),
+			);
+		navigate(page);
+		tracker.handleFrameNavigated(page, "https://example.com/products");
+		tracker.handleFrameNavigated(page, "https://example.com/products#details");
+		tracker.handleFrameNavigated(page, "https://example.com/products/1");
+		navigate(otherPage);
+		tracker.handleFrameNavigated(otherPage, "https://example.com/products/2");
+		tracker.handleFrameNavigated(page, "https://example.com/products/2");
+		navigate(page);
+		tracker.handleFrameNavigated(page, "https://example.com/products/3");
+		expect(
+			traceContext.spans.map(({ attributes }) => [
+				attributes["browser.page.id"],
+				attributes["browser.page.navigation.index"],
+				attributes["browser.route.navigation.index"],
+			]),
+		).toEqual([
+			["page-1", 0, undefined],
+			["page-1", 0, 0],
+			["page-2", 0, undefined],
+			["page-2", 0, 0],
+			["page-1", 0, 1],
+			["page-1", 1, undefined],
+			["page-1", 1, 0],
+		]);
+	});
+
 	it("parents network spans to active route, active page, or root", async () => {
 		const traceContext = createTraceContext();
 		const tracker = new BrowserPageTracker(traceContext);

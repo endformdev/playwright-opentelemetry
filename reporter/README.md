@@ -87,3 +87,16 @@ Full documentation, including trace retention options, screenshot capture, multi
 ## License
 
 [Apache-2.0](https://github.com/endformdev/playwright-opentelemetry/blob/main/LICENSE), built by [Endform](https://endform.dev).
+
+### Browser navigation indexes
+
+Document load spans (`browser.page`) carry `browser.page.navigation.index`,
+starting at 0 and increasing for each document span within the same Playwright
+page (`browser.page.id`). Reloads also advance this index.
+
+SPA navigation spans (`browser.route`) carry the enclosing document's
+`browser.page.navigation.index` and their own `browser.route.navigation.index`.
+The route index starts at 0 and resets on each document load. Ignored URL updates,
+such as hash-only changes, do not advance it. Each Playwright page has independent
+counters. If a route is observed without a captured document load, only its route
+index is present.
