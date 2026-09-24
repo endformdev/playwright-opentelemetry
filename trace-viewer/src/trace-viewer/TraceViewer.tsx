@@ -729,6 +729,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}
+									previewEnabled={mode() === "hover"}
 								/>
 							</Show>
 						}
@@ -745,6 +746,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}
+									previewEnabled={mode() === "hover"}
 								/>
 							}
 							secondPanel={<SpanPanelsContent />}

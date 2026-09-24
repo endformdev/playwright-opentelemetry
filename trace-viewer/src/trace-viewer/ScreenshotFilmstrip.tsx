@@ -7,6 +7,7 @@ import {
 	type Resource,
 	Show,
 } from "solid-js";
+import { Portal } from "solid-js/web";
 
 import type { ScreenshotInfo } from "../trace-info-loader";
 
@@ -16,7 +17,8 @@ import {
 	selectScreenshots,
 	viewportToTimeRange,
 } from "./selectScreenshots";
-import type { TimelineViewport } from "./viewport";
+import { findScreenshotAtTime } from "./screenshots";
+import { type TimelineViewport, viewportPositionToTime } from "./viewport";
 
 export interface ScreenshotFilmstripProps {
 	screenshots: Resource<ScreenshotInfo[]>;
@@ -26,6 +28,7 @@ export interface ScreenshotFilmstripProps {
 	testStartTimeMs: number;
 	/** Callback when hovering over a screenshot (url) or null when leaving */
 	onScreenshotHover?: (screenshotUrl: string | null) => void;
+	previewEnabled: boolean;
 }
 
 /** Screenshot with relative timestamp for selection, keeping original data */
@@ -51,6 +54,82 @@ const SCREENSHOT_ASPECT_RATIO = 16 / 9;
 
 export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	let contentRef: HTMLDivElement | undefined;
+	const [preview, setPreview] = createSignal<{
+		screenshot: ScreenshotInfo;
+		left: number;
+		top: number;
+		width: number;
+		height: number;
+		clientX: number;
+	} | null>(null);
+	const dismissPreview = () => setPreview(null);
+	const aspectRatios = new Map<string, number>();
+	createEffect(() => {
+		if (!props.previewEnabled) dismissPreview();
+	});
+	const showPreview = (clientX: number, screenshot: ScreenshotInfo) => {
+		if (!props.previewEnabled) return dismissPreview();
+		const viewer = contentRef?.closest("main");
+		const bounds = viewer?.getBoundingClientRect();
+		const leftEdge = Math.max(0, bounds?.left ?? 0) + 12;
+		const rightEdge =
+			Math.min(window.innerWidth, bounds?.right ?? window.innerWidth) - 12;
+		const bottomEdge =
+			Math.min(window.innerHeight, bounds?.bottom ?? window.innerHeight) - 12;
+		// Anchor to the span section, independent of vertical pointer movement.
+		const steps = viewer?.querySelector(
+			'[role="region"][aria-label="Steps Timeline"]',
+		);
+		const top =
+			steps?.getBoundingClientRect().top ??
+			contentRef?.getBoundingClientRect().bottom;
+		if (top === undefined) return dismissPreview();
+		const aspectRatio =
+			aspectRatios.get(screenshot.url) ?? SCREENSHOT_ASPECT_RATIO;
+		const width = Math.min(
+			480,
+			rightEdge - leftEdge,
+			(bottomEdge - top) * aspectRatio,
+		);
+		if (width <= 0) return dismissPreview();
+		setPreview({
+			screenshot,
+			left: Math.max(
+				leftEdge,
+				Math.min(clientX - width / 2, rightEdge - width),
+			),
+			top,
+			width,
+			height: width / aspectRatio,
+			clientX,
+		});
+	};
+
+	createEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") dismissPreview();
+		};
+		const onScroll = (event: Event) => {
+			// Details-panel auto-scrolling does not move the filmstrip or its preview.
+			if (
+				event.target === document ||
+				(event.target instanceof Element &&
+					contentRef &&
+					event.target.contains(contentRef))
+			)
+				dismissPreview();
+		};
+		window.addEventListener("resize", dismissPreview);
+		window.addEventListener("scroll", onScroll, true);
+		window.addEventListener("blur", dismissPreview);
+		window.addEventListener("keydown", onKeyDown);
+		onCleanup(() => {
+			window.removeEventListener("resize", dismissPreview);
+			window.removeEventListener("scroll", onScroll, true);
+			window.removeEventListener("blur", dismissPreview);
+			window.removeEventListener("keydown", onKeyDown);
+		});
+	});
 
 	const [slotCount, setSlotCount] = createSignal(0);
 	const [contentSize, setContentSize] = createSignal<{
@@ -158,7 +237,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	});
 
 	// Select screenshots based on viewport - this handles:
-	// 1. Showing screenshots within the visible range (closest to slot center)
+	// 1. Showing the latest screenshot at or before each slot starts
 	// 2. When no screenshot in slot bounds, showing closest earlier screenshot
 	// 3. When zoomed into an empty region, showing closest earlier screenshot repeated
 	// 4. null entries for slots where no screenshot exists yet (respects causality)
@@ -187,11 +266,25 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		),
 	);
 
-	const handleRowMouseEnter = (row: SelectedScreenshotRow) => {
-		const screenshot = row.selectedScreenshots.find((s) => s !== null);
-		if (screenshot) {
-			props.onScreenshotHover?.(screenshot.url);
-		}
+	const handleRowHover = (event: MouseEvent, row: SelectedScreenshotRow) => {
+		if (!props.previewEnabled || event.buttons !== 0) return dismissPreview();
+		const timeline = contentRef
+			?.closest('[aria-label="Trace timeline"]')
+			?.getBoundingClientRect();
+		if (!timeline || timeline.width <= 0) return dismissPreview();
+		const position = Math.max(
+			0,
+			Math.min(1, (event.clientX - timeline.left) / timeline.width),
+		);
+		const screenshot = findScreenshotAtTime(
+			row.screenshots,
+			props.testStartTimeMs + viewportPositionToTime(position, props.viewport),
+		);
+		props.onScreenshotHover?.(
+			screenshot?.url ?? row.screenshots[0]?.url ?? null,
+		);
+		if (screenshot) showPreview(event.clientX, screenshot);
+		else dismissPreview();
 	};
 
 	return (
@@ -200,7 +293,49 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 			class="h-full bg-gray-50 overflow-y-auto overflow-x-hidden p-2"
 			role="region"
 			aria-label="Screenshots"
+			onMouseLeave={dismissPreview}
+			onMouseDown={dismissPreview}
 		>
+			<Show when={preview()}>
+				{(current) => (
+					<Portal>
+						<div
+							aria-hidden="true"
+							data-testid="screenshot-hover-preview"
+							data-screenshot-timestamp={current().screenshot.timestamp}
+							data-screenshot-page-id={current().screenshot.pageId}
+							class="fixed z-50 pointer-events-none rounded-lg ring-1 ring-gray-300 bg-white shadow-xl overflow-hidden"
+							style={{
+								left: `${current().left}px`,
+								top: `${current().top}px`,
+								width: `${current().width}px`,
+								height: `${current().height}px`,
+							}}
+						>
+							<img
+								src={current().screenshot.url}
+								onLoad={(event) => {
+									const image = event.currentTarget;
+									const active = preview();
+									if (
+										!active ||
+										image.getAttribute("src") !== active.screenshot.url ||
+										!image.naturalHeight
+									)
+										return;
+									aspectRatios.set(
+										active.screenshot.url,
+										image.naturalWidth / image.naturalHeight,
+									);
+									showPreview(active.clientX, active.screenshot);
+								}}
+								alt=""
+								class="w-full h-full object-contain"
+							/>
+						</div>
+					</Portal>
+				)}
+			</Show>
 			<div class="flex flex-col gap-2 h-full">
 				<Show when={props.screenshots.loading && screenshots().length === 0}>
 					<Show
@@ -259,7 +394,9 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 										data-screenshot-row-index={rowIndex()}
 										data-screenshot-page-id={row.pageId}
 										data-screenshot-source-count={row.screenshots.length}
-										onMouseEnter={() => handleRowMouseEnter(row)}
+										onMouseEnter={(event) => handleRowHover(event, row)}
+										onMouseMove={(event) => handleRowHover(event, row)}
+										onMouseLeave={dismissPreview}
 									>
 										<For each={row.selectedScreenshots}>
 											{(screenshot) => (
@@ -275,12 +412,6 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 															class="flex-shrink-0 h-full aspect-video bg-white rounded border border-gray-200 overflow-hidden shadow-sm"
 															data-screenshot-timestamp={s().timestamp}
 															data-screenshot-page-id={s().pageId}
-															onMouseEnter={() =>
-																props.onScreenshotHover?.(s().url)
-															}
-															onMouseLeave={() =>
-																props.onScreenshotHover?.(null)
-															}
 														>
 															<img
 																src={s().url}

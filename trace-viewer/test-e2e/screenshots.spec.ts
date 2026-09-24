@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, type Locator, test } from "@playwright/test";
 import { BlobWriter, ZipWriter } from "@zip.js/zip.js";
@@ -62,11 +63,138 @@ test("renders separate screenshot rows for multiple browser contexts", async ({
 	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(1), true);
 });
 
+test("anchors screenshot previews to the steps timeline while following the cursor horizontally", async ({
+	page,
+	request,
+}, testInfo) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const screenshotsZip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [0, 500, 1000, 1500, 2000, 2500, 3000, 3500],
+	});
+	await new TraceDataBuilder(traceId, testStartTime)
+		.addTestSpan("Screenshot hover preview", 4000)
+		.addStepSpan("Inspect page", 3000, { startOffsetMs: 500 })
+		.send(request);
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await screenshotsZip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
+	);
+	expect(upload.ok()).toBeTruthy();
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const thumbnails = viewer.screenshots.rows().first().getByRole("img");
+	const thumbnail = thumbnails.nth(2);
+	await expect(thumbnail).toBeVisible();
+	const preview = page.getByTestId("screenshot-hover-preview");
+	const image = preview.locator("img");
+	const timelineBounds = await viewer.timelineContent.boundingBox();
+	const thumbnailBounds = (await thumbnail.boundingBox())!;
+	const stepsBounds = (await viewer.steps.root.boundingBox())!;
+
+	await test.step("Hover enlarges the active frame at the steps timeline with its original aspect ratio", async () => {
+		await expect(preview).toBeHidden();
+		await thumbnail.hover();
+		await expect(preview).toBeVisible();
+		await expect(image).toHaveAttribute(
+			"src",
+			(await viewer.details.screenshot().locator("img").getAttribute("src"))!,
+		);
+		await expect
+			.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth))
+			.toBeGreaterThan(0);
+		const box = (await preview.boundingBox())!;
+		expect(box.width).toBeGreaterThan(thumbnailBounds.width);
+		const aspectRatio = await thumbnail.evaluate(
+			(img: HTMLImageElement) => img.naturalWidth / img.naturalHeight,
+		);
+		expect(box.width / box.height).toBeCloseTo(aspectRatio, 2);
+		expect(box.y).toBeCloseTo(stepsBounds.y, 1);
+		// Mouse coordinates are integer pixels; layout bounds can be fractional.
+		expect(
+			Math.abs(
+				box.x + box.width / 2 - (thumbnailBounds.x + thumbnailBounds.width / 2),
+			),
+		).toBeLessThanOrEqual(1);
+		expect(box.y).toBeGreaterThan(
+			thumbnailBounds.y + thumbnailBounds.height / 2,
+		);
+		expect(box.y).toBeLessThan(stepsBounds.y + stepsBounds.height);
+		expect(box.y + box.height).toBeGreaterThan(stepsBounds.y);
+		await expect(preview).toHaveCSS("pointer-events", "none");
+		await expect(image).toHaveCSS("object-fit", "contain");
+		expect(await viewer.timelineContent.boundingBox()).toEqual(timelineBounds);
+		expect(await thumbnail.boundingBox()).toEqual(thumbnailBounds);
+		await testInfo.attach("Expanded screenshot over the span timeline", {
+			body: await page.screenshot(),
+			contentType: "image/png",
+		});
+	});
+
+	await test.step("The preview follows horizontal movement but ignores vertical movement and switches frames", async () => {
+		const before = (await preview.boundingBox())!;
+		await page.mouse.move(
+			thumbnailBounds.x + thumbnailBounds.width / 2 + 20,
+			thumbnailBounds.y + thumbnailBounds.height / 2 + 5,
+		);
+		const after = (await preview.boundingBox())!;
+		expect(after.x - before.x).toBeCloseTo(20, 0);
+		expect(after.y).toBe(before.y);
+		await page.mouse.move(
+			thumbnailBounds.x + thumbnailBounds.width / 2 + 20,
+			thumbnailBounds.y + 2,
+		);
+		expect(await preview.boundingBox()).toEqual(after);
+		const next = thumbnails.nth(3);
+		expect(await next.getAttribute("src")).not.toBe(
+			await thumbnail.getAttribute("src"),
+		);
+		await next.hover();
+		await expect(image).toHaveAttribute(
+			"src",
+			(await viewer.details.screenshot().locator("img").getAttribute("src"))!,
+		);
+	});
+
+	await test.step("The preview stays inside the viewer at the left edge", async () => {
+		await thumbnails.first().hover({ position: { x: 2, y: 2 } });
+		const box = (await preview.boundingBox())!;
+		const viewerBounds = (await viewer.root.boundingBox())!;
+		expect(box.x).toBeGreaterThanOrEqual(viewerBounds.x);
+		expect(box.x + box.width).toBeLessThanOrEqual(
+			viewerBounds.x + viewerBounds.width,
+		);
+		expect(box.y + box.height).toBeLessThanOrEqual(
+			viewerBounds.y + viewerBounds.height,
+		);
+	});
+
+	await test.step("Leaving, Escape, and dragging dismiss the preview", async () => {
+		await page.mouse.move(stepsBounds.x + 20, stepsBounds.y + 30);
+		await expect(preview).toBeHidden();
+		await thumbnail.hover();
+		await expect(preview).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(preview).toBeHidden();
+		await thumbnails.nth(3).hover();
+		await expect(preview).toBeVisible();
+		await page.mouse.down();
+		await thumbnail.hover();
+		await expect(preview).toBeHidden();
+		await page.mouse.up();
+	});
+});
+
 test("shows separate page rows with two and a half rows by default", async ({
 	page,
 	request,
 }) => {
-	const traceId = "55000000000000000000000000000001";
+	const traceId = randomUUID().replaceAll("-", "");
 	const testStartTime = Date.now();
 	const screenshotsZip = await createScreenshotsZip({
 		testStartTime,
@@ -156,7 +284,7 @@ test("shows the most recent screenshot at the hovered timestamp when filmstrip f
 	page,
 	request,
 }) => {
-	const traceId = "55000000000000000000000000000002";
+	const traceId = randomUUID().replaceAll("-", "");
 	const testStartTime = Date.now();
 	const testDurationMs = 10_000;
 	const screenshotOffsetsMs = Array.from(
@@ -222,13 +350,31 @@ test("shows the most recent screenshot at the hovered timestamp when filmstrip f
 		"data-screenshot-timestamp",
 		String(target.expectedTimestamp),
 	);
+	const preview = page.getByTestId("screenshot-hover-preview");
+	await expect(preview).toHaveAttribute(
+		"data-screenshot-timestamp",
+		String(target.expectedTimestamp),
+	);
+	await page.mouse.click(target.x, target.y);
+	await expect(preview).toBeHidden();
+	await page.mouse.move(target.x + 20, target.y);
+	await expect(preview).toBeHidden();
+	const gap = await findFilmstripGapHoverTarget(row);
+	await page.mouse.move(gap.x, gap.y);
+	await expect(preview).toBeHidden();
+	await page.keyboard.press("Escape");
+	await page.mouse.move(target.x, target.y);
+	await expect(preview).toHaveAttribute(
+		"data-screenshot-timestamp",
+		String(target.expectedTimestamp),
+	);
 });
 
 test("focuses the active screenshot when moving from a span into a filmstrip gap", async ({
 	page,
 	request,
 }) => {
-	const traceId = "55000000000000000000000000000003";
+	const traceId = randomUUID().replaceAll("-", "");
 	const testStartTime = Date.now();
 	const testDurationMs = 10_000;
 	const screenshotsZip = await createScreenshotsZipFromOffsets({
@@ -305,6 +451,14 @@ test("focuses the active screenshot when moving from a span into a filmstrip gap
 	await expect
 		.poll(() => viewer.details.root.evaluate((element) => element.scrollTop))
 		.toBeLessThanOrEqual(2);
+	const preview = page.getByTestId("screenshot-hover-preview");
+	await expect(preview).toBeVisible();
+	await expect(preview).toHaveAttribute(
+		"data-screenshot-timestamp",
+		(await viewer.details
+			.screenshot()
+			.getAttribute("data-screenshot-timestamp"))!,
+	);
 });
 
 interface CreateScreenshotsZipOptions {
