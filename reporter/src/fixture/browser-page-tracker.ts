@@ -28,7 +28,7 @@ interface ActiveBrowserSpan {
 }
 
 export class BrowserPageTracker {
-	private nextPageId = 1;
+	private nextPageId = 0;
 	private pageStates = new WeakMap<Page, PageState>();
 	private pages = new Set<Page>();
 
@@ -213,7 +213,6 @@ export class BrowserPageTracker {
 
 		const span = this.createBrowserSpan({
 			pageId: state.pageId,
-			documentIndex: state.documentIndex >= 0 ? state.documentIndex : undefined,
 			routeIndex: ++state.routeIndex,
 			name: BROWSER_ROUTE_SPAN_NAME,
 			url,

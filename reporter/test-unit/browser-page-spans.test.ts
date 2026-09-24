@@ -52,7 +52,7 @@ describe("fixture browser span hierarchy", () => {
 				attributes: expect.objectContaining({
 					"browser.resource.type": "page",
 					"browser.page.navigation.type": "document",
-					"browser.page.id": "page-1",
+					"browser.page.id": "page-0",
 					"url.full": "https://example.com/products",
 				}),
 			}),
@@ -82,7 +82,7 @@ describe("fixture browser span hierarchy", () => {
 				attributes: expect.objectContaining({
 					"browser.resource.type": "route",
 					"browser.page.navigation.type": "same-document",
-					"browser.page.id": "page-1",
+					"browser.page.id": "page-0",
 					"browser.document.url": "https://example.com/products",
 					"browser.route.previous_url": "https://example.com/products",
 					"url.full": "https://example.com/products/123",
@@ -122,13 +122,13 @@ describe("fixture browser span hierarchy", () => {
 				attributes["browser.route.navigation.index"],
 			]),
 		).toEqual([
+			["page-0", 0, undefined],
+			["page-0", undefined, 0],
 			["page-1", 0, undefined],
-			["page-1", 0, 0],
-			["page-2", 0, undefined],
-			["page-2", 0, 0],
-			["page-1", 0, 1],
-			["page-1", 1, undefined],
-			["page-1", 1, 0],
+			["page-1", undefined, 0],
+			["page-0", undefined, 1],
+			["page-0", 1, undefined],
+			["page-0", undefined, 0],
 		]);
 	});
 
