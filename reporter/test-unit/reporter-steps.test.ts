@@ -5,6 +5,7 @@ import {
 	ATTR_TEST_CASE_TITLE,
 } from "../src/reporter/otel-attributes";
 import {
+	ATTR_TEST_PHASE,
 	ATTR_TEST_STEP_CATEGORY,
 	ATTR_TEST_STEP_NAME,
 	ATTR_TEST_STEP_TITLE,
@@ -24,6 +25,63 @@ import { sendSpans } from "../src/reporter/sender";
 describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+	});
+
+	it.each([
+		["Before Hooks", "before"],
+		["After Hooks", "after"],
+		["Worker Cleanup", "after"],
+	])("records the phase of %s and its descendants", async (title, phase) => {
+		await runReporterTest({
+			test: { title: "lifecycle" },
+			result: {
+				steps: [
+					{
+						title,
+						category: "hook",
+						steps: [
+							{ title: "user hook", category: "hook" },
+							{
+								title: "fixture: account",
+								category: "fixture",
+								steps: [{ title: "nested action", category: "pw:api" }],
+							},
+							{
+								title: "internal fixture",
+								category: "fixture",
+								location: {
+									file: "/project/playwright-opentelemetry/src/fixture/playwright-opentelemetry-fixture.ts",
+									line: 1,
+								},
+								steps: [{ title: "retained child", category: "test.step" }],
+							},
+						],
+					},
+					{ title, category: "test.step" },
+					{ title: "fixture without a phase", category: "fixture" },
+				],
+			},
+		});
+		const spans = vi.mocked(sendSpans).mock.calls[0][0];
+		const phasedSpans = spans.filter(
+			(span) => span.attributes[ATTR_TEST_PHASE],
+		);
+		expect(
+			phasedSpans.map((span) => span.attributes[ATTR_TEST_STEP_TITLE]),
+		).toEqual([
+			title,
+			"user hook",
+			"fixture: account",
+			"nested action",
+			"retained child",
+		]);
+		for (const span of phasedSpans) {
+			expect(span.attributes[ATTR_TEST_PHASE]).toBe(phase);
+		}
+		expect(spans).toHaveLength(8);
+		for (const span of spans.filter((span) => !phasedSpans.includes(span))) {
+			expect(span.attributes).not.toHaveProperty(ATTR_TEST_PHASE);
+		}
 	});
 
 	it("creates a span for a test with a single step", async () => {

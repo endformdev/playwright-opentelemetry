@@ -41,6 +41,7 @@ import {
 	ATTR_TEST_CASE_TITLE,
 } from "./otel-attributes";
 import {
+	ATTR_TEST_PHASE,
 	ATTR_TEST_STEP_CATEGORY,
 	ATTR_TEST_STEP_NAME,
 	ATTR_TEST_STEP_TITLE,
@@ -375,7 +376,17 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		parentTitlePath: string[],
 		processedSteps: Map<string, Span>,
 		skippedStepIds: Set<string>,
+		inheritedPhase?: "before" | "after",
 	) {
+		// Playwright groups hook and fixture work into these lifecycle steps.
+		// Use the category as well as the title to avoid classifying user steps.
+		let phase = inheritedPhase;
+		if (step.category === "hook") {
+			if (step.title === "Before Hooks") phase = "before";
+			if (step.title === "After Hooks" || step.title === "Worker Cleanup") {
+				phase = "after";
+			}
+		}
 		const stepId = getStepId(test, step);
 
 		// If this step is from our fixture file, mark it and remove any already-created span
@@ -397,6 +408,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 						parentTitlePath,
 						processedSteps,
 						skippedStepIds,
+						phase,
 					);
 				}
 			}
@@ -415,6 +427,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 						parentTitlePath,
 						processedSteps,
 						skippedStepIds,
+						phase,
 					);
 				}
 			}
@@ -451,6 +464,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 						currentTitlePath,
 						processedSteps,
 						skippedStepIds,
+						phase,
 					);
 				}
 			}
@@ -467,6 +481,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		// Add step category
 		attributes[ATTR_TEST_STEP_CATEGORY] = step.category;
+		if (phase) attributes[ATTR_TEST_PHASE] = phase;
 
 		// Add code location attributes if available
 		if (step.location) {
@@ -507,6 +522,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					currentTitlePath,
 					processedSteps,
 					skippedStepIds,
+					phase,
 				);
 			}
 		}
