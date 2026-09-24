@@ -64,6 +64,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 	} | null>(null);
 	const dismissPreview = () => setPreview(null);
 	const aspectRatios = new Map<string, number>();
+	const pageAspectRatios = new Map<string, number>();
 	createEffect(() => {
 		if (!props.previewEnabled) dismissPreview();
 	});
@@ -84,8 +85,14 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 			steps?.getBoundingClientRect().top ??
 			contentRef?.getBoundingClientRect().bottom;
 		if (top === undefined) return dismissPreview();
+		const previous = preview();
+		// Keep the white preview at its last known size while the next image loads.
 		const aspectRatio =
-			aspectRatios.get(screenshot.url) ?? SCREENSHOT_ASPECT_RATIO;
+			aspectRatios.get(screenshot.url) ??
+			(previous?.screenshot.pageId === screenshot.pageId
+				? previous.width / previous.height
+				: pageAspectRatios.get(screenshot.pageId)) ??
+			SCREENSHOT_ASPECT_RATIO;
 		const width = Math.min(
 			480,
 			rightEdge - leftEdge,
@@ -103,6 +110,25 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 			height: width / aspectRatio,
 			clientX,
 		});
+	};
+
+	const rememberImageSize = (
+		image: HTMLImageElement,
+		screenshot: ScreenshotInfo,
+	) => {
+		if (
+			image.getAttribute("src") !== screenshot.url ||
+			!image.naturalWidth ||
+			!image.naturalHeight
+		)
+			return;
+		const aspectRatio = image.naturalWidth / image.naturalHeight;
+		aspectRatios.set(screenshot.url, aspectRatio);
+		pageAspectRatios.set(screenshot.pageId, aspectRatio);
+		const active = preview();
+		if (active?.screenshot.url === screenshot.url) {
+			showPreview(active.clientX, active.screenshot);
+		}
 	};
 
 	createEffect(() => {
@@ -314,21 +340,9 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 						>
 							<img
 								src={current().screenshot.url}
-								onLoad={(event) => {
-									const image = event.currentTarget;
-									const active = preview();
-									if (
-										!active ||
-										image.getAttribute("src") !== active.screenshot.url ||
-										!image.naturalHeight
-									)
-										return;
-									aspectRatios.set(
-										active.screenshot.url,
-										image.naturalWidth / image.naturalHeight,
-									);
-									showPreview(active.clientX, active.screenshot);
-								}}
+								onLoad={(event) =>
+									rememberImageSize(event.currentTarget, current().screenshot)
+								}
 								alt=""
 								class="w-full h-full object-contain"
 							/>
@@ -415,6 +429,9 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 														>
 															<img
 																src={s().url}
+																onLoad={(event) =>
+																	rememberImageSize(event.currentTarget, s())
+																}
 																alt={`Screenshot at ${s().timestamp}`}
 																class="w-full h-full object-contain select-none"
 																loading="lazy"
