@@ -296,6 +296,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		if (!props.previewEnabled || event.buttons !== 0) return dismissPreview();
 		const timeline = contentRef
 			?.closest('[aria-label="Trace timeline"]')
+			?.querySelector("[data-timeline-plot]")
 			?.getBoundingClientRect();
 		if (!timeline || timeline.width <= 0) return dismissPreview();
 		const position = Math.max(

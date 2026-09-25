@@ -94,10 +94,16 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 				}
 			>
 				<div
-					class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3"
+					class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-3"
 					role="list"
 				>
-					<div class="relative" style={{ height: `${containerHeight()}px` }}>
+					<div
+						class="relative"
+						style={{
+							height: `${containerHeight()}px`,
+							width: "var(--timeline-plot-width)",
+						}}
+					>
 						<For each={visibleSpans()}>
 							{(packedSpan: PackedSpan) => {
 								const kind = kindMap().get(packedSpan.id) ?? "internal";
