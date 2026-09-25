@@ -66,7 +66,10 @@ export function HoverProvider(props: HoverProviderProps) {
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
 	const [lockedTimeMs, setLockedTimeMs] = createSignal<number | null>(null);
 	const [hoveredElement, setHoveredElement] =
-		createSignal<FocusedElement | null>(null);
+		createSignal<FocusedElement | null>(null, {
+			equals: (previous, next) =>
+				previous?.type === next?.type && previous?.id === next?.id,
+		});
 	const [lockedElement, setLockedElement] = createSignal<FocusedElement | null>(
 		null,
 	);
@@ -92,6 +95,9 @@ export function HoverProvider(props: HoverProviderProps) {
 			props.spans(),
 			props.screenshots(),
 			props.testStartTimeMs(),
+			hoveredElement()?.type === "screenshot"
+				? undefined
+				: hoveredElement()?.id,
 		);
 	});
 
@@ -104,6 +110,7 @@ export function HoverProvider(props: HoverProviderProps) {
 			props.spans(),
 			props.screenshots(),
 			props.testStartTimeMs(),
+			lockedElement()?.type === "screenshot" ? undefined : lockedElement()?.id,
 		);
 	});
 

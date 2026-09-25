@@ -38,6 +38,29 @@ describe("getElementsAtTime", () => {
 		pageId: "page@test",
 	});
 
+	it("includes an explicitly hit span outside its interval without shifting time context", () => {
+		const parent = createSpan("parent", 0, 100);
+		const tiny = createSpan("tiny", 90, 0.01, "parent");
+		const unrelated = createSpan("unrelated", 20, 10);
+		const result = getElementsAtTime(
+			91,
+			[parent, tiny, unrelated],
+			[],
+			[createScreenshot(testStartTimeMs + 91, "now.png")],
+			testStartTimeMs,
+			"tiny",
+		);
+		expect(
+			flattenHoveredSpans(result.steps).map((node) => node.span.id),
+		).toEqual(["parent", "tiny"]);
+		expect(result.screenshot?.url).toBe("now.png");
+		expect(
+			flattenHoveredSpans(
+				getElementsAtTime(91, [parent, tiny], [], [], testStartTimeMs).steps,
+			).map((node) => node.span.id),
+		).toEqual(["parent"]);
+	});
+
 	describe("screenshot selection", () => {
 		it("returns null when no screenshots available", () => {
 			const result = getElementsAtTime(100, [], [], [], testStartTimeMs);

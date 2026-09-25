@@ -461,6 +461,58 @@ test("focuses the active screenshot when moving from a span into a filmstrip gap
 	);
 });
 
+test("unlocking over a screenshot drops the previously locked span", async ({
+	page,
+	request,
+}) => {
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const screenshotsZip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [0, 500, 1000, 1500, 2000, 2500, 3000, 3500],
+	});
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Unlock over screenshot",
+		4000,
+	);
+	const lateStepId = builder.addStepSpanAndGetId("Late step", 100, {
+		startOffsetMs: 3700,
+	});
+	await builder.send(request);
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await screenshotsZip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
+	);
+	expect(upload.ok()).toBeTruthy();
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const firstScreenshot = viewer.screenshots.images().first();
+	await expect(firstScreenshot).toBeVisible({ timeout: 10000 });
+	const lateStepBar = viewer.steps.root.locator(
+		`[data-span-id="${lateStepId}"]`,
+	);
+	const lateStepDetails = viewer.details.spanDetailsById(lateStepId);
+
+	await test.step("Escape over a screenshot", async () => {
+		await lateStepBar.click();
+		await expect(lateStepDetails).toBeVisible();
+		await firstScreenshot.hover();
+		await page.keyboard.press("Escape");
+		await expect(lateStepDetails).toHaveCount(0);
+	});
+
+	await test.step("Click on a screenshot", async () => {
+		await lateStepBar.click();
+		await expect(lateStepDetails).toBeVisible();
+		await firstScreenshot.click();
+		await expect(lateStepDetails).toHaveCount(0);
+	});
+});
+
 interface CreateScreenshotsZipOptions {
 	testStartTime: number;
 	contextCount: number;
@@ -605,11 +657,11 @@ async function findHiddenScreenshotHoverTarget(
 }> {
 	return row.evaluate(
 		(element, { testStartTime, testDurationMs, screenshotOffsetsMs }) => {
-			const timeline = element.closest(
-				'[role="region"][aria-label="Trace timeline"]',
-			) as HTMLElement | null;
+			const timeline = element
+				.closest('[role="region"][aria-label="Trace timeline"]')
+				?.querySelector<HTMLElement>("[data-timeline-plot]");
 			if (!timeline) {
-				throw new Error("Could not find trace timeline region");
+				throw new Error("Could not find trace timeline plot");
 			}
 
 			const timelineRect = timeline.getBoundingClientRect();

@@ -16,7 +16,11 @@ import { ExternalSpansPanel } from "./components/ExternalSpansPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { PanelHeader } from "./components/PanelHeader";
 import { StepsTimeline } from "./components/StepsTimeline";
-import { HoverProvider, useHoverContext } from "./contexts/HoverContext";
+import {
+	type FocusedElement,
+	HoverProvider,
+	useHoverContext,
+} from "./contexts/HoverContext";
 import { SearchProvider, useSearch } from "./contexts/SearchContext";
 import {
 	useViewportContext,
@@ -82,6 +86,7 @@ const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
 const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
+const TIMELINE_PLOT_INSET_PX = 12;
 
 function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
 	if (screenshots.length === 0) return 1;
@@ -156,7 +161,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		unlock,
 		enterSearchOverride,
 		exitSearchOverride,
-		hoveredElement,
 		setHoveredElement,
 		lockedElement,
 		displayTimeMs,
@@ -167,6 +171,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const [selectionState, setSelectionState] = createSignal<{
 		startPosition: number;
 		currentPosition: number;
+		element: FocusedElement | null;
 	} | null>(null);
 	const [hoveredSearchSpanId, setHoveredSearchSpanId] = createSignal<
 		string | null
@@ -182,7 +187,23 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			.sort((a, b) => a.startOffsetMs - b.startOffsetMs),
 	);
 
-	let contentAreaRef: HTMLDivElement | undefined;
+	let plotRef: HTMLDivElement | undefined;
+	// Live pointer state, tracked independently of locked/search display state.
+	let pointerElement: FocusedElement | null = null;
+	let pointerPosition: number | null = null;
+	const setPointerElement = (element: FocusedElement | null) => {
+		pointerElement = element;
+		if (mode() === "hover") setHoveredElement(element);
+	};
+	const [scrollbarWidth, setScrollbarWidth] = createSignal(0);
+	onMount(() => {
+		const probe = document.createElement("div");
+		probe.style.cssText =
+			"position:absolute;visibility:hidden;width:100px;height:100px;overflow:scroll";
+		document.body.append(probe);
+		setScrollbarWidth(probe.offsetWidth - probe.clientWidth);
+		probe.remove();
+	});
 	// Determine which sections are active/disabled
 	const hasLoadedScreenshots = () =>
 		(props.traceInfo.screenshots() ?? []).length > 0;
@@ -308,7 +329,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const handleMouseDown = (e: MouseEvent) => {
 		// Only start selection on primary button
 		if (e.button !== 0) return;
-		if (!contentAreaRef) return;
+		if (!plotRef) return;
 
 		// Don't start selection if clicking on resize handles
 		const target = e.target as HTMLElement;
@@ -320,18 +341,22 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			return;
 		}
 
-		const rect = contentAreaRef.getBoundingClientRect();
+		const rect = plotRef.getBoundingClientRect();
 		const position = (e.clientX - rect.left) / rect.width;
 
 		if (position >= 0 && position <= 1) {
-			setSelectionState({ startPosition: position, currentPosition: position });
+			setSelectionState({
+				startPosition: position,
+				currentPosition: position,
+				element: pointerElement,
+			});
 		}
 	};
 
 	const handleMouseMove = (e: MouseEvent) => {
-		if (!contentAreaRef) return;
+		if (!plotRef) return;
 
-		const rect = contentAreaRef.getBoundingClientRect();
+		const rect = plotRef.getBoundingClientRect();
 		const position = (e.clientX - rect.left) / rect.width;
 
 		// Update selection if dragging
@@ -339,32 +364,22 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (selection) {
 			const clampedPosition = Math.max(0, Math.min(1, position));
 			setSelectionState({
-				startPosition: selection.startPosition,
+				...selection,
 				currentPosition: clampedPosition,
 			});
 		}
 
-		// Check if hovering over a resize handle (they have cursor-*-resize)
-		const target = e.target as HTMLElement;
-		const computedStyle = window.getComputedStyle(target);
-		if (
+		// Resize handles (cursor-*-resize) have no time position
+		const computedStyle = window.getComputedStyle(e.target as HTMLElement);
+		const isOnResizeHandle =
 			computedStyle.cursor === "col-resize" ||
-			computedStyle.cursor === "row-resize"
-		) {
-			// Only update hover position in hover mode
-			if (mode() === "hover") {
-				setHoverPosition(null);
-			}
-			return;
-		}
+			computedStyle.cursor === "row-resize";
+		pointerPosition =
+			!isOnResizeHandle && position >= 0 && position <= 1 ? position : null;
 
 		// Only update hover position in hover mode
 		if (mode() === "hover") {
-			if (position >= 0 && position <= 1) {
-				setHoverPosition(position);
-			} else {
-				setHoverPosition(null);
-			}
+			setHoverPosition(pointerPosition);
 		}
 	};
 
@@ -397,7 +412,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						// Lock to the selected time so zooming does not move the lock.
 						lock(
 							viewportPositionToTime(selection.startPosition, viewport()),
-							hoveredElement(),
+							selection.element,
 						);
 						break;
 					case "locked":
@@ -406,6 +421,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						// so the hover line appears immediately
 						setHoverPosition(selection.startPosition);
 						unlock();
+						setHoveredElement(pointerElement);
 						break;
 				}
 			}
@@ -415,6 +431,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const handleMouseLeave = () => {
+		pointerPosition = null;
+		setPointerElement(null);
 		if (mode() === "hover") {
 			setHoverPosition(null);
 		}
@@ -430,6 +448,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			const currentMode = mode();
 			if (e.key === "Escape" && currentMode !== "hover") {
 				unlock();
+				setHoverPosition(pointerPosition);
+				setHoveredElement(pointerElement);
 			}
 		};
 		document.addEventListener("keydown", onKeyDown);
@@ -445,7 +465,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const handleWheel = (e: WheelEvent) => {
-		if (!contentAreaRef) return;
+		if (!plotRef) return;
 
 		// Check for zoom modifier keys (Cmd, Ctrl, or Shift)
 		const isZoomModifier = e.metaKey || e.ctrlKey || e.shiftKey;
@@ -453,7 +473,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (isZoomModifier && e.deltaY !== 0) {
 			e.preventDefault();
 
-			const rect = contentAreaRef.getBoundingClientRect();
+			const rect = plotRef.getBoundingClientRect();
 			const pointerPosition = Math.max(
 				0,
 				Math.min(1, (e.clientX - rect.left) / rect.width),
@@ -487,25 +507,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		reset();
 	};
 
-	// We intentionally do NOT clear hoveredElement on mouseLeave (null).
-	// The last hovered element persists until a new element is hovered or
-	// the mouse leaves the main panel entirely.
-	const handleScreenshotHover = (screenshotUrl: string | null) => {
-		if (screenshotUrl && mode() === "hover") {
-			setHoveredElement({ type: "screenshot", id: screenshotUrl });
-		}
+	const handleScreenshotHover = (id: string | null) => {
+		setPointerElement(id ? { type: "screenshot", id } : null);
 	};
 
-	const handleStepHover = (stepId: string | null) => {
-		if (stepId && mode() === "hover") {
-			setHoveredElement({ type: "step", id: stepId });
-		}
+	const handleStepHover = (id: string | null) => {
+		setPointerElement(id ? { type: "step", id } : null);
 	};
 
-	const handleSpanHover = (spanId: string | null) => {
-		if (spanId && mode() === "hover") {
-			setHoveredElement({ type: "span", id: spanId });
-		}
+	const handleSpanHover = (id: string | null) => {
+		setPointerElement(id ? { type: "span", id } : null);
 	};
 
 	const handleSpanSelect = (
@@ -683,7 +694,17 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const MainPanelContent = () => (
-		<div class="flex flex-col h-full relative">
+		// One plot box defines ruler, pointer, screenshots and span coordinates.
+		// Panels stay full width; only their plotted content is inset. Reserve the
+		// native scrollbar width in every plot, even in unscrolled panels.
+		<div
+			class="flex flex-col h-full relative"
+			style={{
+				"container-type": "inline-size",
+				"--timeline-plot-inset": `${TIMELINE_PLOT_INSET_PX}px`,
+				"--timeline-plot-width": `calc(100cqw - ${2 * TIMELINE_PLOT_INSET_PX + scrollbarWidth()}px)`,
+			}}
+		>
 			<Show when={props.traceData.isLoading()}>
 				<LoadingOverlay />
 			</Show>
@@ -699,7 +720,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			/>
 
 			<div
-				ref={contentAreaRef}
 				class="flex-1 min-h-0 relative flex flex-col"
 				role="region"
 				aria-label="Trace timeline"
@@ -769,45 +789,41 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					</div>
 				</Show>
 
-				{/* Selection overlay - only show when selection is meaningful */}
-				<Show
-					when={
-						selectionState() && selectionWidth() > MIN_SELECTION_DISPLAY_PERCENT
-					}
+				<div
+					ref={plotRef}
+					data-timeline-plot
+					class="absolute inset-y-0 pointer-events-none"
+					style={{
+						left: "var(--timeline-plot-inset)",
+						width: "var(--timeline-plot-width)",
+					}}
 				>
-					<div
-						class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
-						style={{
-							left: `${selectionLeft()}%`,
-							width: `${selectionWidth()}%`,
-						}}
-					/>
-				</Show>
+					{/* Selection overlay - only show when selection is meaningful */}
+					<Show
+						when={
+							selectionState() &&
+							selectionWidth() > MIN_SELECTION_DISPLAY_PERCENT
+						}
+					>
+						<div
+							class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
+							style={{
+								left: `${selectionLeft()}%`,
+								width: `${selectionWidth()}%`,
+							}}
+						/>
+					</Show>
 
-				{/* Position indicator - hover mode: thin blue line */}
-				<Show when={mode() === "hover" && hoverPosition() !== null}>
-					<div
-						class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
-						style={{ left: `${hoverPosition()! * 100}%` }}
-					/>
-				</Show>
+					{/* Position indicator - hover mode: thin blue line */}
+					<Show when={mode() === "hover" && hoverPosition() !== null}>
+						<div
+							class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
+							style={{ left: `${hoverPosition()! * 100}%` }}
+						/>
+					</Show>
 
-				{/* Position indicator - locked mode: thick blue line */}
-				<Show when={mode() === "locked" && lockedPosition() !== null}>
-					<div
-						class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
-						style={{
-							left: `${lockedPosition()! * 100}%`,
-							width: "3px",
-							"margin-left": "-1px",
-						}}
-					/>
-				</Show>
-
-				{/* Position indicator - search-override mode: both lines */}
-				<Show when={mode() === "search-override"}>
-					{/* Locked position - thick blue line */}
-					<Show when={lockedPosition() !== null}>
+					{/* Position indicator - locked mode: thick blue line */}
+					<Show when={mode() === "locked" && lockedPosition() !== null}>
 						<div
 							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
 							style={{
@@ -817,14 +833,29 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 							}}
 						/>
 					</Show>
-					{/* Search hover position - thin lighter blue line */}
-					<Show when={hoverPosition() !== null}>
-						<div
-							class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
-							style={{ left: `${hoverPosition()! * 100}%` }}
-						/>
+
+					{/* Position indicator - search-override mode: both lines */}
+					<Show when={mode() === "search-override"}>
+						{/* Locked position - thick blue line */}
+						<Show when={lockedPosition() !== null}>
+							<div
+								class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
+								style={{
+									left: `${lockedPosition()! * 100}%`,
+									width: "3px",
+									"margin-left": "-1px",
+								}}
+							/>
+						</Show>
+						{/* Search hover position - thin lighter blue line */}
+						<Show when={hoverPosition() !== null}>
+							<div
+								class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
+								style={{ left: `${hoverPosition()! * 100}%` }}
+							/>
+						</Show>
 					</Show>
-				</Show>
+				</div>
 			</div>
 		</div>
 	);
