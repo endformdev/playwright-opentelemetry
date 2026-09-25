@@ -101,6 +101,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 						class="relative"
 						style={{
 							height: `${containerHeight()}px`,
+							"margin-left": "var(--timeline-plot-inset)",
 							width: "var(--timeline-plot-width)",
 						}}
 					>

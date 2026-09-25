@@ -92,6 +92,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 						class="relative"
 						style={{
 							height: `${containerHeight()}px`,
+							"margin-left": "var(--timeline-plot-inset)",
 							width: "var(--timeline-plot-width)",
 						}}
 					>

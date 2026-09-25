@@ -292,8 +292,9 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		),
 	);
 
+	// Always report the hovered screenshot so the live pointer identity stays
+	// current while locked; only the enlarged preview depends on the mode.
 	const handleRowHover = (event: MouseEvent, row: SelectedScreenshotRow) => {
-		if (!props.previewEnabled || event.buttons !== 0) return dismissPreview();
 		const timeline = contentRef
 			?.closest('[aria-label="Trace timeline"]')
 			?.querySelector("[data-timeline-plot]")
@@ -310,8 +311,16 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		props.onScreenshotHover?.(
 			screenshot?.url ?? row.screenshots[0]?.url ?? null,
 		);
-		if (screenshot) showPreview(event.clientX, screenshot);
-		else dismissPreview();
+		if (screenshot && props.previewEnabled && event.buttons === 0) {
+			showPreview(event.clientX, screenshot);
+		} else {
+			dismissPreview();
+		}
+	};
+
+	const handleLeave = () => {
+		dismissPreview();
+		props.onScreenshotHover?.(null);
 	};
 
 	return (
@@ -320,7 +329,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 			class="h-full bg-gray-50 overflow-y-auto overflow-x-hidden p-2"
 			role="region"
 			aria-label="Screenshots"
-			onMouseLeave={dismissPreview}
+			onMouseLeave={handleLeave}
 			onMouseDown={dismissPreview}
 		>
 			<Show when={preview()}>

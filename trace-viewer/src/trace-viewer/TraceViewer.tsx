@@ -86,6 +86,7 @@ const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
 const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
+const TIMELINE_PLOT_INSET_PX = 12;
 
 function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
 	if (screenshots.length === 0) return 1;
@@ -186,10 +187,14 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			.sort((a, b) => a.startOffsetMs - b.startOffsetMs),
 	);
 
-	let contentAreaRef: HTMLDivElement | undefined;
 	let plotRef: HTMLDivElement | undefined;
+	// Live pointer state, tracked independently of locked/search display state.
 	let pointerElement: FocusedElement | null = null;
 	let pointerPosition: number | null = null;
+	const setPointerElement = (element: FocusedElement | null) => {
+		pointerElement = element;
+		if (mode() === "hover") setHoveredElement(element);
+	};
 	const [scrollbarWidth, setScrollbarWidth] = createSignal(0);
 	onMount(() => {
 		const probe = document.createElement("div");
@@ -324,7 +329,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const handleMouseDown = (e: MouseEvent) => {
 		// Only start selection on primary button
 		if (e.button !== 0) return;
-		if (!contentAreaRef || !plotRef) return;
+		if (!plotRef) return;
 
 		// Don't start selection if clicking on resize handles
 		const target = e.target as HTMLElement;
@@ -343,40 +348,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			setSelectionState({
 				startPosition: position,
 				currentPosition: position,
-				element:
-					elementAtTarget(e.target) ??
-					(e.target instanceof Element &&
-					e.target.closest('[aria-label="Screenshots"]')
-						? pointerElement
-						: null),
+				element: pointerElement,
 			});
 		}
 	};
 
-	// Resolve the current DOM hit, including text and event-marker descendants.
-	const elementAtTarget = (
-		target: EventTarget | null,
-	): FocusedElement | null => {
-		if (!(target instanceof Element)) return null;
-		const bar = target.closest<HTMLElement>("[data-span-id]");
-		if (bar && contentAreaRef?.contains(bar)) {
-			const id = bar.dataset.spanId!;
-			return {
-				type: props.traceData.steps().some((step) => step.id === id)
-					? "step"
-					: "span",
-				id,
-			};
-		}
-		return null;
-	};
-
 	const handleMouseMove = (e: MouseEvent) => {
-		if (!contentAreaRef || !plotRef) return;
+		if (!plotRef) return;
 
 		const rect = plotRef.getBoundingClientRect();
 		const position = (e.clientX - rect.left) / rect.width;
-		pointerPosition = position >= 0 && position <= 1 ? position : null;
 
 		// Update selection if dragging
 		const selection = selectionState();
@@ -388,38 +369,21 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			});
 		}
 
-		// Check if hovering over a resize handle (they have cursor-*-resize)
-		const target = e.target as HTMLElement;
-		const computedStyle = window.getComputedStyle(target);
-		if (
+		// Resize handles (cursor-*-resize) have no time position
+		const computedStyle = window.getComputedStyle(e.target as HTMLElement);
+		const isOnResizeHandle =
 			computedStyle.cursor === "col-resize" ||
-			computedStyle.cursor === "row-resize"
-		) {
-			// Only update hover position in hover mode
-			if (mode() === "hover") {
-				setHoverPosition(null);
-			}
-			return;
-		}
+			computedStyle.cursor === "row-resize";
+		pointerPosition =
+			!isOnResizeHandle && position >= 0 && position <= 1 ? position : null;
 
-		// Track the live hit independently of locked/search display state.
-		if (
-			!(e.target instanceof Element) ||
-			!e.target.closest('[aria-label="Screenshots"]')
-		) {
-			pointerElement = elementAtTarget(e.target);
-		}
+		// Only update hover position in hover mode
 		if (mode() === "hover") {
-			setHoveredElement(pointerElement);
-			if (position >= 0 && position <= 1) {
-				setHoverPosition(position);
-			} else {
-				setHoverPosition(null);
-			}
+			setHoverPosition(pointerPosition);
 		}
 	};
 
-	const handleMouseUp = (event: MouseEvent) => {
+	const handleMouseUp = () => {
 		const selection = selectionState();
 		if (selection) {
 			const startMs = viewportPositionToTime(
@@ -457,13 +421,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						// so the hover line appears immediately
 						setHoverPosition(selection.startPosition);
 						unlock();
-						setHoveredElement(
-							elementAtTarget(event.target) ??
-								(event.target instanceof Element &&
-								event.target.closest('[aria-label="Screenshots"]')
-									? pointerElement
-									: null),
-						);
+						setHoveredElement(pointerElement);
 						break;
 				}
 			}
@@ -473,18 +431,17 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const handleMouseLeave = () => {
-		pointerElement = null;
 		pointerPosition = null;
+		setPointerElement(null);
 		if (mode() === "hover") {
 			setHoverPosition(null);
-			setHoveredElement(null);
 		}
 		// Don't clear selection on mouse leave - user might drag outside temporarily
 	};
 
 	// Set up global mouseup listener to handle drag end outside component
 	onMount(() => {
-		const onGlobalMouseUp = (event: MouseEvent) => handleMouseUp(event);
+		const onGlobalMouseUp = () => handleMouseUp();
 		document.addEventListener("mouseup", onGlobalMouseUp);
 
 		const onKeyDown = (e: KeyboardEvent) => {
@@ -508,7 +465,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const handleWheel = (e: WheelEvent) => {
-		if (!contentAreaRef || !plotRef) return;
+		if (!plotRef) return;
 
 		// Check for zoom modifier keys (Cmd, Ctrl, or Shift)
 		const isZoomModifier = e.metaKey || e.ctrlKey || e.shiftKey;
@@ -551,16 +508,15 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const handleScreenshotHover = (id: string | null) => {
-		pointerElement = id ? { type: "screenshot", id } : null;
-		if (mode() === "hover") setHoveredElement(pointerElement);
+		setPointerElement(id ? { type: "screenshot", id } : null);
 	};
 
 	const handleStepHover = (id: string | null) => {
-		if (mode() === "hover") setHoveredElement(id ? { type: "step", id } : null);
+		setPointerElement(id ? { type: "step", id } : null);
 	};
 
 	const handleSpanHover = (id: string | null) => {
-		if (mode() === "hover") setHoveredElement(id ? { type: "span", id } : null);
+		setPointerElement(id ? { type: "span", id } : null);
 	};
 
 	const handleSpanSelect = (
@@ -738,33 +694,32 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	const MainPanelContent = () => (
-		// One content box defines ruler, pointer, screenshots and span coordinates.
-		// Reserve the native scrollbar width in every plot, even in unscrolled panels.
+		// One plot box defines ruler, pointer, screenshots and span coordinates.
+		// Panels stay full width; only their plotted content is inset. Reserve the
+		// native scrollbar width in every plot, even in unscrolled panels.
 		<div
-			class="flex flex-col h-full relative px-4"
+			class="flex flex-col h-full relative"
 			style={{
 				"container-type": "inline-size",
-				"--timeline-plot-width": `calc(100cqw - ${scrollbarWidth()}px)`,
+				"--timeline-plot-inset": `${TIMELINE_PLOT_INSET_PX}px`,
+				"--timeline-plot-width": `calc(100cqw - ${2 * TIMELINE_PLOT_INSET_PX + scrollbarWidth()}px)`,
 			}}
 		>
 			<Show when={props.traceData.isLoading()}>
 				<LoadingOverlay />
 			</Show>
 
-			<div style={{ width: "var(--timeline-plot-width)" }}>
-				<TimelineRuler
-					durationMs={props.traceData.totalDurationMs()}
-					viewport={viewport()}
-					hoverPosition={hoverPosition()}
-					onViewportChange={handleViewportChange}
-					testPhases={testPhases()}
-					onPhaseClick={handlePhaseClick}
-					onDoubleClick={handleDoubleClick}
-				/>
-			</div>
+			<TimelineRuler
+				durationMs={props.traceData.totalDurationMs()}
+				viewport={viewport()}
+				hoverPosition={hoverPosition()}
+				onViewportChange={handleViewportChange}
+				testPhases={testPhases()}
+				onPhaseClick={handlePhaseClick}
+				onDoubleClick={handleDoubleClick}
+			/>
 
 			<div
-				ref={contentAreaRef}
 				class="flex-1 min-h-0 relative flex flex-col"
 				role="region"
 				aria-label="Trace timeline"
@@ -837,8 +792,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				<div
 					ref={plotRef}
 					data-timeline-plot
-					class="absolute inset-y-0 left-0 pointer-events-none"
+					class="absolute inset-y-0 pointer-events-none"
 					style={{
+						left: "var(--timeline-plot-inset)",
 						width: "var(--timeline-plot-width)",
 					}}
 				>

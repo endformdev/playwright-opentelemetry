@@ -111,6 +111,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 					class="relative"
 					style={{
 						height: `${containerHeight()}px`,
+						"margin-left": "var(--timeline-plot-inset)",
 						width: "var(--timeline-plot-width)",
 					}}
 				>

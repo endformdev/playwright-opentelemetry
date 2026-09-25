@@ -81,6 +81,12 @@ test("direct span hits stay focused at edges, after locking, and across plot siz
 			.locator(`[data-span-id="${ids[1]}"]`)
 			.boundingBox();
 		expect(late!.x).toBeCloseTo(plot!.x + plot!.width * 0.98, 0);
+		// Panels stay full width; only the plotted content is inset.
+		const timeline = (await viewer.timelineContent.boundingBox())!;
+		const steps = (await viewer.steps.root.boundingBox())!;
+		expect(steps.x).toBeCloseTo(timeline.x, 0);
+		expect(steps.width).toBeCloseTo(timeline.width, 0);
+		expect(plot!.x).toBeGreaterThan(timeline.x);
 		// Empty space must not retain the last bar's identity or lock it again.
 		await page.mouse.click(plot!.x + plot!.width * 0.5, late!.y + 70);
 		await expect(
