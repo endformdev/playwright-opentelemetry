@@ -90,10 +90,10 @@ function hasPlaywrightOpentelemetryDestination(
 ): boolean {
 	return Boolean(
 		config.otlpDestinations.some((destination) => destination.url) ||
-			config.playwrightTraceApiDestinations.some(
-				(destination) => destination.url,
-			) ||
-			config.storeTraceZip,
+		config.playwrightTraceApiDestinations.some(
+			(destination) => destination.url,
+		) ||
+		config.storeTraceZip,
 	);
 }
 

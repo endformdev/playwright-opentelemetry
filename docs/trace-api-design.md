@@ -41,20 +41,20 @@ npm install @playwright-opentelemetry/trace-api
 
 ```typescript
 // worker.ts
-import { createTraceApi } from '@playwright-opentelemetry/trace-api';
+import { createTraceApi } from "@playwright-opentelemetry/trace-api";
 
 const api = createTraceApi({
-  storageConfig: {
-    bucket: 'my-traces',
-    endpoint: 'https://xxx.r2.cloudflarestorage.com',
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    region: 'auto',
-  },
+	storageConfig: {
+		bucket: "my-traces",
+		endpoint: "https://xxx.r2.cloudflarestorage.com",
+		accessKeyId: env.R2_ACCESS_KEY_ID,
+		secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+		region: "auto",
+	},
 });
 
 export default {
-  fetch: api.fetch,
+	fetch: api.fetch,
 };
 ```
 
@@ -64,31 +64,31 @@ The high-level API returns an H3 instance, so you can add middleware using stand
 
 ```typescript
 // worker.ts
-import { createTraceApi } from '@playwright-opentelemetry/trace-api';
-import { getHeader, createError } from 'h3';
+import { createTraceApi } from "@playwright-opentelemetry/trace-api";
+import { getHeader, createError } from "h3";
 
 const api = createTraceApi({
-  storageConfig: {
-    bucket: 'my-traces',
-    endpoint: env.R2_ENDPOINT,
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-  },
+	storageConfig: {
+		bucket: "my-traces",
+		endpoint: env.R2_ENDPOINT,
+		accessKeyId: env.R2_ACCESS_KEY_ID,
+		secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+	},
 });
 
 // Add authentication to write endpoints using native H3 middleware
-api.use('/v1/traces', async (event) => {
-  const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
-  if (!await validateToken(token)) {
-    throw createError({ statusCode: 401, message: 'Unauthorized' });
-  }
+api.use("/v1/traces", async (event) => {
+	const token = getHeader(event, "authorization")?.replace("Bearer ", "");
+	if (!(await validateToken(token))) {
+		throw createError({ statusCode: 401, message: "Unauthorized" });
+	}
 });
 
-api.use('/playwright-otel-reporter/v1/**', async (event) => {
-  const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
-  if (!await validateToken(token)) {
-    throw createError({ statusCode: 401, message: 'Unauthorized' });
-  }
+api.use("/playwright-otel-reporter/v1/**", async (event) => {
+	const token = getHeader(event, "authorization")?.replace("Bearer ", "");
+	if (!(await validateToken(token))) {
+		throw createError({ statusCode: 401, message: "Unauthorized" });
+	}
 });
 
 // Read endpoints (/playwright-otel-trace-viewer/v1/**) are public by default
@@ -96,10 +96,10 @@ api.use('/playwright-otel-reporter/v1/**', async (event) => {
 // api.use('/playwright-otel-trace-viewer/v1/**', readAuthMiddleware);
 
 // Add custom routes
-api.get('/health', () => ({ status: 'ok' }));
+api.get("/health", () => ({ status: "ok" }));
 
 export default {
-  fetch: api.fetch,
+	fetch: api.fetch,
 };
 ```
 
@@ -107,21 +107,21 @@ export default {
 
 ```typescript
 interface TraceApiConfig {
-  // Custom storage implementation. Use this or storageConfig, not both.
-  storage?: TraceStorage;
+	// Custom storage implementation. Use this or storageConfig, not both.
+	storage?: TraceStorage;
 
-  // S3-compatible storage configuration. Use this or storage, not both.
-  storageConfig?: {
-    bucket: string;
-    endpoint: string;
-    accessKeyId: string;
-    secretAccessKey: string;
-    region?: string; // Default: 'auto' (works for R2)
-  };
+	// S3-compatible storage configuration. Use this or storage, not both.
+	storageConfig?: {
+		bucket: string;
+		endpoint: string;
+		accessKeyId: string;
+		secretAccessKey: string;
+		region?: string; // Default: 'auto' (works for R2)
+	};
 
-  // Transform storage paths before read/write (optional)
-  // Useful for multi-tenancy - see examples below
-  resolvePath?: (event: H3Event, path: string) => Promise<string> | string;
+	// Transform storage paths before read/write (optional)
+	// Useful for multi-tenancy - see examples below
+	resolvePath?: (event: H3Event, path: string) => Promise<string> | string;
 }
 ```
 
@@ -130,30 +130,36 @@ interface TraceApiConfig {
 For maximum flexibility, you can compose your own API using individual handlers:
 
 ```typescript
-import { H3 } from 'h3';
+import { H3 } from "h3";
 import {
-  createS3Storage,
-  createOtlpHandler,
-  createPlaywrightHandler,
-  createViewerHandler,
-} from '@playwright-opentelemetry/trace-api';
+	createS3Storage,
+	createOtlpHandler,
+	createPlaywrightHandler,
+	createViewerHandler,
+} from "@playwright-opentelemetry/trace-api";
 
 const storage = createS3Storage({
-  bucket: 'my-traces',
-  endpoint: env.R2_ENDPOINT,
-  accessKeyId: env.R2_ACCESS_KEY_ID,
-  secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+	bucket: "my-traces",
+	endpoint: env.R2_ENDPOINT,
+	accessKeyId: env.R2_ACCESS_KEY_ID,
+	secretAccessKey: env.R2_SECRET_ACCESS_KEY,
 });
 
 const app = new H3();
 
 // Add only the handlers you need
-app.post('/v1/traces', createOtlpHandler({ storage }));
-app.put('/playwright-otel-reporter/v1/**', createPlaywrightHandler({ storage }));
-app.get('/playwright-otel-trace-viewer/v1/**', createViewerHandler({ storage }));
+app.post("/v1/traces", createOtlpHandler({ storage }));
+app.put(
+	"/playwright-otel-reporter/v1/**",
+	createPlaywrightHandler({ storage }),
+);
+app.get(
+	"/playwright-otel-trace-viewer/v1/**",
+	createViewerHandler({ storage }),
+);
 
 export default {
-  fetch: app.fetch,
+	fetch: app.fetch,
 };
 ```
 
@@ -208,6 +214,7 @@ export default {
 ### Other Runtimes
 
 **Deno:**
+
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
@@ -217,6 +224,7 @@ Deno.serve({ port: 3000 }, api.fetch);
 ```
 
 **Bun:**
+
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
@@ -229,6 +237,7 @@ export default {
 ```
 
 **Node.js:**
+
 ```typescript
 import { serve } from 'h3/node';
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
@@ -250,6 +259,7 @@ Body: Standard OTLP JSON payload
 ```
 
 **Backend logic:**
+
 1. Parse `traceId` from each span in the payload
 2. Partition the OTLP export by trace ID
 3. If the request came from the Playwright reporter (`X-Playwright-Otel-Source: reporter`), accept every trace ID in the payload
@@ -271,6 +281,7 @@ X-Playwright-Otel-Source: reporter
 ```
 
 **Backend logic:**
+
 1. Write a zero-byte marker to `traces/{traceId}/.expected`
 
 The fixture calls this endpoint at test setup when the trace mode could retain the current attempt, before it installs request tracing and before any browser request can receive a propagated `traceparent` header. That makes the marker available by the time app-under-test telemetry begins exporting spans.
@@ -284,6 +295,7 @@ Body: ZIP containing manifest.json and screenshots/*
 ```
 
 **Backend logic:**
+
 1. Write to `traces/{traceId}/screenshots.zip`
 
 ### Trace Viewer API (Read)
@@ -307,6 +319,7 @@ Users must configure their S3-compatible bucket with a lifecycle rule to expire 
 ### AWS S3
 
 Using AWS CLI:
+
 ```bash
 aws s3api put-bucket-lifecycle-configuration \
   --bucket my-traces \
@@ -321,6 +334,7 @@ aws s3api put-bucket-lifecycle-configuration \
 ```
 
 Or via AWS Console:
+
 1. Go to S3 > your bucket > Management > Lifecycle rules
 2. Create rule with prefix filter `traces/`
 3. Set expiration to desired retention period (e.g., 30 days)
@@ -328,6 +342,7 @@ Or via AWS Console:
 ### Cloudflare R2
 
 Using Wrangler:
+
 ```bash
 wrangler r2 bucket lifecycle set my-traces --rules '[{
   "id": "expire-traces",
@@ -338,6 +353,7 @@ wrangler r2 bucket lifecycle set my-traces --rules '[{
 ```
 
 Or via Cloudflare Dashboard:
+
 1. Go to R2 > your bucket > Settings > Object lifecycle rules
 2. Add rule with prefix `traces/`
 3. Set "Delete objects" after desired retention period
@@ -375,16 +391,16 @@ trace-api/
 
 ```typescript
 // High-level convenience
-export { createTraceApi } from './createTraceApi';
+export { createTraceApi } from "./createTraceApi";
 
 // Low-level building blocks
-export { createS3Storage } from './storage/s3';
-export { createOtlpHandler } from './handlers/otlp';
-export { createPlaywrightHandler } from './handlers/playwright';
-export { createViewerHandler } from './handlers/viewer';
+export { createS3Storage } from "./storage/s3";
+export { createOtlpHandler } from "./handlers/otlp";
+export { createPlaywrightHandler } from "./handlers/playwright";
+export { createViewerHandler } from "./handlers/viewer";
 
 // Types
-export type { TraceApiConfig, StorageConfig, TraceStorage } from './types';
+export type { TraceApiConfig, StorageConfig, TraceStorage } from "./types";
 ```
 
 ## Lifecycle and Garbage Collection
@@ -398,6 +414,7 @@ This approach favors keeping the bucket focused on Playwright-related traces whi
 ## Cost Characteristics
 
 Per-request costs (S3 Standard pricing, R2 is similar):
+
 - PUT: $0.005/1,000 requests
 - HEAD/GET: $0.0004/1,000 requests
 - GET: $0.0004/1,000 requests
@@ -412,25 +429,31 @@ Any service can contribute spans to a trace by sending OTLP data with a matching
 
 ```json
 {
-  "resourceSpans": [{
-    "resource": {
-      "attributes": [
-        { "key": "service.name", "value": { "stringValue": "backend-api" } }
-      ]
-    },
-    "scopeSpans": [{
-      "scope": { "name": "my-instrumentation" },
-      "spans": [{
-        "traceId": "7709187832dca84f02f413a312421586",
-        "spanId": "abc123",
-        "parentSpanId": "def456",
-        "name": "HTTP GET /api/users",
-        "startTimeUnixNano": "1766927492260000000",
-        "endTimeUnixNano": "1766927492300000000",
-        "status": { "code": 1 }
-      }]
-    }]
-  }]
+	"resourceSpans": [
+		{
+			"resource": {
+				"attributes": [
+					{ "key": "service.name", "value": { "stringValue": "backend-api" } }
+				]
+			},
+			"scopeSpans": [
+				{
+					"scope": { "name": "my-instrumentation" },
+					"spans": [
+						{
+							"traceId": "7709187832dca84f02f413a312421586",
+							"spanId": "abc123",
+							"parentSpanId": "def456",
+							"name": "HTTP GET /api/users",
+							"startTimeUnixNano": "1766927492260000000",
+							"endTimeUnixNano": "1766927492300000000",
+							"status": { "code": 1 }
+						}
+					]
+				}
+			]
+		}
+	]
 }
 ```
 
@@ -442,67 +465,70 @@ Here's a complete example of a multi-tenant setup where each organization's trac
 
 ```typescript
 // worker.ts
-import { createTraceApi } from '@playwright-opentelemetry/trace-api';
-import { getHeader, createError } from 'h3';
+import { createTraceApi } from "@playwright-opentelemetry/trace-api";
+import { getHeader, createError } from "h3";
 
 interface Env {
-  R2_ACCESS_KEY_ID: string;
-  R2_SECRET_ACCESS_KEY: string;
-  R2_ENDPOINT: string;
-  AUTH_SERVICE: Fetcher;
+	R2_ACCESS_KEY_ID: string;
+	R2_SECRET_ACCESS_KEY: string;
+	R2_ENDPOINT: string;
+	AUTH_SERVICE: Fetcher;
 }
 
 export default {
-  fetch: (request: Request, env: Env) => {
-    const api = createTraceApi({
-      storageConfig: {
-        bucket: 'traces',
-        endpoint: env.R2_ENDPOINT,
-        accessKeyId: env.R2_ACCESS_KEY_ID,
-        secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-        region: 'auto',
-      },
+	fetch: (request: Request, env: Env) => {
+		const api = createTraceApi({
+			storageConfig: {
+				bucket: "traces",
+				endpoint: env.R2_ENDPOINT,
+				accessKeyId: env.R2_ACCESS_KEY_ID,
+				secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+				region: "auto",
+			},
 
-      // Prefix all paths with org ID for isolation
-      resolvePath: (event, path) => {
-        const orgId = event.context.orgId;
-        return `orgs/${orgId}/${path}`;
-      },
-    });
+			// Prefix all paths with org ID for isolation
+			resolvePath: (event, path) => {
+				const orgId = event.context.orgId;
+				return `orgs/${orgId}/${path}`;
+			},
+		});
 
-    // Auth middleware for write endpoints - validates token and sets orgId
-    const authMiddleware = async (event) => {
-      const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
-      if (!token) {
-        throw createError({ statusCode: 401, message: 'Missing authorization' });
-      }
+		// Auth middleware for write endpoints - validates token and sets orgId
+		const authMiddleware = async (event) => {
+			const token = getHeader(event, "authorization")?.replace("Bearer ", "");
+			if (!token) {
+				throw createError({
+					statusCode: 401,
+					message: "Missing authorization",
+				});
+			}
 
-      const response = await env.AUTH_SERVICE.fetch(
-        'https://auth/validate',
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+			const response = await env.AUTH_SERVICE.fetch("https://auth/validate", {
+				headers: { Authorization: `Bearer ${token}` },
+			});
 
-      if (!response.ok) {
-        throw createError({ statusCode: 401, message: 'Invalid token' });
-      }
+			if (!response.ok) {
+				throw createError({ statusCode: 401, message: "Invalid token" });
+			}
 
-      const { orgId } = await response.json();
-      event.context.orgId = orgId;
-    };
+			const { orgId } = await response.json();
+			event.context.orgId = orgId;
+		};
 
-    // Apply auth to write endpoints
-    api.use('/v1/traces', authMiddleware);
-    api.use('/playwright-otel-reporter/v1/**', authMiddleware);
+		// Apply auth to write endpoints
+		api.use("/v1/traces", authMiddleware);
+		api.use("/playwright-otel-reporter/v1/**", authMiddleware);
 
-    // Read endpoints could use different auth or be public
-    // api.use('/playwright-otel-trace-viewer/v1/**', readAuthMiddleware);
+		// Read endpoints could use different auth or be public
+		// api.use('/playwright-otel-trace-viewer/v1/**', readAuthMiddleware);
 
-    return api.fetch(request);
-  },
+		return api.fetch(request);
+	},
 };
 ```
 
 This results in storage paths like:
+
 ```
 orgs/{orgId}/traces/{traceId}/traces/...
 ```

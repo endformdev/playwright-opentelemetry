@@ -56,11 +56,11 @@ A trace is produced by three sources of spans:
 
 This repo ships the reporter and fixture, plus tooling for viewing and storing the traces they produce:
 
-| Package | What it does |
-| --- | --- |
-| [`playwright-opentelemetry`](reporter/) | The **reporter** and **fixture** to produce OpenTelemetry traces. |
+| Package                                                   | What it does                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`playwright-opentelemetry`](reporter/)                   | The **reporter** and **fixture** to produce OpenTelemetry traces.                                                                                                                                                                                                   |
 | [`@playwright-opentelemetry/trace-viewer`](trace-viewer/) | A **trace viewer** for OpenTelemetry trace data rendered alongside Playwright's screenshot filmstrip: a time-aligned flame graph split into test steps, browser spans, and external (backend) spans. Also [hosted at trace.endform.dev](https://trace.endform.dev). |
-| [`@playwright-opentelemetry/trace-api`](trace-api/) | An **OTLP-compatible Trace API** that makes it easy to store trace data together with the screenshot artifacts, backed by S3-compatible object storage. Deployable to Cloudflare Workers, Deno, Bun, or Node.js. |
+| [`@playwright-opentelemetry/trace-api`](trace-api/)       | An **OTLP-compatible Trace API** that makes it easy to store trace data together with the screenshot artifacts, backed by S3-compatible object storage. Deployable to Cloudflare Workers, Deno, Bun, or Node.js.                                                    |
 
 ![One browser request, its backend descendants, and the database query that ran underneath, all in the same trace](docs/assets/browser-to-db.png)
 
@@ -321,8 +321,8 @@ When `storeTraceZip: true` and Playwright retained a trace for the test, a local
 The trace viewer can also load traces from a trace-specific API base URL, for example `/playwright-otel-trace-viewer/v1/{traceId}`. That base URL must respond to the following endpoints:
 
 - `GET {baseUrl}/traces` - merged OTLP trace export response
-	- Response format `{ "resourceSpans": [...] }`
-	- Returns `404` when the trace does not exist
+  - Response format `{ "resourceSpans": [...] }`
+  - Returns `404` when the trace does not exist
 - `GET {baseUrl}/screenshots.zip` - ZIP containing root `manifest.json` and `screenshots/*`, or `404` when there are no screenshots
 
 Reporter step spans in Before Hooks carry `playwright.test.phase: "before"`; spans in After Hooks and Worker Cleanup carry `playwright.test.phase: "after"`. This custom attribute is inherited by nested hooks, fixtures, and steps. Test-body steps and the root test span omit it.

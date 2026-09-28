@@ -22,20 +22,20 @@ Reporter uploads follow Playwright trace retention by default. If Playwright doe
 ### Basic Usage
 
 ```typescript
-import { createTraceApi } from '@playwright-opentelemetry/trace-api';
+import { createTraceApi } from "@playwright-opentelemetry/trace-api";
 
 const api = createTraceApi({
-  storageConfig: {
-    bucket: 'my-traces',
-    endpoint: 'https://xxx.r2.cloudflarestorage.com',
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    region: 'auto',
-  },
+	storageConfig: {
+		bucket: "my-traces",
+		endpoint: "https://xxx.r2.cloudflarestorage.com",
+		accessKeyId: env.R2_ACCESS_KEY_ID,
+		secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+		region: "auto",
+	},
 });
 
 export default {
-  fetch: api.fetch,
+	fetch: api.fetch,
 };
 ```
 
@@ -44,32 +44,32 @@ export default {
 For maximum flexibility, compose your own API using individual handlers:
 
 ```typescript
-import { H3, getHeader, createError } from 'h3';
+import { H3, getHeader, createError } from "h3";
 import {
-  createS3Storage,
-  createOtlpHandler,
-  createPlaywrightHandler,
-  createViewerHandler,
-  OTLP_TRACES_WRITE_PATH,
-  PLAYWRIGHT_REPORTER_WRITE_PATH,
-  TRACE_VIEWER_READ_PATH,
-} from '@playwright-opentelemetry/trace-api';
+	createS3Storage,
+	createOtlpHandler,
+	createPlaywrightHandler,
+	createViewerHandler,
+	OTLP_TRACES_WRITE_PATH,
+	PLAYWRIGHT_REPORTER_WRITE_PATH,
+	TRACE_VIEWER_READ_PATH,
+} from "@playwright-opentelemetry/trace-api";
 
 const storage = createS3Storage({
-  bucket: 'my-traces',
-  endpoint: env.R2_ENDPOINT,
-  accessKeyId: env.R2_ACCESS_KEY_ID,
-  secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+	bucket: "my-traces",
+	endpoint: env.R2_ENDPOINT,
+	accessKeyId: env.R2_ACCESS_KEY_ID,
+	secretAccessKey: env.R2_SECRET_ACCESS_KEY,
 });
 
 const app = new H3();
 
 // Authentication middleware for write endpoints
 const authMiddleware = async (event) => {
-  const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
-  if (!token || !await validateToken(token)) {
-    throw createError({ statusCode: 401, message: 'Unauthorized' });
-  }
+	const token = getHeader(event, "authorization")?.replace("Bearer ", "");
+	if (!token || !(await validateToken(token))) {
+		throw createError({ statusCode: 401, message: "Unauthorized" });
+	}
 };
 
 // Apply auth to write endpoints
@@ -85,13 +85,14 @@ app.put(PLAYWRIGHT_REPORTER_WRITE_PATH, createPlaywrightHandler({ storage }));
 app.get(TRACE_VIEWER_READ_PATH, createViewerHandler({ storage }));
 
 export default {
-  fetch: app.fetch,
+	fetch: app.fetch,
 };
 ```
 
 ### Other Runtimes
 
 **Deno:**
+
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
@@ -101,6 +102,7 @@ Deno.serve({ port: 3000 }, api.fetch);
 ```
 
 **Bun:**
+
 ```typescript
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
 
@@ -113,6 +115,7 @@ export default {
 ```
 
 **Node.js:**
+
 ```typescript
 import { serve } from 'h3/node';
 import { createTraceApi } from '@playwright-opentelemetry/trace-api';
@@ -128,16 +131,16 @@ serve(api, { port: 3000 });
 
 ```typescript
 interface TraceApiConfig {
-  storage?: TraceStorage;
-  storageConfig?: {
-    bucket: string;
-    endpoint: string;
-    accessKeyId: string;
-    secretAccessKey: string;
-    region?: string; // Default: 'auto'
-  };
-  resolvePath?: (event: H3Event, path: string) => Promise<string> | string;
-  corsOrigin?: string | false;
+	storage?: TraceStorage;
+	storageConfig?: {
+		bucket: string;
+		endpoint: string;
+		accessKeyId: string;
+		secretAccessKey: string;
+		region?: string; // Default: 'auto'
+	};
+	resolvePath?: (event: H3Event, path: string) => Promise<string> | string;
+	corsOrigin?: string | false;
 }
 ```
 
