@@ -107,29 +107,39 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			const config = resolvePlaywrightOpentelemetryConfig(
 				playwrightOpentelemetry,
 			);
-			context.route("**", async (route, request) => {
+			const captureRequest = (request: Request) => {
 				browserPageTracker.startDocumentNavigation(request);
 				const networkParent = browserPageTracker.getNetworkParent(request);
-				const spanId = storeRequestTraceContext({
+				storeRequestTraceContext({
 					request,
 					traceContext: testTraceContext,
 					parentSpanId: networkParent.spanId,
 					routeAssociation: networkParent.routeAssociation,
 				});
+			};
 
-				if (config.propagateTraceHeaders) {
+			context.on("request", captureRequest);
+			await context.route("**", async (route, request) => {
+				const requestContext = testTraceContext.requestContexts.get(request);
+
+				if (config.propagateTraceHeaders && requestContext) {
 					await propagateRouteTraceHeaders({
 						route,
 						request,
 						traceId: testTraceContext.traceId,
-						spanId,
+						spanId: requestContext.spanId,
 					});
 					return;
 				}
 
 				await route.fallback();
 			});
-			await use(context);
+
+			try {
+				await use(context);
+			} finally {
+				context.off("request", captureRequest);
+			}
 		},
 		page: async ({ page, testTraceContext, browserPageTracker }, use) => {
 			browserPageTracker.registerPage(page);
@@ -146,39 +156,31 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				}
 			});
 
-			// Two-phase capture approach:
-			// 1. On 'response': Store the Response object (available synchronously)
-			// 2. On 'requestfinished': Use stored response + accurate timing
-			//
-			// This solves two problems:
-			// - 'response' event has timing.responseEnd = -1 (body not downloaded yet)
-			// - 'requestfinished' requires async request.response() which may fail if page closes
+			// Keep the response until the request ends so capture has its final timing.
 			const pendingRequests = new Map<Request, Response>();
 
 			page.on("response", (response) => {
-				// Store response synchronously - no await needed
 				pendingRequests.set(response.request(), response);
 			});
 
-			page.on("requestfinished", async (request) => {
-				// Get the stored response - no async request.response() call needed
+			const captureCompletedRequest = async (request: Request) => {
 				const response = pendingRequests.get(request);
 				pendingRequests.delete(request);
 
 				if (!response) {
-					// No response stored - request may have failed or been handled differently
 					return;
 				}
 
-				// Now we have both:
-				// - The Response object (captured at 'response' event)
-				// - Accurate timing with responseEnd (available at 'requestfinished')
 				await fixtureCaptureRequestResponse({
 					request,
 					response,
 					traceContext: testTraceContext,
 				});
-			});
+			};
+
+			page.on("requestfinished", captureCompletedRequest);
+			// Browsers can reject a script after receiving an HTTP error response.
+			page.on("requestfailed", captureCompletedRequest);
 
 			await use(page);
 		},
