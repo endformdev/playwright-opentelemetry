@@ -119,21 +119,24 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			};
 
 			context.on("request", captureRequest);
-			await context.route("**", async (route, request) => {
-				const requestContext = testTraceContext.requestContexts.get(request);
+			// Installing any route can disable the browser's HTTP cache.
+			if (config.propagateTraceHeaders) {
+				await context.route("**", async (route, request) => {
+					const requestContext = testTraceContext.requestContexts.get(request);
 
-				if (config.propagateTraceHeaders && requestContext) {
-					await propagateRouteTraceHeaders({
-						route,
-						request,
-						traceId: testTraceContext.traceId,
-						spanId: requestContext.spanId,
-					});
-					return;
-				}
+					if (requestContext) {
+						await propagateRouteTraceHeaders({
+							route,
+							request,
+							traceId: testTraceContext.traceId,
+							spanId: requestContext.spanId,
+						});
+						return;
+					}
 
-				await route.fallback();
-			});
+					await route.fallback();
+				});
+			}
 
 			try {
 				await use(context);
