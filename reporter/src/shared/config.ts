@@ -20,6 +20,11 @@ export interface PlaywrightOpentelemetryConfig {
 	playwrightTraceApiEndpoints?: PlaywrightOpentelemetryDestination[];
 	storeTraceZip?: boolean;
 	trace?: PlaywrightTraceOption;
+	/**
+	 * Inject browser traceparent headers using a context route. Defaults to true.
+	 * False skips the route to preserve caching while still capturing network spans.
+	 * Customer-installed routes can still disable the browser's HTTP cache.
+	 */
 	propagateTraceHeaders?: boolean;
 	debug?: boolean;
 }

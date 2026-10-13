@@ -78,6 +78,13 @@ npx @playwright-opentelemetry/trace-viewer
 
 Full documentation, including trace retention options, screenshot capture, multiple OTLP destinations, output formats, and the self-hostable Trace API, lives in the [project README](https://github.com/endformdev/playwright-opentelemetry#usage).
 
+`use.playwrightOpentelemetry.propagateTraceHeaders` defaults to `true`. Set it to
+`false` to skip the fixture's request route and preserve normal browser caching
+without injected `traceparent` headers. Event-based request capture, network spans
+(including cached requests), and the normal `page` fixture remain active.
+Customer-installed `page.route()` or `context.route()` handlers can still disable
+caching independently of this setting.
+
 ## Developing the reporter / fixture
 
 - `pnpm dev` starts a dev server that outputs `dist/index.mjs`
