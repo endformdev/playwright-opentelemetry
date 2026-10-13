@@ -181,15 +181,6 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 
 The current implementation sends OTLP/HTTP JSON payloads to configurable trace endpoints, so check that your destination accepts that transport before you wire it up.
 
-`propagateTraceHeaders` defaults to `true`. Header propagation installs a
-`context.route("**", ...)` handler, which disables Chromium's HTTP cache. Set
-`use.playwrightOpentelemetry.propagateTraceHeaders` to `false` to skip installing
-that handler and preserve normal browser caching. Event-based request capture,
-network spans (including cached requests), and the normal `page` fixture remain
-active; the fixture no longer injects `traceparent` headers into browser requests.
-Customer-installed `page.route()` or `context.route()` handlers can still disable
-caching independently of this setting.
-
 ### Configure the fixture
 
 ```ts
