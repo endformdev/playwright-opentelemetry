@@ -19,9 +19,12 @@ import { runWithTestFetchCapture } from "./test-fetch-capture";
 import {
 	createTestTraceContext,
 	flushFixtureSpans,
-	registerExpectedTrace,
 	type TestTraceContext,
+	WorkerTraceExporter,
 } from "./trace-context";
+
+// Bounds how long a worker's teardown waits for spans still being sent
+const TRACE_EXPORT_DRAIN_TIMEOUT_MS = 30_000;
 
 type TestTraceInfo = {
 	testId: string;
@@ -36,6 +39,7 @@ type PlaywrightOpentelemetryFixtures = {
 
 type PlaywrightOpentelemetryWorkerFixtures = {
 	_playwrightOpentelemetryReporterCheck: void;
+	_playwrightOpentelemetryTraceExporter: WorkerTraceExporter;
 };
 
 export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
@@ -54,6 +58,14 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ scope: "worker", auto: true },
 		],
+		_playwrightOpentelemetryTraceExporter: [
+			async ({}, use) => {
+				const exporter = new WorkerTraceExporter();
+				await use(exporter);
+				await exporter.drain(TRACE_EXPORT_DRAIN_TIMEOUT_MS);
+			},
+			{ scope: "worker" },
+		],
 		testTraceInfo: [
 			// oxlint-disable-next-line no-unused-vars -- Playwright fails if the fixture dependency is omitted
 			async ({ playwright }, use, testInfo) => {
@@ -67,19 +79,28 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			{ auto: true },
 		],
 		testTraceContext: [
-			async ({ playwrightOpentelemetry, trace }, use, testInfo) => {
+			async (
+				{
+					playwrightOpentelemetry,
+					trace,
+					_playwrightOpentelemetryTraceExporter: exporter,
+				},
+				use,
+				testInfo,
+			) => {
 				const config = resolvePlaywrightOpentelemetryConfig(
 					playwrightOpentelemetry,
 				);
-				const traceContext = await createTestTraceContext(testInfo);
-				await registerExpectedTrace(traceContext, config, {
+				const traceId = await exporter.takeTraceId(config, {
 					trace,
 					testInfo,
 				});
+				const traceContext = await createTestTraceContext(testInfo, traceId);
 				await runWithTestFetchCapture(traceContext, () => use(traceContext));
 				await flushFixtureSpans(traceContext, config, {
 					trace,
 					testInfo,
+					exporter,
 				});
 			},
 			{ auto: true },
