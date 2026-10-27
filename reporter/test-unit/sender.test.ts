@@ -341,9 +341,9 @@ describe("sendSpans", () => {
 		mockFetch
 			.mockResolvedValueOnce({
 				ok: false,
-				status: 503,
-				statusText: "Service Unavailable",
-				text: async () => "storage busy",
+				status: 429,
+				statusText: "Too Many Requests",
+				text: async () => "slow down",
 			})
 			.mockResolvedValueOnce({ ok: true, status: 200 });
 		const spans: Span[] = [
