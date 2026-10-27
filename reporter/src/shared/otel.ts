@@ -209,19 +209,54 @@ export async function sendSpans(
 		console.log("Sending spans to", options.tracesEndpoint);
 	}
 
-	const response = await fetch(options.tracesEndpoint, {
-		method: "POST",
-		body,
-		headers: {
-			"content-type": "application/json",
-			...(options.headers || {}),
-		},
-	});
+	for (const retryDelayMs of [...SEND_SPANS_RETRY_DELAYS_MS, null]) {
+		const failure = await postSpans(body, options);
+		if (!failure) {
+			return;
+		}
 
-	if (!response.ok) {
+		const isLastAttempt = retryDelayMs === null;
+		if (isLastAttempt || !failure.retryable) {
+			throw failure.error;
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+	}
+}
+
+const SEND_SPANS_RETRY_DELAYS_MS = [250, 750];
+
+interface SendSpansFailure {
+	error: unknown;
+	retryable: boolean;
+}
+
+async function postSpans(
+	body: string,
+	options: SendSpansOptions,
+): Promise<SendSpansFailure | null> {
+	try {
+		const response = await fetch(options.tracesEndpoint, {
+			method: "POST",
+			body,
+			headers: {
+				"content-type": "application/json",
+				...(options.headers || {}),
+			},
+		});
+
+		if (response.ok) {
+			return null;
+		}
+
 		const error = await response.text();
-		throw new Error(
-			`Failed to send spans: ${response.status} ${response.statusText}, ${error}`,
-		);
+		return {
+			error: new Error(
+				`Failed to send spans: ${response.status} ${response.statusText}, ${error}`,
+			),
+			retryable: response.status === 429 || response.status >= 500,
+		};
+	} catch (error) {
+		return { error, retryable: true };
 	}
 }

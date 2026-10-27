@@ -168,16 +168,28 @@ export async function flushFixtureSpans(
 		return;
 	}
 
-	await Promise.all(
-		destinations.map((destination) =>
-			sendSpans(traceContext.spans, {
-				tracesEndpoint: destination.tracesEndpoint,
-				headers: destination.headers,
-				playwrightVersion: "unknown",
-				debug: config.debug,
-			}),
-		),
+	const failures = await Promise.all(
+		destinations.map(async (destination) => {
+			try {
+				await sendSpans(traceContext.spans, {
+					tracesEndpoint: destination.tracesEndpoint,
+					headers: destination.headers,
+					playwrightVersion: "unknown",
+					debug: config.debug,
+				});
+			} catch (error) {
+				return `${destination.tracesEndpoint}: ${error instanceof Error ? error.message : String(error)}`;
+			}
+		}),
 	);
+
+	for (const failure of failures) {
+		if (failure) {
+			console.warn(
+				`Failed to export fixture spans for trace ${traceContext.traceId}: ${failure}`,
+			);
+		}
+	}
 }
 
 function serializeSpanForAttachment(

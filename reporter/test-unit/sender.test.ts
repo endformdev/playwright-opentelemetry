@@ -337,6 +337,32 @@ describe("sendSpans", () => {
 		);
 	});
 
+	it("retries a throttled send until it succeeds", async () => {
+		mockFetch
+			.mockResolvedValueOnce({
+				ok: false,
+				status: 503,
+				statusText: "Service Unavailable",
+				text: async () => "storage busy",
+			})
+			.mockResolvedValueOnce({ ok: true, status: 200 });
+		const spans: Span[] = [
+			{
+				traceId: "trace1",
+				spanId: "span1",
+				name: "test span",
+				startTime: new Date("2001-09-09T01:46:40.000Z"),
+				endTime: new Date("2001-09-09T01:46:40.500Z"),
+				attributes: {},
+				status: { code: 1 },
+			},
+		];
+
+		await sendSpans(spans, defaultOptions);
+
+		expect(mockFetch).toHaveBeenCalledTimes(2);
+	});
+
 	it("throws error when fetch throws", async () => {
 		mockFetch.mockRejectedValue(new Error("Network error"));
 
