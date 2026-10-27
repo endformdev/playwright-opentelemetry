@@ -28,6 +28,7 @@ export interface SendSpansOptions {
 	headers?: Record<string, string>;
 	playwrightVersion: string;
 	debug?: boolean;
+	retryDelaysMs?: number[];
 }
 
 export const PLAYWRIGHT_TESTS_SERVICE_NAME = "playwright-tests";
@@ -209,7 +210,7 @@ export async function sendSpans(
 		console.log("Sending spans to", options.tracesEndpoint);
 	}
 
-	for (const retryDelayMs of [...SEND_SPANS_RETRY_DELAYS_MS, null]) {
+	for (const retryDelayMs of [...(options.retryDelaysMs ?? []), null]) {
 		const failure = await postSpans(body, options);
 		if (!failure) {
 			return;
@@ -223,8 +224,6 @@ export async function sendSpans(
 		await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
 	}
 }
-
-const SEND_SPANS_RETRY_DELAYS_MS = [250, 750];
 
 interface SendSpansFailure {
 	error: unknown;
@@ -250,11 +249,13 @@ async function postSpans(
 		}
 
 		const error = await response.text();
+		const isThrottled = response.status === 429;
+		const isServerError = response.status >= 500;
 		return {
 			error: new Error(
 				`Failed to send spans: ${response.status} ${response.statusText}, ${error}`,
 			),
-			retryable: response.status === 429 || response.status >= 500,
+			retryable: isThrottled || isServerError,
 		};
 	} catch (error) {
 		return { error, retryable: true };

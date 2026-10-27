@@ -22,6 +22,8 @@ export const FIXTURE_SPANS_ATTACHMENT_NAME =
 	"playwright-opentelemetry-fixture-spans";
 export const BROWSER_SERVICE_NAME = "playwright-browser";
 
+const FIXTURE_EXPORT_RETRY_DELAYS_MS = [250, 750];
+
 export interface PlaywrightOtelTraceContextAttachment {
 	traceId: string;
 	rootSpanId: string;
@@ -176,6 +178,7 @@ export async function flushFixtureSpans(
 					headers: destination.headers,
 					playwrightVersion: "unknown",
 					debug: config.debug,
+					retryDelaysMs: FIXTURE_EXPORT_RETRY_DELAYS_MS,
 				});
 			} catch (error) {
 				return `${destination.tracesEndpoint}: ${error instanceof Error ? error.message : String(error)}`;

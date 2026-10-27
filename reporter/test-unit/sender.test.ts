@@ -358,7 +358,7 @@ describe("sendSpans", () => {
 			},
 		];
 
-		await sendSpans(spans, defaultOptions);
+		await sendSpans(spans, { ...defaultOptions, retryDelaysMs: [0] });
 
 		expect(mockFetch).toHaveBeenCalledTimes(2);
 	});

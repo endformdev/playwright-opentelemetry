@@ -292,13 +292,14 @@ describe("fixture browser span hierarchy", () => {
 		);
 	});
 
-	it("warns instead of failing the test when exporting fixture spans fails", async () => {
-		global.fetch = vi.fn().mockResolvedValue({
+	it("warns instead of failing the test when exporting fixture spans keeps failing", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
 			ok: false,
-			status: 401,
-			statusText: "Unauthorized",
-			text: async () => "invalid token",
+			status: 503,
+			statusText: "Service Unavailable",
+			text: async () => "storage busy",
 		});
+		global.fetch = fetchMock;
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const traceContext = createTraceContext();
 		traceContext.addSpan({
@@ -325,8 +326,9 @@ describe("fixture browser span hierarchy", () => {
 			},
 		);
 
+		expect(fetchMock).toHaveBeenCalledTimes(3);
 		expect(warn).toHaveBeenCalledWith(
-			expect.stringContaining("Failed to send spans: 401 Unauthorized"),
+			expect.stringContaining("Failed to send spans: 503 Service Unavailable"),
 		);
 
 		warn.mockRestore();
