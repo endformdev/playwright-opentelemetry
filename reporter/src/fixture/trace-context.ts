@@ -22,6 +22,9 @@ export const FIXTURE_SPANS_ATTACHMENT_NAME =
 	"playwright-opentelemetry-fixture-spans";
 export const BROWSER_SERVICE_NAME = "playwright-browser";
 
+const FIXTURE_EXPORT_RETRY_DELAYS_MS = [250, 750];
+const FIXTURE_EXPORT_REQUEST_TIMEOUT_MS = 3000;
+
 export interface PlaywrightOtelTraceContextAttachment {
 	traceId: string;
 	rootSpanId: string;
@@ -168,16 +171,30 @@ export async function flushFixtureSpans(
 		return;
 	}
 
-	await Promise.all(
-		destinations.map((destination) =>
-			sendSpans(traceContext.spans, {
-				tracesEndpoint: destination.tracesEndpoint,
-				headers: destination.headers,
-				playwrightVersion: "unknown",
-				debug: config.debug,
-			}),
-		),
+	const failures = await Promise.all(
+		destinations.map(async (destination) => {
+			try {
+				await sendSpans(traceContext.spans, {
+					tracesEndpoint: destination.tracesEndpoint,
+					headers: destination.headers,
+					playwrightVersion: "unknown",
+					debug: config.debug,
+					retryDelaysMs: FIXTURE_EXPORT_RETRY_DELAYS_MS,
+					requestTimeoutMs: FIXTURE_EXPORT_REQUEST_TIMEOUT_MS,
+				});
+			} catch (error) {
+				return `${destination.tracesEndpoint}: ${error instanceof Error ? error.message : String(error)}`;
+			}
+		}),
 	);
+
+	for (const failure of failures) {
+		if (failure) {
+			console.warn(
+				`Failed to export fixture spans for trace ${traceContext.traceId}: ${failure}`,
+			);
+		}
+	}
 }
 
 function serializeSpanForAttachment(

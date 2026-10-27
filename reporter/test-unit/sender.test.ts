@@ -337,6 +337,58 @@ describe("sendSpans", () => {
 		);
 	});
 
+	it("retries a throttled send until it succeeds", async () => {
+		mockFetch
+			.mockResolvedValueOnce({
+				ok: false,
+				status: 429,
+				statusText: "Too Many Requests",
+				text: async () => "slow down",
+			})
+			.mockResolvedValueOnce({ ok: true, status: 200 });
+		const spans: Span[] = [
+			{
+				traceId: "trace1",
+				spanId: "span1",
+				name: "test span",
+				startTime: new Date("2001-09-09T01:46:40.000Z"),
+				endTime: new Date("2001-09-09T01:46:40.500Z"),
+				attributes: {},
+				status: { code: 1 },
+			},
+		];
+
+		await sendSpans(spans, { ...defaultOptions, retryDelaysMs: [0] });
+
+		expect(mockFetch).toHaveBeenCalledTimes(2);
+	});
+
+	it("aborts a send that gets no answer within the request timeout", async () => {
+		mockFetch.mockImplementation(
+			(_url: string, init: RequestInit) =>
+				new Promise((_resolve, reject) => {
+					init.signal?.addEventListener("abort", () =>
+						reject(init.signal?.reason),
+					);
+				}),
+		);
+		const spans: Span[] = [
+			{
+				traceId: "trace1",
+				spanId: "span1",
+				name: "test span",
+				startTime: new Date("2001-09-09T01:46:40.000Z"),
+				endTime: new Date("2001-09-09T01:46:40.500Z"),
+				attributes: {},
+				status: { code: 1 },
+			},
+		];
+
+		const send = sendSpans(spans, { ...defaultOptions, requestTimeoutMs: 10 });
+
+		await expect(send).rejects.toMatchObject({ name: "TimeoutError" });
+	});
+
 	it("throws error when fetch throws", async () => {
 		mockFetch.mockRejectedValue(new Error("Network error"));
 
