@@ -29,6 +29,7 @@ export interface SendSpansOptions {
 	playwrightVersion: string;
 	debug?: boolean;
 	retryDelaysMs?: number[];
+	requestTimeoutMs?: number;
 }
 
 export const PLAYWRIGHT_TESTS_SERVICE_NAME = "playwright-tests";
@@ -242,6 +243,9 @@ async function postSpans(
 				"content-type": "application/json",
 				...(options.headers || {}),
 			},
+			...(options.requestTimeoutMs && {
+				signal: AbortSignal.timeout(options.requestTimeoutMs),
+			}),
 		});
 
 		if (response.ok) {

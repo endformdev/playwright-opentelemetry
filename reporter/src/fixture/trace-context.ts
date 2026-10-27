@@ -23,6 +23,7 @@ export const FIXTURE_SPANS_ATTACHMENT_NAME =
 export const BROWSER_SERVICE_NAME = "playwright-browser";
 
 const FIXTURE_EXPORT_RETRY_DELAYS_MS = [250, 750];
+const FIXTURE_EXPORT_REQUEST_TIMEOUT_MS = 3000;
 
 export interface PlaywrightOtelTraceContextAttachment {
 	traceId: string;
@@ -179,6 +180,7 @@ export async function flushFixtureSpans(
 					playwrightVersion: "unknown",
 					debug: config.debug,
 					retryDelaysMs: FIXTURE_EXPORT_RETRY_DELAYS_MS,
+					requestTimeoutMs: FIXTURE_EXPORT_REQUEST_TIMEOUT_MS,
 				});
 			} catch (error) {
 				return `${destination.tracesEndpoint}: ${error instanceof Error ? error.message : String(error)}`;
