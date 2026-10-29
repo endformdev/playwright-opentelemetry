@@ -3,6 +3,7 @@ import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
 import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
+import { PanelCornerLabel } from "./PanelHeader";
 import { ROW_HEIGHT, SpanBar } from "./SpanBar";
 import {
 	getStepTimelineColor,
@@ -96,13 +97,11 @@ export function StepsTimeline(props: StepsTimelineProps) {
 
 	return (
 		<div
-			class="h-full flex flex-col bg-gray-50 overflow-hidden"
+			class="relative h-full flex flex-col bg-gray-50 overflow-hidden"
 			role="region"
 			aria-label="Steps Timeline"
 		>
-			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-				Steps Timeline
-			</div>
+			<PanelCornerLabel title="Steps Timeline" />
 			<div
 				class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-3"
 				role="list"
