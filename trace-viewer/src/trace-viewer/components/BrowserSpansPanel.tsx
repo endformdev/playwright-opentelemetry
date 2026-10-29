@@ -10,6 +10,7 @@ import {
 	getResourceType,
 	type ResourceType,
 } from "./browserSpanStyles";
+import { PanelCornerLabel } from "./PanelHeader";
 import { ROW_HEIGHT, SpanBar } from "./SpanBar";
 
 const ERROR_SPAN_COLOR = "#dc2626";
@@ -69,13 +70,11 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 
 	return (
 		<div
-			class="h-full flex flex-col bg-gray-50 overflow-hidden"
+			class="relative h-full flex flex-col bg-gray-50 overflow-hidden"
 			role="region"
 			aria-label="Browser Spans"
 		>
-			<div class="flex-shrink-0 px-3 py-2 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-				Browser Spans
-			</div>
+			<PanelCornerLabel title="Browser Spans" />
 			<Show
 				when={!isEmpty()}
 				fallback={
