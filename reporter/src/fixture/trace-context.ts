@@ -91,11 +91,22 @@ export async function createTestTraceContext(
 	return traceContext;
 }
 
+/**
+ * Writes the expected-trace marker that lets the Trace API admit spans from the
+ * app under test. Only browser requests carry the test's traceparent, so the
+ * marker is skipped when propagation is off; the fixture's own spans are
+ * trusted and stored without it. Never rejects, so callers can start it
+ * without awaiting.
+ */
 export async function registerExpectedTrace(
 	traceContext: TestTraceContext,
 	config: ResolvedPlaywrightOpentelemetryConfig,
 	options: RegisterExpectedTraceOptions,
 ): Promise<void> {
+	if (!config.propagateTraceHeaders) {
+		return;
+	}
+
 	const couldRetainTrace = (trace: PlaywrightTraceOption | null) =>
 		couldRetainPlaywrightTrace(trace ?? options.trace, options.testInfo);
 	const destinations = filterRetainedDestinations(

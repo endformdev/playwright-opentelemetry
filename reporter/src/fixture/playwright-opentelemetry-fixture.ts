@@ -72,11 +72,14 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 					playwrightOpentelemetry,
 				);
 				const traceContext = await createTestTraceContext(testInfo);
-				await registerExpectedTrace(traceContext, config, {
+				// Downstream services batch their exports, so their spans reach the
+				// Trace API well after this marker. Don't make the test wait for it.
+				const registration = registerExpectedTrace(traceContext, config, {
 					trace,
 					testInfo,
 				});
 				await runWithTestFetchCapture(traceContext, () => use(traceContext));
+				await registration;
 				await flushFixtureSpans(traceContext, config, {
 					trace,
 					testInfo,

@@ -22,7 +22,7 @@ s3://bucket/
 
 All data writes directly to `traces/{traceId}/`. A lifecycle rule expires traces after a configurable retention period (default: 30 days).
 
-The reporter fixture writes a zero-byte expected-trace marker at `traces/{traceId}/.expected` before the test body runs when the configured trace mode could retain that test attempt. Untrusted OTLP data is stored only when that marker already exists, so unrelated telemetry sent to the same OTLP endpoint is dropped instead of creating orphan trace prefixes. Reporter-originated data includes a predetermined source header and bypasses the marker check.
+When trace header propagation is enabled and the configured trace mode could retain the test attempt, the reporter fixture writes a zero-byte expected-trace marker at `traces/{traceId}/.expected` as the test starts. The test doesn't wait for this write: services under test batch their exports, so their spans reach the Trace API long after the marker. Spans that do arrive first are dropped. Untrusted OTLP data is stored only when that marker already exists, so unrelated telemetry sent to the same OTLP endpoint is dropped instead of creating orphan trace prefixes. Reporter-originated data includes a predetermined source header and bypasses the marker check.
 
 ## Library Architecture
 
