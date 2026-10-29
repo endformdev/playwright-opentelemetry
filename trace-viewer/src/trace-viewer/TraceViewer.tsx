@@ -626,9 +626,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	/**
 	 * Focuses a span the way keyboard navigation does: frames it within the
-	 * tolerance, locks time to its center and scrolls its bar into view.
+	 * tolerance, locks time (its center by default) and scrolls its bar into
+	 * view.
 	 */
-	const focusSpan = (spanId: string) => {
+	const focusSpan = (spanId: string, timeMs?: number) => {
 		const span = spanById().get(spanId);
 		if (!span) return;
 
@@ -639,7 +640,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			span.startOffsetMs + span.durationMs,
 		);
 		if (framedViewport !== currentViewport) setViewport(framedViewport);
-		lock(getSpanSelectionTimeMs(span, "center"), focusedElementFor(span));
+		lock(
+			timeMs ?? getSpanSelectionTimeMs(span, "center"),
+			focusedElementFor(span),
+		);
 
 		// Wait for the framed viewport to render the bar before scrolling to it.
 		if (revealFrame !== undefined) cancelAnimationFrame(revealFrame);
@@ -678,13 +682,13 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			return;
 		}
 
-		const targetId = findSpanNavigationTarget(
+		const target = findSpanNavigationTarget(
 			navigationPanels(),
 			current.id,
 			direction,
 			lockedTimeMs() ?? getSpanSelectionTimeMs(current, "center"),
 		);
-		if (targetId) focusSpan(targetId);
+		if (target) focusSpan(target.spanId, target.timeMs);
 	};
 
 	const handleSearchResultHover = (spanId: string | null) => {
@@ -996,7 +1000,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 							hoveredElements={displayElements()}
 							testStartTimeMs={props.testStartTimeMs()}
 							focusedElement={displayFocusedElement()}
-							onNavigateToSpan={focusSpan}
+							onNavigateToSpan={(spanId) => focusSpan(spanId)}
 						/>
 					}
 				/>

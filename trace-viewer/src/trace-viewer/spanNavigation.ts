@@ -8,44 +8,51 @@ export interface NavigationPanel {
 	spans: PackedSpan[];
 }
 
+/** Where focus moves: the span to focus and the time to lock the cursor at. */
+export interface NavigationTarget {
+	spanId: string;
+	timeMs: number;
+}
+
 const endOf = (span: PackedSpan) => span.startOffset + span.duration;
+const centerOf = (span: PackedSpan) => span.startOffset + span.duration / 2;
 
-/** Inclusive, so zero-duration spans overlap the spans they touch. */
-const rangesOverlap = (a: PackedSpan, b: PackedSpan) =>
-	a.startOffset <= endOf(b) && b.startOffset <= endOf(a);
+/** Inclusive, so zero-duration bars and touching edges count. */
+const containsTime = (span: PackedSpan, timeMs: number) =>
+	span.startOffset <= timeMs && timeMs <= endOf(span);
 
-const distanceToTime = (span: PackedSpan, timeMs: number) =>
-	Math.max(0, span.startOffset - timeMs, timeMs - endOf(span));
-
-/** Picks the span nearest a time; ties go to the earlier span, then `preferRow`. */
-function closestToTime(
-	spans: PackedSpan[],
-	timeMs: number,
-	preferRow: "top" | "bottom" = "top",
-): PackedSpan | null {
+/**
+ * The bar the time line crosses in a row. Bars touching at the line tie; one
+ * the line passes strictly through wins, then the earlier one.
+ */
+function barAtTime(rowSpans: PackedSpan[], timeMs: number): PackedSpan | null {
 	let best: PackedSpan | null = null;
-	for (const span of spans) {
+	for (const span of rowSpans) {
+		if (!containsTime(span, timeMs)) continue;
 		if (!best) {
 			best = span;
 			continue;
 		}
-		const distance = distanceToTime(span, timeMs);
-		const bestDistance = distanceToTime(best, timeMs);
-		if (distance !== bestDistance) {
-			if (distance < bestDistance) best = span;
-			continue;
+		const isStrict = span.startOffset < timeMs && timeMs < endOf(span);
+		const isBestStrict = best.startOffset < timeMs && timeMs < endOf(best);
+		if (isStrict !== isBestStrict) {
+			if (isStrict) best = span;
+		} else if (span.startOffset < best.startOffset) {
+			best = span;
 		}
-		if (span.row !== best.row) {
-			if (preferRow === "top" ? span.row < best.row : span.row > best.row) {
-				best = span;
-			}
-			continue;
-		}
-		if (span.startOffset < best.startOffset) best = span;
 	}
 	return best;
 }
 
+function rowsOf(spans: PackedSpan[]): PackedSpan[][] {
+	const rows: PackedSpan[][] = [];
+	for (const span of spans) {
+		(rows[span.row] ??= []).push(span);
+	}
+	return rows;
+}
+
+/** Previous/next bar on the same visual row. */
 function rowNeighbor(
 	spans: PackedSpan[],
 	current: PackedSpan,
@@ -58,90 +65,85 @@ function rowNeighbor(
 	return row[index + step] ?? null;
 }
 
-/** Nearest row above or below holding a span that overlaps `current`. */
-function overlappingInNearestRow(
-	spans: PackedSpan[],
-	current: PackedSpan,
+/**
+ * Walks rows from `row` in the direction of `step`, continuing into the
+ * panels beyond, and returns the first bar the time line crosses.
+ */
+function nextAlongTimeLine(
+	panels: NavigationPanel[],
+	panelIndex: number,
+	row: number,
 	step: -1 | 1,
 	timeMs: number,
 ): PackedSpan | null {
-	const candidates = spans.filter(
-		(span) =>
-			span.id !== current.id &&
-			Math.sign(span.row - current.row) === step &&
-			rangesOverlap(span, current),
-	);
-	if (candidates.length === 0) return null;
-	const nearestRow =
-		step === 1
-			? Math.min(...candidates.map((span) => span.row))
-			: Math.max(...candidates.map((span) => span.row));
-	return closestToTime(
-		candidates.filter((span) => span.row === nearestRow),
-		timeMs,
-	);
+	for (
+		let index = panelIndex;
+		index >= 0 && index < panels.length;
+		index += step
+	) {
+		const rows = rowsOf(panels[index].spans);
+		let start: number;
+		if (index !== panelIndex) start = step === 1 ? 0 : rows.length - 1;
+		else start = row + step;
+		for (let r = start; r >= 0 && r < rows.length; r += step) {
+			const bar = barAtTime(rows[r] ?? [], timeMs);
+			if (bar) return bar;
+		}
+	}
+	return null;
 }
 
 /**
- * Finds the span an arrow key moves focus to.
+ * Finds where an arrow key moves focus, treating focus as a 2D cursor: a bar
+ * plus the locked time line through it.
  *
- * - Left/Right: previous/next bar on the same visual row.
- * - Up: the parent, else the nearest overlapping bar in a row above, else the
- *   deepest bar at `timeMs` in a panel above.
- * - Down: the child nearest `timeMs`, else the nearest overlapping bar in a row
- *   below, else the shallowest bar at `timeMs` in a panel below.
+ * - Left/Right: previous/next bar on the same visual row; the time line moves
+ *   to that bar's center.
+ * - Up/Down: the next bar the time line crosses above/below, skipping rows
+ *   with nothing under the line and continuing into the panels beyond. The
+ *   time line stays put, so Up and Down undo each other.
  *
- * `timeMs` is the locked time, clamped into the current span, so moving down
- * picks the child under the time cursor.
+ * `timeMs` is the locked time, clamped into the current span.
  *
- * @returns The target span ID, or null when there is nowhere to move
+ * @returns The target, or null when there is nowhere to move
  */
 export function findSpanNavigationTarget(
 	panels: NavigationPanel[],
 	spanId: string,
 	direction: NavigationDirection,
 	timeMs: number,
-): string | null {
+): NavigationTarget | null {
 	const panelIndex = panels.findIndex((panel) =>
 		panel.spans.some((span) => span.id === spanId),
 	);
 	if (panelIndex === -1) return null;
 	const spans = panels[panelIndex].spans;
 	const current = spans.find((span) => span.id === spanId)!;
-	const referenceMs = Math.min(
+	const lineMs = Math.min(
 		endOf(current),
 		Math.max(current.startOffset, timeMs),
 	);
 
 	switch (direction) {
 		case "left":
-			return rowNeighbor(spans, current, -1)?.id ?? null;
-		case "right":
-			return rowNeighbor(spans, current, 1)?.id ?? null;
-		case "up": {
-			const parent = spans.find((span) => span.id === current.parentId);
-			if (parent) return parent.id;
-			const above = overlappingInNearestRow(spans, current, -1, referenceMs);
-			if (above) return above.id;
-			for (let index = panelIndex - 1; index >= 0; index--) {
-				const entry = closestToTime(panels[index].spans, referenceMs, "bottom");
-				if (entry) return entry.id;
-			}
-			return null;
-		}
-		case "down": {
-			const child = closestToTime(
-				spans.filter((span) => span.parentId === current.id),
-				referenceMs,
+		case "right": {
+			const neighbor = rowNeighbor(
+				spans,
+				current,
+				direction === "left" ? -1 : 1,
 			);
-			if (child) return child.id;
-			const below = overlappingInNearestRow(spans, current, 1, referenceMs);
-			if (below) return below.id;
-			for (let index = panelIndex + 1; index < panels.length; index++) {
-				const entry = closestToTime(panels[index].spans, referenceMs, "top");
-				if (entry) return entry.id;
-			}
-			return null;
+			return neighbor && { spanId: neighbor.id, timeMs: centerOf(neighbor) };
+		}
+		case "up":
+		case "down": {
+			const bar = nextAlongTimeLine(
+				panels,
+				panelIndex,
+				current.row,
+				direction === "up" ? -1 : 1,
+				lineMs,
+			);
+			return bar && { spanId: bar.id, timeMs: lineMs };
 		}
 	}
 }

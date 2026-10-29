@@ -87,7 +87,7 @@ async function expectNoHorizontalScroll(page: Page): Promise<void> {
 // row 0: test                                                   [0, 10000]
 // row 1: Before Hooks [100,1600]  Open page [2000,4000]  Verify [5000,8000]  After Hooks [9000,9900]
 // row 2: Fixture [200,1400]       Click [2990,3010]  Fill [3200,3800]   Assert [5500,7500]
-// Browser: "Click request" [2995, 3055] under Click, "Assert request" [6000, 6400]
+// Browser: "Click request" [2995, 3055] under Click, "Assert request" [6300, 6700]
 // Open page is centered on Click, so moving down from it lands on Click.
 async function sendNavigationTrace(
 	page: Page,
@@ -126,7 +126,7 @@ async function sendNavigationTrace(
 	builder.addStepSpanAndGetId("After Hooks", 900, { startOffsetMs: 9000 });
 	for (const [name, startOffsetMs, durationMs] of [
 		["Click request", 2995, 60],
-		["Assert request", 6000, 400],
+		["Assert request", 6300, 400],
 	] as const) {
 		builder.addCustomSpan({
 			serviceName: "playwright-browser",
@@ -212,19 +212,32 @@ test("left and right hop along a row and frame each span within tolerance", asyn
 	await expectNoHorizontalScroll(page);
 });
 
-test("up and down move through parents and children and across panels", async ({
+test("up and down follow the time line across rows and panels", async ({
 	page,
 	request,
 }) => {
-	await sendNavigationTrace(page, request, "kbdnavvert");
+	const { viewer } = await sendNavigationTrace(page, request, "kbdnavvert");
+	const lockedTime = (ms: number) =>
+		viewer.header.root.getByText(`${ms}ms`, { exact: true });
 
+	// The root's center (5000ms) is where Verify starts.
 	await page.keyboard.press("ArrowDown");
 	await page.keyboard.press("ArrowDown");
 	await expectFocused(page, { name: "Verify" });
+	await expect(lockedTime(5000)).toBeVisible();
+
+	// Nothing below Verify is under the line at 5000ms, so focus stays put.
+	await page.keyboard.press("ArrowDown");
+	await expectFocused(page, { name: "Verify" });
+
+	// Left/Right move the line to the bar's center: 6500ms for Verify.
+	await page.keyboard.press("ArrowLeft");
+	await page.keyboard.press("ArrowRight");
+	await expectFocused(page, { name: "Verify" });
+	await expect(lockedTime(6500)).toBeVisible();
+
 	await page.keyboard.press("ArrowDown");
 	await expectFocused(page, { name: "Assert" });
-
-	// A leaf step continues into the browser span under the time cursor.
 	await page.keyboard.press("ArrowDown");
 	await expectFocused(page, {
 		name: "Assert request",
@@ -235,16 +248,17 @@ test("up and down move through parents and children and across panels", async ({
 		name: "Assert request",
 		region: "Browser Spans",
 	});
+	// Vertical moves keep the line where it was.
+	await expect(lockedTime(6500)).toBeVisible();
 
-	// Up re-enters the steps at the deepest step under the time cursor.
-	await page.keyboard.press("ArrowUp");
-	await expectFocused(page, { name: "Assert" });
-	await page.keyboard.press("ArrowUp");
-	await expectFocused(page, { name: "Verify" });
-	await page.keyboard.press("ArrowUp");
-	await expectFocused(page, { name: "Keyboard navigation" });
+	// Up retraces the same bars back to the root.
+	for (const name of ["Assert", "Verify", "Keyboard navigation"]) {
+		await page.keyboard.press("ArrowUp");
+		await expectFocused(page, { name });
+	}
 	await page.keyboard.press("ArrowUp");
 	await expectFocused(page, { name: "Keyboard navigation" });
+	await expect(lockedTime(6500)).toBeVisible();
 });
 
 test("clicking a span then using arrows continues from that span", async ({

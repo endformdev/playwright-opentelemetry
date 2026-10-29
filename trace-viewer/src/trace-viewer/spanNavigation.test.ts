@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { packSpans, type SpanInput } from "./packSpans";
 import {
 	findSpanNavigationTarget,
+	type NavigationDirection,
 	type NavigationPanel,
 } from "./spanNavigation";
 
@@ -52,148 +53,177 @@ const external = panel("external", [span("api", 430, 40)]);
 
 const panels = [steps, browser, external];
 
+const move = (
+	spanId: string,
+	direction: NavigationDirection,
+	timeMs: number,
+	navigationPanels = panels,
+) => findSpanNavigationTarget(navigationPanels, spanId, direction, timeMs);
+
 describe("findSpanNavigationTarget", () => {
 	describe("left and right", () => {
-		it("moves to the next bar on the same row", () => {
-			expect(findSpanNavigationTarget(panels, "before", "right", 100)).toBe(
-				"act",
-			);
-			expect(findSpanNavigationTarget(panels, "act", "right", 400)).toBe(
-				"after",
-			);
+		it("moves to the next bar on the same row and centers the time line", () => {
+			expect(move("before", "right", 100)).toEqual({
+				spanId: "act",
+				timeMs: 400,
+			});
+			expect(move("act", "right", 400)).toEqual({
+				spanId: "after",
+				timeMs: 950,
+			});
 		});
 
 		it("moves to the previous bar on the same row", () => {
-			expect(findSpanNavigationTarget(panels, "after", "left", 950)).toBe(
-				"act",
-			);
+			expect(move("after", "left", 950)).toEqual({
+				spanId: "act",
+				timeMs: 400,
+			});
 		});
 
 		it("crosses parents while staying on the visual row", () => {
-			expect(findSpanNavigationTarget(panels, "fixture", "right", 50)).toBe(
-				"click",
-			);
-			expect(findSpanNavigationTarget(panels, "fill", "right", 450)).toBe(
-				"teardown",
-			);
+			expect(move("fixture", "right", 50)?.spanId).toBe("click");
+			expect(move("fill", "right", 450)?.spanId).toBe("teardown");
 		});
 
 		it("stops at the ends of a row", () => {
-			expect(findSpanNavigationTarget(panels, "before", "left", 100)).toBe(
-				null,
-			);
-			expect(findSpanNavigationTarget(panels, "teardown", "right", 930)).toBe(
-				null,
-			);
-			expect(findSpanNavigationTarget(panels, "test", "right", 500)).toBe(null);
+			expect(move("before", "left", 100)).toBe(null);
+			expect(move("teardown", "right", 930)).toBe(null);
+			expect(move("test", "right", 500)).toBe(null);
 		});
 
-		it("orders zero-duration spans before longer spans starting together", () => {
+		it("orders zero-duration bars before longer bars starting together", () => {
 			const zeroDuration = panel("steps", [
 				span("root", 0, 100),
 				span("attach", 10, 0, "root"),
 				span("fixture", 10, 20, "root"),
 			]);
-			expect(
-				findSpanNavigationTarget([zeroDuration], "attach", "right", 10),
-			).toBe("fixture");
-			expect(
-				findSpanNavigationTarget([zeroDuration], "fixture", "left", 20),
-			).toBe("attach");
-		});
-	});
-
-	describe("up", () => {
-		it("moves to the parent first", () => {
-			expect(findSpanNavigationTarget(panels, "click", "up", 280)).toBe("act");
-			expect(findSpanNavigationTarget(panels, "act", "up", 400)).toBe("test");
-		});
-
-		it("stops at the root of the top panel", () => {
-			expect(findSpanNavigationTarget(panels, "test", "up", 500)).toBe(null);
-		});
-
-		it("falls back to an overlapping bar in a row above", () => {
-			const unrelated = panel("browser", [
-				span("first", 0, 100),
-				span("second", 50, 100),
-			]);
-			expect(findSpanNavigationTarget([unrelated], "second", "up", 120)).toBe(
-				"first",
+			expect(move("attach", "right", 10, [zeroDuration])?.spanId).toBe(
+				"fixture",
 			);
-		});
-
-		it("enters the panel above at the deepest bar under the time", () => {
-			expect(findSpanNavigationTarget(panels, "doc", "up", 263)).toBe("hover");
-			expect(findSpanNavigationTarget(panels, "api", "up", 450)).toBe("xhr");
-		});
-
-		it("enters the panel above at the nearest bar when nothing is under the time", () => {
-			const gap = panel("steps", [span("one", 0, 100), span("two", 300, 100)]);
-			const below = panel("browser", [span("request", 220, 20)]);
-			expect(findSpanNavigationTarget([gap, below], "request", "up", 230)).toBe(
-				"two",
+			expect(move("fixture", "left", 20, [zeroDuration])?.spanId).toBe(
+				"attach",
 			);
 		});
 	});
 
 	describe("down", () => {
-		it("moves to the child under the time", () => {
-			expect(findSpanNavigationTarget(panels, "act", "down", 450)).toBe("fill");
-			expect(findSpanNavigationTarget(panels, "test", "down", 950)).toBe(
-				"after",
-			);
+		it("moves to the bar the time line crosses in the row below", () => {
+			expect(move("test", "down", 450)).toEqual({
+				spanId: "act",
+				timeMs: 450,
+			});
+			expect(move("act", "down", 450)).toEqual({
+				spanId: "fill",
+				timeMs: 450,
+			});
 		});
 
-		it("moves to the nearest child when none is under the time", () => {
-			expect(findSpanNavigationTarget(panels, "act", "down", 350)).toBe(
-				"click",
-			);
-			expect(findSpanNavigationTarget(panels, "act", "down", 380)).toBe("fill");
+		it("follows the time line rather than the hierarchy", () => {
+			// image's parent is doc, but script is directly above it.
+			expect(move("doc", "down", 255)?.spanId).toBe("script");
+			expect(move("script", "down", 255)?.spanId).toBe("image");
 		});
 
-		it("clamps the time into the current span", () => {
-			expect(findSpanNavigationTarget(panels, "act", "down", 0)).toBe("click");
-			expect(findSpanNavigationTarget(panels, "act", "down", 9999)).toBe(
-				"fill",
-			);
+		it("skips rows with nothing under the time line", () => {
+			expect(move("fill", "down", 450)?.spanId).toBe("doc");
+			expect(move("xhr", "down", 450)?.spanId).toBe("api");
 		});
 
-		it("falls back to an overlapping bar in a row below", () => {
-			expect(findSpanNavigationTarget(panels, "script", "down", 260)).toBe(
-				"image",
-			);
+		it("enters the next panel at its topmost bar under the time line", () => {
+			expect(move("hover", "down", 263)?.spanId).toBe("doc");
+			// Browser rows 0-2 have nothing at 50ms; "early" on row 3 does.
+			expect(move("fixture", "down", 50)?.spanId).toBe("early");
 		});
 
-		it("crosses into the next panel from a leaf at the shallowest bar under the time", () => {
-			expect(findSpanNavigationTarget(panels, "fill", "down", 450)).toBe("doc");
-			expect(findSpanNavigationTarget(panels, "xhr", "down", 450)).toBe("api");
-			expect(findSpanNavigationTarget(panels, "hover", "down", 263)).toBe(
-				"doc",
-			);
-		});
-
-		it("does not jump to unrelated bars in lower rows", () => {
-			// "fixture" has no children and nothing below it overlaps; the browser
-			// panel's "early" request is under the time.
-			expect(findSpanNavigationTarget(panels, "fixture", "down", 50)).toBe(
-				"early",
-			);
-		});
-
-		it("skips panels with no spans", () => {
+		it("skips panels with nothing under the time line", () => {
 			const empty: NavigationPanel = { id: "browser", spans: [] };
-			expect(
-				findSpanNavigationTarget([steps, empty, external], "fill", "down", 450),
-			).toBe("api");
+			expect(move("fill", "down", 450, [steps, empty, external])?.spanId).toBe(
+				"api",
+			);
 		});
 
-		it("stops at the bottom of the last panel", () => {
-			expect(findSpanNavigationTarget(panels, "api", "down", 450)).toBe(null);
+		it("stays put when nothing below is under the time line", () => {
+			expect(move("script", "down", 270)).toBe(null);
+			expect(move("teardown", "down", 930)).toBe(null);
+			expect(move("api", "down", 450)).toBe(null);
+		});
+
+		it("clamps the time line into the current span", () => {
+			expect(move("act", "down", 9999)).toEqual({
+				spanId: "doc",
+				timeMs: 550,
+			});
+			expect(move("act", "down", 0)).toEqual({ spanId: "doc", timeMs: 250 });
 		});
 	});
 
+	describe("up", () => {
+		it("moves to the bar the time line crosses in the row above", () => {
+			expect(move("fill", "up", 450)).toEqual({ spanId: "act", timeMs: 450 });
+			expect(move("act", "up", 450)).toEqual({ spanId: "test", timeMs: 450 });
+		});
+
+		it("follows the time line rather than the hierarchy", () => {
+			expect(move("image", "up", 255)?.spanId).toBe("script");
+		});
+
+		it("skips rows with nothing under the time line", () => {
+			// Nothing in browser rows 0-2 at 40ms, so continue into the steps.
+			expect(move("early", "up", 40)?.spanId).toBe("fixture");
+		});
+
+		it("enters the panel above at its bottommost bar under the time line", () => {
+			expect(move("doc", "up", 263)?.spanId).toBe("hover");
+			expect(move("api", "up", 450)?.spanId).toBe("xhr");
+		});
+
+		it("stops at the top of the first panel", () => {
+			expect(move("test", "up", 500)).toBe(null);
+		});
+	});
+
+	it("makes up and down undo each other", () => {
+		const starts: Array<[string, number]> = [
+			["hover", 263],
+			["fill", 450],
+			["image", 255],
+			["api", 450],
+			["early", 40],
+		];
+		for (const [spanId, timeMs] of starts) {
+			for (const [there, back] of [
+				["up", "down"],
+				["down", "up"],
+			] as const) {
+				const target = move(spanId, there, timeMs);
+				if (!target) continue;
+				expect(move(target.spanId, back, target.timeMs)).toEqual({
+					spanId,
+					timeMs,
+				});
+			}
+		}
+	});
+
+	it("prefers the bar the line passes through over one it only touches", () => {
+		const touching = panel("steps", [
+			span("root", 0, 200),
+			span("first", 0, 100, "root"),
+			span("second", 100, 100, "root"),
+		]);
+		expect(move("root", "down", 100, [touching])?.spanId).toBe("first");
+		expect(move("root", "down", 150, [touching])?.spanId).toBe("second");
+		// A zero-duration bar on the line only touches it.
+		const marker = panel("steps", [
+			span("root", 0, 200),
+			span("first", 0, 100, "root"),
+			span("marker", 100, 0, "root"),
+			span("second", 100, 100, "root"),
+		]);
+		expect(move("root", "down", 100, [marker])?.spanId).toBe("first");
+	});
+
 	it("returns null for unknown spans", () => {
-		expect(findSpanNavigationTarget(panels, "missing", "down", 0)).toBe(null);
+		expect(move("missing", "down", 0)).toBe(null);
 	});
 });
