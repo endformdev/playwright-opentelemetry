@@ -17,25 +17,41 @@ export interface NavigationTarget {
 const endOf = (span: PackedSpan) => span.startOffset + span.duration;
 const centerOf = (span: PackedSpan) => span.startOffset + span.duration / 2;
 
-/** Inclusive, so zero-duration bars and touching edges count. */
-const containsTime = (span: PackedSpan, timeMs: number) =>
-	span.startOffset <= timeMs && timeMs <= endOf(span);
+const distanceToTime = (span: PackedSpan, timeMs: number) =>
+	Math.max(0, span.startOffset - timeMs, timeMs - endOf(span));
+
+/** The line passes through the bar rather than just touching an edge. */
+const crossesStrictly = (span: PackedSpan, timeMs: number) =>
+	span.startOffset < timeMs && timeMs < endOf(span);
 
 /**
- * The bar the time line crosses in a row. Bars touching at the line tie; one
- * the line passes strictly through wins, then the earlier one.
+ * The bar in a row nearest the time line among those overlapping a window.
+ * Bars the line passes through beat bars it only touches, then earlier bars
+ * win ties.
  */
-function barAtTime(rowSpans: PackedSpan[], timeMs: number): PackedSpan | null {
+function closestInWindow(
+	rowSpans: PackedSpan[],
+	windowStartMs: number,
+	windowEndMs: number,
+	timeMs: number,
+): PackedSpan | null {
 	let best: PackedSpan | null = null;
 	for (const span of rowSpans) {
-		if (!containsTime(span, timeMs)) continue;
+		if (span.startOffset > windowEndMs || endOf(span) < windowStartMs) {
+			continue;
+		}
 		if (!best) {
 			best = span;
 			continue;
 		}
-		const isStrict = span.startOffset < timeMs && timeMs < endOf(span);
-		const isBestStrict = best.startOffset < timeMs && timeMs < endOf(best);
-		if (isStrict !== isBestStrict) {
+		const distance = distanceToTime(span, timeMs);
+		const bestDistance = distanceToTime(best, timeMs);
+		if (distance !== bestDistance) {
+			if (distance < bestDistance) best = span;
+			continue;
+		}
+		const isStrict = crossesStrictly(span, timeMs);
+		if (isStrict !== crossesStrictly(best, timeMs)) {
 			if (isStrict) best = span;
 		} else if (span.startOffset < best.startOffset) {
 			best = span;
@@ -67,13 +83,16 @@ function rowNeighbor(
 
 /**
  * Walks rows from `row` in the direction of `step`, continuing into the
- * panels beyond, and returns the first bar the time line crosses.
+ * panels beyond, and returns the bar nearest the time line in the first row
+ * with a bar overlapping the window.
  */
-function nextAlongTimeLine(
+function nextInWindow(
 	panels: NavigationPanel[],
 	panelIndex: number,
 	row: number,
 	step: -1 | 1,
+	windowStartMs: number,
+	windowEndMs: number,
 	timeMs: number,
 ): PackedSpan | null {
 	for (
@@ -86,7 +105,12 @@ function nextAlongTimeLine(
 		if (index !== panelIndex) start = step === 1 ? 0 : rows.length - 1;
 		else start = row + step;
 		for (let r = start; r >= 0 && r < rows.length; r += step) {
-			const bar = barAtTime(rows[r] ?? [], timeMs);
+			const bar = closestInWindow(
+				rows[r] ?? [],
+				windowStartMs,
+				windowEndMs,
+				timeMs,
+			);
 			if (bar) return bar;
 		}
 	}
@@ -99,12 +123,19 @@ function nextAlongTimeLine(
  *
  * - Left/Right: previous/next bar on the same visual row; the time line moves
  *   to that bar's center.
- * - Up/Down: the next bar the time line crosses above/below, skipping rows
- *   with nothing under the line and continuing into the panels beyond. The
- *   time line stays put, so Up and Down undo each other.
+ * - Down: into what is beneath the focused bar. The first row below with a
+ *   bar under the focused bar's width (or within `slopMs` of the line, for
+ *   tiny bars) wins, and within it the bar nearest the line.
+ * - Up: out to what is above the line. The first row above with a bar within
+ *   `slopMs` of the line wins. The focused bar's width is ignored, so Up from
+ *   a wide bar does not land on something small far from the line.
  *
- * `timeMs` is the locked time, clamped into the current span.
+ * Rows with no candidate are skipped, continuing into the panels beyond. The
+ * time line stays put unless the chosen bar is not under it, when it moves
+ * just far enough to land on the bar. Down then Up returns to the same bar.
  *
+ * @param timeMs - The locked time, clamped into the current span
+ * @param slopMs - How far from the line a bar may be and still count as on it
  * @returns The target, or null when there is nowhere to move
  */
 export function findSpanNavigationTarget(
@@ -112,6 +143,7 @@ export function findSpanNavigationTarget(
 	spanId: string,
 	direction: NavigationDirection,
 	timeMs: number,
+	slopMs = 0,
 ): NavigationTarget | null {
 	const panelIndex = panels.findIndex((panel) =>
 		panel.spans.some((span) => span.id === spanId),
@@ -136,14 +168,22 @@ export function findSpanNavigationTarget(
 		}
 		case "up":
 		case "down": {
-			const bar = nextAlongTimeLine(
+			const isDown = direction === "down";
+			const bar = nextInWindow(
 				panels,
 				panelIndex,
 				current.row,
-				direction === "up" ? -1 : 1,
+				isDown ? 1 : -1,
+				Math.min(isDown ? current.startOffset : lineMs, lineMs - slopMs),
+				Math.max(isDown ? endOf(current) : lineMs, lineMs + slopMs),
 				lineMs,
 			);
-			return bar && { spanId: bar.id, timeMs: lineMs };
+			return (
+				bar && {
+					spanId: bar.id,
+					timeMs: Math.min(endOf(bar), Math.max(bar.startOffset, lineMs)),
+				}
+			);
 		}
 	}
 }

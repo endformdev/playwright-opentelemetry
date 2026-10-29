@@ -86,7 +86,7 @@ async function expectNoHorizontalScroll(page: Page): Promise<void> {
 // Steps (10s test):
 // row 0: test                                                   [0, 10000]
 // row 1: Before Hooks [100,1600]  Open page [2000,4000]  Verify [5000,8000]  After Hooks [9000,9900]
-// row 2: Fixture [200,1400]       Click [2990,3010]  Fill [3200,3800]   Assert [5500,7500]
+// row 2: Fixture [200,1400]       Click [2990,3010]  Fill [3200,3800]   Assert [5500,7500]  Teardown [9480,9600]
 // Browser: "Click request" [2995, 3055] under Click, "Assert request" [6300, 6700]
 // Open page is centered on Click, so moving down from it lands on Click.
 async function sendNavigationTrace(
@@ -123,7 +123,13 @@ async function sendNavigationTrace(
 		startOffsetMs: 5500,
 		parentSpanId: verify,
 	});
-	builder.addStepSpanAndGetId("After Hooks", 900, { startOffsetMs: 9000 });
+	const afterHooks = builder.addStepSpanAndGetId("After Hooks", 900, {
+		startOffsetMs: 9000,
+	});
+	builder.addStepSpanAndGetId("Teardown", 120, {
+		startOffsetMs: 9480,
+		parentSpanId: afterHooks,
+	});
 	for (const [name, startOffsetMs, durationMs] of [
 		["Click request", 2995, 60],
 		["Assert request", 6300, 400],
@@ -212,7 +218,7 @@ test("left and right hop along a row and frame each span within tolerance", asyn
 	await expectNoHorizontalScroll(page);
 });
 
-test("up and down follow the time line across rows and panels", async ({
+test("down moves into what is beneath and up retraces it", async ({
 	page,
 	request,
 }) => {
@@ -226,39 +232,55 @@ test("up and down follow the time line across rows and panels", async ({
 	await expectFocused(page, { name: "Verify" });
 	await expect(lockedTime(5000)).toBeVisible();
 
-	// Nothing below Verify is under the line at 5000ms, so focus stays put.
-	await page.keyboard.press("ArrowDown");
-	await expectFocused(page, { name: "Verify" });
-
-	// Left/Right move the line to the bar's center: 6500ms for Verify.
-	await page.keyboard.press("ArrowLeft");
-	await page.keyboard.press("ArrowRight");
-	await expectFocused(page, { name: "Verify" });
-	await expect(lockedTime(6500)).toBeVisible();
-
+	// Nothing is under the line at 5000ms, but Assert is beneath Verify: the
+	// line moves just far enough to land on it.
 	await page.keyboard.press("ArrowDown");
 	await expectFocused(page, { name: "Assert" });
-	await page.keyboard.press("ArrowDown");
-	await expectFocused(page, {
-		name: "Assert request",
-		region: "Browser Spans",
-	});
-	await page.keyboard.press("ArrowDown");
-	await expectFocused(page, {
-		name: "Assert request",
-		region: "Browser Spans",
-	});
-	// Vertical moves keep the line where it was.
-	await expect(lockedTime(6500)).toBeVisible();
+	await expect(lockedTime(5500)).toBeVisible();
 
-	// Up retraces the same bars back to the root.
+	// Down crosses into the browser panel the same way.
+	await page.keyboard.press("ArrowDown");
+	await expectFocused(page, {
+		name: "Assert request",
+		region: "Browser Spans",
+	});
+	await expect(lockedTime(6300)).toBeVisible();
+	await page.keyboard.press("ArrowDown");
+	await expectFocused(page, {
+		name: "Assert request",
+		region: "Browser Spans",
+	});
+
+	// Up retraces the same bars back to the root without moving the line.
 	for (const name of ["Assert", "Verify", "Keyboard navigation"]) {
 		await page.keyboard.press("ArrowUp");
 		await expectFocused(page, { name });
 	}
 	await page.keyboard.press("ArrowUp");
 	await expectFocused(page, { name: "Keyboard navigation" });
-	await expect(lockedTime(6500)).toBeVisible();
+	await expect(lockedTime(6300)).toBeVisible();
+});
+
+test("down picks a child next to the line when the line falls in a gap", async ({
+	page,
+	request,
+}) => {
+	const { viewer } = await sendNavigationTrace(page, request, "kbdnavgap");
+
+	await page.keyboard.press("ArrowDown");
+	await page.keyboard.press("ArrowDown");
+	await page.keyboard.press("ArrowRight");
+	await expectFocused(page, { name: "After Hooks" });
+	await expect(
+		viewer.header.root.getByText("9450ms", { exact: true }),
+	).toBeVisible();
+
+	// After Hooks' center is just before Teardown starts.
+	await page.keyboard.press("ArrowDown");
+	await expectFocused(page, { name: "Teardown" });
+	await expect(
+		viewer.header.root.getByText("9480ms", { exact: true }),
+	).toBeVisible();
 });
 
 test("clicking a span then using arrows continues from that span", async ({

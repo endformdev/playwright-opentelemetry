@@ -50,6 +50,7 @@ import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
 import {
 	frameTimeRange,
+	getVisibleDuration,
 	isTimeRangeVisible,
 	type TimelineViewport,
 	timeToViewportPosition,
@@ -95,6 +96,8 @@ const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
 const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
 const TIMELINE_PLOT_INSET_PX = 12;
+/** How close to the time line a bar counts as on it for Up/Down */
+const NAVIGATION_SLOP_PX = 24;
 
 const ARROW_KEY_DIRECTIONS: Record<string, NavigationDirection> = {
 	ArrowLeft: "left",
@@ -682,11 +685,17 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			return;
 		}
 
+		const plotWidthPx = plotRef?.getBoundingClientRect().width ?? 0;
+		const slopMs =
+			plotWidthPx > 0
+				? (NAVIGATION_SLOP_PX * getVisibleDuration(viewport())) / plotWidthPx
+				: 0;
 		const target = findSpanNavigationTarget(
 			navigationPanels(),
 			current.id,
 			direction,
 			lockedTimeMs() ?? getSpanSelectionTimeMs(current, "center"),
+			slopMs,
 		);
 		if (target) focusSpan(target.spanId, target.timeMs);
 	};

@@ -58,7 +58,9 @@ const move = (
 	direction: NavigationDirection,
 	timeMs: number,
 	navigationPanels = panels,
-) => findSpanNavigationTarget(navigationPanels, spanId, direction, timeMs);
+	slopMs = 0,
+) =>
+	findSpanNavigationTarget(navigationPanels, spanId, direction, timeMs, slopMs);
 
 describe("findSpanNavigationTarget", () => {
 	describe("left and right", () => {
@@ -107,7 +109,7 @@ describe("findSpanNavigationTarget", () => {
 	});
 
 	describe("down", () => {
-		it("moves to the bar the time line crosses in the row below", () => {
+		it("moves to the bar under the time line in the row below", () => {
 			expect(move("test", "down", 450)).toEqual({
 				spanId: "act",
 				timeMs: 450,
@@ -118,42 +120,72 @@ describe("findSpanNavigationTarget", () => {
 			});
 		});
 
-		it("follows the time line rather than the hierarchy", () => {
+		it("follows the layout rather than the hierarchy", () => {
 			// image's parent is doc, but script is directly above it.
 			expect(move("doc", "down", 255)?.spanId).toBe("script");
 			expect(move("script", "down", 255)?.spanId).toBe("image");
 		});
 
-		it("skips rows with nothing under the time line", () => {
+		it("picks the bar beneath nearest the line when the line is in a gap", () => {
+			// act's line at 360ms falls between click and fill.
+			expect(move("act", "down", 360)).toEqual({
+				spanId: "fill",
+				timeMs: 400,
+			});
+			expect(move("test", "down", 230)).toEqual({
+				spanId: "act",
+				timeMs: 250,
+			});
+			expect(move("script", "down", 270)).toEqual({
+				spanId: "image",
+				timeMs: 262,
+			});
+		});
+
+		it("skips rows with nothing beneath the focused bar", () => {
 			expect(move("fill", "down", 450)?.spanId).toBe("doc");
 			expect(move("xhr", "down", 450)?.spanId).toBe("api");
 		});
 
-		it("enters the next panel at its topmost bar under the time line", () => {
+		it("enters the next panel at its topmost row beneath the focused bar", () => {
 			expect(move("hover", "down", 263)?.spanId).toBe("doc");
-			// Browser rows 0-2 have nothing at 50ms; "early" on row 3 does.
+			// Browser rows 0-2 have nothing beneath fixture; "early" on row 3 does.
 			expect(move("fixture", "down", 50)?.spanId).toBe("early");
 		});
 
-		it("skips panels with nothing under the time line", () => {
+		it("skips panels with nothing beneath the focused bar", () => {
 			const empty: NavigationPanel = { id: "browser", spans: [] };
 			expect(move("fill", "down", 450, [steps, empty, external])?.spanId).toBe(
 				"api",
 			);
 		});
 
-		it("stays put when nothing below is under the time line", () => {
-			expect(move("script", "down", 270)).toBe(null);
+		it("stays put when nothing is beneath the focused bar", () => {
 			expect(move("teardown", "down", 930)).toBe(null);
 			expect(move("api", "down", 450)).toBe(null);
 		});
 
+		it("widens tiny bars by the slop", () => {
+			// row 1: tiny [100,102]  wide [103,200]; row 2: inner [110,150]
+			const tiny = panel("steps", [
+				span("root", 0, 1000),
+				span("tiny", 100, 2, "root"),
+				span("wide", 103, 97, "root"),
+				span("inner", 110, 40, "wide"),
+			]);
+			expect(move("tiny", "down", 101, [tiny])).toBe(null);
+			expect(move("tiny", "down", 101, [tiny], 10)).toEqual({
+				spanId: "inner",
+				timeMs: 110,
+			});
+		});
+
 		it("clamps the time line into the current span", () => {
 			expect(move("act", "down", 9999)).toEqual({
-				spanId: "doc",
-				timeMs: 550,
+				spanId: "fill",
+				timeMs: 500,
 			});
-			expect(move("act", "down", 0)).toEqual({ spanId: "doc", timeMs: 250 });
+			expect(move("act", "down", 0)).toEqual({ spanId: "click", timeMs: 260 });
 		});
 	});
 
@@ -177,31 +209,47 @@ describe("findSpanNavigationTarget", () => {
 			expect(move("api", "up", 450)?.spanId).toBe("xhr");
 		});
 
+		it("only looks above the line, not the whole focused bar", () => {
+			// hover sits above doc's width, but fill is above the line.
+			expect(move("doc", "up", 450)).toEqual({ spanId: "fill", timeMs: 450 });
+		});
+
+		it("picks a bar within the slop of the line", () => {
+			// row 1: left [100,200]  right [205,300]; row 2: low [203,204]
+			const gap = panel("steps", [
+				span("root", 0, 1000),
+				span("left", 100, 100, "root"),
+				span("right", 205, 95, "root"),
+				span("low", 203, 1, "right"),
+			]);
+			expect(move("low", "up", 203.5, [gap])?.spanId).toBe("root");
+			expect(move("low", "up", 203.5, [gap], 5)).toEqual({
+				spanId: "right",
+				timeMs: 205,
+			});
+		});
+
 		it("stops at the top of the first panel", () => {
 			expect(move("test", "up", 500)).toBe(null);
 		});
 	});
 
-	it("makes up and down undo each other", () => {
+	it("returns to the same bar when moving down then up", () => {
 		const starts: Array<[string, number]> = [
+			["test", 450],
+			["test", 230],
+			["act", 450],
+			["act", 360],
 			["hover", 263],
 			["fill", 450],
-			["image", 255],
-			["api", 450],
-			["early", 40],
+			["doc", 255],
+			["script", 270],
+			["fixture", 50],
 		];
 		for (const [spanId, timeMs] of starts) {
-			for (const [there, back] of [
-				["up", "down"],
-				["down", "up"],
-			] as const) {
-				const target = move(spanId, there, timeMs);
-				if (!target) continue;
-				expect(move(target.spanId, back, target.timeMs)).toEqual({
-					spanId,
-					timeMs,
-				});
-			}
+			const below = move(spanId, "down", timeMs);
+			expect(below, spanId).not.toBe(null);
+			expect(move(below!.spanId, "up", below!.timeMs)?.spanId).toBe(spanId);
 		}
 	});
 
