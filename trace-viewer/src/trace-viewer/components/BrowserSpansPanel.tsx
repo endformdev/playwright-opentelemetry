@@ -1,7 +1,7 @@
 import { createMemo, For, Show } from "solid-js";
 import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
-import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
+import type { PackedSpan, PackedSpansResult } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
 import {
 	getResourceColor,
@@ -17,28 +17,23 @@ const ERROR_SPAN_COLOR = "#dc2626";
 
 export interface BrowserSpansPanelProps {
 	spans: Span[];
+	/** Packed rows for `spans`, shared with keyboard navigation */
+	layout: PackedSpansResult;
+	focusedSpanId?: string | null;
 	onSpanHover?: (spanId: string | null) => void;
 	matchedSpanIds?: Set<string>;
 	hoveredSearchSpanId?: string | null;
 }
 
-function spansToSpanInput(spans: Span[]): SpanInput[] {
-	return spans.map((span) => ({
-		id: span.id,
-		name: getResourceDisplayName(span),
-		startOffset: span.startOffsetMs,
-		duration: span.durationMs,
-		parentId: span.parentId,
-	}));
-}
-
 export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 	const { viewport } = useViewportContext();
 
-	const packedSpansResult = createMemo(() => {
-		const spanInputs = spansToSpanInput(props.spans);
-		return packSpans(spanInputs);
-	});
+	const displayNames = createMemo(
+		() =>
+			new Map(
+				props.spans.map((span) => [span.id, getResourceDisplayName(span)]),
+			),
+	);
 
 	const resourceTypeMap = createMemo(() => {
 		const map = new Map<string, ResourceType>();
@@ -56,7 +51,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 	);
 
 	const visibleSpans = createMemo(() => {
-		return packedSpansResult().spans.filter((span) =>
+		return props.layout.spans.filter((span) =>
 			isTimeRangeVisible(
 				span.startOffset,
 				span.startOffset + span.duration,
@@ -65,7 +60,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 		);
 	});
 
-	const containerHeight = () => packedSpansResult().totalRows * ROW_HEIGHT;
+	const containerHeight = () => props.layout.totalRows * ROW_HEIGHT;
 	const isEmpty = () => props.spans.length === 0;
 
 	return (
@@ -103,7 +98,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 								return (
 									<SpanBar
 										id={packedSpan.id}
-										name={packedSpan.name}
+										name={displayNames().get(packedSpan.id) ?? packedSpan.name}
 										startOffset={packedSpan.startOffset}
 										duration={packedSpan.duration}
 										row={packedSpan.row}
@@ -113,6 +108,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 												: getResourceColor(resourceType)
 										}
 										isError={isError}
+										isFocused={props.focusedSpanId === packedSpan.id}
 										events={spanEvents().get(packedSpan.id)}
 										icon={getResourceIcon(resourceType)}
 										onHover={props.onSpanHover}

@@ -5,7 +5,7 @@ import {
 	type SpanKind,
 } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
-import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
+import type { PackedSpan, PackedSpansResult } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
 import { PanelCornerLabel } from "./PanelHeader";
 import { ROW_HEIGHT, SpanBar } from "./SpanBar";
@@ -14,19 +14,12 @@ const ERROR_SPAN_COLOR = "#dc2626";
 
 export interface ExternalSpansPanelProps {
 	spans: Span[];
+	/** Packed rows for `spans`, shared with keyboard navigation */
+	layout: PackedSpansResult;
+	focusedSpanId?: string | null;
 	onSpanHover?: (spanId: string | null) => void;
 	matchedSpanIds?: Set<string>;
 	hoveredSearchSpanId?: string | null;
-}
-
-function spansToSpanInput(spans: Span[]): SpanInput[] {
-	return spans.map((span) => ({
-		id: span.id,
-		name: span.title,
-		startOffset: span.startOffsetMs,
-		duration: span.durationMs,
-		parentId: span.parentId,
-	}));
 }
 
 function getSpanColor(kind: SpanKind): string {
@@ -44,11 +37,6 @@ function getSpanColor(kind: SpanKind): string {
 export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 	const { viewport } = useViewportContext();
 
-	const packedSpansResult = createMemo(() => {
-		const spanInputs = spansToSpanInput(props.spans);
-		return packSpans(spanInputs);
-	});
-
 	const kindMap = createMemo(() => {
 		const map = new Map<string, SpanKind>();
 		for (const span of props.spans) {
@@ -65,7 +53,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 	);
 
 	const visibleSpans = createMemo(() => {
-		return packedSpansResult().spans.filter((span) =>
+		return props.layout.spans.filter((span) =>
 			isTimeRangeVisible(
 				span.startOffset,
 				span.startOffset + span.duration,
@@ -74,7 +62,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 		);
 	});
 
-	const containerHeight = () => packedSpansResult().totalRows * ROW_HEIGHT;
+	const containerHeight = () => props.layout.totalRows * ROW_HEIGHT;
 	const isEmpty = () => props.spans.length === 0;
 
 	return (
@@ -117,6 +105,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 										row={packedSpan.row}
 										color={isError ? ERROR_SPAN_COLOR : getSpanColor(kind)}
 										isError={isError}
+										isFocused={props.focusedSpanId === packedSpan.id}
 										events={spanEvents().get(packedSpan.id)}
 										onHover={props.onSpanHover}
 										matchedSpanIds={props.matchedSpanIds}

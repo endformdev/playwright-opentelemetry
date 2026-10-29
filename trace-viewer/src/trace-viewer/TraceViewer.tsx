@@ -8,13 +8,14 @@ import {
 	Show,
 } from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
-import { isErrorSpan } from "../trace-data-loader/exportToSpans";
+import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
 import type { ScreenshotInfo, TraceInfo } from "../trace-info-loader";
 import { BrowserSpansPanel } from "./components/BrowserSpansPanel";
 import { DetailsPanel } from "./components/DetailsPanel";
 import { ExternalSpansPanel } from "./components/ExternalSpansPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { PanelHeader } from "./components/PanelHeader";
+import { revealSpanBar } from "./components/SpanBar";
 import { StepsTimeline } from "./components/StepsTimeline";
 import {
 	type FocusedElement,
@@ -32,9 +33,15 @@ import {
 	type TestPhase,
 } from "./detectTestPhases";
 import { MultiResizablePanel } from "./MultiResizablePanel";
+import { packTimelineSpans } from "./packSpans";
 import { calculateInitialPanelSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
+import {
+	findSpanNavigationTarget,
+	type NavigationDirection,
+	type NavigationPanel,
+} from "./spanNavigation";
 import {
 	getSpanSelectionTimeMs,
 	type SpanSelectionPlacement,
@@ -42,6 +49,7 @@ import {
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
 import {
+	frameTimeRange,
 	isTimeRangeVisible,
 	type TimelineViewport,
 	timeToViewportPosition,
@@ -87,6 +95,30 @@ const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
 const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
 const TIMELINE_PLOT_INSET_PX = 12;
+
+const ARROW_KEY_DIRECTIONS: Record<string, NavigationDirection> = {
+	ArrowLeft: "left",
+	ArrowRight: "right",
+	ArrowUp: "up",
+	ArrowDown: "down",
+};
+
+function focusedElementFor(span: Span): FocusedElement {
+	const isStep =
+		span.name === "playwright.test" || span.name === "playwright.test.step";
+	return { type: isStep ? "step" : "span", id: span.id };
+}
+
+/** Keys typed into inputs and menus belong to those controls, not the timeline. */
+function isKeyboardControlTarget(target: EventTarget | null): boolean {
+	return (
+		target instanceof HTMLElement &&
+		(target.isContentEditable ||
+			target.closest(
+				'input, textarea, select, [role="menu"], [role="listbox"], [role="combobox"]',
+			) !== null)
+	);
+}
 
 function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
 	if (screenshots.length === 0) return 1;
@@ -181,6 +213,30 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		...props.traceData.browserSpans(),
 		...props.traceData.externalSpans(),
 	]);
+	const spanById = createMemo(
+		() => new Map(allSpans().map((span) => [span.id, span])),
+	);
+	// Packed rows are shared by the panels and keyboard navigation, so arrow
+	// keys move between the bars as they appear on screen.
+	const stepsLayout = createMemo(() =>
+		packTimelineSpans(props.traceData.steps()),
+	);
+	const browserLayout = createMemo(() =>
+		packTimelineSpans(props.traceData.browserSpans()),
+	);
+	const externalLayout = createMemo(() =>
+		packTimelineSpans(props.traceData.externalSpans()),
+	);
+	const navigationPanels = createMemo((): NavigationPanel[] => [
+		{ id: "steps", spans: stepsLayout().spans },
+		{ id: "browser", spans: browserLayout().spans },
+		{ id: "external", spans: externalLayout().spans },
+	]);
+	const focusedSpanId = () => {
+		if (mode() === "hover") return null;
+		const element = lockedElement();
+		return element && element.type !== "screenshot" ? element.id : null;
+	};
 	const errorSpans = createMemo(() =>
 		allSpans()
 			.filter(isErrorSpan)
@@ -450,13 +506,30 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				unlock();
 				setHoverPosition(pointerPosition);
 				setHoveredElement(pointerElement);
+				return;
 			}
+
+			const direction = ARROW_KEY_DIRECTIONS[e.key];
+			if (
+				!direction ||
+				e.defaultPrevented ||
+				e.altKey ||
+				e.ctrlKey ||
+				e.metaKey ||
+				e.shiftKey ||
+				isKeyboardControlTarget(e.target)
+			) {
+				return;
+			}
+			e.preventDefault();
+			navigateFocus(direction);
 		};
 		document.addEventListener("keydown", onKeyDown);
 
 		onCleanup(() => {
 			document.removeEventListener("mouseup", onGlobalMouseUp);
 			document.removeEventListener("keydown", onKeyDown);
+			if (revealFrame !== undefined) cancelAnimationFrame(revealFrame);
 		});
 	});
 
@@ -524,7 +597,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		placement: SpanSelectionPlacement,
 	) => {
 		// Find the span to get its selected timeline position
-		const span = allSpans().find((s) => s.id === spanId);
+		const span = spanById().get(spanId);
 
 		if (span) {
 			const selectionTimeMs = getSpanSelectionTimeMs(span, placement);
@@ -545,37 +618,73 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				setViewport(selectionViewport);
 			}
 
-			const isStep =
-				span.name === "playwright.test" || span.name === "playwright.test.step";
-			lock(selectionTimeMs, {
-				type: isStep ? "step" : "span",
-				id: spanId,
-			});
+			lock(selectionTimeMs, focusedElementFor(span));
 		}
 	};
 
-	// Navigate to a span without changing time position - only updates focus for scrolling
-	const handleSpanNavigate = (spanId: string) => {
-		const span = allSpans().find((s) => s.id === spanId);
+	let revealFrame: number | undefined;
 
-		if (span) {
-			const isStep =
-				span.name === "playwright.test" || span.name === "playwright.test.step";
+	/**
+	 * Focuses a span the way keyboard navigation does: frames it within the
+	 * tolerance, locks time to its center and scrolls its bar into view.
+	 */
+	const focusSpan = (spanId: string) => {
+		const span = spanById().get(spanId);
+		if (!span) return;
 
-			// When navigating within locked mode, update the focused element while
-			// preserving the locked time.
-			const currentMode = mode();
-			if (currentMode === "locked" || currentMode === "search-override") {
-				// Re-lock at the current position but with the new element
-				const timeMs = lockedTimeMs();
-				if (timeMs !== null) {
-					lock(timeMs, {
-						type: isStep ? "step" : "span",
-						id: spanId,
-					});
-				}
-			}
+		const currentViewport = viewport();
+		const framedViewport = frameTimeRange(
+			currentViewport,
+			span.startOffsetMs,
+			span.startOffsetMs + span.durationMs,
+		);
+		if (framedViewport !== currentViewport) setViewport(framedViewport);
+		lock(getSpanSelectionTimeMs(span, "center"), focusedElementFor(span));
+
+		// Wait for the framed viewport to render the bar before scrolling to it.
+		if (revealFrame !== undefined) cancelAnimationFrame(revealFrame);
+		revealFrame = requestAnimationFrame(() => {
+			revealFrame = undefined;
+			const timeline = plotRef?.parentElement;
+			if (timeline) revealSpanBar(timeline, spanId);
+		});
+	};
+
+	/** With nothing focused, navigation starts at the root test step. */
+	const findNavigationStartSpanId = (): string | null => {
+		const steps = props.traceData.steps();
+		const rootTest = steps.find(
+			(span) =>
+				span.name === "playwright.test" &&
+				!steps.some((parent) => parent.id === span.parentId),
+		);
+		if (rootTest) return rootTest.id;
+
+		const firstPanel = navigationPanels().find(
+			(panel) => panel.spans.length > 0,
+		);
+		const [first] = (firstPanel?.spans ?? [])
+			.filter((span) => span.row === 0)
+			.sort((a, b) => a.startOffset - b.startOffset);
+		return first?.id ?? null;
+	};
+
+	const navigateFocus = (direction: NavigationDirection) => {
+		const currentId = focusedSpanId();
+		const current = currentId ? spanById().get(currentId) : undefined;
+		if (!current) {
+			const startId = findNavigationStartSpanId();
+			if (startId) focusSpan(startId);
+			return;
 		}
+
+		const targetId = findSpanNavigationTarget(
+			navigationPanels(),
+			current.id,
+			direction,
+			lockedTimeMs() ?? getSpanSelectionTimeMs(current, "center"),
+		);
+		if (targetId) focusSpan(targetId);
 	};
 
 	const handleSearchResultHover = (spanId: string | null) => {
@@ -600,7 +709,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 
 		// Find the span
-		const span = allSpans().find((s) => s.id === spanId);
+		const span = spanById().get(spanId);
 
 		if (span) {
 			// Check if span is visible in current viewport
@@ -616,12 +725,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				setHoverPosition(Math.max(0, Math.min(1, position)));
 			}
 			// Always set hovered element so details panel scrolls to it
-			const isStep =
-				span.name === "playwright.test" || span.name === "playwright.test.step";
-			setHoveredElement({
-				type: isStep ? "step" : "span",
-				id: spanId,
-			});
+			setHoveredElement(focusedElementFor(span));
 		}
 	};
 
@@ -647,6 +751,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					return (
 						<StepsTimeline
 							steps={props.traceData.steps()}
+							layout={stepsLayout()}
+							focusedSpanId={focusedSpanId()}
 							onStepHover={handleStepHover}
 							matchedSpanIds={search.matchedSpanIds()}
 							hoveredSearchSpanId={hoveredSearchSpanId()}
@@ -656,6 +762,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					return (
 						<BrowserSpansPanel
 							spans={props.traceData.browserSpans()}
+							layout={browserLayout()}
+							focusedSpanId={focusedSpanId()}
 							onSpanHover={handleSpanHover}
 							matchedSpanIds={search.matchedSpanIds()}
 							hoveredSearchSpanId={hoveredSearchSpanId()}
@@ -665,6 +773,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					return (
 						<ExternalSpansPanel
 							spans={props.traceData.externalSpans()}
+							layout={externalLayout()}
+							focusedSpanId={focusedSpanId()}
 							onSpanHover={handleSpanHover}
 							matchedSpanIds={search.matchedSpanIds()}
 							hoveredSearchSpanId={hoveredSearchSpanId()}
@@ -886,7 +996,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 							hoveredElements={displayElements()}
 							testStartTimeMs={props.testStartTimeMs()}
 							focusedElement={displayFocusedElement()}
-							onNavigateToSpan={handleSpanNavigate}
+							onNavigateToSpan={focusSpan}
 						/>
 					}
 				/>

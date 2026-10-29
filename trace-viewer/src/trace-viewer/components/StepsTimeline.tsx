@@ -1,7 +1,7 @@
 import { createMemo, For } from "solid-js";
 import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
 import { useViewportContext } from "../contexts/ViewportContext";
-import { type PackedSpan, packSpans, type SpanInput } from "../packSpans";
+import type { PackedSpan, PackedSpansResult } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
 import { PanelCornerLabel } from "./PanelHeader";
 import { ROW_HEIGHT, SpanBar } from "./SpanBar";
@@ -12,19 +12,12 @@ import {
 
 export interface StepsTimelineProps {
 	steps: Span[];
+	/** Packed rows for `steps`, shared with keyboard navigation */
+	layout: PackedSpansResult;
+	focusedSpanId?: string | null;
 	onStepHover?: (stepId: string | null) => void;
 	matchedSpanIds?: Set<string>;
 	hoveredSearchSpanId?: string | null;
-}
-
-function spansToSpanInput(spans: Span[]): SpanInput[] {
-	return spans.map((span) => ({
-		id: span.id,
-		name: span.title,
-		startOffset: span.startOffsetMs,
-		duration: span.durationMs,
-		parentId: span.parentId,
-	}));
 }
 
 function buildDepthMap(spans: Span[]): Map<string, number> {
@@ -70,11 +63,6 @@ const ERROR_SPAN_COLOR = "#dc2626";
 export function StepsTimeline(props: StepsTimelineProps) {
 	const { viewport } = useViewportContext();
 
-	const packedStepsResult = createMemo(() => {
-		const spanInputs = spansToSpanInput(props.steps);
-		return packSpans(spanInputs);
-	});
-
 	const depthMap = createMemo(() => buildDepthMap(props.steps));
 	const stepMap = createMemo(
 		() => new Map(props.steps.map((span) => [span.id, span])),
@@ -84,7 +72,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 	);
 
 	const visibleSteps = createMemo(() => {
-		return packedStepsResult().spans.filter((step) =>
+		return props.layout.spans.filter((step) =>
 			isTimeRangeVisible(
 				step.startOffset,
 				step.startOffset + step.duration,
@@ -93,7 +81,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 		);
 	});
 
-	const containerHeight = () => packedStepsResult().totalRows * ROW_HEIGHT;
+	const containerHeight = () => props.layout.totalRows * ROW_HEIGHT;
 
 	return (
 		<div
@@ -134,6 +122,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 												: NON_PLAYWRIGHT_STEP_COLOR
 									}
 									isError={isError}
+									isFocused={props.focusedSpanId === step.id}
 									onHover={props.onStepHover}
 									matchedSpanIds={props.matchedSpanIds}
 									hoveredSearchSpanId={props.hoveredSearchSpanId}

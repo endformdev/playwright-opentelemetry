@@ -72,6 +72,8 @@ export interface SpanBarProps {
 	row: number;
 	color: string;
 	isError?: boolean;
+	/** The locked span: drawn with a focus ring above its neighbours */
+	isFocused?: boolean;
 	events?: SpanEvent[];
 	/** Optional icon to display before the span name */
 	icon?: JSX.Element;
@@ -130,9 +132,13 @@ export function SpanBar(props: SpanBarProps) {
 			data-span-end-ms={props.startOffset + props.duration}
 			data-span-row={props.row}
 			data-span-error={props.isError ? "true" : undefined}
+			data-span-focused={props.isFocused ? "true" : undefined}
 			class="absolute h-6 rounded-xs border-r border-gray-50 text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
 			classList={{
-				"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
+				"ring-2 ring-yellow-400 ring-offset-1":
+					shouldHighlight() && !props.isFocused,
+				"z-10 ring-2 ring-gray-900 ring-offset-2 ring-offset-white shadow-md":
+					props.isFocused,
 				"px-2": geometry().shouldShowContent,
 			}}
 			style={{
@@ -182,4 +188,26 @@ function eventTooltip(event: SpanEvent): string {
 	return typeof message === "string" && message.length > 0
 		? message
 		: event.name;
+}
+
+/**
+ * Scrolls a span bar's panel vertically so the bar is in view. Only the
+ * vertical axis moves: scrollIntoView would also scroll the horizontally
+ * clipped panels.
+ */
+export function revealSpanBar(root: HTMLElement, spanId: string): void {
+	const bar = root.querySelector<HTMLElement>(
+		`[role="listitem"][data-span-id="${CSS.escape(spanId)}"]`,
+	);
+	const scroller = bar?.closest<HTMLElement>('[role="list"]');
+	if (!bar || !scroller) return;
+
+	const barRect = bar.getBoundingClientRect();
+	const scrollerRect = scroller.getBoundingClientRect();
+	const padding = ROW_HEIGHT / 2;
+	if (barRect.top < scrollerRect.top + padding) {
+		scroller.scrollTop -= scrollerRect.top + padding - barRect.top;
+	} else if (barRect.bottom > scrollerRect.bottom - padding) {
+		scroller.scrollTop += barRect.bottom - (scrollerRect.bottom - padding);
+	}
 }

@@ -1,3 +1,5 @@
+import type { Span } from "../trace-data-loader/exportToSpans";
+
 /**
  * Span packing utilities for timeline visualization.
  * Assigns rows to spans to minimize vertical space while respecting:
@@ -170,6 +172,22 @@ export function packSpans(spans: SpanInput[]): PackedSpansResult {
 		spans: packedSpans,
 		totalRows: rows.length,
 	};
+}
+
+/**
+ * Packs trace spans into timeline rows. Rows depend only on timing and
+ * hierarchy, so one layout serves both rendering and keyboard navigation.
+ */
+export function packTimelineSpans(spans: Span[]): PackedSpansResult {
+	return packSpans(
+		spans.map((span) => ({
+			id: span.id,
+			name: span.title,
+			startOffset: span.startOffsetMs,
+			duration: span.durationMs,
+			parentId: span.parentId,
+		})),
+	);
 }
 
 function orderParentsBeforeChildren(spans: SpanInput[]): SpanInput[] {

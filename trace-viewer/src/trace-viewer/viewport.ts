@@ -166,3 +166,79 @@ export function clampViewport(viewport: TimelineViewport): TimelineViewport {
 		totalDurationMs: viewport.totalDurationMs,
 	};
 }
+
+/** How much of the visible window a focused time range should occupy. */
+export interface FrameTolerance {
+	/** Zoom in when the range is narrower than this fraction of the window */
+	minFraction: number;
+	/** Zoom out when the range is wider than this fraction of the window */
+	maxFraction: number;
+	/** Fraction of the window kept clear at each edge of a range in frame */
+	edgeMargin: number;
+}
+
+export const DEFAULT_FRAME_TOLERANCE: FrameTolerance = {
+	minFraction: 0.15,
+	maxFraction: 0.6,
+	edgeMargin: 0.05,
+};
+
+/** Narrowest window the wheel zoom limits allow for a timeline. */
+export function getMinVisibleDuration(totalDurationMs: number): number {
+	return Math.min(
+		totalDurationMs,
+		Math.max(MIN_VISIBLE_DURATION_MS, totalDurationMs / MAX_ZOOM),
+	);
+}
+
+/**
+ * Brings a time range into frame so it occupies a proportion of the window
+ * within the tolerance. Ranges already in frame leave the viewport untouched,
+ * so hopping between similar ranges does not move the timeline. Otherwise the
+ * window is rescaled to the nearest tolerance edge, without passing the zoom
+ * limits, and centered on the range.
+ */
+export function frameTimeRange(
+	viewport: TimelineViewport,
+	startMs: number,
+	endMs: number,
+	tolerance: FrameTolerance = DEFAULT_FRAME_TOLERANCE,
+): TimelineViewport {
+	const visibleDuration = getVisibleDuration(viewport);
+	const rangeDuration = Math.max(0, endMs - startMs);
+
+	let targetDuration = visibleDuration;
+	if (rangeDuration < visibleDuration * tolerance.minFraction) {
+		// Zoom in, but never out: the user may already be past the wheel limit.
+		targetDuration = Math.min(
+			visibleDuration,
+			Math.max(
+				getMinVisibleDuration(viewport.totalDurationMs),
+				rangeDuration / tolerance.minFraction,
+			),
+		);
+	} else if (rangeDuration > visibleDuration * tolerance.maxFraction) {
+		targetDuration = Math.max(
+			visibleDuration,
+			Math.min(viewport.totalDurationMs, rangeDuration / tolerance.maxFraction),
+		);
+	}
+
+	const margin = visibleDuration * tolerance.edgeMargin;
+	const isInFrame =
+		targetDuration === visibleDuration &&
+		startMs >= viewport.visibleStartMs + margin &&
+		endMs <= viewport.visibleEndMs - margin;
+	if (isInFrame) return viewport;
+
+	const centerMs = startMs + rangeDuration / 2;
+	const framed = clampViewport({
+		visibleStartMs: centerMs - targetDuration / 2,
+		visibleEndMs: centerMs + targetDuration / 2,
+		totalDurationMs: viewport.totalDurationMs,
+	});
+	return framed.visibleStartMs === viewport.visibleStartMs &&
+		framed.visibleEndMs === viewport.visibleEndMs
+		? viewport
+		: framed;
+}
