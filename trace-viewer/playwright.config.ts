@@ -28,10 +28,5 @@ export default defineConfig({
 				"pnpm --filter @playwright-opentelemetry/trace-api build && pnpm exec tsx test-e2e/trace-api-server.ts",
 			url: "http://localhost:9295/health",
 		},
-		{
-			command:
-				"pnpm --filter @playwright-opentelemetry/trace-api build && pnpm exec wrangler dev -c test-e2e/live-trace-worker/wrangler.jsonc --port 9296 --persist-to test-results/live-trace-worker-state",
-			url: "http://localhost:9296/health",
-		},
 	],
 });

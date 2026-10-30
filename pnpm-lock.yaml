@@ -118,6 +118,9 @@ importers:
       lucide-solid:
         specifier: ^1.17.0
         version: 1.20.0(solid-js@1.9.13)
+      playwright-opentelemetry:
+        specifier: workspace:*
+        version: link:../reporter
       solid-js:
         specifier: ^1.9.13
         version: 1.9.13

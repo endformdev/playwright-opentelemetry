@@ -13,6 +13,7 @@
 		"build": "tsc && vite build",
 		"preview": "vite preview",
 		"test:e2e": "playwright test",
+		"test:e2e:live": "pnpm --filter playwright-opentelemetry build && tsx test-e2e-live/run.ts",
 		"deploy": "wrangler deploy"
 	},
 	"keywords": [
@@ -42,6 +43,7 @@
 		"@zip.js/zip.js": "catalog:",
 		"h3": "catalog:",
 		"lucide-solid": "^1.17.0",
+		"playwright-opentelemetry": "workspace:*",
 		"solid-js": "^1.9.13",
 		"tailwindcss": "^4.3.0",
 		"tsx": "catalog:",

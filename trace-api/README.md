@@ -221,7 +221,7 @@ export default {
 };
 ```
 
-Bind the Durable Object as a SQLite class and add an R2 bucket. A complete Worker and `wrangler.jsonc`, used by the trace viewer's e2e tests, are in [`trace-viewer/test-e2e/live-trace-worker`](../trace-viewer/test-e2e/live-trace-worker).
+Bind the Durable Object as a SQLite class and add an R2 bucket. A complete Worker and `wrangler.jsonc`, used by the trace viewer's e2e tests, are in [`trace-viewer/test-e2e-live/live-trace-worker`](../trace-viewer/test-e2e-live/live-trace-worker).
 
 Routes, all under `/playwright-otel-live/v1/{traceId}`:
 

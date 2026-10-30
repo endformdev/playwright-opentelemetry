@@ -46,6 +46,7 @@ This is a pnpm workspace with three published packages:
 
 - `pnpm dev` starts the Vite dev server
 - `pnpm test:e2e` runs the viewer e2e tests (builds and serves the viewer and a test Trace API automatically)
+- `pnpm test:e2e:live` runs the live trace e2e tests on demand. It serves the viewer and the live trace Worker under `wrangler dev`, then runs a producer test and an observer test side by side: the observer checks each part of the producer's live trace arrives in the viewer while the producer is paused. Add `--keep-open` to keep the servers running, so the producer's live trace and the observer's own trace, printed in the output, can be opened afterwards
 
 ### `trace-api/`
 
