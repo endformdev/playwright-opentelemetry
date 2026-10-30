@@ -61,7 +61,7 @@
 		"verify:trace-zips": "bun scripts/verify-trace-zips.ts"
 	},
 	"peerDependencies": {
-		"@playwright/test": "*"
+		"@playwright/test": ">=1.59.0"
 	},
 	"dependencies": {
 		"@zip.js/zip.js": "catalog:"
