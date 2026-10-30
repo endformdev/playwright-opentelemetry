@@ -282,3 +282,13 @@ export function interpolateViewportMapping(
 		totalDurationMs: to.totalDurationMs,
 	};
 }
+
+/** Whether moving between viewports zooms by more than `tolerance`. */
+export function changesScale(
+	from: TimelineViewport,
+	to: TimelineViewport,
+	tolerance = 0.15,
+): boolean {
+	const { scale } = getViewportTransform(from, to);
+	return scale > 1 + tolerance || scale < 1 / (1 + tolerance);
+}

@@ -5,6 +5,7 @@ import {
 	type SpanKind,
 } from "../../trace-data-loader/exportToSpans";
 import {
+	LABEL_FADE_IN_MS,
 	useViewportContext,
 	useViewportTransitionTransform,
 } from "../contexts/ViewportContext";
@@ -91,8 +92,9 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 				>
 					<div
 						ref={plotLayerRef}
-						class="relative"
+						class="group/plot relative"
 						style={{
+							"--label-fade-in": `${LABEL_FADE_IN_MS}ms`,
 							height: `${containerHeight()}px`,
 							"margin-left": "var(--timeline-plot-inset)",
 							width: "var(--timeline-plot-width)",

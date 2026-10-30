@@ -419,10 +419,21 @@ test.describe("with motion", () => {
 			),
 		);
 		expect(transforms.some((t) => t.includes("scaleX"))).toBe(true);
+		// Zooming stretches text, so labels hide until the move settles.
+		const labelOpacities = () =>
+			page.evaluate(() => [
+				...new Set(
+					[...document.querySelectorAll("[data-span-label]")].map(
+						(label) => getComputedStyle(label).opacity,
+					),
+				),
+			]);
+		expect(await labelOpacities()).toEqual(["0"]);
 
 		await expect
 			.poll(() => page.evaluate(() => document.getAnimations().length))
 			.toBe(0);
+		await expect.poll(labelOpacities).toEqual(["1"]);
 		const click = await expectFocused(page, { name: "Click" });
 		expect(click.widthFraction).toBeGreaterThanOrEqual(0.14);
 		expect(click.widthFraction).toBeLessThanOrEqual(0.61);

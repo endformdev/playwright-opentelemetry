@@ -12,6 +12,7 @@ import {
 	useContext,
 } from "solid-js";
 import {
+	changesScale,
 	createViewport,
 	getViewportTransform,
 	interpolateViewportMapping,
@@ -28,6 +29,12 @@ export const VIEWPORT_ANIMATION_MS = 180;
 export const VIEWPORT_ANIMATION_EASING = "cubic-bezier(0.215, 0.61, 0.355, 1)";
 
 const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
+
+/**
+ * How long span labels take to come back after a zooming move; 0 snaps them
+ * back. Labels are hidden while zooming because the transform stretches them.
+ */
+export const LABEL_FADE_IN_MS = 100;
 
 export function prefersReducedMotion(): boolean {
 	return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -246,13 +253,15 @@ export function useViewportContext(): ViewportContextValue {
 
 /**
  * Plays the current viewport transition on an element laid out in timeline
- * plot coordinates, as a single compositor-only transform.
+ * plot coordinates, as a single compositor-only transform. While a move
+ * zooms, the element gets `data-labels-hidden` until movement settles.
  */
 export function useViewportTransitionTransform(
 	element: () => HTMLElement | undefined,
 ): void {
 	const { viewportTransition } = useViewportContext();
 	let animation: Animation | undefined;
+	const showLabels = () => element()?.removeAttribute("data-labels-hidden");
 
 	createEffect(() => {
 		const transition = viewportTransition();
@@ -261,11 +270,16 @@ export function useViewportTransitionTransform(
 			// Cancelled by a direct viewport change; a finished one is a no-op.
 			animation?.cancel();
 			animation = undefined;
+			showLabels();
 			return;
 		}
 		if (!target) return;
 
 		animation?.cancel();
+		// Once hidden, labels stay hidden through chained moves.
+		if (changesScale(transition.from, transition.to)) {
+			target.setAttribute("data-labels-hidden", "");
+		}
 		const { scale, translate } = getViewportTransform(
 			transition.from,
 			transition.to,
@@ -280,6 +294,8 @@ export function useViewportTransitionTransform(
 			],
 			{ duration: VIEWPORT_ANIMATION_MS, easing: VIEWPORT_ANIMATION_EASING },
 		);
+		// Only the latest animation finishes; replaced ones are cancelled.
+		animation.onfinish = showLabels;
 	});
 
 	onCleanup(() => animation?.cancel());

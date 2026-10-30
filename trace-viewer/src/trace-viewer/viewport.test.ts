@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	changesScale,
 	clampViewport,
 	createViewport,
 	frameTimeRange,
@@ -629,5 +630,27 @@ describe("interpolateViewportMapping", () => {
 				(1 - progress) * (scale * laidOut + translate) + progress * laidOut;
 			expect(timeToViewportPosition(timeMs, shown)).toBeCloseTo(eased);
 		}
+	});
+});
+
+describe("changesScale", () => {
+	const view = (visibleStartMs: number, visibleEndMs: number) => ({
+		visibleStartMs,
+		visibleEndMs,
+		totalDurationMs: 10000,
+	});
+
+	it("ignores pans", () => {
+		expect(changesScale(view(0, 1000), view(4000, 5000))).toBe(false);
+	});
+
+	it("ignores small zooms", () => {
+		expect(changesScale(view(0, 1000), view(0, 1100))).toBe(false);
+		expect(changesScale(view(0, 1000), view(0, 900))).toBe(false);
+	});
+
+	it("detects zooming in and out", () => {
+		expect(changesScale(view(0, 1000), view(0, 1200))).toBe(true);
+		expect(changesScale(view(0, 1000), view(0, 800))).toBe(true);
 	});
 });

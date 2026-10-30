@@ -99,11 +99,15 @@ export function SpanBar(props: SpanBarProps) {
 		if (!geometry().shouldShowContent) {
 			return null;
 		}
+		// Hidden instantly while the plot layer zooms, then faded back in.
 		return (
-			<>
+			<span
+				data-span-label
+				class="flex min-w-0 items-center gap-1.5 transition-opacity duration-(--label-fade-in) group-data-[labels-hidden]/plot:opacity-0 group-data-[labels-hidden]/plot:transition-none"
+			>
 				{props.icon}
 				<span class="truncate select-none">{props.name}</span>
-			</>
+			</span>
 		);
 	};
 
