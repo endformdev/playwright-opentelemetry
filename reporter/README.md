@@ -49,7 +49,7 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 	reporter: [["playwright-opentelemetry/reporter"]],
 	use: {
 		playwrightOpentelemetry,
-		// Screenshots come from Playwright's retained trace.
+		// OpenTelemetry output follows Playwright's trace retention.
 		trace: "retain-on-failure",
 	},
 });

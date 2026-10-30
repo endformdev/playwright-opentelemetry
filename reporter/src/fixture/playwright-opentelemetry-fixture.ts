@@ -15,6 +15,8 @@ import {
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
 } from "./reporter-config";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
+import { ScreencastCapture } from "./screencast-capture";
+import { attachScreenshots, shouldCaptureScreenshots } from "./screenshots";
 import { runWithTestFetchCapture } from "./test-fetch-capture";
 import {
 	createTestTraceContext,
@@ -32,6 +34,7 @@ type PlaywrightOpentelemetryFixtures = {
 	testTraceInfo: TestTraceInfo;
 	testTraceContext: TestTraceContext;
 	browserPageTracker: BrowserPageTracker;
+	screencastCapture: ScreencastCapture | undefined;
 };
 
 type PlaywrightOpentelemetryWorkerFixtures = {
@@ -95,6 +98,36 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ auto: true },
 		],
+		screencastCapture: [
+			async (
+				{ playwright, playwrightOpentelemetry, trace, browserPageTracker },
+				use,
+				testInfo,
+			) => {
+				const config = resolvePlaywrightOpentelemetryConfig(
+					playwrightOpentelemetry,
+				);
+				if (!shouldCaptureScreenshots(config, { trace, testInfo })) {
+					await use(undefined);
+					return;
+				}
+
+				let capture: ScreencastCapture;
+				try {
+					capture = await ScreencastCapture.start({
+						playwright,
+						pageIdFor: (page) => browserPageTracker.pageIdFor(page),
+					});
+				} catch (error) {
+					console.warn(`Failed to start screenshot capture: ${error}`);
+					await use(undefined);
+					return;
+				}
+				await use(capture);
+				await attachScreenshots(capture, config, { trace, testInfo });
+			},
+			{ auto: true },
+		],
 		request: async ({ request, testTraceContext }, use) => {
 			await use(createCapturedApiRequestContext(request, testTraceContext));
 		},
@@ -104,12 +137,14 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				playwrightOpentelemetry,
 				testTraceContext,
 				browserPageTracker,
+				screencastCapture,
 			},
 			use,
 		) => {
 			const config = resolvePlaywrightOpentelemetryConfig(
 				playwrightOpentelemetry,
 			);
+			screencastCapture?.addContext(context);
 			const captureRequest = (request: Request) => {
 				browserPageTracker.startDocumentNavigation(request);
 				const networkParent = browserPageTracker.getNetworkParent(request);

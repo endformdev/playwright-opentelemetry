@@ -1,14 +1,12 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { FullResult, Suite } from "@playwright/test/reporter";
+import type { FullResult, Suite, TestResult } from "@playwright/test/reporter";
 import {
 	BlobReader,
-	BlobWriter,
 	TextWriter,
 	Uint8ArrayWriter,
 	ZipReader,
-	ZipWriter,
 } from "@zip.js/zip.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -32,7 +30,10 @@ vi.mock("../src/reporter/sender", async (importOriginal) => {
 });
 
 import { sendSpans } from "../src/reporter/sender";
-import { extractScreenshotsFromPlaywrightTrace } from "../src/reporter/trace-zip-builder";
+import {
+	createScreenshotsZip,
+	SCREENSHOTS_ATTACHMENT_NAME,
+} from "../src/shared/screenshots-zip";
 import {
 	FIXTURE_SPANS_ATTACHMENT_NAME,
 	TRACE_CONTEXT_ATTACHMENT_NAME,
@@ -58,90 +59,37 @@ function createMinimalJpeg(): Buffer {
 }
 
 /**
- * Creates a mock Playwright trace ZIP file with screenshots in resources/ directory.
- * This simulates what Playwright creates when tracing is enabled.
- *
- * Playwright trace ZIP structure:
- * trace.zip/
- * ├── trace.trace          # JSON lines of trace events
- * └── resources/
- *     ├── {pageGuid}-{timestamp}.jpeg   # Screenshot frames
- *     └── ...
- *
- * @param outputDir - Directory to write the trace ZIP to
- * @param screenshots - Array of screenshot info with pageGuid and timestamp
- * @returns Path to the created trace ZIP file
+ * Creates the attachments of a kept test: the screenshots ZIP the fixture
+ * attaches, and Playwright's trace attachment, whose presence keeps the test.
  */
-async function createMockPlaywrightTraceZip(
+async function createScreenshotsAttachments(
 	outputDir: string,
-	screenshots: Array<{
-		pageGuid: string;
-		timestamp: number;
-		/** Which browser context (and therefore which N-trace.trace file) the frame belongs to. */
-		context?: string;
-		pageId?: string;
-	}>,
-): Promise<string> {
-	const traceZipPath = path.join(outputDir, "trace.zip");
+	screenshots: Array<{ pageId: string; timestamp: number }>,
+): Promise<TestResult["attachments"]> {
+	const screenshotsZipPath = path.join(outputDir, "screenshots.zip");
+	const zip = await createScreenshotsZip(
+		screenshots.map(({ pageId, timestamp }) => ({
+			pageId,
+			timestamp,
+			file: `${pageId}-${timestamp}.jpeg`,
+			contentType: "image/jpeg",
+			blob: new Blob([new Uint8Array(createMinimalJpeg())]),
+		})),
+	);
+	await fs.writeFile(screenshotsZipPath, Buffer.from(await zip.arrayBuffer()));
 
-	const blobWriter = new BlobWriter("application/zip");
-	const zipWriter = new ZipWriter(blobWriter);
-
-	const screenshotsByContext = new Map<
-		string,
-		Array<{ pageGuid: string; timestamp: number; pageId: string }>
-	>();
-	for (const screenshot of screenshots) {
-		const context = screenshot.context ?? "default";
-		const contextScreenshots = screenshotsByContext.get(context) ?? [];
-		contextScreenshots.push({
-			pageGuid: screenshot.pageGuid,
-			timestamp: screenshot.timestamp,
-			pageId: screenshot.pageId ?? screenshot.pageGuid,
-		});
-		screenshotsByContext.set(context, contextScreenshots);
-	}
-
-	let contextIndex = 0;
-	for (const contextScreenshots of screenshotsByContext.values()) {
-		const traceEvents = [
-			{
-				version: 8,
-				type: "context-options",
-				origin: "library",
-			},
-			...contextScreenshots.map((screenshot) => ({
-				type: "screencast-frame",
-				pageId: screenshot.pageId,
-				sha1: `${screenshot.pageGuid}-${screenshot.timestamp}.jpeg`,
-				timestamp: screenshot.timestamp,
-				frameSwapWallTime: screenshot.timestamp,
-			})),
-		]
-			.map((event) => JSON.stringify(event))
-			.join("\n");
-		await zipWriter.add(
-			`${contextIndex}-trace.trace`,
-			new Blob([traceEvents]).stream() as ReadableStream,
-		);
-		contextIndex += 1;
-	}
-
-	// Add screenshots to resources/ directory
-	const jpegBuffer = createMinimalJpeg();
-	for (const { pageGuid, timestamp } of screenshots) {
-		const filename = `resources/${pageGuid}-${timestamp}.jpeg`;
-		await zipWriter.add(
-			filename,
-			new Blob([new Uint8Array(jpegBuffer)]).stream() as ReadableStream,
-		);
-	}
-
-	const zipBlob = await zipWriter.close();
-	const arrayBuffer = await zipBlob.arrayBuffer();
-	await fs.writeFile(traceZipPath, Buffer.from(arrayBuffer));
-
-	return traceZipPath;
+	return [
+		{
+			name: "trace",
+			contentType: "application/zip",
+			path: path.join(outputDir, "trace.zip"),
+		},
+		{
+			name: SCREENSHOTS_ATTACHMENT_NAME,
+			contentType: "application/zip",
+			path: screenshotsZipPath,
+		},
+	];
 }
 
 /**
@@ -178,46 +126,6 @@ async function readZipEntries(
 	return results;
 }
 
-/**
- * Extracts pageGuid from a screenshot filename.
- *
- * Playwright screenshot filename format: {pageGuid}-{timestamp}.jpeg
- * Example: page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg
- *
- * The pageGuid is everything before the last dash.
- */
-function extractPageGuidFromFilename(filename: string): string | null {
-	const basename = path.basename(filename);
-	const lastDashIndex = basename.lastIndexOf("-");
-
-	if (lastDashIndex === -1) {
-		return null;
-	}
-
-	return basename.slice(0, lastDashIndex);
-}
-
-describe("extractPageGuidFromFilename", () => {
-	it("extracts pageGuid from screenshot filename", () => {
-		const filename = "page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg";
-		const pageGuid = extractPageGuidFromFilename(filename);
-		expect(pageGuid).toBe("page@f06f11f7c14d6ce1060d47d79f05c154");
-	});
-
-	it("handles nested paths correctly", () => {
-		const filename =
-			".playwright-artifacts-0/traces/resources/page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg";
-		const pageGuid = extractPageGuidFromFilename(filename);
-		expect(pageGuid).toBe("page@f06f11f7c14d6ce1060d47d79f05c154");
-	});
-
-	it("returns null for filename without timestamp dash", () => {
-		const filename = "page@f06f11f7c14d6ce1060d47d79f05c154.jpeg";
-		const pageGuid = extractPageGuidFromFilename(filename);
-		expect(pageGuid).toBeNull();
-	});
-});
-
 describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 	let outputDir: string;
 
@@ -233,23 +141,22 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 	});
 
 	describe("single test case", () => {
-		it("creates a zip file with trace data and screenshots from trace attachment", async () => {
+		it("creates a zip file with trace data and screenshots from the fixture's attachment", async () => {
 			outputDir = createTestOutputDir("single-test");
 
 			const testId = "abc123def";
-			const pageGuid = "page@f06f11f7c14d6ce1060d47d79f05c154";
+			const pageId = "page-0";
 			const testLocation = {
 				file: "/Users/test/project/test-e2e/example.spec.ts",
 				line: 10,
 			};
 
-			// Create mock Playwright trace ZIP with screenshots
 			const screenshotTimestamp1 = DEFAULT_START_TIME.getTime() + 600;
 			const screenshotTimestamp2 = DEFAULT_START_TIME.getTime() + 800;
 
-			const traceZipPath = await createMockPlaywrightTraceZip(outputDir, [
-				{ pageGuid, timestamp: screenshotTimestamp1 },
-				{ pageGuid, timestamp: screenshotTimestamp2 },
+			const attachments = await createScreenshotsAttachments(outputDir, [
+				{ pageId, timestamp: screenshotTimestamp1 },
+				{ pageId, timestamp: screenshotTimestamp2 },
 			]);
 
 			const playwrightOpentelemetry = {
@@ -276,7 +183,6 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				playwrightOpentelemetry,
 			);
 
-			// Build test result with trace attachment (this is what Playwright provides)
 			const testResult = buildTestResult(
 				{
 					status: "passed",
@@ -291,13 +197,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 							duration: 100,
 						},
 					],
-					attachments: [
-						{
-							name: "trace",
-							contentType: "application/zip",
-							path: traceZipPath,
-						},
-					],
+					attachments,
 				},
 				DEFAULT_START_TIME,
 			);
@@ -389,16 +289,16 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 							file: filename,
 							path: filepath,
 							contentType: "image/jpeg",
-							pageId: pageGuid,
+							pageId,
 						};
 					})
 					.sort((a, b) => a.timestamp - b.timestamp),
 			});
 
-			// Verify screenshot naming convention: {pageGuid}-{timestamp}.jpeg
+			// Verify screenshot naming convention: {pageId}-{timestamp}.jpeg
 			for (const filepath of screenshotFiles) {
 				const filename = path.basename(filepath);
-				expect(filename).toMatch(new RegExp(`^${pageGuid}-\\d+\\.jpeg$`));
+				expect(filename).toMatch(new RegExp(`^${pageId}-\\d+\\.jpeg$`));
 			}
 		});
 
@@ -804,10 +704,10 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 		it("creates separate zip files for each test with screenshots from their respective traces", async () => {
 			outputDir = createTestOutputDir("multiple-tests");
 
-			// Define two tests with different pageGuids
+			// Define two tests with different pages
 			const test1 = {
 				id: "test-id-001",
-				pageGuid: "page@a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+				pageId: "page-first",
 				title: "first test",
 				location: {
 					file: "/Users/test/project/test-e2e/multi.spec.ts",
@@ -817,7 +717,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			const test2 = {
 				id: "test-id-002",
-				pageGuid: "page@1234567890abcdef1234567890abcdef",
+				pageId: "page-second",
 				title: "second test",
 				location: {
 					file: "/Users/test/project/test-e2e/multi.spec.ts",
@@ -825,24 +725,24 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				},
 			};
 
-			// Create mock trace ZIPs for each test
+			// Create screenshots attachments for each test
 			const test1TraceDir = path.join(outputDir, "trace1");
 			const test2TraceDir = path.join(outputDir, "trace2");
 			mkdirSync(test1TraceDir, { recursive: true });
 			mkdirSync(test2TraceDir, { recursive: true });
 
 			const screenshot1Timestamp = DEFAULT_START_TIME.getTime() + 500;
-			const trace1ZipPath = await createMockPlaywrightTraceZip(test1TraceDir, [
-				{ pageGuid: test1.pageGuid, timestamp: screenshot1Timestamp },
+			const attachments1 = await createScreenshotsAttachments(test1TraceDir, [
+				{ pageId: test1.pageId, timestamp: screenshot1Timestamp },
 			]);
 
 			const screenshot2Timestamp1 = DEFAULT_START_TIME.getTime() + 2500;
 			const screenshot2Timestamp2 = DEFAULT_START_TIME.getTime() + 2700;
 			const screenshot2Timestamp3 = DEFAULT_START_TIME.getTime() + 3000;
-			const trace2ZipPath = await createMockPlaywrightTraceZip(test2TraceDir, [
-				{ pageGuid: test2.pageGuid, timestamp: screenshot2Timestamp1 },
-				{ pageGuid: test2.pageGuid, timestamp: screenshot2Timestamp2 },
-				{ pageGuid: test2.pageGuid, timestamp: screenshot2Timestamp3 },
+			const attachments2 = await createScreenshotsAttachments(test2TraceDir, [
+				{ pageId: test2.pageId, timestamp: screenshot2Timestamp1 },
+				{ pageId: test2.pageId, timestamp: screenshot2Timestamp2 },
+				{ pageId: test2.pageId, timestamp: screenshot2Timestamp3 },
 			]);
 
 			const playwrightOpentelemetry = {
@@ -881,13 +781,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					status: "passed",
 					duration: 1500,
 					steps: [{ title: "step 1", duration: 100 }],
-					attachments: [
-						{
-							name: "trace",
-							contentType: "application/zip",
-							path: trace1ZipPath,
-						},
-					],
+					attachments: attachments1,
 				},
 				DEFAULT_START_TIME,
 			);
@@ -897,13 +791,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 					status: "passed",
 					duration: 1800,
 					steps: [{ title: "step 2", duration: 150 }],
-					attachments: [
-						{
-							name: "trace",
-							contentType: "application/zip",
-							path: trace2ZipPath,
-						},
-					],
+					attachments: attachments2,
 				},
 				new Date(DEFAULT_START_TIME.getTime() + 2000), // Second test starts after first
 			);
@@ -972,10 +860,10 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			expect(screenshots1).toHaveLength(1);
 			expect(screenshots1[0]).toMatch(
-				new RegExp(`screenshots/${test1.pageGuid}-\\d+\\.jpeg$`),
+				new RegExp(`screenshots/${test1.pageId}-\\d+\\.jpeg$`),
 			);
 			// Ensure no screenshots from test 2 leaked into test 1's zip
-			expect(screenshots1.some((f) => f.includes(test2.pageGuid))).toBe(false);
+			expect(screenshots1.some((f) => f.includes(test2.pageId))).toBe(false);
 
 			// --- Verify Test 2 zip file ---
 			const expectedZip2Name = `multi.spec.ts:20-${test2.id}-pw-otel.zip`;
@@ -1011,10 +899,10 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(screenshots2).toHaveLength(3);
 			for (const filepath of screenshots2) {
 				const filename = path.basename(filepath);
-				expect(filename).toMatch(new RegExp(`^${test2.pageGuid}-\\d+\\.jpeg$`));
+				expect(filename).toMatch(new RegExp(`^${test2.pageId}-\\d+\\.jpeg$`));
 			}
 			// Ensure no screenshots from test 1 leaked into test 2's zip
-			expect(screenshots2.some((f) => f.includes(test1.pageGuid))).toBe(false);
+			expect(screenshots2.some((f) => f.includes(test1.pageId))).toBe(false);
 		});
 
 		it("handles tests with multiple pages correctly - all screenshots in same trace", async () => {
@@ -1022,22 +910,22 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 
 			const testId = "test-multi-page";
 			// Two different pages in the same test
-			const page1Guid = "page@aabbccdd11223344aabbccdd11223344";
-			const page2Guid = "page@55667788aabbccdd55667788aabbccdd";
+			const page1Id = "page-main";
+			const page2Id = "page-popup";
 			const testLocation = {
 				file: "/Users/test/project/test-e2e/popup.spec.ts",
 				line: 15,
 			};
 
-			// Create mock trace ZIP with screenshots from both pages
+			// Screenshots from both pages
 			const mainPageScreenshot = DEFAULT_START_TIME.getTime() + 600;
 			const popupScreenshot1 = DEFAULT_START_TIME.getTime() + 1200;
 			const popupScreenshot2 = DEFAULT_START_TIME.getTime() + 1500;
 
-			const traceZipPath = await createMockPlaywrightTraceZip(outputDir, [
-				{ pageGuid: page1Guid, timestamp: mainPageScreenshot },
-				{ pageGuid: page2Guid, timestamp: popupScreenshot1 },
-				{ pageGuid: page2Guid, timestamp: popupScreenshot2 },
+			const attachments = await createScreenshotsAttachments(outputDir, [
+				{ pageId: page1Id, timestamp: mainPageScreenshot },
+				{ pageId: page2Id, timestamp: popupScreenshot1 },
+				{ pageId: page2Id, timestamp: popupScreenshot2 },
 			]);
 
 			const playwrightOpentelemetry = {
@@ -1067,13 +955,7 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 						{ title: "trigger popup", duration: 200 },
 						{ title: "interact with popup", duration: 300 },
 					],
-					attachments: [
-						{
-							name: "trace",
-							contentType: "application/zip",
-							path: traceZipPath,
-						},
-					],
+					attachments,
 				},
 				DEFAULT_START_TIME,
 			);
@@ -1111,242 +993,11 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 			expect(screenshots).toHaveLength(3);
 
 			// Verify we have screenshots from both pages
-			const page1Screenshots = screenshots.filter((f) => f.includes(page1Guid));
-			const page2Screenshots = screenshots.filter((f) => f.includes(page2Guid));
+			const page1Screenshots = screenshots.filter((f) => f.includes(page1Id));
+			const page2Screenshots = screenshots.filter((f) => f.includes(page2Id));
 
 			expect(page1Screenshots).toHaveLength(1);
 			expect(page2Screenshots).toHaveLength(2);
 		});
-	});
-});
-
-describe("extractScreenshotsFromPlaywrightTrace", () => {
-	let outputDir: string;
-
-	afterEach(async () => {
-		if (outputDir && existsSync(outputDir)) {
-			rmSync(outputDir, { recursive: true, force: true });
-		}
-	});
-
-	/**
-	 * Creates a mock trace ZIP with arbitrary files in resources/
-	 */
-	async function createTraceZipWithResources(
-		files: Array<{ filename: string; content: Buffer }>,
-	): Promise<string> {
-		outputDir = `/tmp/trace-extract-test-${Date.now()}`;
-		mkdirSync(outputDir, { recursive: true });
-
-		const traceZipPath = path.join(outputDir, "trace.zip");
-		const blobWriter = new BlobWriter("application/zip");
-		const zipWriter = new ZipWriter(blobWriter);
-
-		// Add trace.trace file
-		await zipWriter.add(
-			"trace.trace",
-			new Blob([JSON.stringify({ name: "trace" })]).stream() as ReadableStream,
-		);
-
-		// Add all specified files
-		for (const { filename, content } of files) {
-			await zipWriter.add(
-				filename,
-				new Blob([new Uint8Array(content)]).stream() as ReadableStream,
-			);
-		}
-
-		const zipBlob = await zipWriter.close();
-		await fs.writeFile(traceZipPath, Buffer.from(await zipBlob.arrayBuffer()));
-
-		return traceZipPath;
-	}
-
-	const minimalJpeg = Buffer.from([
-		0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
-		0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xd9,
-	]);
-
-	it("extracts screenshots matching page@{hash}-{timestamp}.jpeg pattern", async () => {
-		const traceZipPath = await createTraceZipWithResources([
-			{
-				filename:
-					"resources/page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg",
-				content: minimalJpeg,
-			},
-			{
-				filename: "resources/page@abc123-999999.jpeg",
-				content: minimalJpeg,
-			},
-		]);
-
-		const screenshots =
-			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
-
-		expect(screenshots.size).toBe(2);
-		expect(
-			screenshots.has(
-				"page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg",
-			),
-		).toBe(true);
-		expect(screenshots.has("page@abc123-999999.jpeg")).toBe(true);
-	});
-
-	it("extracts Playwright 1.63 screencast files referenced by zip-relative path", async () => {
-		const filenames = [
-			"page@abc123-1789891675551.jpeg",
-			"page@def456-1789891676408.jpeg",
-		];
-		const files = filenames.flatMap((filename, index) => [
-			{ filename: `screencast/${filename}`, content: minimalJpeg },
-			{
-				filename: `${index}-trace.trace`,
-				content: Buffer.from(
-					[
-						{ version: 9, type: "context-options", origin: "library" },
-						{
-							type: "screencast-frame",
-							file: `screencast/${filename}`,
-							pageId: `page-${index}`,
-							timestamp: 100 + index,
-						},
-					]
-						.map((event) => JSON.stringify(event))
-						.join("\n"),
-				),
-			},
-		]);
-		const traceZipPath = await createTraceZipWithResources(files);
-		const screenshots =
-			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
-		expect(screenshots.size).toBe(2);
-		for (const [index, filename] of filenames.entries()) {
-			const screenshot = screenshots.get(filename)!;
-			expect(screenshot).toMatchObject({
-				file: filename,
-				pageId: `page-${index}`,
-				contentType: "image/jpeg",
-			});
-			expect(Buffer.from(await screenshot.blob.arrayBuffer())).toEqual(
-				minimalJpeg,
-			);
-		}
-		expect(screenshots.get(filenames[0]!)!.timestamp).toBe(1789891675551);
-		expect(screenshots.get(filenames[1]!)!.timestamp).toBe(1789891676408);
-	});
-
-	it("attributes pre-1.63 sha1-referenced frames to pages across multiple contexts", async () => {
-		outputDir = createTestOutputDir("extract-multi-context-screenshots");
-		const firstPageId = "page@111aaa";
-		const secondPageId = "page@222bbb";
-
-		const traceZipPath = await createMockPlaywrightTraceZip(outputDir, [
-			{
-				pageGuid: firstPageId,
-				context: "first",
-				timestamp: 1766833384425,
-			},
-			{
-				pageGuid: secondPageId,
-				context: "second",
-				timestamp: 1766833384525,
-			},
-			{
-				pageGuid: secondPageId,
-				context: "second",
-				timestamp: 1766833384625,
-			},
-		]);
-
-		const screenshots =
-			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
-
-		expect(screenshots.size).toBe(3);
-		expect(screenshots.get(`${firstPageId}-1766833384425.jpeg`)).toMatchObject({
-			pageId: firstPageId,
-			timestamp: 1766833384425,
-		});
-		expect(screenshots.get(`${secondPageId}-1766833384525.jpeg`)).toMatchObject(
-			{
-				pageId: secondPageId,
-				timestamp: 1766833384525,
-			},
-		);
-	});
-
-	it("extracts screenshots with different prefixes (frame@, element@, etc.)", async () => {
-		const traceZipPath = await createTraceZipWithResources([
-			{
-				filename: "resources/frame@deadbeef-123456.jpeg",
-				content: minimalJpeg,
-			},
-			{
-				filename: "resources/element@cafebabe-789012.jpeg",
-				content: minimalJpeg,
-			},
-			{
-				filename: "resources/MyCustomThing@abcd1234-555555.jpeg",
-				content: minimalJpeg,
-			},
-		]);
-
-		const screenshots =
-			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
-
-		expect(screenshots.size).toBe(3);
-		expect(screenshots.has("frame@deadbeef-123456.jpeg")).toBe(true);
-		expect(screenshots.has("element@cafebabe-789012.jpeg")).toBe(true);
-		expect(screenshots.has("MyCustomThing@abcd1234-555555.jpeg")).toBe(true);
-	});
-
-	it("ignores static assets that don't match the screenshot pattern", async () => {
-		const traceZipPath = await createTraceZipWithResources([
-			// Valid screenshot - should be included
-			{
-				filename:
-					"resources/page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg",
-				content: minimalJpeg,
-			},
-			// Static assets - should be ignored
-			{ filename: "resources/logo.jpeg", content: minimalJpeg },
-			{ filename: "resources/banner.jpg", content: minimalJpeg },
-			{ filename: "resources/thumbnail-123.jpeg", content: minimalJpeg },
-			{ filename: "resources/image-abc.jpg", content: minimalJpeg },
-			// Missing @ symbol
-			{ filename: "resources/page-123456.jpeg", content: minimalJpeg },
-			// Missing timestamp after dash
-			{ filename: "resources/page@abc123.jpeg", content: minimalJpeg },
-			// Non-hex hash (has 'g' which is not hex)
-			{ filename: "resources/page@ghijklmn-123456.jpeg", content: minimalJpeg },
-		]);
-
-		const screenshots =
-			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
-
-		expect(screenshots.size).toBe(1);
-		expect(
-			screenshots.has(
-				"page@f06f11f7c14d6ce1060d47d79f05c154-1766833384425.jpeg",
-			),
-		).toBe(true);
-	});
-
-	it("ignores non-jpeg files even if they match the naming pattern", async () => {
-		const traceZipPath = await createTraceZipWithResources([
-			{
-				filename: "resources/page@abc123-123456.jpeg",
-				content: minimalJpeg,
-			},
-			// These should be ignored - wrong extension
-			{ filename: "resources/page@abc123-123456.png", content: minimalJpeg },
-			{ filename: "resources/page@abc123-123456.webp", content: minimalJpeg },
-			{ filename: "resources/page@abc123-123456.gif", content: minimalJpeg },
-		]);
-
-		const screenshots =
-			await extractScreenshotsFromPlaywrightTrace(traceZipPath);
-
-		expect(screenshots.size).toBe(1);
-		expect(screenshots.has("page@abc123-123456.jpeg")).toBe(true);
 	});
 });

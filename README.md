@@ -66,7 +66,7 @@ This repo ships the reporter and fixture, plus tooling for viewing and storing t
 
 ## Quick start
 
-Install the package:
+Install the package. It requires `@playwright/test` 1.59 or later.
 
 ```bash
 npm install --save-dev playwright-opentelemetry
@@ -99,7 +99,7 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 	reporter: [["playwright-opentelemetry/reporter"]],
 	use: {
 		playwrightOpentelemetry,
-		// Screenshots come from Playwright's retained trace.
+		// OpenTelemetry output follows Playwright's trace retention.
 		trace: "retain-on-failure",
 	},
 });
@@ -126,7 +126,7 @@ You can also boot the viewer locally:
 npx @playwright-opentelemetry/trace-viewer
 ```
 
-Two things set the boundary on what you will see. Connected backend spans require services that are already instrumented with OpenTelemetry and honor the propagated trace context. Screenshots depend on Playwright retaining a trace for the test, which follows your `use.trace` setting.
+Two things set the boundary on what you will see. Connected backend spans require services that are already instrumented with OpenTelemetry and honor the propagated trace context. Screenshots are captured by the fixture, so tests need to use its `test`.
 
 ## Usage
 
@@ -194,34 +194,29 @@ test("has title", async ({ page }) => {
 });
 ```
 
-### Add screenshots
+### Screenshots
 
-Screenshots are reused from the trace Playwright already captured, rather than taken as a second independent stream. Configure Playwright's `trace` setting to control them:
+The fixture records screenshots of every page in the test, in every browser context, through Playwright's [`page.screencast`](https://playwright.dev/docs/api/class-screencast) API. They are stored with the trace for Trace API destinations and local trace ZIPs, and kept or dropped with it, following the [trace retention](#trace-retention) settings. Each screenshot carries the same `browser.page.id` as its page's spans.
+
+This doesn't take a second screencast. Playwright shares one browser screencast per page between tracing, video recording and the API, and the fixture keeps frames at the same rhythm as Playwright's own trace recorder: about five per second, and every frame for half a second around each page action. Screenshots don't depend on Playwright's `trace` screenshot setting, so you can turn those off if you don't need them in Playwright's own trace:
 
 ```ts
-import { defineConfig, devices } from "@playwright/test";
-import type { PlaywrightOpentelemetryUseOptions } from "playwright-opentelemetry/fixture";
-
 export default defineConfig<PlaywrightOpentelemetryUseOptions>({
-	// ... other Playwright config
 	use: {
 		playwrightOpentelemetry: {
 			storeTraceZip: true,
 		},
-		// Most performant method of screenshot collection
 		trace: {
-			mode: "on",
-			screenshots: true,
-			snapshots: false,
-			sources: false,
-			attachments: false,
+			mode: "retain-on-failure",
+			screenshots: false,
 		},
-		// Otherwise this also does the trick!
-		// trace: "on"
 	},
-	// ... rest of Playwright config
 });
 ```
+
+Tests can still call `page.screencast.start()` and `stop()` themselves; while they do, the fixture takes its screenshots from their screencast.
+
+To turn screenshots off, set `use.playwrightOpentelemetry.screenshots` to `false`.
 
 ### Trace retention
 
@@ -265,7 +260,7 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 });
 ```
 
-Note: if a Playwright Trace API destination uses `trace: "on"` but Playwright uses `trace: "on-first-retry"` (or `off`), first-run spans still upload, but screenshots may be missing because Playwright did not write a trace file. `storeTraceZip` follows only the top-level trace setting.
+Note: `storeTraceZip` follows only the top-level trace setting.
 
 ### Viewing a trace
 
@@ -312,8 +307,8 @@ When `storeTraceZip: true` and Playwright retained a trace for the test, a local
 - traces/
   - playwright-opentelemetry.json <-- the OTLP request body of all trace data collected by the reporter related to this test. Test metadata is stored on the root `playwright.test` span.
 - manifest.json <-- screenshot metadata with timestamps and ZIP paths
-- screenshots/ <-- any screenshots collected during the test run
-  - {page}@{pageId}-{timestamp}.jpeg
+- screenshots/ <-- the screenshots the fixture captured during the test run
+  - {pageId}-{timestamp}.jpeg <-- pageId matches the page's `browser.page.id` span attribute
 ```
 
 ### Trace API
