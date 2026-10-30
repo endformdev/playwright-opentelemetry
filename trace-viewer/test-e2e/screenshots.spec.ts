@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, type Locator, test } from "@playwright/test";
-import { BlobWriter, ZipWriter } from "@zip.js/zip.js";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
 import { MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE } from "./setup/global-setup";
+import {
+	createScreenshotsZip,
+	createScreenshotsZipFromOffsets,
+} from "./screenshot-zip";
 import { TraceDataBuilder } from "./test-data-builder";
 
 test("renders separate screenshot rows for multiple browser contexts", async ({
@@ -17,6 +20,9 @@ test("renders separate screenshot rows for multiple browser contexts", async ({
 		"utf-8",
 	).trim();
 	const viewer = new TraceViewerPage(page);
+	// Hovering previews only while nothing is selected; the step viewer
+	// selects its first stop on load.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 
 	await expect(viewer.header.root).toBeVisible({ timeout: 10000 });
@@ -87,6 +93,8 @@ test("anchors screenshot previews to the steps timeline while following the curs
 	);
 	expect(upload.ok()).toBeTruthy();
 	const viewer = new TraceViewerPage(page);
+	// Measures the filmstrip at the top of the main panel.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	const thumbnails = viewer.screenshots.rows().first().getByRole("img");
 	const thumbnail = thumbnails.nth(2);
@@ -222,6 +230,8 @@ test("shows separate page rows with two and a half rows by default", async ({
 	);
 
 	const viewer = new TraceViewerPage(page);
+	// Measures the filmstrip at the top of the main panel.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Scrollable screenshot contexts",
@@ -320,6 +330,9 @@ test("shows the most recent screenshot at the hovered timestamp when filmstrip f
 	);
 
 	const viewer = new TraceViewerPage(page);
+	// Hovering previews only while nothing is selected; the step viewer
+	// selects its first stop on load.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Dense screenshots are sampled in the filmstrip",
@@ -411,6 +424,9 @@ test("focuses the active screenshot when moving from a span into a filmstrip gap
 	);
 
 	const viewer = new TraceViewerPage(page);
+	// Hovering previews only while nothing is selected; the step viewer
+	// selects its first stop on load.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Screenshot focus from span hover",
@@ -512,117 +528,6 @@ test("unlocking over a screenshot drops the previously locked span", async ({
 		await expect(lateStepDetails).toHaveCount(0);
 	});
 });
-
-interface CreateScreenshotsZipOptions {
-	testStartTime: number;
-	contextCount: number;
-	pagesPerContext: number;
-}
-
-interface CreateScreenshotsZipFromOffsetsOptions {
-	testStartTime: number;
-	screenshotOffsetsMs: number[];
-	pageId?: string;
-}
-
-interface ScreenshotManifestEntry {
-	timestamp: number;
-	file: string;
-	path: string;
-	contentType: string;
-	pageId: string;
-}
-
-async function createScreenshotsZip({
-	testStartTime,
-	contextCount,
-	pagesPerContext,
-}: CreateScreenshotsZipOptions): Promise<Blob> {
-	const blobWriter = new BlobWriter("application/zip");
-	const zipWriter = new ZipWriter(blobWriter);
-	const screenshots: ScreenshotManifestEntry[] = [];
-
-	for (let contextIndex = 1; contextIndex <= contextCount; contextIndex++) {
-		const contextLabel = `context-${contextIndex}`;
-		for (let pageIndex = 1; pageIndex <= pagesPerContext; pageIndex++) {
-			const pageId = `${contextLabel}-page-${pageIndex}`;
-			const timestamp = testStartTime + contextIndex * 100 + pageIndex * 10;
-			const file = `${pageId}-${timestamp}.svg`;
-			const path = `screenshots/${file}`;
-
-			screenshots.push({
-				timestamp,
-				file,
-				path,
-				contentType: "image/svg+xml",
-				pageId,
-			});
-			await zipWriter.add(
-				path,
-				new Blob([screenshotSvg(contextLabel, pageId)], {
-					type: "image/svg+xml",
-				}).stream(),
-			);
-		}
-	}
-
-	await zipWriter.add(
-		"manifest.json",
-		new Blob([
-			JSON.stringify({
-				version: 3,
-				screenshots,
-			}),
-		]).stream(),
-	);
-
-	return zipWriter.close();
-}
-
-async function createScreenshotsZipFromOffsets({
-	testStartTime,
-	screenshotOffsetsMs,
-	pageId = "context-1-page-1",
-}: CreateScreenshotsZipFromOffsetsOptions): Promise<Blob> {
-	const blobWriter = new BlobWriter("application/zip");
-	const zipWriter = new ZipWriter(blobWriter);
-	const screenshots: ScreenshotManifestEntry[] = [];
-
-	for (const offsetMs of screenshotOffsetsMs) {
-		const timestamp = testStartTime + offsetMs;
-		const file = `${pageId}-${timestamp}.svg`;
-		const path = `screenshots/${file}`;
-		screenshots.push({
-			timestamp,
-			file,
-			path,
-			contentType: "image/svg+xml",
-			pageId,
-		});
-		await zipWriter.add(
-			path,
-			new Blob([screenshotSvg("context-1", `${pageId} @ ${offsetMs}ms`)], {
-				type: "image/svg+xml",
-			}).stream(),
-		);
-	}
-
-	await zipWriter.add(
-		"manifest.json",
-		new Blob([
-			JSON.stringify({
-				version: 3,
-				screenshots,
-			}),
-		]).stream(),
-	);
-
-	return zipWriter.close();
-}
-
-function screenshotSvg(label: string, pageId: string): string {
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#dbeafe"/><text x="320" y="165" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#1e3a8a">${label}</text><text x="320" y="215" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#1e40af">${pageId}</text></svg>`;
-}
 
 async function visibleRatioInScreenshotRegion(row: Locator): Promise<number> {
 	return row.evaluate((element) => {

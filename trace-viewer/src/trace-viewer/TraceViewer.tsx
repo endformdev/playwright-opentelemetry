@@ -1,4 +1,5 @@
 import {
+	batch,
 	createEffect,
 	createMemo,
 	createSignal,
@@ -6,6 +7,7 @@ import {
 	onCleanup,
 	onMount,
 	Show,
+	untrack,
 } from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
@@ -38,10 +40,19 @@ import { calculateInitialPanelSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import type { NavigationDirection } from "./spanNavigation";
+import { StepViewer } from "./StepViewer";
+import {
+	computeStepStops,
+	findStopIndex,
+	getAdjacentStopIndex,
+	getStopIndexAtTime,
+	type StepStop,
+} from "./stepStops";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
 import { layoutTimelineSpans } from "./timelineLayout";
 import { useSpanFocus } from "./useSpanFocus";
+import { createViewerSettings } from "./viewerSettings";
 import {
 	isTimeRangeVisible,
 	type TimelineViewport,
@@ -176,6 +187,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enterSearchOverride,
 		exitSearchOverride,
 		setHoveredElement,
+		lockedElement,
 		displayTimeMs,
 		displayElements,
 		displayFocusedElement,
@@ -209,6 +221,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const activeTimelinePanels = createMemo(() =>
 		timelinePanels.filter((panel) => panel.layout().bars.length > 0),
 	);
+	const { settings, setSetting } = createViewerSettings();
+	const shownTimelinePanels = createMemo(() =>
+		activeTimelinePanels().filter((panel) => settings()[panel.definition.id]),
+	);
 	const panelOfSpan = (spanId: string) =>
 		timelinePanels.find((panel) => panel.layout().byId.has(spanId));
 	const focusedElementFor = (span: Span): FocusedElement => ({
@@ -235,15 +251,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	let plotRef: HTMLDivElement | undefined;
 	let detailsRef: HTMLDivElement | undefined;
+	let stepViewerRef: HTMLElement | undefined;
 	const spanFocus = useSpanFocus({
 		panels: () =>
-			timelinePanels.map((panel) => ({
+			shownTimelinePanels().map((panel) => ({
 				elementType: panel.definition.elementType,
 				layout: panel.layout(),
 			})),
 		startSpanId: () =>
-			rootTestSpanId() ??
-			activeTimelinePanels()[0]?.layout().rows[0]?.[0]?.id ??
+			(settings().steps ? rootTestSpanId() : null) ??
+			shownTimelinePanels()[0]?.layout().rows[0]?.[0]?.id ??
 			null,
 		plotWidthPx: () => plotRef?.getBoundingClientRect().width ?? 0,
 	});
@@ -268,6 +285,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		(props.traceInfo.screenshots() ?? []).length > 0;
 	const hasScreenshots = () =>
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
+	const showStepViewer = () => settings().stepViewer && hasScreenshots();
+	const showFilmstrip = () => settings().filmstrip && hasScreenshots();
 	const screenshotPageCount = createMemo(() =>
 		countScreenshotPages(props.traceInfo.screenshots() ?? []),
 	);
@@ -327,7 +346,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	// Calculate initial sizes for span panels (just the sizing data, not content)
 	const spanPanelSizeConfigs = createMemo((): PanelSizeConfig[] => {
-		const active = activeTimelinePanels().map((panel) => panel.definition.id);
+		const active = shownTimelinePanels().map((panel) => panel.definition.id);
 		const sizes = calculateInitialPanelSizes({
 			steps: active.includes("steps"),
 			browser: active.includes("browser"),
@@ -471,9 +490,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				return;
 			}
 
-			const direction = ARROW_KEY_DIRECTIONS[e.key];
 			if (
-				!direction ||
 				e.defaultPrevented ||
 				e.altKey ||
 				e.ctrlKey ||
@@ -484,7 +501,26 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			) {
 				return;
 			}
+
+			// Left/Right, Home and End step through the step viewer while it is
+			// focused or the timeline is locked on one of its stops.
+			const stepping =
+				showStepViewer() &&
+				(currentStopIndex() !== null ||
+					(e.target instanceof Node && !!stepViewerRef?.contains(e.target)));
+			if (stepping && (e.key === "Home" || e.key === "End")) {
+				e.preventDefault();
+				handleStepViewerNavigateToEnd(e.key === "Home" ? "first" : "last");
+				return;
+			}
+
+			const direction = ARROW_KEY_DIRECTIONS[e.key];
+			if (!direction) return;
 			e.preventDefault();
+			if (stepping && (direction === "left" || direction === "right")) {
+				handleStepViewerNavigate(direction === "left" ? -1 : 1);
+				return;
+			}
 			spanFocus.navigate(direction);
 		};
 		document.addEventListener("keydown", onKeyDown);
@@ -503,6 +539,118 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			document.removeEventListener("pointerdown", onPointerDown, true);
 		});
 	});
+
+	// Step viewer: walks the start and end of each test body step (see
+	// stepStops.ts) by focusing the step at that time, like arrow-key navigation.
+	const screenshotList = () => props.traceInfo.screenshots() ?? [];
+	const stepStops = createMemo(() => computeStepStops(props.traceData.steps()));
+	// The stop the step viewer selected. Any other change to the lock (span
+	// navigation, a click, search, Escape) hands the selection back to the
+	// timeline, even if it lands on the same step and time.
+	const [viewerStop, setViewerStop] = createSignal<StepStop | null>(null);
+	createEffect(() => {
+		const stop = viewerStop();
+		if (
+			stop &&
+			(lockedTimeMs() !== stop.timeMs || lockedElement()?.id !== stop.stepId)
+		) {
+			setViewerStop(null);
+		}
+	});
+	const currentStopIndex = createMemo(() => {
+		const stop = viewerStop();
+		return stop ? findStopIndex(stepStops(), stop.timeMs, stop.stepId) : null;
+	});
+	const currentStop = () => {
+		const index = currentStopIndex();
+		return index === null ? null : stepStops()[index];
+	};
+	const currentStopStep = () => {
+		const stop = currentStop();
+		return stop ? (spanById().get(stop.stepId) ?? null) : null;
+	};
+	const currentStopStepPath = createMemo(() => {
+		const path: string[] = [];
+		let parentId = currentStopStep()?.parentId ?? null;
+		while (parentId) {
+			const parent = spanById().get(parentId);
+			if (!parent || parent.name !== "playwright.test.step") break;
+			path.unshift(parent.title);
+			parentId = parent.parentId;
+		}
+		return path;
+	});
+	const firstScreenshot = createMemo(() =>
+		screenshotList().reduce<ScreenshotInfo | null>(
+			(first, screenshot) =>
+				!first || screenshot.timestamp < first.timestamp ? screenshot : first,
+			null,
+		),
+	);
+	// Before the first frame there is nothing on screen yet; show the first one.
+	const stepViewerScreenshot = () =>
+		displayElements()?.screenshot ?? firstScreenshot();
+
+	// Once loaded, select the first stop without framing it, so the timeline
+	// keeps its overview until the user starts stepping.
+	const [hasInitialStop, setHasInitialStop] = createSignal(false);
+	createEffect(() => {
+		if (
+			hasInitialStop() ||
+			props.traceData.isLoading() ||
+			!settings().stepViewer ||
+			!hasLoadedScreenshots()
+		)
+			return;
+		const firstStop = stepStops()[0];
+		if (!firstStop) return;
+		setHasInitialStop(true);
+		if (untrack(mode) === "hover") selectStop(firstStop, { frame: false });
+	});
+
+	// The focus ring marks span navigation. On a step viewer stop the subject
+	// is a moment, shown by the time line and the viewer's caption instead.
+	const timelineFocusedSpanId = () =>
+		currentStopIndex() === null ? spanFocus.focusedSpanId() : null;
+
+	/** Locks on a stop; `frame` also frames its step like span navigation. */
+	function selectStop(stop: StepStop, options: { frame: boolean }) {
+		batch(() => {
+			setViewerStop(stop);
+			if (options.frame && settings().steps) {
+				spanFocus.focusSpan(stop.stepId, stop.timeMs);
+			} else {
+				lock(stop.timeMs, { type: "step", id: stop.stepId });
+			}
+		});
+	}
+
+	const goToStop = (index: number | null) => {
+		if (index === null) return;
+		const stop = stepStops()[index];
+		if (stop) selectStop(stop, { frame: true });
+	};
+
+	const handleStepViewerActivate = () => {
+		if (currentStopIndex() !== null) return;
+		const timeMs = lockedTimeMs();
+		goToStop(timeMs === null ? 0 : getStopIndexAtTime(stepStops(), timeMs));
+	};
+
+	const handleStepViewerNavigate = (direction: -1 | 1) => {
+		const timeMs = lockedTimeMs();
+		goToStop(
+			getAdjacentStopIndex(
+				stepStops(),
+				timeMs === null ? null : { timeMs, stepId: lockedElement()?.id },
+				direction,
+			),
+		);
+	};
+
+	const handleStepViewerNavigateToEnd = (end: "first" | "last") => {
+		goToStop(end === "first" ? 0 : stepStops().length - 1);
+	};
 
 	const handleViewportChange = (newViewport: TimelineViewport) => {
 		setViewport(newViewport);
@@ -642,7 +790,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				<SpanTimelinePanel
 					definition={definition}
 					layout={panel.layout()}
-					focusedSpanId={spanFocus.focusedSpanId()}
+					focusedSpanId={timelineFocusedSpanId()}
 					revealRequest={spanFocus.revealRequest()}
 					onBarHover={(id) => handleBarHover(definition, id)}
 					matchedSpanIds={search.matchedSpanIds()}
@@ -651,22 +799,34 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			);
 		};
 
-		const configs = spanPanelSizeConfigs().map((config) => ({
-			...config,
-			content: renderPanelContent(config.id),
-		}));
+		// Rebuild the panels, with fresh initial sizes, whenever settings change
+		// which of them are shown.
+		const shownPanelKey = createMemo(() =>
+			spanPanelSizeConfigs()
+				.map((config) => config.id)
+				.join("|"),
+		);
 
-		if (configs.length === 0) {
-			return null;
-		}
+		return (
+			<Show when={shownPanelKey()} keyed>
+				{(_key) => {
+					const configs = untrack(spanPanelSizeConfigs).map((config) => ({
+						...config,
+						content: renderPanelContent(config.id),
+					}));
 
-		if (configs.length === 1) {
-			return (
-				<div class="h-full min-h-0 overflow-hidden">{configs[0].content}</div>
-			);
-		}
+					if (configs.length === 1) {
+						return (
+							<div class="h-full min-h-0 overflow-hidden">
+								{configs[0].content}
+							</div>
+						);
+					}
 
-		return <MultiResizablePanel direction="vertical" panels={configs} />;
+					return <MultiResizablePanel direction="vertical" panels={configs} />;
+				}}
+			</Show>
+		);
 	};
 
 	const MainPanelContent = () => (
@@ -709,10 +869,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				{/* Active panels section */}
 				<div class="flex-1 min-h-0 overflow-hidden">
 					<Show
-						when={hasScreenshots() && hasAnySpanPanels()}
+						when={showFilmstrip() && hasAnySpanPanels()}
 						fallback={
 							<Show
-								when={hasScreenshots()}
+								when={showFilmstrip()}
 								fallback={
 									<Show when={hasAnySpanPanels()}>
 										<SpanPanelsContent />
@@ -856,6 +1016,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				hoverTimeMs={displayTimeMs}
 				onSpanSelect={handleSpanSelect}
 				onSpanHover={handleSearchResultHover}
+				settings={settings()}
+				onSettingChange={setSetting}
 			/>
 
 			<div class="flex-1 min-h-0">
@@ -864,7 +1026,33 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					initialFirstPanelSize={75}
 					minFirstPanelSize={50}
 					maxFirstPanelSize={90}
-					firstPanel={<MainPanelContent />}
+					firstPanel={
+						<Show when={showStepViewer()} fallback={<MainPanelContent />}>
+							<ResizablePanel
+								direction="vertical"
+								initialFirstPanelSize={45}
+								minFirstPanelSize={20}
+								maxFirstPanelSize={85}
+								firstPanel={
+									<StepViewer
+										ref={(element) => {
+											stepViewerRef = element;
+										}}
+										screenshot={stepViewerScreenshot()}
+										screenshotsLoading={props.traceInfo.screenshots.loading}
+										stopCount={stepStops().length}
+										stopIndex={currentStopIndex()}
+										stopEdge={currentStop()?.edge ?? null}
+										step={currentStopStep()}
+										stepPath={currentStopStepPath()}
+										onActivate={handleStepViewerActivate}
+										onNavigate={handleStepViewerNavigate}
+									/>
+								}
+								secondPanel={<MainPanelContent />}
+							/>
+						</Show>
+					}
 					secondPanel={
 						<div ref={detailsRef} class="h-full min-h-0">
 							<DetailsPanel
