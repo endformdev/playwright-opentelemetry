@@ -4,7 +4,11 @@ import {
 	findSpanNavigationTarget,
 	type NavigationDirection,
 	type NavigationPanel,
+	type NavigationStep,
+	type NavigationTarget,
+	navigateWithHistory,
 } from "./spanNavigation";
+import { createTimelineLayout } from "./timelineLayout";
 
 function span(
 	id: string,
@@ -15,8 +19,8 @@ function span(
 	return { id, name: id, startOffset, duration, parentId };
 }
 
-function panel(id: string, spans: SpanInput[]): NavigationPanel {
-	return { id, spans: packSpans(spans).spans };
+function panel(spans: SpanInput[]): NavigationPanel {
+	return createTimelineLayout(packSpans(spans));
 }
 
 // Steps:
@@ -24,7 +28,7 @@ function panel(id: string, spans: SpanInput[]): NavigationPanel {
 // row 1: before [0,200]   act [250,550]          after [900,1000]
 // row 2: fixture [10,100] click [260,300] fill [400,500]   teardown [910,950]
 // row 3:                  hover [262,264]
-const steps = panel("steps", [
+const steps = panel([
 	span("test", 0, 1000),
 	span("before", 0, 200, "test"),
 	span("fixture", 10, 90, "before"),
@@ -41,7 +45,7 @@ const steps = panel("steps", [
 // row 1: script [245,280] xhr [420,480]
 // row 2: image [250,262]
 // row 3: early [20,60]   (pushed down, overlaps nothing else on rows 0-2)
-const browser = panel("browser", [
+const browser = panel([
 	span("doc", 240, 460),
 	span("script", 245, 35, "doc"),
 	span("xhr", 420, 60, "doc"),
@@ -49,7 +53,7 @@ const browser = panel("browser", [
 	span("early", 20, 40),
 ]);
 
-const external = panel("external", [span("api", 430, 40)]);
+const external = panel([span("api", 430, 40)]);
 
 const panels = [steps, browser, external];
 
@@ -94,7 +98,7 @@ describe("findSpanNavigationTarget", () => {
 		});
 
 		it("orders zero-duration bars before longer bars starting together", () => {
-			const zeroDuration = panel("steps", [
+			const zeroDuration = panel([
 				span("root", 0, 100),
 				span("attach", 10, 0, "root"),
 				span("fixture", 10, 20, "root"),
@@ -154,7 +158,7 @@ describe("findSpanNavigationTarget", () => {
 		});
 
 		it("skips panels with nothing beneath the focused bar", () => {
-			const empty: NavigationPanel = { id: "browser", spans: [] };
+			const empty = panel([]);
 			expect(move("fill", "down", 450, [steps, empty, external])?.spanId).toBe(
 				"api",
 			);
@@ -167,7 +171,7 @@ describe("findSpanNavigationTarget", () => {
 
 		it("widens tiny bars by the slop", () => {
 			// row 1: tiny [100,102]  wide [103,200]; row 2: inner [110,150]
-			const tiny = panel("steps", [
+			const tiny = panel([
 				span("root", 0, 1000),
 				span("tiny", 100, 2, "root"),
 				span("wide", 103, 97, "root"),
@@ -216,7 +220,7 @@ describe("findSpanNavigationTarget", () => {
 
 		it("picks a bar within the slop of the line", () => {
 			// row 1: left [100,200]  right [205,300]; row 2: low [203,204]
-			const gap = panel("steps", [
+			const gap = panel([
 				span("root", 0, 1000),
 				span("left", 100, 100, "root"),
 				span("right", 205, 95, "root"),
@@ -253,8 +257,22 @@ describe("findSpanNavigationTarget", () => {
 		}
 	});
 
+	it("need not retrace Down when moving Up, since Up follows the line", () => {
+		// row 1: tiny [100,102]  wide [103,200]; row 2: inner [110,150]
+		const tiny = panel([
+			span("root", 0, 1000),
+			span("tiny", 100, 2, "root"),
+			span("wide", 103, 97, "root"),
+			span("inner", 110, 40, "wide"),
+		]);
+		const below = move("tiny", "down", 101, [tiny], 10);
+		expect(below).toEqual({ spanId: "inner", timeMs: 110 });
+		// The line moved to 110 to land on inner; wide is under it, not tiny.
+		expect(move("inner", "up", 110, [tiny], 10)?.spanId).toBe("wide");
+	});
+
 	it("prefers the bar the line passes through over one it only touches", () => {
-		const touching = panel("steps", [
+		const touching = panel([
 			span("root", 0, 200),
 			span("first", 0, 100, "root"),
 			span("second", 100, 100, "root"),
@@ -262,7 +280,7 @@ describe("findSpanNavigationTarget", () => {
 		expect(move("root", "down", 100, [touching])?.spanId).toBe("first");
 		expect(move("root", "down", 150, [touching])?.spanId).toBe("second");
 		// A zero-duration bar on the line only touches it.
-		const marker = panel("steps", [
+		const marker = panel([
 			span("root", 0, 200),
 			span("first", 0, 100, "root"),
 			span("marker", 100, 0, "root"),
@@ -273,5 +291,102 @@ describe("findSpanNavigationTarget", () => {
 
 	it("returns null for unknown spans", () => {
 		expect(move("missing", "down", 0)).toBe(null);
+	});
+});
+
+describe("navigateWithHistory", () => {
+	// row 1: tiny [100,102]  wide [103,200]; row 2: inner [110,150]
+	const tiny = panel([
+		span("root", 0, 1000),
+		span("tiny", 100, 2, "root"),
+		span("wide", 103, 97, "root"),
+		span("inner", 110, 40, "wide"),
+	]);
+
+	const walk = (
+		start: NavigationTarget,
+		directions: NavigationDirection[],
+		navigationPanels = [tiny],
+	) => {
+		let current = start;
+		let history: NavigationStep[] = [];
+		for (const direction of directions) {
+			const result = navigateWithHistory(
+				navigationPanels,
+				history,
+				current,
+				direction,
+				10,
+			);
+			if (!result) continue;
+			current = result.target;
+			history = result.history;
+		}
+		return { current, history };
+	};
+
+	it("retraces Down when moving Up, back to the same time", () => {
+		expect(walk({ spanId: "tiny", timeMs: 101 }, ["down", "up"])).toEqual({
+			current: { spanId: "tiny", timeMs: 101 },
+			history: [],
+		});
+	});
+
+	it("unwinds several moves in reverse", () => {
+		// act → fill → teardown → after, back to teardown, fill and act.
+		const start = { spanId: "act", timeMs: 450 };
+		const { current } = walk(
+			start,
+			["down", "right", "up", "down", "left", "up"],
+			panels,
+		);
+		expect(current).toEqual(start);
+	});
+
+	it("moves geometrically when the last move was not the opposite", () => {
+		expect(
+			walk({ spanId: "tiny", timeMs: 101 }, ["down", "down"]).current,
+		).toEqual({ spanId: "inner", timeMs: 110 });
+		expect(
+			walk({ spanId: "act", timeMs: 450 }, ["down", "left"], panels).current,
+		).toEqual({ spanId: "click", timeMs: 280 });
+	});
+
+	it("forgets history once focus moves some other way", () => {
+		const { history } = walk({ spanId: "tiny", timeMs: 101 }, ["down"]);
+		// Focus was clicked elsewhere on inner, so Up follows the line again.
+		expect(
+			navigateWithHistory(
+				[tiny],
+				history,
+				{ spanId: "inner", timeMs: 120 },
+				"up",
+				10,
+			)?.target.spanId,
+		).toBe("wide");
+	});
+
+	it("forgets a step back to a bar that no longer exists", () => {
+		const { history } = walk({ spanId: "tiny", timeMs: 101 }, ["down"]);
+		const withoutTiny = panel([
+			span("root", 0, 1000),
+			span("wide", 103, 97, "root"),
+			span("inner", 110, 40, "wide"),
+		]);
+		expect(
+			navigateWithHistory(
+				[withoutTiny],
+				history,
+				{ spanId: "inner", timeMs: 110 },
+				"up",
+				10,
+			)?.target.spanId,
+		).toBe("wide");
+	});
+
+	it("leaves history alone when there is nowhere to move", () => {
+		expect(
+			navigateWithHistory([tiny], [], { spanId: "root", timeMs: 500 }, "up"),
+		).toBe(null);
 	});
 });

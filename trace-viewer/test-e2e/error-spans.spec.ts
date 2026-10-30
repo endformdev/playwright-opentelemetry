@@ -179,7 +179,7 @@ test("orders error spans by trace time in the header dropdown", async ({
 	]);
 });
 
-test("zooms out when selecting an off-screen error span", async ({
+test("brings an off-screen error span into view when selected", async ({
 	page,
 	request,
 }) => {

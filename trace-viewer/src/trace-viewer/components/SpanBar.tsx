@@ -7,6 +7,8 @@ import { getSpanEventSeverity } from "./spanEventStyles";
 
 /** Height of each span row in pixels */
 export const ROW_HEIGHT = 28;
+/** Height of a span bar within its row in pixels */
+export const BAR_HEIGHT = 24;
 
 /** Minimum width percentage to show text content inside span */
 const MIN_VISIBLE_WIDTH_PERCENT = 2;
@@ -137,7 +139,7 @@ export function SpanBar(props: SpanBarProps) {
 			data-span-row={props.row}
 			data-span-error={props.isError ? "true" : undefined}
 			data-span-focused={props.isFocused ? "true" : undefined}
-			class="absolute h-6 rounded-xs border-r border-gray-50 text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
+			class="absolute rounded-xs border-r border-gray-50 text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
 			classList={{
 				"ring-2 ring-yellow-400 ring-offset-1":
 					shouldHighlight() && !props.isFocused,
@@ -149,6 +151,7 @@ export function SpanBar(props: SpanBarProps) {
 				left: `${geometry().leftPercent}%`,
 				width: `${geometry().widthPercent}%`,
 				top: `${props.row * ROW_HEIGHT}px`,
+				height: `${BAR_HEIGHT}px`,
 				"background-color": props.color,
 			}}
 			title={`${props.name} (${props.duration}ms)`}
@@ -192,26 +195,4 @@ function eventTooltip(event: SpanEvent): string {
 	return typeof message === "string" && message.length > 0
 		? message
 		: event.name;
-}
-
-/**
- * Scrolls a span bar's panel vertically so the bar is in view. Only the
- * vertical axis moves: scrollIntoView would also scroll the horizontally
- * clipped panels.
- */
-export function revealSpanBar(root: HTMLElement, spanId: string): void {
-	const bar = root.querySelector<HTMLElement>(
-		`[role="listitem"][data-span-id="${CSS.escape(spanId)}"]`,
-	);
-	const scroller = bar?.closest<HTMLElement>('[role="list"]');
-	if (!bar || !scroller) return;
-
-	const barRect = bar.getBoundingClientRect();
-	const scrollerRect = scroller.getBoundingClientRect();
-	const padding = ROW_HEIGHT / 2;
-	if (barRect.top < scrollerRect.top + padding) {
-		scroller.scrollTop -= scrollerRect.top + padding - barRect.top;
-	} else if (barRect.bottom > scrollerRect.bottom - padding) {
-		scroller.scrollTop += barRect.bottom - (scrollerRect.bottom - padding);
-	}
 }

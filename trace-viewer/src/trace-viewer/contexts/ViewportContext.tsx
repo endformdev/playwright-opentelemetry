@@ -7,7 +7,6 @@ import {
 	createSignal,
 	type JSX,
 	onCleanup,
-	type Setter,
 	untrack,
 	useContext,
 } from "solid-js";
@@ -25,10 +24,8 @@ import {
 
 /** Duration of animated viewport changes */
 export const VIEWPORT_ANIMATION_MS = 180;
-/** CSS ease-out cubic; `easeOutCubic` below approximates it in JS */
+/** CSS ease-out cubic */
 export const VIEWPORT_ANIMATION_EASING = "cubic-bezier(0.215, 0.61, 0.355, 1)";
-
-const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
 
 /**
  * How long span labels take to come back after a zooming move; 0 snaps them
@@ -36,15 +33,19 @@ const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
  */
 export const LABEL_FADE_IN_MS = 100;
 
-export function prefersReducedMotion(): boolean {
+function prefersReducedMotion(): boolean {
 	return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** An animated viewport change: content is laid out for `to` throughout. */
+/**
+ * An animated viewport change. Content is laid out for `to` throughout and
+ * drawn where `from` would put it at the start; `clock` is the single source
+ * of truth for how far the move has got.
+ */
 export interface ViewportTransition {
 	from: TimelineViewport;
 	to: TimelineViewport;
-	startedAt: number;
+	clock: Animation;
 }
 
 export interface SelectionState {
@@ -52,22 +53,49 @@ export interface SelectionState {
 	currentPosition: number;
 }
 
+export type ViewportUpdate =
+	| TimelineViewport
+	| ((shown: TimelineViewport) => TimelineViewport);
+
 export interface ViewportContextValue {
 	// State
+	/**
+	 * Where the timeline is going: lay content out and make decisions (framing,
+	 * zoom limits) with this. It differs from the screen only mid-animation.
+	 */
 	viewport: Accessor<TimelineViewport>;
 	durationMs: Accessor<number>;
 	testStartTimeMs: Accessor<number>;
 
 	/**
+	 * What is on screen right now, mid-animation included. Convert pointer
+	 * positions with this. Read on demand; it is not reactive.
+	 */
+	displayedViewport: () => TimelineViewport;
+	/**
 	 * What panels must render: the union of both viewports while animating,
 	 * so nothing pops in or out mid-animation.
 	 */
 	renderViewport: Accessor<TimelineViewport>;
-	viewportTransition: Accessor<ViewportTransition | null>;
+	transition: Accessor<ViewportTransition | null>;
+	/**
+	 * A CSS `transition` value that animates the given properties along with
+	 * the current viewport move, for the few elements placed in plot
+	 * coordinates outside a viewport layer (time lines, the ruler's window).
+	 */
+	motionTransition: (...properties: string[]) => string | undefined;
 
 	// Operations
-	setViewport: Setter<TimelineViewport>;
-	/** Changes the viewport, animating from what is currently shown. */
+	/**
+	 * Changes the viewport directly. Any animation stops where it is first, so
+	 * updates apply to what is on screen and nothing snaps.
+	 */
+	setViewport: (update: ViewportUpdate) => void;
+	/**
+	 * Moves to a viewport, animating from what is on screen. Elements following
+	 * the move animate even when the viewport stays put, so lines placed at a
+	 * new time slide there.
+	 */
 	animateTo: (target: TimelineViewport) => void;
 	pan: (deltaMs: number) => void;
 	zoom: (focalPosition: number, zoomDelta: number) => void;
@@ -90,87 +118,91 @@ export interface ViewportProviderProps {
 }
 
 export function ViewportProvider(props: ViewportProviderProps) {
-	const [viewport, setViewport] = createSignal<TimelineViewport>(
+	const [viewport, setTargetViewport] = createSignal<TimelineViewport>(
 		createViewport(props.durationMs() || 1000),
 	);
 
 	const [selectionState, setSelectionState] =
 		createSignal<SelectionState | null>(null);
 
-	const [viewportTransition, setViewportTransition] =
-		createSignal<ViewportTransition | null>(null);
-	let transitionTimer: ReturnType<typeof setTimeout> | undefined;
-	const endTransition = () => {
-		clearTimeout(transitionTimer);
-		setViewportTransition(null);
-	};
-	onCleanup(() => clearTimeout(transitionTimer));
+	const [transition, setTransition] = createSignal<ViewportTransition | null>(
+		null,
+	);
 
-	const shownViewport = (): TimelineViewport => {
-		const transition = viewportTransition();
-		if (!transition) return viewport();
-		const elapsed =
-			(performance.now() - transition.startedAt) / VIEWPORT_ANIMATION_MS;
-		return interpolateViewportMapping(
-			transition.from,
-			transition.to,
-			easeOutCubic(Math.min(1, elapsed)),
-		);
+	const displayedViewport = (): TimelineViewport => {
+		const active = untrack(transition);
+		if (!active) return untrack(viewport);
+		const progress = active.clock.effect?.getComputedTiming().progress ?? 1;
+		return interpolateViewportMapping(active.from, active.to, progress);
 	};
+
+	const stopTransition = () => {
+		const active = untrack(transition);
+		if (!active) return;
+		active.clock.cancel();
+		setTransition(null);
+	};
+	onCleanup(stopTransition);
 
 	const animateTo = (target: TimelineViewport) => {
-		const from = untrack(shownViewport);
-		if (
-			prefersReducedMotion() ||
-			(from.visibleStartMs === target.visibleStartMs &&
-				from.visibleEndMs === target.visibleEndMs)
-		) {
-			endTransition();
-			setViewport(target);
-			return;
-		}
-
 		batch(() => {
-			setViewport(target);
-			setViewportTransition({
-				from,
-				to: target,
-				startedAt: performance.now(),
-			});
+			const from = displayedViewport();
+			stopTransition();
+			setTargetViewport(target);
+			if (prefersReducedMotion()) return;
+
+			// A timer with no target: its eased progress drives every layer.
+			const clock = new Animation(
+				new KeyframeEffect(null, null, {
+					duration: VIEWPORT_ANIMATION_MS,
+					easing: VIEWPORT_ANIMATION_EASING,
+					fill: "both",
+				}),
+				document.timeline,
+			);
+			clock.play();
+			setTransition({ from, to: target, clock });
+			clock.finished.then(
+				() => {
+					if (untrack(transition)?.clock === clock) setTransition(null);
+				},
+				// Cancelled by a newer move or a direct change.
+				() => {},
+			);
 		});
-		// The element animations start on the next frame; let them finish
-		// before ending the transition, which would cancel them.
-		clearTimeout(transitionTimer);
-		transitionTimer = setTimeout(
-			() => setViewportTransition(null),
-			VIEWPORT_ANIMATION_MS + 50,
-		);
+	};
+
+	const setViewport = (update: ViewportUpdate) => {
+		batch(() => {
+			const shown = displayedViewport();
+			stopTransition();
+			setTargetViewport(typeof update === "function" ? update(shown) : update);
+		});
 	};
 
 	const renderViewport = createMemo((): TimelineViewport => {
-		const transition = viewportTransition();
+		const active = transition();
 		const current = viewport();
-		if (!transition) return current;
+		if (!active) return current;
 		return {
 			visibleStartMs: Math.min(
-				transition.from.visibleStartMs,
+				active.from.visibleStartMs,
 				current.visibleStartMs,
 			),
-			visibleEndMs: Math.max(
-				transition.from.visibleEndMs,
-				current.visibleEndMs,
-			),
+			visibleEndMs: Math.max(active.from.visibleEndMs, current.visibleEndMs),
 			totalDurationMs: current.totalDurationMs,
 		};
 	});
 
-	// Direct viewport changes (wheel, drag, reset) take over immediately.
-	const setViewportImmediately = ((
-		value: Parameters<typeof setViewport>[0],
-	) => {
-		endTransition();
-		return setViewport(value);
-	}) as Setter<TimelineViewport>;
+	const motionTransition = (...properties: string[]) =>
+		transition()
+			? properties
+					.map(
+						(property) =>
+							`${property} ${VIEWPORT_ANIMATION_MS}ms ${VIEWPORT_ANIMATION_EASING}`,
+					)
+					.join(", ")
+			: undefined;
 
 	// Reset viewport when duration changes
 	createMemo(() => {
@@ -181,19 +213,19 @@ export function ViewportProvider(props: ViewportProviderProps) {
 	});
 
 	const pan = (deltaMs: number) => {
-		setViewportImmediately((v) => panViewport(v, deltaMs));
+		setViewport((v) => panViewport(v, deltaMs));
 	};
 
 	const zoom = (focalPosition: number, zoomDelta: number) => {
-		setViewportImmediately((v) => zoomViewport(v, focalPosition, zoomDelta));
+		setViewport((v) => zoomViewport(v, focalPosition, zoomDelta));
 	};
 
 	const zoomTo = (startMs: number, endMs: number) => {
-		setViewportImmediately((v) => zoomToRange(v, startMs, endMs));
+		setViewport((v) => zoomToRange(v, startMs, endMs));
 	};
 
 	const reset = () => {
-		setViewportImmediately((v) => resetViewport(v));
+		setViewport((v) => resetViewport(v));
 	};
 
 	const startSelection = (position: number) => {
@@ -220,9 +252,11 @@ export function ViewportProvider(props: ViewportProviderProps) {
 		viewport,
 		durationMs: props.durationMs,
 		testStartTimeMs: props.testStartTimeMs,
+		displayedViewport,
 		renderViewport,
-		viewportTransition,
-		setViewport: setViewportImmediately,
+		transition,
+		motionTransition,
+		setViewport,
 		animateTo,
 		pan,
 		zoom,
@@ -252,38 +286,34 @@ export function useViewportContext(): ViewportContextValue {
 }
 
 /**
- * Plays the current viewport transition on an element laid out in timeline
- * plot coordinates, as a single compositor-only transform. While a move
+ * Makes an element laid out in plot coordinates for the target viewport
+ * follow viewport moves, as one compositor-only transform. While a move
  * zooms, the element gets `data-labels-hidden` until movement settles.
  */
-export function useViewportTransitionTransform(
-	element: () => HTMLElement | undefined,
-): void {
-	const { viewportTransition } = useViewportContext();
+export function useViewportLayer(element: () => HTMLElement | undefined): void {
+	const { transition } = useViewportContext();
 	let animation: Animation | undefined;
 	const showLabels = () => element()?.removeAttribute("data-labels-hidden");
 
 	createEffect(() => {
-		const transition = viewportTransition();
+		const active = transition();
 		const target = element();
-		if (!transition) {
-			// Cancelled by a direct viewport change; a finished one is a no-op.
-			animation?.cancel();
-			animation = undefined;
+		animation?.cancel();
+		animation = undefined;
+		if (!target) return;
+
+		const { scale, translate } = active
+			? getViewportTransform(active.from, active.to)
+			: { scale: 1, translate: 0 };
+		if (scale === 1 && translate === 0) {
 			showLabels();
 			return;
 		}
-		if (!target) return;
 
-		animation?.cancel();
 		// Once hidden, labels stay hidden through chained moves.
-		if (changesScale(transition.from, transition.to)) {
+		if (changesScale(active!.from, active!.to)) {
 			target.setAttribute("data-labels-hidden", "");
 		}
-		const { scale, translate } = getViewportTransform(
-			transition.from,
-			transition.to,
-		);
 		animation = target.animate(
 			[
 				{

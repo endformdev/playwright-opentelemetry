@@ -10,13 +10,14 @@ import {
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
 import type { ScreenshotInfo, TraceInfo } from "../trace-info-loader";
-import { BrowserSpansPanel } from "./components/BrowserSpansPanel";
 import { DetailsPanel } from "./components/DetailsPanel";
-import { ExternalSpansPanel } from "./components/ExternalSpansPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { PanelHeader } from "./components/PanelHeader";
-import { revealSpanBar } from "./components/SpanBar";
-import { StepsTimeline } from "./components/StepsTimeline";
+import { SpanTimelinePanel } from "./components/SpanTimelinePanel";
+import {
+	TIMELINE_PANELS,
+	type TimelinePanelDefinition,
+} from "./components/timelinePanels";
 import {
 	type FocusedElement,
 	HoverProvider,
@@ -24,10 +25,7 @@ import {
 } from "./contexts/HoverContext";
 import { SearchProvider, useSearch } from "./contexts/SearchContext";
 import {
-	prefersReducedMotion,
 	useViewportContext,
-	VIEWPORT_ANIMATION_EASING,
-	VIEWPORT_ANIMATION_MS,
 	ViewportProvider,
 } from "./contexts/ViewportContext";
 import {
@@ -36,24 +34,15 @@ import {
 	type TestPhase,
 } from "./detectTestPhases";
 import { MultiResizablePanel } from "./MultiResizablePanel";
-import { packTimelineSpans } from "./packSpans";
 import { calculateInitialPanelSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
-import {
-	findSpanNavigationTarget,
-	type NavigationDirection,
-	type NavigationPanel,
-} from "./spanNavigation";
-import {
-	getSpanSelectionTimeMs,
-	type SpanSelectionPlacement,
-} from "./spanSelection";
+import type { NavigationDirection } from "./spanNavigation";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
+import { layoutTimelineSpans } from "./timelineLayout";
+import { useSpanFocus } from "./useSpanFocus";
 import {
-	frameTimeRange,
-	getVisibleDuration,
 	isTimeRangeVisible,
 	type TimelineViewport,
 	timeToViewportPosition,
@@ -64,11 +53,7 @@ export interface TraceViewerProps {
 	traceInfo: TraceInfo;
 }
 
-/** Section identifiers for the main timeline panels */
-type SectionId = "screenshots" | "steps" | "browser" | "external";
-
 interface DisabledSection {
-	id: SectionId;
 	title: string;
 	tooltip: string;
 }
@@ -80,18 +65,9 @@ interface PanelSizeConfig {
 	minSize: number;
 }
 
-const SECTION_TITLES: Record<SectionId, string> = {
-	screenshots: "Screenshots",
-	steps: "Steps Timeline",
-	browser: "Browser Spans",
-	external: "External Spans",
-};
-
-const SECTION_TOOLTIPS: Record<SectionId, string> = {
-	screenshots: "No screenshots were captured during this test",
-	steps: "No test steps were recorded",
-	browser: "No browser spans were captured",
-	external: "No external spans were captured",
+const SCREENSHOTS_DISABLED_SECTION: DisabledSection = {
+	title: "Screenshots",
+	tooltip: "No screenshots were captured during this test",
 };
 
 const PAN_SENSITIVITY = 0.2;
@@ -99,8 +75,6 @@ const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
 const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
 const TIMELINE_PLOT_INSET_PX = 12;
-/** How close to the time line a bar counts as on it for Up/Down */
-const NAVIGATION_SLOP_PX = 24;
 
 const ARROW_KEY_DIRECTIONS: Record<string, NavigationDirection> = {
 	ArrowLeft: "left",
@@ -108,12 +82,6 @@ const ARROW_KEY_DIRECTIONS: Record<string, NavigationDirection> = {
 	ArrowUp: "up",
 	ArrowDown: "down",
 };
-
-function focusedElementFor(span: Span): FocusedElement {
-	const isStep =
-		span.name === "playwright.test" || span.name === "playwright.test.step";
-	return { type: isStep ? "step" : "span", id: span.id };
-}
 
 /** Keys typed into inputs and menus belong to those controls, not the timeline. */
 function isKeyboardControlTarget(target: EventTarget | null): boolean {
@@ -186,8 +154,16 @@ interface TraceViewerInnerProps {
 }
 
 function TraceViewerInner(props: TraceViewerInnerProps) {
-	const { viewport, setViewport, animateTo, zoomToRange, pan, zoom, reset } =
-		useViewportContext();
+	const {
+		viewport,
+		displayedViewport,
+		motionTransition,
+		setViewport,
+		zoomToRange,
+		pan,
+		zoom,
+		reset,
+	} = useViewportContext();
 
 	const {
 		mode,
@@ -200,7 +176,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enterSearchOverride,
 		exitSearchOverride,
 		setHoveredElement,
-		lockedElement,
 		displayTimeMs,
 		displayElements,
 		displayFocusedElement,
@@ -208,6 +183,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	const [selectionState, setSelectionState] = createSignal<{
 		startPosition: number;
+		/** The time under the pointer when pressed, mid-animation included */
+		startTimeMs: number;
 		currentPosition: number;
 		element: FocusedElement | null;
 	} | null>(null);
@@ -222,27 +199,34 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const spanById = createMemo(
 		() => new Map(allSpans().map((span) => [span.id, span])),
 	);
-	// Packed rows are shared by the panels and keyboard navigation, so arrow
-	// keys move between the bars as they appear on screen.
-	const stepsLayout = createMemo(() =>
-		packTimelineSpans(props.traceData.steps()),
+	// One layout per span panel, read by both rendering and keyboard focus.
+	const timelinePanels = TIMELINE_PANELS.map((definition) => ({
+		definition,
+		layout: createMemo(() =>
+			layoutTimelineSpans(definition.spans(props.traceData)),
+		),
+	}));
+	const activeTimelinePanels = createMemo(() =>
+		timelinePanels.filter((panel) => panel.layout().bars.length > 0),
 	);
-	const browserLayout = createMemo(() =>
-		packTimelineSpans(props.traceData.browserSpans()),
-	);
-	const externalLayout = createMemo(() =>
-		packTimelineSpans(props.traceData.externalSpans()),
-	);
-	const navigationPanels = createMemo((): NavigationPanel[] => [
-		{ id: "steps", spans: stepsLayout().spans },
-		{ id: "browser", spans: browserLayout().spans },
-		{ id: "external", spans: externalLayout().spans },
-	]);
-	const focusedSpanId = () => {
-		if (mode() === "hover") return null;
-		const element = lockedElement();
-		return element && element.type !== "screenshot" ? element.id : null;
-	};
+	const panelOfSpan = (spanId: string) =>
+		timelinePanels.find((panel) => panel.layout().byId.has(spanId));
+	const focusedElementFor = (span: Span): FocusedElement => ({
+		type: panelOfSpan(span.id)?.definition.elementType ?? "span",
+		id: span.id,
+	});
+	/** With nothing focused, arrow keys start at the root test step. */
+	const rootTestSpanId = createMemo(() => {
+		const steps = props.traceData.steps();
+		const ids = new Set(steps.map((span) => span.id));
+		return (
+			steps.find(
+				(span) =>
+					span.name === "playwright.test" &&
+					(span.parentId === null || !ids.has(span.parentId)),
+			)?.id ?? null
+		);
+	});
 	const errorSpans = createMemo(() =>
 		allSpans()
 			.filter(isErrorSpan)
@@ -250,6 +234,19 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	);
 
 	let plotRef: HTMLDivElement | undefined;
+	let detailsRef: HTMLDivElement | undefined;
+	const spanFocus = useSpanFocus({
+		panels: () =>
+			timelinePanels.map((panel) => ({
+				elementType: panel.definition.elementType,
+				layout: panel.layout(),
+			})),
+		startSpanId: () =>
+			rootTestSpanId() ??
+			activeTimelinePanels()[0]?.layout().rows[0]?.[0]?.id ??
+			null,
+		plotWidthPx: () => plotRef?.getBoundingClientRect().width ?? 0,
+	});
 	// Live pointer state, tracked independently of locked/search display state.
 	let pointerElement: FocusedElement | null = null;
 	let pointerPosition: number | null = null;
@@ -279,40 +276,19 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			SCREENSHOT_PANEL_ROW_SIZE_PERCENT *
 			getDefaultVisibleScreenshotRows(screenshotPageCount()),
 	);
-	const hasSteps = () => props.traceData.steps().length > 0;
-	const hasBrowserSpans = () => props.traceData.browserSpans().length > 0;
-	const hasExternalSpans = () => props.traceData.externalSpans().length > 0;
-
 	// Get list of disabled sections for the footer
 	const disabledSections = createMemo((): DisabledSection[] => {
 		const sections: DisabledSection[] = [];
 		if (!props.traceInfo.screenshots.loading && !hasLoadedScreenshots()) {
-			sections.push({
-				id: "screenshots",
-				title: SECTION_TITLES.screenshots,
-				tooltip: SECTION_TOOLTIPS.screenshots,
-			});
+			sections.push(SCREENSHOTS_DISABLED_SECTION);
 		}
-		if (!hasSteps()) {
-			sections.push({
-				id: "steps",
-				title: SECTION_TITLES.steps,
-				tooltip: SECTION_TOOLTIPS.steps,
-			});
-		}
-		if (!hasBrowserSpans()) {
-			sections.push({
-				id: "browser",
-				title: SECTION_TITLES.browser,
-				tooltip: SECTION_TOOLTIPS.browser,
-			});
-		}
-		if (!hasExternalSpans()) {
-			sections.push({
-				id: "external",
-				title: SECTION_TITLES.external,
-				tooltip: SECTION_TOOLTIPS.external,
-			});
+		for (const panel of timelinePanels) {
+			if (panel.layout().bars.length === 0) {
+				sections.push({
+					title: panel.definition.title,
+					tooltip: panel.definition.emptyTooltip,
+				});
+			}
 		}
 		return sections;
 	});
@@ -351,38 +327,17 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	// Calculate initial sizes for span panels (just the sizing data, not content)
 	const spanPanelSizeConfigs = createMemo((): PanelSizeConfig[] => {
+		const active = activeTimelinePanels().map((panel) => panel.definition.id);
 		const sizes = calculateInitialPanelSizes({
-			steps: hasSteps(),
-			browser: hasBrowserSpans(),
-			external: hasExternalSpans(),
+			steps: active.includes("steps"),
+			browser: active.includes("browser"),
+			external: active.includes("external"),
 		});
-		const configs: PanelSizeConfig[] = [];
-
-		if (hasSteps() && sizes.steps !== undefined) {
-			configs.push({
-				id: "steps",
-				initialSize: sizes.steps,
-				minSize: 15,
-			});
-		}
-
-		if (hasBrowserSpans() && sizes.browser !== undefined) {
-			configs.push({
-				id: "browser",
-				initialSize: sizes.browser,
-				minSize: 15,
-			});
-		}
-
-		if (hasExternalSpans() && sizes.external !== undefined) {
-			configs.push({
-				id: "external",
-				initialSize: sizes.external,
-				minSize: 15,
-			});
-		}
-
-		return configs;
+		return active.map((id) => ({
+			id,
+			initialSize: sizes[id] ?? 0,
+			minSize: 15,
+		}));
 	});
 
 	// Check if we have any active span panels
@@ -409,6 +364,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (position >= 0 && position <= 1) {
 			setSelectionState({
 				startPosition: position,
+				startTimeMs: viewportPositionToTime(position, displayedViewport()),
 				currentPosition: position,
 				element: pointerElement,
 			});
@@ -448,19 +404,20 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const handleMouseUp = () => {
 		const selection = selectionState();
 		if (selection) {
+			// Positions are on screen, which differs from the target mid-animation.
+			const shown = displayedViewport();
 			const startMs = viewportPositionToTime(
 				Math.min(selection.startPosition, selection.currentPosition),
-				viewport(),
+				shown,
 			);
 			const endMs = viewportPositionToTime(
 				Math.max(selection.startPosition, selection.currentPosition),
-				viewport(),
+				shown,
 			);
 
 			// Only zoom if selection is meaningful (not just a click)
 			// Minimum 2% of current visible duration
-			const visibleDuration =
-				viewport().visibleEndMs - viewport().visibleStartMs;
+			const visibleDuration = shown.visibleEndMs - shown.visibleStartMs;
 			const minSelectionMs = visibleDuration * 0.02;
 
 			if (endMs - startMs > minSelectionMs) {
@@ -472,10 +429,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				switch (currentMode) {
 					case "hover":
 						// Lock to the selected time so zooming does not move the lock.
-						lock(
-							viewportPositionToTime(selection.startPosition, viewport()),
-							selection.element,
-						);
+						lock(selection.startTimeMs, selection.element);
 						break;
 					case "locked":
 					case "search-override":
@@ -501,6 +455,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		// Don't clear selection on mouse leave - user might drag outside temporarily
 	};
 
+	let arrowKeysScrollDetails = false;
+
 	// Set up global mouseup listener to handle drag end outside component
 	onMount(() => {
 		const onGlobalMouseUp = () => handleMouseUp();
@@ -523,19 +479,28 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				e.ctrlKey ||
 				e.metaKey ||
 				e.shiftKey ||
+				arrowKeysScrollDetails ||
 				isKeyboardControlTarget(e.target)
 			) {
 				return;
 			}
 			e.preventDefault();
-			navigateFocus(direction);
+			spanFocus.navigate(direction);
 		};
 		document.addEventListener("keydown", onKeyDown);
+
+		// After pressing inside the details panel, arrow keys scroll it, as the
+		// browser would; pressing anywhere else gives them back to the timeline.
+		const onPointerDown = (e: PointerEvent) => {
+			arrowKeysScrollDetails =
+				e.target instanceof Node && !!detailsRef?.contains(e.target);
+		};
+		document.addEventListener("pointerdown", onPointerDown, true);
 
 		onCleanup(() => {
 			document.removeEventListener("mouseup", onGlobalMouseUp);
 			document.removeEventListener("keydown", onKeyDown);
-			if (revealFrame !== undefined) cancelAnimationFrame(revealFrame);
+			document.removeEventListener("pointerdown", onPointerDown, true);
 		});
 	});
 
@@ -557,7 +522,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				0,
 				Math.min(1, (e.clientX - rect.left) / rect.width),
 			);
-			const lockPosition = mode() === "hover" ? null : lockedPosition();
+			const lockTimeMs = mode() === "hover" ? null : lockedTimeMs();
+			const lockPosition =
+				lockTimeMs === null
+					? null
+					: timeToViewportPosition(lockTimeMs, displayedViewport());
 			const focalPosition =
 				lockPosition !== null && lockPosition >= 0 && lockPosition <= 1
 					? lockPosition
@@ -590,131 +559,20 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		setPointerElement(id ? { type: "screenshot", id } : null);
 	};
 
-	const handleStepHover = (id: string | null) => {
-		setPointerElement(id ? { type: "step", id } : null);
-	};
-
-	const handleSpanHover = (id: string | null) => {
-		setPointerElement(id ? { type: "span", id } : null);
-	};
-
-	const handleSpanSelect = (
-		spanId: string,
-		placement: SpanSelectionPlacement,
+	const handleBarHover = (
+		definition: TimelinePanelDefinition,
+		id: string | null,
 	) => {
-		// Find the span to get its selected timeline position
-		const span = spanById().get(spanId);
-
-		if (span) {
-			const selectionTimeMs = getSpanSelectionTimeMs(span, placement);
-			const currentViewport = viewport();
-			const selectionViewport = isTimeRangeVisible(
-				span.startOffsetMs,
-				span.startOffsetMs + span.durationMs,
-				currentViewport,
-			)
-				? currentViewport
-				: {
-						visibleStartMs: 0,
-						visibleEndMs: currentViewport.totalDurationMs,
-						totalDurationMs: currentViewport.totalDurationMs,
-					};
-
-			if (selectionViewport !== currentViewport) {
-				setViewport(selectionViewport);
-			}
-
-			lock(selectionTimeMs, focusedElementFor(span));
-		}
+		setPointerElement(id ? { type: definition.elementType, id } : null);
 	};
 
-	let revealFrame: number | undefined;
-	let lockedLineRef: HTMLDivElement | undefined;
-	let lineAnimation: Animation | undefined;
+	/** Search results and error spans select a span like any other focus. */
+	const handleSpanSelect = spanFocus.focusSpan;
 
-	/**
-	 * Focuses a span the way keyboard navigation does: frames it within the
-	 * tolerance, locks time (its center by default) and scrolls its bar into
-	 * view.
-	 */
-	const focusSpan = (spanId: string, timeMs?: number) => {
-		const span = spanById().get(spanId);
-		if (!span) return;
-
-		const currentViewport = viewport();
-		const framedViewport = frameTimeRange(
-			currentViewport,
-			span.startOffsetMs,
-			span.startOffsetMs + span.durationMs,
-		);
-		// Where the line is drawn now, mid-animation included.
-		const lineLeft =
-			lockedLineRef?.isConnected && !prefersReducedMotion()
-				? getComputedStyle(lockedLineRef).left
-				: null;
-		if (framedViewport !== currentViewport) animateTo(framedViewport);
-		lock(
-			timeMs ?? getSpanSelectionTimeMs(span, "center"),
-			focusedElementFor(span),
-		);
-		if (lineLeft !== null && lockedLineRef?.isConnected) {
-			lineAnimation?.cancel();
-			lineAnimation = lockedLineRef.animate(
-				[{ left: lineLeft }, { left: lockedLineRef.style.left }],
-				{ duration: VIEWPORT_ANIMATION_MS, easing: VIEWPORT_ANIMATION_EASING },
-			);
-		}
-
-		// Wait for the framed viewport to render the bar before scrolling to it.
-		if (revealFrame !== undefined) cancelAnimationFrame(revealFrame);
-		revealFrame = requestAnimationFrame(() => {
-			revealFrame = undefined;
-			const timeline = plotRef?.parentElement;
-			if (timeline) revealSpanBar(timeline, spanId);
-		});
-	};
-
-	/** With nothing focused, navigation starts at the root test step. */
-	const findNavigationStartSpanId = (): string | null => {
-		const steps = props.traceData.steps();
-		const rootTest = steps.find(
-			(span) =>
-				span.name === "playwright.test" &&
-				!steps.some((parent) => parent.id === span.parentId),
-		);
-		if (rootTest) return rootTest.id;
-
-		const firstPanel = navigationPanels().find(
-			(panel) => panel.spans.length > 0,
-		);
-		const [first] = (firstPanel?.spans ?? [])
-			.filter((span) => span.row === 0)
-			.sort((a, b) => a.startOffset - b.startOffset);
-		return first?.id ?? null;
-	};
-
-	const navigateFocus = (direction: NavigationDirection) => {
-		const currentId = focusedSpanId();
-		const current = currentId ? spanById().get(currentId) : undefined;
-		if (!current) {
-			const startId = findNavigationStartSpanId();
-			if (startId) focusSpan(startId);
-			return;
-		}
-
-		const plotWidthPx = plotRef?.getBoundingClientRect().width ?? 0;
-		const slopMs =
-			plotWidthPx > 0
-				? (NAVIGATION_SLOP_PX * getVisibleDuration(viewport())) / plotWidthPx
-				: 0;
-		const target = findSpanNavigationTarget(
-			navigationPanels(),
-			current.id,
-			direction,
-			lockedTimeMs() ?? getSpanSelectionTimeMs(current, "center"),
-			slopMs,
-		);
-		if (target) focusSpan(target.spanId, target.timeMs);
+	/** The details panel's span links focus a span and hand arrow keys back. */
+	const handleNavigateToSpan = (spanId: string) => {
+		arrowKeysScrollDetails = false;
+		spanFocus.focusSpan(spanId);
 	};
 
 	const handleSearchResultHover = (spanId: string | null) => {
@@ -774,45 +632,23 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const SpanPanelsContent = () => {
 		const search = useSearch();
 
-		// Create a wrapper component for each panel that will reactively update
 		const renderPanelContent = (panelId: string) => {
-			switch (panelId) {
-				case "steps":
-					return (
-						<StepsTimeline
-							steps={props.traceData.steps()}
-							layout={stepsLayout()}
-							focusedSpanId={focusedSpanId()}
-							onStepHover={handleStepHover}
-							matchedSpanIds={search.matchedSpanIds()}
-							hoveredSearchSpanId={hoveredSearchSpanId()}
-						/>
-					);
-				case "browser":
-					return (
-						<BrowserSpansPanel
-							spans={props.traceData.browserSpans()}
-							layout={browserLayout()}
-							focusedSpanId={focusedSpanId()}
-							onSpanHover={handleSpanHover}
-							matchedSpanIds={search.matchedSpanIds()}
-							hoveredSearchSpanId={hoveredSearchSpanId()}
-						/>
-					);
-				case "external":
-					return (
-						<ExternalSpansPanel
-							spans={props.traceData.externalSpans()}
-							layout={externalLayout()}
-							focusedSpanId={focusedSpanId()}
-							onSpanHover={handleSpanHover}
-							matchedSpanIds={search.matchedSpanIds()}
-							hoveredSearchSpanId={hoveredSearchSpanId()}
-						/>
-					);
-				default:
-					return null;
-			}
+			const panel = timelinePanels.find(
+				(candidate) => candidate.definition.id === panelId,
+			);
+			if (!panel) return null;
+			const { definition } = panel;
+			return (
+				<SpanTimelinePanel
+					definition={definition}
+					layout={panel.layout()}
+					focusedSpanId={spanFocus.focusedSpanId()}
+					revealRequest={spanFocus.revealRequest()}
+					onBarHover={(id) => handleBarHover(definition, id)}
+					matchedSpanIds={search.matchedSpanIds()}
+					hoveredSearchSpanId={hoveredSearchSpanId()}
+				/>
+			);
 		};
 
 		const configs = spanPanelSizeConfigs().map((config) => ({
@@ -958,19 +794,23 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					<Show when={mode() === "hover" && hoverPosition() !== null}>
 						<div
 							class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
-							style={{ left: `${hoverPosition()! * 100}%` }}
+							style={{
+								left: `${hoverPosition()! * 100}%`,
+								transition: motionTransition("left"),
+							}}
 						/>
 					</Show>
 
 					{/* Position indicator - locked mode: thick blue line */}
 					<Show when={mode() === "locked" && lockedPosition() !== null}>
 						<div
-							ref={lockedLineRef}
+							data-locked-time-line
 							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
 							style={{
 								left: `${lockedPosition()! * 100}%`,
 								width: "3px",
 								"margin-left": "-1px",
+								transition: motionTransition("left"),
 							}}
 						/>
 					</Show>
@@ -985,6 +825,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 									left: `${lockedPosition()! * 100}%`,
 									width: "3px",
 									"margin-left": "-1px",
+									transition: motionTransition("left"),
 								}}
 							/>
 						</Show>
@@ -992,7 +833,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						<Show when={hoverPosition() !== null}>
 							<div
 								class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
-								style={{ left: `${hoverPosition()! * 100}%` }}
+								style={{
+									left: `${hoverPosition()! * 100}%`,
+									transition: motionTransition("left"),
+								}}
 							/>
 						</Show>
 					</Show>
@@ -1022,13 +866,15 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					maxFirstPanelSize={90}
 					firstPanel={<MainPanelContent />}
 					secondPanel={
-						<DetailsPanel
-							traceInfo={props.traceInfo}
-							hoveredElements={displayElements()}
-							testStartTimeMs={props.testStartTimeMs()}
-							focusedElement={displayFocusedElement()}
-							onNavigateToSpan={(spanId) => focusSpan(spanId)}
-						/>
+						<div ref={detailsRef} class="h-full min-h-0">
+							<DetailsPanel
+								traceInfo={props.traceInfo}
+								hoveredElements={displayElements()}
+								testStartTimeMs={props.testStartTimeMs()}
+								focusedElement={displayFocusedElement()}
+								onNavigateToSpan={handleNavigateToSpan}
+							/>
+						</div>
 					}
 				/>
 			</div>

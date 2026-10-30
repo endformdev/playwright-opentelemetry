@@ -1,12 +1,10 @@
 import type { PackedSpan } from "./packSpans";
+import type { TimelineLayout } from "./timelineLayout";
 
 export type NavigationDirection = "left" | "right" | "up" | "down";
 
-/** A timeline panel's packed rows, in the order panels are stacked on screen. */
-export interface NavigationPanel {
-	id: string;
-	spans: PackedSpan[];
-}
+/** A timeline panel's rows, in the order panels are stacked on screen. */
+export type NavigationPanel = Pick<TimelineLayout, "rows" | "byId">;
 
 /** Where focus moves: the span to focus and the time to lock the cursor at. */
 export interface NavigationTarget {
@@ -60,25 +58,14 @@ function closestInWindow(
 	return best;
 }
 
-function rowsOf(spans: PackedSpan[]): PackedSpan[][] {
-	const rows: PackedSpan[][] = [];
-	for (const span of spans) {
-		(rows[span.row] ??= []).push(span);
-	}
-	return rows;
-}
-
 /** Previous/next bar on the same visual row. */
 function rowNeighbor(
-	spans: PackedSpan[],
+	panel: NavigationPanel,
 	current: PackedSpan,
 	step: -1 | 1,
 ): PackedSpan | null {
-	const row = spans
-		.filter((span) => span.row === current.row)
-		.sort((a, b) => a.startOffset - b.startOffset || a.duration - b.duration);
-	const index = row.findIndex((span) => span.id === current.id);
-	return row[index + step] ?? null;
+	const row = panel.rows[current.row] ?? [];
+	return row[row.indexOf(current) + step] ?? null;
 }
 
 /**
@@ -100,7 +87,7 @@ function nextInWindow(
 		index >= 0 && index < panels.length;
 		index += step
 	) {
-		const rows = rowsOf(panels[index].spans);
+		const { rows } = panels[index];
 		let start: number;
 		if (index !== panelIndex) start = step === 1 ? 0 : rows.length - 1;
 		else start = row + step;
@@ -132,7 +119,10 @@ function nextInWindow(
  *
  * Rows with no candidate are skipped, continuing into the panels beyond. The
  * time line stays put unless the chosen bar is not under it, when it moves
- * just far enough to land on the bar. Down then Up returns to the same bar.
+ * just far enough to land on the bar.
+ *
+ * Up and Down follow different geometry, so Down then Up need not return to
+ * where it started; `navigateWithHistory` adds that.
  *
  * @param timeMs - The locked time, clamped into the current span
  * @param slopMs - How far from the line a bar may be and still count as on it
@@ -145,12 +135,10 @@ export function findSpanNavigationTarget(
 	timeMs: number,
 	slopMs = 0,
 ): NavigationTarget | null {
-	const panelIndex = panels.findIndex((panel) =>
-		panel.spans.some((span) => span.id === spanId),
-	);
+	const panelIndex = panels.findIndex((panel) => panel.byId.has(spanId));
 	if (panelIndex === -1) return null;
-	const spans = panels[panelIndex].spans;
-	const current = spans.find((span) => span.id === spanId)!;
+	const panel = panels[panelIndex];
+	const current = panel.byId.get(spanId)!;
 	const lineMs = Math.min(
 		endOf(current),
 		Math.max(current.startOffset, timeMs),
@@ -160,7 +148,7 @@ export function findSpanNavigationTarget(
 		case "left":
 		case "right": {
 			const neighbor = rowNeighbor(
-				spans,
+				panel,
 				current,
 				direction === "left" ? -1 : 1,
 			);
@@ -186,4 +174,68 @@ export function findSpanNavigationTarget(
 			);
 		}
 	}
+}
+
+/** A move made with the arrow keys. */
+export interface NavigationStep {
+	direction: NavigationDirection;
+	from: NavigationTarget;
+	to: NavigationTarget;
+}
+
+const OPPOSITE_DIRECTION: Record<NavigationDirection, NavigationDirection> = {
+	left: "right",
+	right: "left",
+	up: "down",
+	down: "up",
+};
+
+const MAX_NAVIGATION_HISTORY = 200;
+
+/**
+ * Moves focus like `findSpanNavigationTarget`, except that pressing the
+ * opposite arrow retraces the previous move, back to the same bar and time.
+ * Down, Down, Up, Up always ends where it started.
+ *
+ * History only holds while focus stays where the last move left it: focusing
+ * anything any other way (a click, a search result) starts afresh.
+ *
+ * @returns The target and the history to keep, or null when there is nowhere
+ *   to move
+ */
+export function navigateWithHistory(
+	panels: NavigationPanel[],
+	history: NavigationStep[],
+	current: NavigationTarget,
+	direction: NavigationDirection,
+	slopMs = 0,
+): { target: NavigationTarget; history: NavigationStep[] } | null {
+	const last = history.at(-1);
+	const validHistory =
+		last?.to.spanId === current.spanId && last.to.timeMs === current.timeMs
+			? history
+			: [];
+
+	const previous = validHistory.at(-1);
+	if (
+		previous?.direction === OPPOSITE_DIRECTION[direction] &&
+		panels.some((panel) => panel.byId.has(previous.from.spanId))
+	) {
+		return { target: previous.from, history: validHistory.slice(0, -1) };
+	}
+
+	const target = findSpanNavigationTarget(
+		panels,
+		current.spanId,
+		direction,
+		current.timeMs,
+		slopMs,
+	);
+	if (!target) return null;
+	return {
+		target,
+		history: [...validHistory, { direction, from: current, to: target }].slice(
+			-MAX_NAVIGATION_HISTORY,
+		),
+	};
 }

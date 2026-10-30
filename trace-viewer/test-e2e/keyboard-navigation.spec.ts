@@ -222,7 +222,7 @@ test("left and right hop along a row and frame each span within tolerance", asyn
 	await expectNoHorizontalScroll(page);
 });
 
-test("down moves into what is beneath and up retraces it", async ({
+test("down moves into what is beneath and up retraces the path", async ({
 	page,
 	request,
 }) => {
@@ -255,14 +255,18 @@ test("down moves into what is beneath and up retraces it", async ({
 		region: "Browser Spans",
 	});
 
-	// Up retraces the same bars back to the root without moving the line.
-	for (const name of ["Assert", "Verify", "Keyboard navigation"]) {
+	// Up retraces the same bars and times back to the root.
+	for (const [name, ms] of [
+		["Assert", 5500],
+		["Verify", 5000],
+		["Keyboard navigation", 5000],
+	] as const) {
 		await page.keyboard.press("ArrowUp");
 		await expectFocused(page, { name });
+		await expect(lockedTime(ms)).toBeVisible();
 	}
 	await page.keyboard.press("ArrowUp");
 	await expectFocused(page, { name: "Keyboard navigation" });
-	await expect(lockedTime(6300)).toBeVisible();
 });
 
 test("down picks a child next to the line when the line falls in a gap", async ({
@@ -327,6 +331,28 @@ test("the details panel parent button focuses and frames the parent", async ({
 	await expect(viewer.details.spanDetailsById(ids.openPage)).toHaveClass(
 		/ring-blue-200/,
 	);
+});
+
+test("after pressing inside the details panel, arrow keys leave timeline focus alone", async ({
+	page,
+	request,
+}) => {
+	const { viewer } = await sendNavigationTrace(page, request, "kbdnavdetails");
+
+	await page.keyboard.press("ArrowRight");
+	await expectFocused(page, { name: "Keyboard navigation" });
+
+	await viewer.details.root.click({ position: { x: 20, y: 20 } });
+	await page.keyboard.press("ArrowDown");
+	await page.keyboard.press("ArrowDown");
+	await expect
+		.poll(async () => (await focusedBar(page))?.name)
+		.toBe("Keyboard navigation");
+
+	// Pressing anywhere else hands arrow keys back to the timeline.
+	await viewer.header.testName.click();
+	await page.keyboard.press("ArrowDown");
+	await expectFocused(page, { name: "Verify" });
 });
 
 test("arrow keys typed into search do not move timeline focus", async ({
@@ -397,24 +423,34 @@ test("vertical navigation scrolls the focused bar into view", async ({
 test.describe("with motion", () => {
 	test.use({ reducedMotion: "no-preference" });
 
+	async function waitForStillness(page: Page) {
+		await expect
+			.poll(() => page.evaluate(() => document.getAnimations().length))
+			.toBe(0);
+	}
+
+	/** Goes to Open page and presses Down, starting the zoom onto Click. */
+	async function startZoomOntoClick(page: Page) {
+		await page.keyboard.press("ArrowDown");
+		await page.keyboard.press("ArrowDown");
+		await page.keyboard.press("ArrowLeft");
+		await expectFocused(page, { name: "Open page" });
+		await waitForStillness(page);
+		await page.keyboard.press("ArrowDown");
+	}
+
 	test("framing moves animate and settle on the framed span", async ({
 		page,
 		request,
 	}) => {
 		await sendNavigationTrace(page, request, "kbdnavmotion");
-
-		// Root, then Verify (in frame), then Open page; Down to Click zooms in.
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("ArrowLeft");
-		await expectFocused(page, { name: "Open page" });
-		await page.keyboard.press("ArrowDown");
+		await startZoomOntoClick(page);
 
 		const transforms = await page.evaluate(() =>
 			document.getAnimations().map((animation) =>
 				(animation.effect as KeyframeEffect)
 					.getKeyframes()
-					.map((keyframe) => keyframe.transform ?? keyframe.left)
+					.map((keyframe) => keyframe.transform)
 					.join(" -> "),
 			),
 		);
@@ -437,5 +473,165 @@ test.describe("with motion", () => {
 		const click = await expectFocused(page, { name: "Click" });
 		expect(click.widthFraction).toBeGreaterThanOrEqual(0.14);
 		expect(click.widthFraction).toBeLessThanOrEqual(0.61);
+	});
+
+	test("the locked line moves with the bars mid-animation", async ({
+		page,
+		request,
+	}) => {
+		const { viewer } = await sendNavigationTrace(
+			page,
+			request,
+			"kbdnavmotionline",
+		);
+		await page.keyboard.press("ArrowDown");
+		await page.keyboard.press("ArrowDown");
+		await page.keyboard.press("ArrowLeft");
+		await expectFocused(page, { name: "Open page" });
+		await waitForStillness(page);
+		// Pan so the locked 3000ms is off center; framing Click recenters it.
+		const timeline = await viewer.timelineContent.boundingBox();
+		await page.mouse.move(
+			timeline!.x + timeline!.width / 2,
+			timeline!.y + timeline!.height / 2,
+		);
+		await page.mouse.wheel(150, 0);
+		await page.keyboard.press("ArrowDown");
+
+		const samples = await page.evaluate(async () => {
+			const results: Array<{ lineX: number; offset: number }> = [];
+			while (document.getAnimations().length > 0 || results.length === 0) {
+				const line = document
+					.querySelector("[data-locked-time-line]")!
+					.getBoundingClientRect();
+				const bar = document
+					.querySelector<HTMLElement>('[data-span-name="Click"]')!
+					.getBoundingClientRect();
+				// Click spans 2990-3010ms; the line is locked at its center.
+				const lineX = line.left + line.width / 2;
+				results.push({ lineX, offset: lineX - (bar.left + bar.width / 2) });
+				await new Promise(requestAnimationFrame);
+			}
+			return results;
+		});
+		const lineXs = samples.map((sample) => sample.lineX);
+		expect(samples.length).toBeGreaterThan(3);
+		expect(Math.max(...lineXs) - Math.min(...lineXs)).toBeGreaterThan(20);
+		for (const sample of samples) {
+			expect(Math.abs(sample.offset)).toBeLessThan(2);
+		}
+	});
+
+	test("a wheel zoom mid-animation takes over from what is on screen", async ({
+		page,
+		request,
+	}) => {
+		const { viewer } = await sendNavigationTrace(
+			page,
+			request,
+			"kbdnavmotionwheel",
+		);
+		await startZoomOntoClick(page);
+
+		const timeline = await viewer.timelineContent.boundingBox();
+		const result = await page.evaluate(async (box) => {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			const measure = () => {
+				const bar = document
+					.querySelector<HTMLElement>('[data-span-name="Click"]')!
+					.getBoundingClientRect();
+				const line = document
+					.querySelector("[data-locked-time-line]")!
+					.getBoundingClientRect();
+				return {
+					barLeft: bar.left,
+					barWidth: bar.width,
+					// Click spans 2990-3010ms and the line is locked at 3000ms.
+					lineToBarCenter:
+						line.left + line.width / 2 - (bar.left + bar.width / 2),
+				};
+			};
+			const before = measure();
+			const animating = document.getAnimations().length > 0;
+			// The smallest zoom step, centered on the locked line.
+			document
+				.querySelector('[role="region"][aria-label="Trace timeline"]')!
+				.dispatchEvent(
+					new WheelEvent("wheel", {
+						deltaY: -1,
+						shiftKey: true,
+						clientX: box.x + box.width / 2,
+						clientY: box.y + box.height / 2,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			const after = measure();
+			const running = document
+				.getAnimations()
+				.filter(
+					(animation) =>
+						animation.playState === "running" &&
+						(animation instanceof CSSTransition
+							? animation.transitionProperty !== "opacity"
+							: true),
+				).length;
+			return { before, after, animating, running };
+		}, timeline!);
+
+		expect(result.animating).toBe(true);
+		expect(result.running).toBe(0);
+		expect(Math.abs(result.before.lineToBarCenter)).toBeLessThan(2);
+		// Nothing jumps: the bar keeps its on-screen size and place.
+		expect(result.after.barWidth / result.before.barWidth).toBeGreaterThan(1);
+		expect(result.after.barWidth / result.before.barWidth).toBeLessThan(1.05);
+		expect(Math.abs(result.after.lineToBarCenter)).toBeLessThan(2);
+		expect(
+			Math.abs(
+				result.after.barLeft +
+					result.after.barWidth / 2 -
+					(result.before.barLeft + result.before.barWidth / 2),
+			),
+		).toBeLessThan(2);
+	});
+
+	test("clicking a moving bar locks the time under the pointer", async ({
+		page,
+		request,
+	}) => {
+		const { viewer } = await sendNavigationTrace(
+			page,
+			request,
+			"kbdnavmotionclick",
+		);
+		await startZoomOntoClick(page);
+		await page.keyboard.press("Escape");
+
+		const animating = await page.evaluate(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			const bar = document
+				.querySelector<HTMLElement>('[data-span-name="Click"]')!
+				.getBoundingClientRect();
+			const init = {
+				clientX: bar.left + bar.width / 2,
+				clientY: bar.top + bar.height / 2,
+				button: 0,
+				bubbles: true,
+			};
+			const animating = document.getAnimations().length > 0;
+			document
+				.elementFromPoint(init.clientX, init.clientY)!
+				.dispatchEvent(new MouseEvent("mousedown", init));
+			document.dispatchEvent(new MouseEvent("mouseup", init));
+			return animating;
+		});
+		expect(animating).toBe(true);
+
+		// Click spans 2990-3010ms; its center is 3000ms.
+		const lockedMs = viewer.header.root.locator(".text-blue-600");
+		await expect(lockedMs).toHaveText(/^\d+ms$/);
+		const ms = Number((await lockedMs.textContent())!.slice(0, -2));
+		expect(ms).toBeGreaterThanOrEqual(2997);
+		expect(ms).toBeLessThanOrEqual(3003);
 	});
 });
