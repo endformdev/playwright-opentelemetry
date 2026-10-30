@@ -89,11 +89,12 @@ export function ResizablePanel(props: ResizablePanelProps) {
 				onMouseDown={handleMouseDown}
 			/>
 
-			{/* Second Panel */}
+			{/* Second Panel - takes the space left after the handle, so the
+			    container never overflows by the handle's width */}
 			<div
 				style={{
-					[isHorizontal() ? "width" : "height"]: `${100 - firstPanelSize()}%`,
-					"flex-shrink": 0,
+					flex: "1 1 0px",
+					[isHorizontal() ? "min-width" : "min-height"]: 0,
 					overflow: "hidden",
 				}}
 			>

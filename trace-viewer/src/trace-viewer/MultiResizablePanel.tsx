@@ -20,6 +20,9 @@ export interface MultiResizablePanelProps {
 	class?: string;
 }
 
+/** Thickness of the drag handle between panels (Tailwind w-1 / h-1) */
+const HANDLE_SIZE_PX = 4;
+
 /**
  * A resizable panel component that supports N panels with drag handles between each.
  * This extends the concept of ResizablePanel to work with any number of sections.
@@ -48,12 +51,16 @@ export function MultiResizablePanel(props: MultiResizablePanelProps) {
 		const handleMouseMove = (e: MouseEvent) => {
 			if (!containerRef) return;
 
+			// Panel sizes are percentages of the space left after the handles.
 			const rect = containerRef.getBoundingClientRect();
-			const totalSize = isHorizontal() ? rect.width : rect.height;
-			const mousePos = isHorizontal()
-				? e.clientX - rect.left
-				: e.clientY - rect.top;
-			const mousePercent = (mousePos / totalSize) * 100;
+			const handlesBefore = handleIndex * HANDLE_SIZE_PX + HANDLE_SIZE_PX / 2;
+			const panelSpace =
+				(isHorizontal() ? rect.width : rect.height) -
+				(props.panels.length - 1) * HANDLE_SIZE_PX;
+			const mousePos =
+				(isHorizontal() ? e.clientX - rect.left : e.clientY - rect.top) -
+				handlesBefore;
+			const mousePercent = (mousePos / panelSpace) * 100;
 
 			setPanelSizes((prev) => {
 				const panels = props.panels;
@@ -128,9 +135,10 @@ export function MultiResizablePanel(props: MultiResizablePanelProps) {
 						{/* Panel content */}
 						<div
 							style={{
-								[isHorizontal() ? "width" : "height"]:
-									`${panelSizes()[panel.id]}%`,
-								"flex-shrink": 0,
+								// Grow from zero so panels share the space left after the
+								// handles instead of overflowing the container by them.
+								flex: `${panelSizes()[panel.id]} 1 0px`,
+								[isHorizontal() ? "min-width" : "min-height"]: 0,
 								overflow: "hidden",
 							}}
 						>
