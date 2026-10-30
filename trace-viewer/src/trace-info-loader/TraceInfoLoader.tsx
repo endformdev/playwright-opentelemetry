@@ -1,4 +1,5 @@
 import {
+	createEffect,
 	createResource,
 	type Accessor,
 	onCleanup,
@@ -7,6 +8,10 @@ import {
 import type { TraceSource } from "../trace-source";
 import type { OtlpExport } from "../trace-data-loader";
 import { loadRemoteApi } from "./traceInfoDataLoaders/apiLoader";
+import {
+	type LiveTraceSession,
+	loadLiveTrace,
+} from "./traceInfoDataLoaders/liveLoader";
 import {
 	loadLocalZip,
 	loadRemoteZip,
@@ -17,12 +22,16 @@ export interface TraceInfo {
 	testInfo: TestInfo;
 	traceData: OtlpExport;
 	screenshots: Resource<ScreenshotInfo[]>;
+	/** Screenshots are still on their way, so room is kept for them. */
+	awaitingScreenshots?: boolean;
 }
 
 export interface TraceInfoData {
 	testInfo: TestInfo;
 	traceData: OtlpExport;
 	loadScreenshots: () => Promise<ScreenshotInfo[]>;
+	/** Present while a live trace streams; its accessors replace the fields above. */
+	live?: LiveTraceSession;
 }
 
 export interface TestInfo {
@@ -42,7 +51,9 @@ export type TestStatus =
 	| "failed"
 	| "skipped"
 	| "timedOut"
-	| "interrupted";
+	| "interrupted"
+	/** A live trace whose test hasn't ended yet */
+	| "running";
 
 export interface ScreenshotInfo {
 	timestamp: number;
@@ -62,7 +73,7 @@ export function useTraceInfoLoader(
 		if (!src) return undefined;
 		return loadTraceSource(src);
 	});
-	const [screenshots] = createResource(
+	const [screenshots, { mutate: setScreenshots }] = createResource(
 		() =>
 			traceInfoData.state === "ready"
 				? traceInfoData()?.loadScreenshots
@@ -71,14 +82,24 @@ export function useTraceInfoLoader(
 		{ initialValue: [] },
 	);
 
+	// A live trace keeps receiving screenshots and closes when replaced.
+	createEffect(() => {
+		const live =
+			traceInfoData.state === "ready" ? traceInfoData()?.live : undefined;
+		if (!live) return;
+		createEffect(() => setScreenshots(live.screenshots()));
+		onCleanup(() => live.close());
+	});
+
 	const traceInfo = (): TraceInfo | undefined => {
 		if (traceInfoData.state !== "ready") return undefined;
 		const data = traceInfoData();
 		if (!data) return undefined;
 		return {
-			testInfo: data.testInfo,
-			traceData: data.traceData,
+			testInfo: data.live ? data.live.testInfo() : data.testInfo,
+			traceData: data.live ? data.live.traceData() : data.traceData,
 			screenshots,
+			awaitingScreenshots: data.live?.awaitingScreenshots(),
 		};
 	};
 
@@ -98,5 +119,7 @@ async function loadTraceSource(source: TraceSource): Promise<TraceInfoData> {
 			return loadRemoteZip(source.url);
 		case "remote-api":
 			return loadRemoteApi(source.url, source.traceToken);
+		case "remote-live":
+			return loadLiveTrace(source.url, source.traceToken);
 	}
 }

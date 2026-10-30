@@ -1,0 +1,17 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "playwright-opentelemetry-live-trace-api",
+	"main": "./worker.ts",
+	"compatibility_date": "2026-06-01",
+	"durable_objects": {
+		"bindings": [
+			{ "name": "LIVE_TRACES", "class_name": "LiveTraceDurableObject" },
+		],
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["LiveTraceDurableObject"] },
+	],
+	"r2_buckets": [
+		{ "binding": "TRACES", "bucket_name": "playwright-opentelemetry-traces" },
+	],
+}

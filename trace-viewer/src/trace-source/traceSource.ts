@@ -15,7 +15,8 @@ export type TraceLoadRequestSetter = (
 export type TraceSource =
 	| LocalZipTraceSource
 	| RemoteZipTraceSource
-	| RemoteApiTraceSource;
+	| RemoteApiTraceSource
+	| RemoteLiveTraceSource;
 
 interface LocalZipTraceSource {
 	kind: "local-zip";
@@ -33,9 +34,17 @@ interface RemoteApiTraceSource {
 	traceToken: string | null;
 }
 
+/** A trace that may still be running, streamed from the live trace routes. */
+interface RemoteLiveTraceSource {
+	kind: "remote-live";
+	url: string;
+	traceToken: string | null;
+}
+
 const TRACE_SOURCE_QUERY_PARAM_NAME = "traceSource";
 const TRACE_TOKEN_QUERY_PARAM_NAME = "traceToken";
 const URL_PARSE_BASE = "http://trace-viewer.local";
+const LIVE_TRACE_PATH_PATTERN = /\/playwright-otel-live\/v1\/[0-9a-f]{32}\/?$/i;
 
 export function createTraceLoadRequestSignal(): [
 	Accessor<TraceLoadRequest | null>,
@@ -96,7 +105,10 @@ function writeToQueryParam(
 		params.delete(TRACE_SOURCE_QUERY_PARAM_NAME);
 	}
 
-	if (source?.kind === "remote-api" && source.traceToken) {
+	if (
+		(source?.kind === "remote-api" || source?.kind === "remote-live") &&
+		source.traceToken
+	) {
 		params.set(TRACE_TOKEN_QUERY_PARAM_NAME, source.traceToken);
 	} else {
 		params.delete(TRACE_TOKEN_QUERY_PARAM_NAME);
@@ -136,6 +148,14 @@ export function parseTraceSourceInput(
 
 	if (isZipUrl(normalized.url)) {
 		return { kind: "remote-zip", url: normalized.url };
+	}
+
+	if (LIVE_TRACE_PATH_PATTERN.test(normalized.url)) {
+		return {
+			kind: "remote-live",
+			url: normalized.url,
+			traceToken: normalized.traceToken,
+		};
 	}
 
 	return {
@@ -184,6 +204,7 @@ function serializeTraceSource(source: TraceSource): string {
 		case "remote-zip":
 			return source.url;
 		case "remote-api":
+		case "remote-live":
 			return source.url;
 	}
 }

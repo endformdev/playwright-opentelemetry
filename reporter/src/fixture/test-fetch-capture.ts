@@ -27,6 +27,14 @@ export function runWithTestFetchCapture<T>(
 	})();
 }
 
+/**
+ * Fetch that is never recorded as a span, for the fixture's own requests
+ * during a test. Recording them would trace the export of the trace itself.
+ */
+export function untracedFetch(input: FetchInput, init?: FetchInit) {
+	return (originalFetch ?? globalThis.fetch)(input, init);
+}
+
 export function resetTestFetchCaptureForTest(): void {
 	if (globalThis.fetch === patchedFetch && originalFetch) {
 		globalThis.fetch = originalFetch;

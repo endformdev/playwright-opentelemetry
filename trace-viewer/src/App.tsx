@@ -92,6 +92,8 @@ function loadingMessage(source: TraceSource): string {
 			return "Downloading and extracting ZIP...";
 		case "remote-api":
 			return "Fetching trace data...";
+		case "remote-live":
+			return "Connecting to live trace...";
 	}
 }
 
@@ -99,6 +101,7 @@ function traceSourceUrl(source: TraceSource | undefined): string | undefined {
 	if (!source) return undefined;
 	switch (source.kind) {
 		case "remote-api":
+		case "remote-live":
 		case "remote-zip":
 			return source.url;
 		case "local-zip":

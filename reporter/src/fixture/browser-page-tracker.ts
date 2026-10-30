@@ -39,6 +39,11 @@ export class BrowserPageTracker {
 		this.pages.add(page);
 	}
 
+	/** The page's `browser.page.id`, also used to label its screenshots. */
+	pageId(page: Page): string {
+		return this.stateFor(page).pageId;
+	}
+
 	unregisterPage(page: Page, endTime = new Date()): void {
 		this.finishPageSpans(page, endTime);
 		this.pages.delete(page);
@@ -199,7 +204,7 @@ export class BrowserPageTracker {
 		state.activeDocumentSpan = { span, url };
 		state.documentUrl = url;
 		state.lastUrl = url;
-		this.traceContext.addSpan(span);
+		this.traceContext.addOpenSpan(span);
 	}
 
 	private startRouteSpan(
@@ -225,7 +230,7 @@ export class BrowserPageTracker {
 		});
 
 		state.activeRouteSpan = { span, url };
-		this.traceContext.addSpan(span);
+		this.traceContext.addOpenSpan(span);
 	}
 
 	private finishPageSpans(page: Page, endTime: Date): void {
@@ -237,6 +242,7 @@ export class BrowserPageTracker {
 		this.finishRouteSpan(state, endTime);
 		if (state.activeDocumentSpan) {
 			state.activeDocumentSpan.span.endTime = endTime;
+			this.traceContext.completeSpan(state.activeDocumentSpan.span);
 			state.activeDocumentSpan = undefined;
 		}
 	}
@@ -244,6 +250,7 @@ export class BrowserPageTracker {
 	private finishRouteSpan(state: PageState, endTime: Date): void {
 		if (state.activeRouteSpan) {
 			state.activeRouteSpan.span.endTime = endTime;
+			this.traceContext.completeSpan(state.activeRouteSpan.span);
 			state.activeRouteSpan = undefined;
 		}
 	}

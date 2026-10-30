@@ -159,5 +159,7 @@ function traceContext(): TestTraceContext {
 		spans: [],
 		requestContexts: new WeakMap(),
 		addSpan() {},
+		addOpenSpan() {},
+		completeSpan() {},
 	};
 }

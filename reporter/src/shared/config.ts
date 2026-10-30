@@ -5,12 +5,19 @@ export type PlaywrightOpentelemetryDestination = {
 	url: string;
 	headers?: Record<string, string>;
 	trace?: PlaywrightTraceOption;
+	/**
+	 * Stream this trace API destination as a live trace while each test runs,
+	 * instead of uploading once it ends. Needs a trace API that serves the live
+	 * routes. Live traces are always kept, so `trace` doesn't apply.
+	 */
+	live?: boolean;
 };
 
 export type ResolvedPlaywrightOpentelemetryDestination = {
 	url: string;
 	headers: Record<string, string>;
 	trace: PlaywrightTraceOption | null;
+	live: boolean;
 };
 
 export interface PlaywrightOpentelemetryConfig {
@@ -120,12 +127,14 @@ function resolveDestinationKind(options: {
 			url: envEndpoint,
 			headers: parseOtlpHeaders(envHeaders),
 			trace: null,
+			live: false,
 		};
 	} else if (options.singular) {
 		primaryDestination = {
 			url: options.singular.url,
 			headers: { ...options.singular.headers },
 			trace: options.singular.trace ?? null,
+			live: options.singular.live === true,
 		};
 	}
 
@@ -133,6 +142,7 @@ function resolveDestinationKind(options: {
 		url: destination.url,
 		headers: { ...destination.headers },
 		trace: destination.trace ?? null,
+		live: destination.live === true,
 	}));
 
 	return primaryDestination

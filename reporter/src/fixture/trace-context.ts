@@ -10,6 +10,7 @@ import {
 } from "../shared/otel";
 import type { ResolvedPlaywrightOpentelemetryConfig } from "../shared/config";
 import { filterRetainedDestinations } from "../shared/destinations";
+import type { LiveTraceExporter } from "./live-trace-exporter";
 import {
 	couldRetainPlaywrightTrace,
 	type PlaywrightTracePreTestInfo,
@@ -64,7 +65,13 @@ export interface NetworkRequestTraceContext {
 export interface TestTraceContext extends PlaywrightOtelTraceContextAttachment {
 	spans: FixtureSpan[];
 	requestContexts: WeakMap<object, NetworkRequestTraceContext>;
+	/** Streams completed spans while the test runs, when a destination is live. */
+	live?: LiveTraceExporter;
+	/** Adds a span that has already ended. */
 	addSpan(span: FixtureSpan): void;
+	/** Adds a span that is still running; call completeSpan once it ends. */
+	addOpenSpan(span: FixtureSpan): void;
+	completeSpan(span: FixtureSpan): void;
 }
 
 export async function createTestTraceContext(
@@ -77,6 +84,13 @@ export async function createTestTraceContext(
 		requestContexts: new WeakMap<object, NetworkRequestTraceContext>(),
 		addSpan(span) {
 			this.spans.push(span);
+			this.live?.addSpan(span);
+		},
+		addOpenSpan(span) {
+			this.spans.push(span);
+		},
+		completeSpan(span) {
+			this.live?.addSpan(span);
 		},
 	};
 

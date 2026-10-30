@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	resetTestFetchCaptureForTest,
 	runWithTestFetchCapture,
+	untracedFetch,
 } from "../src/fixture/test-fetch-capture";
 import type { TestTraceContext } from "../src/fixture/trace-context";
 import { generateSpanId, generateTraceId } from "../src/shared/otel";
@@ -106,6 +107,25 @@ describe("test worker fetch capture", () => {
 		);
 	});
 
+	it("does not capture the fixture's own untraced fetch calls during a test", async () => {
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response("{}", { status: 200 }));
+		globalThis.fetch = fetchMock;
+		const traceContext = createTraceContext();
+
+		await runWithTestFetchCapture(traceContext, async () => {
+			await untracedFetch("https://traces.example.com/spans", {
+				method: "POST",
+			});
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith("https://traces.example.com/spans", {
+			method: "POST",
+		});
+		expect(traceContext.spans).toEqual([]);
+	});
+
 	it("does not capture fetch calls outside the active test context", async () => {
 		const fetchMock = vi
 			.fn<typeof fetch>()
@@ -133,5 +153,9 @@ function createTraceContext(): TestTraceContext {
 		addSpan(span) {
 			this.spans.push(span);
 		},
+		addOpenSpan(span) {
+			this.spans.push(span);
+		},
+		completeSpan() {},
 	};
 }
