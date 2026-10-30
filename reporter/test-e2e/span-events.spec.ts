@@ -25,5 +25,5 @@ test("browser console and page error span events", async ({
 	});
 	await pageErrorPromise;
 
-	await expect(page.locator("body")).toContainText("Example Domain");
+	await expect(page).toHaveTitle("Example Domain");
 });
