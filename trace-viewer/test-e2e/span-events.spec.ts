@@ -85,6 +85,9 @@ test("shows browser console and exception events on spans", async ({
 	expect(browserSpan?.events.map((event) => event.name)).toContain("exception");
 
 	const viewer = new TraceViewerPage(page);
+	// Hovering shows details only while nothing is selected; the step viewer
+	// selects its first stop on load.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"browser console and page error span events",

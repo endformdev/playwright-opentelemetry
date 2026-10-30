@@ -3,8 +3,10 @@ import type { Span } from "../trace-data-loader/exportToSpans";
 import type { TestInfo } from "../trace-info-loader";
 import { ErrorSpansDropdown } from "./components/ErrorSpansDropdown";
 import { SearchCombobox } from "./components/SearchCombobox";
+import { SettingsMenu } from "./components/SettingsMenu";
 import { useSearch } from "./contexts/SearchContext";
 import type { SpanSelectionPlacement } from "./spanSelection";
+import type { ViewerSettingKey, ViewerSettings } from "./viewerSettings";
 
 export interface TraceViewerHeaderProps {
 	testInfo: TestInfo;
@@ -12,6 +14,8 @@ export interface TraceViewerHeaderProps {
 	hoverTimeMs: Accessor<number | null>;
 	onSpanSelect?: (spanId: string, placement: SpanSelectionPlacement) => void;
 	onSpanHover?: (spanId: string | null) => void;
+	settings: ViewerSettings;
+	onSettingChange: (key: ViewerSettingKey, value: boolean) => void;
 }
 
 export function TraceViewerHeader(props: TraceViewerHeaderProps) {
@@ -172,6 +176,11 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 						)}
 					</Show>
 				</div>
+
+				<SettingsMenu
+					settings={props.settings}
+					onSettingChange={props.onSettingChange}
+				/>
 			</div>
 		</header>
 	);
