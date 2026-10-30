@@ -4,7 +4,10 @@ import {
 	type Span,
 	type SpanKind,
 } from "../../trace-data-loader/exportToSpans";
-import { useViewportContext } from "../contexts/ViewportContext";
+import {
+	useViewportContext,
+	useViewportTransitionTransform,
+} from "../contexts/ViewportContext";
 import type { PackedSpan, PackedSpansResult } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
 import { PanelCornerLabel } from "./PanelHeader";
@@ -35,7 +38,9 @@ function getSpanColor(kind: SpanKind): string {
 }
 
 export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
-	const { viewport } = useViewportContext();
+	const { renderViewport } = useViewportContext();
+	let plotLayerRef: HTMLDivElement | undefined;
+	useViewportTransitionTransform(() => plotLayerRef);
 
 	const kindMap = createMemo(() => {
 		const map = new Map<string, SpanKind>();
@@ -57,7 +62,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 			isTimeRangeVisible(
 				span.startOffset,
 				span.startOffset + span.duration,
-				viewport(),
+				renderViewport(),
 			),
 		);
 	});
@@ -85,6 +90,7 @@ export function ExternalSpansPanel(props: ExternalSpansPanelProps) {
 					role="list"
 				>
 					<div
+						ref={plotLayerRef}
 						class="relative"
 						style={{
 							height: `${containerHeight()}px`,

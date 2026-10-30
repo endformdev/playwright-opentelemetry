@@ -6,6 +6,10 @@ import {
 	TraceDataBuilder,
 } from "./test-data-builder";
 
+// Bar geometry is asserted after each move; animated moves are covered by
+// their own test below.
+test.use({ reducedMotion: "reduce" });
+
 interface FocusedBar {
 	name: string;
 	region: string;
@@ -388,4 +392,39 @@ test("vertical navigation scrolls the focused bar into view", async ({
 		});
 	}
 	await expectNoHorizontalScroll(page);
+});
+
+test.describe("with motion", () => {
+	test.use({ reducedMotion: "no-preference" });
+
+	test("framing moves animate and settle on the framed span", async ({
+		page,
+		request,
+	}) => {
+		await sendNavigationTrace(page, request, "kbdnavmotion");
+
+		// Root, then Verify (in frame), then Open page; Down to Click zooms in.
+		await page.keyboard.press("ArrowDown");
+		await page.keyboard.press("ArrowDown");
+		await page.keyboard.press("ArrowLeft");
+		await expectFocused(page, { name: "Open page" });
+		await page.keyboard.press("ArrowDown");
+
+		const transforms = await page.evaluate(() =>
+			document.getAnimations().map((animation) =>
+				(animation.effect as KeyframeEffect)
+					.getKeyframes()
+					.map((keyframe) => keyframe.transform ?? keyframe.left)
+					.join(" -> "),
+			),
+		);
+		expect(transforms.some((t) => t.includes("scaleX"))).toBe(true);
+
+		await expect
+			.poll(() => page.evaluate(() => document.getAnimations().length))
+			.toBe(0);
+		const click = await expectFocused(page, { name: "Click" });
+		expect(click.widthFraction).toBeGreaterThanOrEqual(0.14);
+		expect(click.widthFraction).toBeLessThanOrEqual(0.61);
+	});
 });

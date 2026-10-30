@@ -1,6 +1,9 @@
 import { createMemo, For, Show } from "solid-js";
 import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
-import { useViewportContext } from "../contexts/ViewportContext";
+import {
+	useViewportContext,
+	useViewportTransitionTransform,
+} from "../contexts/ViewportContext";
 import type { PackedSpan, PackedSpansResult } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
 import {
@@ -26,7 +29,9 @@ export interface BrowserSpansPanelProps {
 }
 
 export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
-	const { viewport } = useViewportContext();
+	const { renderViewport } = useViewportContext();
+	let plotLayerRef: HTMLDivElement | undefined;
+	useViewportTransitionTransform(() => plotLayerRef);
 
 	const displayNames = createMemo(
 		() =>
@@ -55,7 +60,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 			isTimeRangeVisible(
 				span.startOffset,
 				span.startOffset + span.duration,
-				viewport(),
+				renderViewport(),
 			),
 		);
 	});
@@ -83,6 +88,7 @@ export function BrowserSpansPanel(props: BrowserSpansPanelProps) {
 					role="list"
 				>
 					<div
+						ref={plotLayerRef}
 						class="relative"
 						style={{
 							height: `${containerHeight()}px`,

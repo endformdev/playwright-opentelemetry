@@ -5,9 +5,11 @@ import {
 	createViewport,
 	frameTimeRange,
 	getMinVisibleDuration,
+	getViewportTransform,
 	getVisibleDuration,
 	getZoomLevel,
 	isFullyZoomedOut,
+	interpolateViewportMapping,
 	isTimeRangeVisible,
 	panViewport,
 	resetViewport,
@@ -568,5 +570,64 @@ describe("frameTimeRange", () => {
 	it("caps zooming out at the full timeline", () => {
 		const viewport = view(0, 10000);
 		expect(frameTimeRange(viewport, 0, 10000)).toBe(viewport);
+	});
+});
+
+describe("getViewportTransform", () => {
+	const view = (visibleStartMs: number, visibleEndMs: number) => ({
+		visibleStartMs,
+		visibleEndMs,
+		totalDurationMs: 10000,
+	});
+
+	it("draws each time where the old viewport placed it", () => {
+		const from = view(1000, 3000);
+		const to = view(1500, 2000);
+		const { scale, translate } = getViewportTransform(from, to);
+		for (const timeMs of [1500, 1750, 2000, 2600]) {
+			const laidOut = timeToViewportPosition(timeMs, to);
+			expect(scale * laidOut + translate).toBeCloseTo(
+				timeToViewportPosition(timeMs, from),
+			);
+		}
+	});
+
+	it("is the identity for an unchanged viewport", () => {
+		expect(getViewportTransform(view(0, 500), view(0, 500))).toEqual({
+			scale: 1,
+			translate: 0,
+		});
+	});
+});
+
+describe("interpolateViewportMapping", () => {
+	const from = {
+		visibleStartMs: 0,
+		visibleEndMs: 4000,
+		totalDurationMs: 10000,
+	};
+	const to = {
+		visibleStartMs: 6000,
+		visibleEndMs: 7000,
+		totalDurationMs: 10000,
+	};
+
+	it("starts at from and ends at to", () => {
+		expect(interpolateViewportMapping(from, to, 0)).toEqual(from);
+		const end = interpolateViewportMapping(from, to, 1);
+		expect(end.visibleStartMs).toBeCloseTo(6000);
+		expect(end.visibleEndMs).toBeCloseTo(7000);
+	});
+
+	it("matches the transform part way through", () => {
+		const progress = 0.3;
+		const { scale, translate } = getViewportTransform(from, to);
+		const shown = interpolateViewportMapping(from, to, progress);
+		for (const timeMs of [6000, 6500, 7000]) {
+			const laidOut = timeToViewportPosition(timeMs, to);
+			const eased =
+				(1 - progress) * (scale * laidOut + translate) + progress * laidOut;
+			expect(timeToViewportPosition(timeMs, shown)).toBeCloseTo(eased);
+		}
 	});
 });

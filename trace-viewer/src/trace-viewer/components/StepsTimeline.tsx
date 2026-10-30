@@ -1,6 +1,9 @@
 import { createMemo, For } from "solid-js";
 import { isErrorSpan, type Span } from "../../trace-data-loader/exportToSpans";
-import { useViewportContext } from "../contexts/ViewportContext";
+import {
+	useViewportContext,
+	useViewportTransitionTransform,
+} from "../contexts/ViewportContext";
 import type { PackedSpan, PackedSpansResult } from "../packSpans";
 import { isTimeRangeVisible } from "../viewport";
 import { PanelCornerLabel } from "./PanelHeader";
@@ -61,7 +64,9 @@ function buildDepthMap(spans: Span[]): Map<string, number> {
 const ERROR_SPAN_COLOR = "#dc2626";
 
 export function StepsTimeline(props: StepsTimelineProps) {
-	const { viewport } = useViewportContext();
+	const { renderViewport } = useViewportContext();
+	let plotLayerRef: HTMLDivElement | undefined;
+	useViewportTransitionTransform(() => plotLayerRef);
 
 	const depthMap = createMemo(() => buildDepthMap(props.steps));
 	const stepMap = createMemo(
@@ -76,7 +81,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 			isTimeRangeVisible(
 				step.startOffset,
 				step.startOffset + step.duration,
-				viewport(),
+				renderViewport(),
 			),
 		);
 	});
@@ -95,6 +100,7 @@ export function StepsTimeline(props: StepsTimelineProps) {
 				role="list"
 			>
 				<div
+					ref={plotLayerRef}
 					class="relative"
 					style={{
 						height: `${containerHeight()}px`,

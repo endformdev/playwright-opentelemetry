@@ -242,3 +242,43 @@ export function frameTimeRange(
 		? viewport
 		: framed;
 }
+
+/**
+ * The horizontal transform that draws content laid out for `to` where `from`
+ * would draw it: x ↦ scale · x + translate, with x and translate as fractions
+ * of the plot width and the origin at the plot's left edge.
+ */
+export function getViewportTransform(
+	from: TimelineViewport,
+	to: TimelineViewport,
+): { scale: number; translate: number } {
+	const fromDuration = getVisibleDuration(from);
+	return {
+		scale: getVisibleDuration(to) / fromDuration,
+		translate: (to.visibleStartMs - from.visibleStartMs) / fromDuration,
+	};
+}
+
+/**
+ * The viewport shown `progress` of the way through a transform easing from
+ * `from` to `to`. Every point moves linearly between its two positions, so
+ * the shown mapping blends the two viewports' inverse durations.
+ */
+export function interpolateViewportMapping(
+	from: TimelineViewport,
+	to: TimelineViewport,
+	progress: number,
+): TimelineViewport {
+	const fromDuration = getVisibleDuration(from);
+	const toDuration = getVisibleDuration(to);
+	const duration = 1 / ((1 - progress) / fromDuration + progress / toDuration);
+	const start =
+		duration *
+		((1 - progress) * (from.visibleStartMs / fromDuration) +
+			progress * (to.visibleStartMs / toDuration));
+	return {
+		visibleStartMs: start,
+		visibleEndMs: start + duration,
+		totalDurationMs: to.totalDurationMs,
+	};
+}

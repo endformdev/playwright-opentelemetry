@@ -24,7 +24,10 @@ import {
 } from "./contexts/HoverContext";
 import { SearchProvider, useSearch } from "./contexts/SearchContext";
 import {
+	prefersReducedMotion,
 	useViewportContext,
+	VIEWPORT_ANIMATION_EASING,
+	VIEWPORT_ANIMATION_MS,
 	ViewportProvider,
 } from "./contexts/ViewportContext";
 import {
@@ -183,7 +186,7 @@ interface TraceViewerInnerProps {
 }
 
 function TraceViewerInner(props: TraceViewerInnerProps) {
-	const { viewport, setViewport, zoomToRange, pan, zoom, reset } =
+	const { viewport, setViewport, animateTo, zoomToRange, pan, zoom, reset } =
 		useViewportContext();
 
 	const {
@@ -626,6 +629,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	};
 
 	let revealFrame: number | undefined;
+	let lockedLineRef: HTMLDivElement | undefined;
+	let lineAnimation: Animation | undefined;
 
 	/**
 	 * Focuses a span the way keyboard navigation does: frames it within the
@@ -642,11 +647,23 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			span.startOffsetMs,
 			span.startOffsetMs + span.durationMs,
 		);
-		if (framedViewport !== currentViewport) setViewport(framedViewport);
+		// Where the line is drawn now, mid-animation included.
+		const lineLeft =
+			lockedLineRef?.isConnected && !prefersReducedMotion()
+				? getComputedStyle(lockedLineRef).left
+				: null;
+		if (framedViewport !== currentViewport) animateTo(framedViewport);
 		lock(
 			timeMs ?? getSpanSelectionTimeMs(span, "center"),
 			focusedElementFor(span),
 		);
+		if (lineLeft !== null && lockedLineRef?.isConnected) {
+			lineAnimation?.cancel();
+			lineAnimation = lockedLineRef.animate(
+				[{ left: lineLeft }, { left: lockedLineRef.style.left }],
+				{ duration: VIEWPORT_ANIMATION_MS, easing: VIEWPORT_ANIMATION_EASING },
+			);
+		}
 
 		// Wait for the framed viewport to render the bar before scrolling to it.
 		if (revealFrame !== undefined) cancelAnimationFrame(revealFrame);
@@ -948,6 +965,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					{/* Position indicator - locked mode: thick blue line */}
 					<Show when={mode() === "locked" && lockedPosition() !== null}>
 						<div
+							ref={lockedLineRef}
 							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
 							style={{
 								left: `${lockedPosition()! * 100}%`,
