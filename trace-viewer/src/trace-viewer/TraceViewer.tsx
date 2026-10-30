@@ -6,6 +6,7 @@ import {
 	onCleanup,
 	onMount,
 	Show,
+	untrack,
 } from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
@@ -651,22 +652,35 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			);
 		};
 
-		const configs = spanPanelSizeConfigs().map((config) => ({
-			...config,
-			content: renderPanelContent(config.id),
-		}));
+		// Rebuild the panels whenever a section gains or loses its last span,
+		// which happens as a live trace streams in. Keyed on the IDs alone so
+		// new spans in an existing section keep its size.
+		const activePanelIds = createMemo(() =>
+			spanPanelSizeConfigs()
+				.map((config) => config.id)
+				.join(","),
+		);
 
-		if (configs.length === 0) {
-			return null;
-		}
+		return (
+			<Show when={activePanelIds()} keyed>
+				{(_panelIds) => {
+					const configs = untrack(spanPanelSizeConfigs).map((config) => ({
+						...config,
+						content: renderPanelContent(config.id),
+					}));
 
-		if (configs.length === 1) {
-			return (
-				<div class="h-full min-h-0 overflow-hidden">{configs[0].content}</div>
-			);
-		}
+					if (configs.length === 1) {
+						return (
+							<div class="h-full min-h-0 overflow-hidden">
+								{configs[0].content}
+							</div>
+						);
+					}
 
-		return <MultiResizablePanel direction="vertical" panels={configs} />;
+					return <MultiResizablePanel direction="vertical" panels={configs} />;
+				}}
+			</Show>
+		);
 	};
 
 	const MainPanelContent = () => (

@@ -38,6 +38,9 @@ export function MultiResizablePanel(props: MultiResizablePanelProps) {
 	};
 
 	const [panelSizes, setPanelSizes] = createSignal(initialSizes());
+	// Panels added after mount start at their initial size.
+	const sizeOf = (sizes: Record<string, number>, panel: PanelConfig) =>
+		sizes[panel.id] ?? panel.initialSize;
 	const [draggingIndex, setDraggingIndex] = createSignal<number | null>(null);
 
 	let containerRef: HTMLDivElement | undefined;
@@ -69,13 +72,13 @@ export function MultiResizablePanel(props: MultiResizablePanelProps) {
 				// Calculate the position before the handle (sum of all panels before handleIndex + 1)
 				let positionBefore = 0;
 				for (let i = 0; i <= handleIndex; i++) {
-					positionBefore += prev[panels[i].id];
+					positionBefore += sizeOf(prev, panels[i]);
 				}
 
 				// Calculate the position after the handle
 				let positionAfter = 0;
 				for (let i = 0; i <= handleIndex + 1; i++) {
-					positionAfter += prev[panels[i].id];
+					positionAfter += sizeOf(prev, panels[i]);
 				}
 
 				// Calculate delta from the current handle position
@@ -89,8 +92,8 @@ export function MultiResizablePanel(props: MultiResizablePanelProps) {
 				const minAfter = panelAfter.minSize ?? 5;
 
 				// Calculate new sizes
-				let newSizeBefore = prev[panelBefore.id] + delta;
-				let newSizeAfter = prev[panelAfter.id] - delta;
+				let newSizeBefore = sizeOf(prev, panelBefore) + delta;
+				let newSizeAfter = sizeOf(prev, panelAfter) - delta;
 
 				// Enforce minimums
 				if (newSizeBefore < minBefore) {
@@ -137,7 +140,7 @@ export function MultiResizablePanel(props: MultiResizablePanelProps) {
 							style={{
 								// Grow from zero so panels share the space left after the
 								// handles instead of overflowing the container by them.
-								flex: `${panelSizes()[panel.id]} 1 0px`,
+								flex: `${sizeOf(panelSizes(), panel)} 1 0px`,
 								[isHorizontal() ? "min-width" : "min-height"]: 0,
 								overflow: "hidden",
 							}}
@@ -150,7 +153,7 @@ export function MultiResizablePanel(props: MultiResizablePanelProps) {
 							<div
 								role="separator"
 								aria-orientation={isHorizontal() ? "vertical" : "horizontal"}
-								aria-valuenow={Math.round(panelSizes()[panel.id])}
+								aria-valuenow={Math.round(sizeOf(panelSizes(), panel))}
 								tabIndex={0}
 								class={`
 									${isHorizontal() ? "w-1 cursor-col-resize hover:bg-blue-400/50" : "h-1 cursor-row-resize hover:bg-blue-400/50"}
