@@ -204,13 +204,24 @@ export function ViewportProvider(props: ViewportProviderProps) {
 					.join(", ")
 			: undefined;
 
-	// Reset viewport when duration changes
-	createMemo(() => {
+	// Reset the viewport when the duration changes. A live trace's duration
+	// grows as it runs: keep following it while the whole trace is shown, and
+	// otherwise keep the range the user zoomed to.
+	createMemo((previousDuration: number | undefined) => {
 		const duration = props.durationMs();
-		if (duration > 0) {
-			setViewport(createViewport(duration));
-		}
-	});
+		if (duration <= 0) return previousDuration;
+
+		const shown = untrack(viewport);
+		const showsWholeTrace =
+			previousDuration === undefined ||
+			(shown.visibleStartMs <= 0 && shown.visibleEndMs >= previousDuration);
+		setViewport(
+			showsWholeTrace
+				? createViewport(duration)
+				: { ...shown, totalDurationMs: duration },
+		);
+		return duration;
+	}, undefined);
 
 	const pan = (deltaMs: number) => {
 		setViewport((v) => panViewport(v, deltaMs));

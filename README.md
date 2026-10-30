@@ -289,6 +289,18 @@ Console messages and uncaught browser errors appear as span events on the timeli
 
 ![The error navigator jumps straight to the failing span and its recorded exception](docs/assets/error-navigator.png)
 
+### Live traces (experimental)
+
+A test's trace can also be watched while the test runs. Mark a trace API destination as `live` and every test streams its completed steps, browser and network spans, and screenshots as it goes:
+
+```ts
+playwrightOpentelemetry: {
+	playwrightTraceApiEndpoint: { url: "https://traces.example.com", live: true },
+},
+```
+
+Live destinations only receive live traces. The trace API must serve the live routes, which currently need Cloudflare Workers with a Durable Object; see [Live traces](trace-api/README.md#live-traces-experimental-cloudflare). Open `{url}/playwright-otel-live/v1/{traceId}` in the viewer to follow it. Screenshots come from Playwright's `page.screencast` API, so they need Playwright 1.59 or newer and don't depend on `use.trace`.
+
 ### Using trace IDs in other reporters
 
 Reporters configured after `playwright-opentelemetry/reporter` can read the trace ID from `TestResult.annotations` in `onTestEnd`:

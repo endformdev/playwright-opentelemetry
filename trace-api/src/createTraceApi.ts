@@ -7,6 +7,7 @@ import {
 import { createOtlpHandler } from "./handlers/otlp";
 import { createPlaywrightHandler } from "./handlers/playwright";
 import { createViewerHandler } from "./handlers/viewer";
+import type { OtlpExport } from "./otlp";
 import {
 	createS3Storage,
 	type StorageConfig,
@@ -33,6 +34,16 @@ export interface TraceApiConfig {
 	 * Set to "*" or a specific origin string to enable CORS.
 	 */
 	corsOrigin?: string | false;
+	/**
+	 * Offer spans from untrusted sources to another store before the
+	 * expected-trace check. Return true when the spans were taken, for example
+	 * by a live trace. Reporter-sourced spans never reach this hook.
+	 */
+	routeSpans?: (
+		event: H3Event,
+		traceId: string,
+		payload: OtlpExport,
+	) => Promise<boolean> | boolean;
 }
 
 /**
@@ -53,6 +64,16 @@ export interface TraceApiHandlerConfig {
 	 * Set to "*" or a specific origin string to enable CORS.
 	 */
 	corsOrigin?: string | false;
+	/**
+	 * Offer spans from untrusted sources to another store before the
+	 * expected-trace check. Return true when the spans were taken, for example
+	 * by a live trace. Reporter-sourced spans never reach this hook.
+	 */
+	routeSpans?: (
+		event: H3Event,
+		traceId: string,
+		payload: OtlpExport,
+	) => Promise<boolean> | boolean;
 }
 
 /**
@@ -78,6 +99,7 @@ export function createTraceApi(config: TraceApiConfig): H3 {
 		storage,
 		resolvePath: config.resolvePath,
 		corsOrigin: config.corsOrigin,
+		routeSpans: config.routeSpans,
 	};
 
 	const h3 = new H3();

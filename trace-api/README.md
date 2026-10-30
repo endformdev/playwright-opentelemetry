@@ -184,6 +184,59 @@ GET /playwright-otel-trace-viewer/v1/{traceId}/screenshots.zip
 
 Serves merged OTLP trace data and the stored screenshot ZIP expected by the trace viewer. The trace endpoint returns `404` when no trace fragments exist. A missing screenshot ZIP returns `404`; the viewer treats that as no screenshots.
 
+## Live traces (experimental, Cloudflare)
+
+Live traces can be watched while a test is still running. They are a separate, short-lived kind of trace: each one is a Durable Object that stores spans in SQLite and streams them to viewers as Server-Sent Events. Screenshot frames are stored in R2 in batches. Static traces are unaffected.
+
+Live support lives in its own entry point, so the main package never imports anything Cloudflare-specific:
+
+```typescript
+import { createTraceApi } from "@playwright-opentelemetry/trace-api";
+import {
+	createLiveTraceApi,
+	createR2Storage,
+	LIVE_TRACE_PATH_PREFIX,
+	LiveTraceDurableObject,
+} from "@playwright-opentelemetry/trace-api/cloudflare-live";
+
+export { LiveTraceDurableObject };
+
+export default {
+	async fetch(request: Request, env: Env) {
+		const live = createLiveTraceApi({
+			namespace: env.LIVE_TRACES,
+			frames: env.TRACES,
+		});
+		if (new URL(request.url).pathname.startsWith(LIVE_TRACE_PATH_PREFIX)) {
+			return live.fetch(request);
+		}
+
+		// routeSpans lets spans from services under test join a live trace.
+		const api = createTraceApi({
+			storage: createR2Storage(env.TRACES),
+			routeSpans: live.routeSpans,
+		});
+		return api.fetch(request);
+	},
+};
+```
+
+Bind the Durable Object as a SQLite class and add an R2 bucket. A complete Worker and `wrangler.jsonc`, used by the trace viewer's e2e tests, are in [`trace-viewer/test-e2e/live-trace-worker`](../trace-viewer/test-e2e/live-trace-worker).
+
+Routes, all under `/playwright-otel-live/v1/{traceId}`:
+
+| Route                 | Purpose                                                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `PUT /start`          | Create the trace with the test's title, file, line, and start time                                                      |
+| `POST /spans`         | Append completed spans (OTLP JSON); duplicates by span ID are ignored                                                   |
+| `POST /frames`        | Append a screenshot batch (the `screenshots.zip` format)                                                                |
+| `PUT /end`            | Record the final status                                                                                                 |
+| `GET /stream?offset=` | Server-Sent Events: everything after the offset, then new events as they arrive. Reconnects resume with `Last-Event-ID` |
+| `GET /traces`         | Every span so far, as OTLP JSON                                                                                         |
+| `GET /frames/{file}`  | One screenshot batch                                                                                                    |
+
+`createLiveTraceApi` accepts `resolveName` to scope traces per tenant, `corsOrigin`, and `settings` (`retentionMs`, default one day; `abandonAfterMs`, default two hours). Add authentication the same way as for the static routes. R2 doesn't expire frame batches by itself: add a lifecycle rule on the `live/` prefix that matches `retentionMs`.
+
 ## Storage Setup
 
 Configure your S3-compatible bucket with a lifecycle rule to expire traces after the desired retention period.

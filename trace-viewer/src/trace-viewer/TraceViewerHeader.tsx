@@ -15,18 +15,19 @@ export interface TraceViewerHeaderProps {
 }
 
 export function TraceViewerHeader(props: TraceViewerHeaderProps) {
-	const { testInfo } = props;
+	// Read through props: a live trace's info changes as it runs.
+	const testInfo = () => props.testInfo;
 	const search = useSearch();
 
 	const duration = () => {
-		const startNano = BigInt(testInfo.startTimeUnixNano);
-		const endNano = BigInt(testInfo.endTimeUnixNano);
+		const startNano = BigInt(testInfo().startTimeUnixNano);
+		const endNano = BigInt(testInfo().endTimeUnixNano);
 		const durationMs = Number((endNano - startNano) / BigInt(1_000_000));
 		return durationMs;
 	};
 
 	const statusColor = () => {
-		switch (testInfo.status) {
+		switch (testInfo().status) {
 			case "passed":
 				return "text-green-600";
 			case "failed":
@@ -37,13 +38,15 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 				return "text-orange-600";
 			case "interrupted":
 				return "text-orange-600";
+			case "running":
+				return "text-blue-600";
 			default:
 				return "text-gray-500";
 		}
 	};
 
 	const statusIcon = () => {
-		switch (testInfo.status) {
+		switch (testInfo().status) {
 			case "passed":
 				return "✓";
 			case "failed":
@@ -54,6 +57,8 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 				return "⏱";
 			case "interrupted":
 				return "⚠";
+			case "running":
+				return "●";
 			default:
 				return "?";
 		}
@@ -61,7 +66,7 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 
 	// Get test start time as a Date
 	const testStartTime = () => {
-		const startNano = BigInt(testInfo.startTimeUnixNano);
+		const startNano = BigInt(testInfo().startTimeUnixNano);
 		const startMs = Number(startNano / BigInt(1_000_000));
 		return new Date(startMs);
 	};
@@ -103,12 +108,12 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 				{/* Test Name and Info */}
 				<div class="flex-1 min-w-0">
 					<div class="flex items-baseline gap-2">
-						{testInfo.describes.length > 0 && (
+						{testInfo().describes.length > 0 && (
 							<span
 								class="text-gray-500 text-sm truncate"
 								data-testid="test-describes"
 							>
-								{testInfo.describes.join(" › ")}{" "}
+								{testInfo().describes.join(" › ")}{" "}
 								<span class="text-gray-400">›</span>
 							</span>
 						)}
@@ -116,18 +121,26 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 							class="font-semibold text-gray-900 truncate"
 							data-testid="test-name"
 						>
-							{testInfo.name}
+							{testInfo().name}
 						</span>
 					</div>
 					<div class="flex items-center gap-3 text-xs text-gray-500">
 						<span class="font-mono truncate" data-testid="test-file-location">
-							{testInfo.file}:{testInfo.line}
+							{testInfo().file}:{testInfo().line}
 						</span>
 						<span class="text-gray-300">|</span>
 						<span class="font-mono">{duration()}ms</span>
 						<span class={statusColor()} data-testid="test-status">
-							{testInfo.status}
+							{testInfo().status}
 						</span>
+						<Show when={testInfo().status === "running"}>
+							<span
+								class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white"
+								data-testid="live-badge"
+							>
+								LIVE
+							</span>
+						</Show>
 					</div>
 				</div>
 

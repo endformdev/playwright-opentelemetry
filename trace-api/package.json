@@ -27,6 +27,7 @@
 	"types": "./dist/index.d.mts",
 	"exports": {
 		".": "./dist/index.mjs",
+		"./cloudflare-live": "./dist/cloudflare-live.mjs",
 		"./package.json": "./package.json"
 	},
 	"scripts": {

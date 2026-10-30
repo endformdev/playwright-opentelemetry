@@ -41,6 +41,10 @@ export function createOtlpHandler(config: TraceApiHandlerConfig): EventHandler {
 		const storePromises: Promise<void>[] = [];
 		for (const [traceId, tracePayload] of traces) {
 			if (!trustedPlaywrightSource) {
+				if (await config.routeSpans?.(event, traceId, tracePayload)) {
+					continue;
+				}
+
 				let expectedPath = `traces/${traceId}/.expected`;
 				if (config.resolvePath) {
 					expectedPath = await config.resolvePath(event, expectedPath);

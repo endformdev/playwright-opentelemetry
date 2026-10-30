@@ -26,6 +26,19 @@ describe("trace source input parsing", () => {
 		});
 	});
 
+	it("parses a live trace URL with its trace token", () => {
+		expect(
+			parseTraceSourceInput(
+				"https://example.com/playwright-otel-live/v1/0123456789abcdef0123456789abcdef?traceToken=token",
+				null,
+			),
+		).toEqual({
+			kind: "remote-live",
+			url: "https://example.com/playwright-otel-live/v1/0123456789abcdef0123456789abcdef",
+			traceToken: "token",
+		});
+	});
+
 	it("attaches trace tokens to remote API URLs", () => {
 		expect(parseTraceSourceInput("https://example.com/api", " token ")).toEqual(
 			{

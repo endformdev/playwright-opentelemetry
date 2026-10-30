@@ -4,6 +4,9 @@ export default defineConfig({
 	dts: {
 		sourcemap: true,
 	},
-	entry: "./src/index",
+	entry: {
+		index: "./src/index",
+		"cloudflare-live": "./src/cloudflare-live/index",
+	},
 	exports: true,
 });

@@ -33,13 +33,7 @@ import {
 	shouldRetainPlaywrightTrace,
 } from "../shared/playwright-trace";
 import { filterRetainedDestinations } from "../shared/destinations";
-import {
-	ATTR_CODE_FILE_PATH,
-	ATTR_CODE_LINE_NUMBER,
-	ATTR_TEST_CASE_NAME,
-	ATTR_TEST_CASE_RESULT_STATUS,
-	ATTR_TEST_CASE_TITLE,
-} from "./otel-attributes";
+import { ATTR_CODE_FILE_PATH, ATTR_CODE_LINE_NUMBER } from "./otel-attributes";
 import {
 	ATTR_TEST_PHASE,
 	ATTR_TEST_STEP_CATEGORY,
@@ -48,7 +42,14 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "./reporter-attributes";
+import { LiveTestStreamer } from "./live-test-streamer";
 import { sendSpans } from "./sender";
+import {
+	errorStatus,
+	isInternalApiRequestStep,
+	isInternalFixtureStep,
+	testSpanAttributes,
+} from "./test-steps";
 import {
 	createScreenshotsZip,
 	createTraceZipBlob,
@@ -92,6 +93,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private rootDir?: string;
 	private playwrightVersion?: string;
 	private debug = false;
+	private live = new LiveTestStreamer(
+		() => this.rootDir,
+		() => this.playwrightVersion || "unknown",
+	);
 
 	constructor() {}
 
@@ -109,13 +114,21 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		}
 	}
 
-	onTestBegin(_test: TestCase, _result: TestResult) {}
+	onTestBegin(test: TestCase, result: TestResult) {
+		this.live.onTestBegin(result, getTestConfig(test));
+	}
 
-	onStepBegin(_test: TestCase, _result: TestResult, _step: TestStep) {}
+	onStepBegin(_test: TestCase, result: TestResult, step: TestStep) {
+		this.live.onStepBegin(result, step);
+	}
 
-	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
+	onStepEnd(_test: TestCase, result: TestResult, step: TestStep) {
+		this.live.onStepEnd(result, step);
+	}
 
 	onTestEnd(test: TestCase, result: TestResult): void {
+		this.live.onTestEnd(test, result);
+
 		const config = getTestConfig(test);
 		const traceAttachment = result.attachments.find(
 			(attachment) =>
@@ -168,34 +181,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			description: traceId,
 		});
 
-		const attributes: Record<string, string | number | boolean | string[]> = {};
-
-		// titlePath format: ['', 'project', 'filename', ...describes, 'testname']
-		// We want: [...describes, 'testname'] joined with ' > '
-		const titlePath = test.titlePath();
-		if (titlePath.length >= 3) {
-			// Skip root (''), project name, and filename to get describes and test name
-			const caseName = titlePath.slice(3).join(" > ");
-			attributes[ATTR_TEST_CASE_NAME] = caseName;
-		}
-
-		const describes = titlePath.length > 4 ? titlePath.slice(3, -1) : [];
-
-		attributes[ATTR_TEST_CASE_TITLE] = test.title;
-		attributes[ATTR_TEST_CASE_RESULT_STATUS] =
-			result.status === "passed" ? "pass" : "fail";
-		attributes["playwright.test.status"] = result.status;
-		attributes["playwright.test.describes"] = describes;
-
-		if (test.location) {
-			const { file, line } = test.location;
-			const relativePath = this.rootDir
-				? path.relative(this.rootDir, file)
-				: file;
-
-			attributes[ATTR_CODE_FILE_PATH] = relativePath;
-			attributes[ATTR_CODE_LINE_NUMBER] = line;
-		}
+		const attributes = testSpanAttributes(test, result, this.rootDir);
 
 		// Process test steps recursively first to collect all child spans
 		// Track processed step IDs to merge duplicates (Playwright can report the same step twice,
@@ -275,6 +261,8 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	async onEnd(_result: FullResult) {
+		await this.live.onEnd();
+
 		for (const artifact of this.pendingTraceArtifacts) {
 			const prepared = await artifact.prepared;
 			if ("error" in prepared) {
@@ -752,66 +740,6 @@ function parseAttachmentDate(value: unknown): Date | undefined {
 function isSpanStatus(value: unknown): value is NonNullable<Span["status"]> {
 	return isRecord(value) && typeof value.code === "number";
 }
-
-const ANSI_ESCAPE_PATTERN =
-	/[\u001b\u009b][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
-const ORPHANED_ANSI_SGR_PATTERN = /\[(?:\d{1,3};)*\d{1,3}m/g;
-
-function errorStatus(message: string | undefined): NonNullable<Span["status"]> {
-	if (!message) {
-		return { code: 2 };
-	}
-
-	const cleanedMessage = cleanErrorMessage(message);
-	return cleanedMessage ? { code: 2, message: cleanedMessage } : { code: 2 };
-}
-
-function cleanErrorMessage(message: string): string {
-	return message
-		.replace(ANSI_ESCAPE_PATTERN, "")
-		.replace(ORPHANED_ANSI_SGR_PATTERN, "")
-		.replace(/\r\n?/g, "\n")
-		.trim();
-}
-
-function isInternalFixtureStep(step: TestStep): boolean {
-	if (step.category !== "fixture" || !step.location?.file) {
-		return false;
-	}
-
-	return isInternalFixtureFile(step.location.file);
-}
-
-function isInternalApiRequestStep(step: TestStep): boolean {
-	if (step.category !== "pw:api" || !step.location?.file) {
-		return false;
-	}
-
-	return (
-		isApiRequestStepTitle(step.title) &&
-		isInternalFixtureFile(step.location.file)
-	);
-}
-
-function isApiRequestStepTitle(title: string): boolean {
-	return /^(?:DELETE|FETCH|GET|HEAD|PATCH|POST|PUT)\s+"/.test(title);
-}
-
-function isInternalFixtureFile(filePath: string): boolean {
-	const file = filePath.replace(/\\/g, "/");
-	return INTERNAL_FIXTURE_FILE_PATTERNS.some((pattern) => pattern.test(file));
-}
-
-const INTERNAL_FIXTURE_FILE_PATTERNS = [
-	/(?:^|\/)dist\/playwright-opentelemetry-fixture-[^/]+\.(?:mjs|cjs|js)$/,
-	/(?:^|\/)dist\/fixture\.(?:mjs|cjs|js)$/,
-	/(?:^|\/)playwright-opentelemetry\/dist\/fixture\.(?:mjs|cjs|js)$/,
-	/(?:^|\/)playwright-opentelemetry\/reporter\/dist\/fixture\.(?:mjs|cjs|js)$/,
-	/(?:^|\/)playwright-opentelemetry\/dist\/playwright-opentelemetry-fixture-[^/]+\.(?:mjs|cjs|js)$/,
-	/(?:^|\/)playwright-opentelemetry\/dist\/fixture\/index\.(?:mjs|cjs|js)$/,
-	/(?:^|\/)playwright-opentelemetry\/(?:reporter\/)?src\/fixture\/playwright-opentelemetry-fixture\.ts$/,
-	/(?:^|\/)playwright-opentelemetry\/(?:reporter\/)?src\/fixture\/api-request-capture\.ts$/,
-] as const;
 
 function isSpanAttributes(value: unknown): value is Span["attributes"] {
 	if (!isRecord(value)) {

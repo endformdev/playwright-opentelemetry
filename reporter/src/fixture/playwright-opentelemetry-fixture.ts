@@ -14,6 +14,7 @@ import {
 	hasPlaywrightOpentelemetryReporter,
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
 } from "./reporter-config";
+import { LiveTraceExporter, startLiveScreencast } from "./live-trace-exporter";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
 import { runWithTestFetchCapture } from "./test-fetch-capture";
 import {
@@ -72,6 +73,11 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 					playwrightOpentelemetry,
 				);
 				const traceContext = await createTestTraceContext(testInfo);
+				traceContext.live = await LiveTraceExporter.start(
+					traceContext,
+					config,
+					testInfo,
+				);
 				// Downstream services batch their exports, so their spans reach the
 				// Trace API well after this marker. Don't make the test wait for it.
 				const registration = registerExpectedTrace(traceContext, config, {
@@ -84,6 +90,7 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 					trace,
 					testInfo,
 				});
+				await traceContext.live?.close();
 			},
 			{ auto: true },
 		],
@@ -188,7 +195,16 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			// Browsers can reject a script after receiving an HTTP error response.
 			page.on("requestfailed", captureCompletedRequest);
 
+			const stopLiveScreencast = testTraceContext.live
+				? await startLiveScreencast(
+						page,
+						browserPageTracker.pageId(page),
+						testTraceContext.live,
+					)
+				: undefined;
+
 			await use(page);
+			await stopLiveScreencast?.();
 		},
 	});
 }

@@ -44,5 +44,9 @@ function createTraceContext(): TestTraceContext {
 		addSpan(span) {
 			this.spans.push(span);
 		},
+		addOpenSpan(span) {
+			this.spans.push(span);
+		},
+		completeSpan() {},
 	};
 }

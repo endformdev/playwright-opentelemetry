@@ -16,3 +16,5 @@
 # TypeScript project references artifacts
 **/lib/
 *.tsbuildinfo
+# Wrangler
+**/.wrangler/
