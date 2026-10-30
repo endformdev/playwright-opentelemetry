@@ -225,15 +225,15 @@ Bind the Durable Object as a SQLite class and add an R2 bucket. A complete Worke
 
 Routes, all under `/playwright-otel-live/v1/{traceId}`:
 
-| Route                 | Purpose                                                                                                                 |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `PUT /start`          | Create the trace with the test's title, file, line, and start time                                                      |
-| `POST /spans`         | Append completed spans (OTLP JSON); duplicates by span ID are ignored                                                   |
-| `POST /frames`        | Append a screenshot batch (the `screenshots.zip` format)                                                                |
-| `PUT /end`            | Record the final status                                                                                                 |
-| `GET /stream?offset=` | Server-Sent Events: everything after the offset, then new events as they arrive. Reconnects resume with `Last-Event-ID` |
-| `GET /traces`         | Every span so far, as OTLP JSON                                                                                         |
-| `GET /frames/{file}`  | One screenshot batch                                                                                                    |
+| Route                 | Purpose                                                                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `PUT /start`          | Create the trace with the test's title, file, line, and start time; `screenshots: true` tells viewers to keep room for screenshots |
+| `POST /spans`         | Append completed spans (OTLP JSON); duplicates by span ID are ignored                                                              |
+| `POST /frames`        | Append a screenshot batch (the `screenshots.zip` format)                                                                           |
+| `PUT /end`            | Record the final status                                                                                                            |
+| `GET /stream?offset=` | Server-Sent Events: everything after the offset, then new events as they arrive. Reconnects resume with `Last-Event-ID`            |
+| `GET /traces`         | Every span so far, as OTLP JSON                                                                                                    |
+| `GET /frames/{file}`  | One screenshot batch                                                                                                               |
 
 `createLiveTraceApi` accepts `resolveName` to scope traces per tenant, `corsOrigin`, and `settings` (`retentionMs`, default one day; `abandonAfterMs`, default two hours). Add authentication the same way as for the static routes. R2 doesn't expire frame batches by itself: add a lifecycle rule on the `live/` prefix that matches `retentionMs`.
 

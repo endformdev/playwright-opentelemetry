@@ -16,15 +16,25 @@ import { type ChildProcess, execSync, spawn } from "node:child_process";
 import { LIVE_TRACE_WORKER_URL, LIVE_VIEWER_URL } from "./live-session";
 
 const SERVER_START_TIMEOUT_MS = 60_000;
+const SERVER_STOP_TIMEOUT_MS = 5000;
 
 const args = process.argv.slice(2);
 const keepOpen = args.includes("--keep-open");
 const playwrightArgs = args.filter((arg) => arg !== "--keep-open");
 
 const servers: ChildProcess[] = [];
+let stopping: Promise<void> | undefined;
 
-process.on("SIGINT", () => stopServers(130));
-process.on("SIGTERM", () => stopServers(143));
+process.on("SIGINT", () => void stopServers(130));
+process.on("SIGTERM", () => void stopServers(143));
+
+// Tests against a server left over from another run would test old code.
+for (const url of [LIVE_VIEWER_URL, `${LIVE_TRACE_WORKER_URL}/health`]) {
+	if (await isUp(url)) {
+		console.error(`${url} is already serving. Stop it first.`);
+		process.exit(1);
+	}
+}
 
 execSync("pnpm build", { stdio: "inherit" });
 execSync("pnpm --filter @playwright-opentelemetry/trace-api build", {
@@ -68,7 +78,7 @@ if (keepOpen) {
 		`\nThe viewer (${LIVE_VIEWER_URL}) and live trace Worker (${LIVE_TRACE_WORKER_URL}) are still running, so the trace links above open. Press Ctrl+C to stop them.`,
 	);
 } else {
-	stopServers(exitCode);
+	await stopServers(exitCode);
 }
 
 function startServer(binary: string, commandArgs: string[]): void {
@@ -77,32 +87,66 @@ function startServer(binary: string, commandArgs: string[]): void {
 		detached: true,
 		stdio: ["ignore", "ignore", "inherit"],
 	});
+	server.on("exit", (code, signal) => {
+		if (!stopping) {
+			console.error(
+				`${binary} stopped unexpectedly (${signal ?? `exit code ${code}`})`,
+			);
+		}
+	});
 	servers.push(server);
+}
+
+async function isUp(url: string): Promise<boolean> {
+	try {
+		return (await fetch(url)).ok;
+	} catch {
+		return false;
+	}
 }
 
 async function waitForServer(url: string): Promise<void> {
 	const deadline = Date.now() + SERVER_START_TIMEOUT_MS;
 	while (Date.now() < deadline) {
-		try {
-			if ((await fetch(url)).ok) return;
-		} catch {
-			// Not up yet.
-		}
-		await new Promise((resolve) => setTimeout(resolve, 250));
+		if (await isUp(url)) return;
+		await sleep(250);
 	}
 	console.error(`${url} didn't start within ${SERVER_START_TIMEOUT_MS} ms`);
-	stopServers(1);
+	await stopServers(1);
 }
 
-function stopServers(exitCode: number): never {
-	for (const server of servers) {
-		if (server.pid) {
-			try {
-				process.kill(-server.pid, "SIGTERM");
-			} catch {
-				// Already stopped.
-			}
-		}
-	}
+async function stopServers(exitCode: number): Promise<never> {
+	stopping ??= Promise.all(servers.map(stopServer)).then(() => {});
+	await stopping;
 	process.exit(exitCode);
+}
+
+/** Stops a server's whole process group, forcibly if it doesn't exit. */
+async function stopServer(server: ChildProcess): Promise<void> {
+	if (server.exitCode !== null || server.signalCode !== null) return;
+
+	const exited = new Promise<void>((resolve) =>
+		server.once("exit", () => resolve()),
+	);
+	signalGroup(server, "SIGTERM");
+	const stopped = await Promise.race([
+		exited.then(() => true),
+		sleep(SERVER_STOP_TIMEOUT_MS).then(() => false),
+	]);
+	// wrangler's workerd shares the group and can outlive wrangler itself.
+	signalGroup(server, stopped ? "SIGTERM" : "SIGKILL");
+	if (!stopped) await exited;
+}
+
+function signalGroup(server: ChildProcess, signal: NodeJS.Signals): void {
+	if (!server.pid) return;
+	try {
+		process.kill(-server.pid, signal);
+	} catch {
+		// The group is already gone.
+	}
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }

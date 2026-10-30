@@ -74,6 +74,7 @@ export class LiveTraceExporter {
 				project: testInfo.project.name,
 			},
 			startTime: Date.now(),
+			screenshots: supportsScreencast(testInfo.config.version),
 		};
 		const body = JSON.stringify(started);
 
@@ -209,6 +210,12 @@ export class LiveTraceExporter {
 		this.inFlight.add(request);
 		void request.finally(() => this.inFlight.delete(request));
 	}
+}
+
+/** `page.screencast` arrived in Playwright 1.59. */
+function supportsScreencast(playwrightVersion: string): boolean {
+	const [major = 0, minor = 0] = playwrightVersion.split(".").map(Number);
+	return major > 1 || (major === 1 && minor >= 59);
 }
 
 let warnedMissingScreencast = false;

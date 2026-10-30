@@ -71,6 +71,56 @@ test("shows each span section once a live trace has spans for it", async ({
 	await expect(viewer.browserSpans.spans()).toHaveCount(1);
 });
 
+test("keeps room for screenshots a live trace announced", async ({
+	page,
+	request,
+}) => {
+	const traceId = randomBytes(16).toString("hex");
+	const baseUrl = `${LIVE_TRACE_WORKER_URL}/playwright-otel-live/v1/${traceId}`;
+	const startTime = Date.now();
+	const rootSpanId = randomBytes(8).toString("hex");
+	const noScreenshots = page.getByTitle(
+		"No screenshots were captured during this test",
+	);
+
+	await request.put(`${baseUrl}/start`, {
+		data: {
+			rootSpanId,
+			test: {
+				title: "screenshots",
+				file: "screenshots.spec.ts",
+				line: 1,
+				describes: [],
+				project: "chromium",
+			},
+			startTime,
+			screenshots: true,
+		},
+	});
+	await postSpan(request, baseUrl, {
+		serviceName: "playwright-tests",
+		traceId,
+		parentSpanId: rootSpanId,
+		name: "playwright.test.step",
+		title: "First step",
+		startMs: startTime,
+	});
+
+	const viewer = new TraceViewerPage(page);
+	await page.goto(`/?traceSource=${encodeURIComponent(baseUrl)}`);
+	await expect(viewer.steps.spanByName("First step")).toBeVisible();
+	// Held open before any screenshot has arrived.
+	await expect(viewer.screenshots.root).toBeVisible();
+	await expect(noScreenshots).toHaveCount(0);
+
+	// A trace that ends without any gives the room back.
+	await request.put(`${baseUrl}/end`, {
+		data: { status: "passed", endTime: Date.now() },
+	});
+	await expect(viewer.screenshots.root).toHaveCount(0);
+	await expect(noScreenshots).toBeVisible();
+});
+
 async function postSpan(
 	request: APIRequestContext,
 	baseUrl: string,

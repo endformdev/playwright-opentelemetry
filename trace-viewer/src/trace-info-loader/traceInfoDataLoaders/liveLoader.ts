@@ -27,6 +27,8 @@ interface LiveTraceStarted {
 	};
 	/** Epoch milliseconds */
 	startTime: number;
+	/** Screenshots will stream */
+	screenshots?: boolean;
 }
 
 /** Sent by the live trace routes in `trace.ended`. */
@@ -49,6 +51,8 @@ export interface LiveTraceSession {
 	testInfo: Accessor<TestInfo>;
 	traceData: Accessor<OtlpExport>;
 	screenshots: Accessor<ScreenshotInfo[]>;
+	/** Screenshots were announced and none have arrived while the test runs. */
+	awaitingScreenshots: Accessor<boolean>;
 	close(): void;
 }
 
@@ -117,10 +121,16 @@ export function loadLiveTrace(
 			// Only read once trace.started has arrived.
 			const testInfo = () => testInfoOrUndefined()!;
 
+			const awaitingScreenshots = () =>
+				started()?.screenshots === true &&
+				!ended() &&
+				screenshots().length === 0;
+
 			const session: LiveTraceSession = {
 				testInfo,
 				traceData,
 				screenshots,
+				awaitingScreenshots,
 				close,
 			};
 

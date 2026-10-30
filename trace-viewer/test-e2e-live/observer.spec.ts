@@ -1,6 +1,7 @@
 import { expect, test } from "playwright-opentelemetry/fixture";
 import { TraceViewerPage } from "../test-e2e/page-objects/trace-viewer-page";
 import {
+	LIVE_TRACE_WORKER_URL,
 	liveTraceViewerUrl,
 	markFailed,
 	producerReached,
@@ -18,7 +19,10 @@ test.afterEach(({}, testInfo) => {
 	if (testInfo.status !== testInfo.expectedStatus) markFailed("observer");
 });
 
-test("watches the producer's live trace while it runs", async ({ page }) => {
+test("watches the producer's live trace while it runs", async ({
+	page,
+	request,
+}) => {
 	const producerTraceId =
 		await test.step("Wait for the producer to open the shop", () =>
 			producerReached("shop-opened"));
@@ -73,5 +77,15 @@ test("watches the producer's live trace while it runs", async ({ page }) => {
 		).toBeVisible();
 		await expect(viewer.header.status).toHaveText("passed");
 		await expect(page.getByTestId("live-badge")).toBeHidden();
+	});
+
+	await test.step("The live trace doesn't record its own export", async () => {
+		const response = await request.get(
+			`${LIVE_TRACE_WORKER_URL}/playwright-otel-live/v1/${producerTraceId}/traces`,
+		);
+		const exportUrls = JSON.stringify(await response.json()).match(
+			/"stringValue":"[^"]*\/playwright-otel-live\/[^"]*"/g,
+		);
+		expect(exportUrls).toBeNull();
 	});
 });

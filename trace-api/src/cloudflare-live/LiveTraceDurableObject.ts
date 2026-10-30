@@ -37,6 +37,8 @@ export interface LiveTraceStarted {
 	};
 	/** Epoch milliseconds */
 	startTime: number;
+	/** Screenshots will stream, so viewers can reserve room for them. */
+	screenshots?: boolean;
 }
 
 export interface LiveTraceEnded {

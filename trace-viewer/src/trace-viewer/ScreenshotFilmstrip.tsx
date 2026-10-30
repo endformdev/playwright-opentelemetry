@@ -22,6 +22,8 @@ import { type TimelineViewport, viewportPositionToTime } from "./viewport";
 
 export interface ScreenshotFilmstripProps {
 	screenshots: Resource<ScreenshotInfo[]>;
+	/** A live trace announced screenshots that haven't arrived yet */
+	awaitingScreenshots?: boolean;
 	/** Current viewport state for selecting screenshots */
 	viewport: TimelineViewport;
 	/** Test start time in milliseconds (Unix timestamp) for converting absolute to relative timestamps */
@@ -169,6 +171,9 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		createSignal(true);
 	const [rowHeightPx, setRowHeightPx] = createSignal(0);
 	const screenshots = () => props.screenshots() ?? [];
+	// Placeholders hold the row while screenshots load or a live trace waits.
+	const isPending = () =>
+		props.screenshots.loading || props.awaitingScreenshots === true;
 	const screenshotRows = createMemo(() =>
 		groupScreenshotsByPage(screenshots()),
 	);
@@ -361,7 +366,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 				)}
 			</Show>
 			<div class="flex flex-col gap-2 h-full">
-				<Show when={props.screenshots.loading && screenshots().length === 0}>
+				<Show when={isPending() && screenshots().length === 0}>
 					<Show
 						when={slotCount() > 0}
 						fallback={
@@ -381,7 +386,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 						</div>
 					</Show>
 				</Show>
-				<Show when={!props.screenshots.loading || screenshots().length > 0}>
+				<Show when={!isPending() || screenshots().length > 0}>
 					<Show
 						when={slotCount() > 0}
 						fallback={

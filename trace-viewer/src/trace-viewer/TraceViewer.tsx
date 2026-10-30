@@ -268,7 +268,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const hasLoadedScreenshots = () =>
 		(props.traceInfo.screenshots() ?? []).length > 0;
 	const hasScreenshots = () =>
-		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
+		props.traceInfo.screenshots.loading ||
+		props.traceInfo.awaitingScreenshots === true ||
+		hasLoadedScreenshots();
 	const screenshotPageCount = createMemo(() =>
 		countScreenshotPages(props.traceInfo.screenshots() ?? []),
 	);
@@ -280,7 +282,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	// Get list of disabled sections for the footer
 	const disabledSections = createMemo((): DisabledSection[] => {
 		const sections: DisabledSection[] = [];
-		if (!props.traceInfo.screenshots.loading && !hasLoadedScreenshots()) {
+		if (!hasScreenshots()) {
 			sections.push(SCREENSHOTS_DISABLED_SECTION);
 		}
 		for (const panel of timelinePanels) {
@@ -736,6 +738,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 								{/* Only screenshots active */}
 								<ScreenshotFilmstrip
 									screenshots={props.traceInfo.screenshots}
+									awaitingScreenshots={props.traceInfo.awaitingScreenshots}
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}
@@ -753,6 +756,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 							firstPanel={
 								<ScreenshotFilmstrip
 									screenshots={props.traceInfo.screenshots}
+									awaitingScreenshots={props.traceInfo.awaitingScreenshots}
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}

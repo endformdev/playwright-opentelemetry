@@ -1,3 +1,4 @@
+import { untracedFetch } from "../fixture/test-fetch-capture";
 import type { ResolvedPlaywrightOpentelemetryDestination } from "./config";
 
 /** Routes served by `@playwright-opentelemetry/trace-api/cloudflare-live`. */
@@ -19,6 +20,8 @@ export interface LiveTraceStarted {
 	};
 	/** Epoch milliseconds */
 	startTime: number;
+	/** Screenshots will stream, so viewers can reserve room for them. */
+	screenshots: boolean;
 }
 
 export interface LiveTraceEnded {
@@ -40,7 +43,9 @@ export async function sendLiveTraceRequest(
 	const url = `${destination.url}${LIVE_TRACE_PATH_PREFIX}/${traceId}/${route}`;
 
 	try {
-		const response = await fetch(url, {
+		// Live exports happen while the test runs, when the fixture records
+		// the test's own fetch calls.
+		const response = await untracedFetch(url, {
 			method: route === "start" || route === "end" ? "PUT" : "POST",
 			headers: {
 				"content-type":

@@ -6,7 +6,8 @@
  * click through, and records a server span for every request that carries a
  * `traceparent`. Those spans go through the Worker's own OTLP route, so the
  * shop's requests join the producer's live trace and the viewer's requests
- * join the observer's trace.
+ * join the observer's trace. A live trace stream's span lasts as long as the
+ * connection, with an event for every message pushed through it.
  */
 import { createTraceApi } from "@playwright-opentelemetry/trace-api";
 import {
@@ -57,21 +58,145 @@ export default {
 		const startTime = Date.now();
 		const response = await route(request, api, live.fetch);
 
-		const parent = TRACEPARENT_PATTERN.exec(
+		const parentMatch = TRACEPARENT_PATTERN.exec(
 			request.headers.get("traceparent") ?? "",
 		);
-		if (parent) {
-			ctx.waitUntil(
-				exportServerSpan(api, request, response, startTime, {
-					traceId: parent[1],
-					parentSpanId: parent[2],
-				}),
-			);
+		if (!parentMatch) return response;
+
+		const parent = { traceId: parentMatch[1], parentSpanId: parentMatch[2] };
+		const exportSpan = (events: SpanEvent[] = []) =>
+			exportServerSpan(api, request, response, startTime, parent, events);
+
+		if (
+			response.body &&
+			response.headers.get("content-type")?.startsWith("text/event-stream")
+		) {
+			const { body, closed } = recordStreamEvents(response.body);
+			ctx.waitUntil(closed.then(exportSpan));
+			return new Response(body, response);
 		}
 
+		ctx.waitUntil(exportSpan());
 		return response;
 	},
 };
+
+interface SpanEvent {
+	name: string;
+	timeUnixNano: string;
+	attributes: Attribute[];
+}
+
+interface Attribute {
+	key: string;
+	value:
+		| { stringValue: string }
+		| { intValue: number }
+		| { arrayValue: { values: { stringValue: string }[] } };
+}
+
+/**
+ * Passes a Server-Sent Events stream through, recording an event for each
+ * message. Resolves with them once the trace ends, the stream ends, or the
+ * client leaves, whichever comes first. The stream itself stays open after
+ * the trace ends, for late spans, but `wrangler dev` doesn't always pass on a
+ * client leaving, so the span ends with the trace.
+ */
+function recordStreamEvents(source: ReadableStream<Uint8Array>): {
+	body: ReadableStream<Uint8Array>;
+	closed: Promise<SpanEvent[]>;
+} {
+	const events: SpanEvent[] = [];
+	const decoder = new TextDecoder();
+	const reader = source.getReader();
+	let buffered = "";
+	let finish!: () => void;
+	const closed = new Promise<SpanEvent[]>((resolve) => {
+		finish = () => resolve(events);
+	});
+
+	const record = (chunk: Uint8Array) => {
+		buffered += decoder.decode(chunk, { stream: true });
+		const messages = buffered.split("\n\n");
+		buffered = messages.pop() ?? "";
+		for (const message of messages) {
+			const event = streamMessageEvent(message);
+			if (!event) continue;
+			events.push(event);
+			if (event.name === "trace.ended") finish();
+		}
+	};
+
+	const body = new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			const { done, value } = await reader.read();
+			if (done) {
+				controller.close();
+				finish();
+				return;
+			}
+			record(value);
+			controller.enqueue(value);
+		},
+		cancel(reason) {
+			finish();
+			return reader.cancel(reason);
+		},
+	});
+
+	return { body, closed };
+}
+
+/** One SSE message as a span event; comments such as heartbeats are skipped. */
+function streamMessageEvent(message: string): SpanEvent | undefined {
+	const fields = new Map<string, string>();
+	for (const line of message.split("\n")) {
+		const separator = line.indexOf(": ");
+		if (separator > 0)
+			fields.set(line.slice(0, separator), line.slice(separator + 2));
+	}
+	const type = fields.get("event");
+	const data = fields.get("data");
+	if (!type || !data) return undefined;
+
+	const attributes: Attribute[] = [
+		stringAttribute("sse.event.id", fields.get("id") ?? ""),
+		{ key: "sse.data.bytes", value: { intValue: data.length } },
+	];
+	const payload = JSON.parse(data) as {
+		resourceSpans?: { scopeSpans?: { spans?: { name: string }[] }[] }[];
+		file?: string;
+		status?: string;
+	};
+	const spanNames = (payload.resourceSpans ?? []).flatMap((resourceSpan) =>
+		(resourceSpan.scopeSpans ?? []).flatMap((scopeSpan) =>
+			(scopeSpan.spans ?? []).map((span) => span.name),
+		),
+	);
+	if (spanNames.length > 0) {
+		attributes.push(
+			{ key: "live_trace.span_count", value: { intValue: spanNames.length } },
+			{
+				key: "live_trace.span_names",
+				value: {
+					arrayValue: {
+						values: spanNames.map((name) => ({ stringValue: name })),
+					},
+				},
+			},
+		);
+	}
+	if (payload.file)
+		attributes.push(stringAttribute("live_trace.frames_file", payload.file));
+	if (payload.status)
+		attributes.push(stringAttribute("test.status", payload.status));
+
+	return {
+		name: spanNames.length > 0 ? `${type} (${spanNames.length})` : type,
+		timeUnixNano: toNanos(Date.now()),
+		attributes,
+	};
+}
 
 async function route(
 	request: Request,
@@ -129,17 +254,14 @@ const SHOP_HTML = `<!doctype html>
 </body>
 </html>`;
 
-/**
- * Records one server span for a request, through the Worker's own OTLP route.
- * Streaming responses end when their headers are sent, not when the stream
- * closes.
- */
+/** Records one server span for a request, through the Worker's own OTLP route. */
 async function exportServerSpan(
 	api: TraceApi,
 	request: Request,
 	response: Response,
 	startTime: number,
 	parent: { traceId: string; parentSpanId: string },
+	events: SpanEvent[],
 ): Promise<void> {
 	const url = new URL(request.url);
 	const httpRoute = routeTemplate(url.pathname);
@@ -160,7 +282,7 @@ async function exportServerSpan(
 				value: { intValue: response.status },
 			},
 		],
-		events: [],
+		events,
 		links: [],
 		status: { code: response.status >= 500 ? 2 : 0 },
 	};
@@ -194,7 +316,7 @@ function routeTemplate(pathname: string): string {
 		.replace(/\/frames\/[^/]+\.zip$/, "/frames/:file");
 }
 
-function stringAttribute(key: string, value: string) {
+function stringAttribute(key: string, value: string): Attribute {
 	return { key, value: { stringValue: value } };
 }
 

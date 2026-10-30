@@ -22,6 +22,8 @@ export interface TraceInfo {
 	testInfo: TestInfo;
 	traceData: OtlpExport;
 	screenshots: Resource<ScreenshotInfo[]>;
+	/** Screenshots are still on their way, so room is kept for them. */
+	awaitingScreenshots?: boolean;
 }
 
 export interface TraceInfoData {
@@ -97,6 +99,7 @@ export function useTraceInfoLoader(
 			testInfo: data.live ? data.live.testInfo() : data.testInfo,
 			traceData: data.live ? data.live.traceData() : data.traceData,
 			screenshots,
+			awaitingScreenshots: data.live?.awaitingScreenshots(),
 		};
 	};
 
