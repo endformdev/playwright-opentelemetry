@@ -9,6 +9,7 @@ import {
 	Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import { useViewportContext } from "./contexts/ViewportContext";
 import type { TestPhase } from "./detectTestPhases";
 import { calculateTimelineScale, type TimelineTick } from "./timelineScale";
 import {
@@ -60,6 +61,7 @@ interface RulerDragState {
  * When zoomed, shows an overlay indicating the currently visible region with draggable handles.
  */
 export function TimelineRuler(props: TimelineRulerProps) {
+	const { motionTransition } = useViewportContext();
 	let containerRef: HTMLDivElement | undefined;
 
 	const [ticks, setTicks] = createSignal<TimelineTick[]>([]);
@@ -275,6 +277,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 							style={{
 								left: "0%",
 								width: `${viewportStartPercent()}%`,
+								transition: motionTransition("width"),
 							}}
 						/>
 						<div
@@ -282,6 +285,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 							style={{
 								left: `${viewportEndPercent()}%`,
 								right: "0%",
+								transition: motionTransition("left"),
 							}}
 						/>
 
@@ -292,6 +296,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 								left: `${viewportStartPercent()}%`,
 								width: `${viewportWidthPercent()}%`,
 								cursor: dragState()?.mode === "pan" ? "grabbing" : "grab",
+								transition: motionTransition("left", "width"),
 							}}
 							onMouseDown={handleMouseDown("pan")}
 						/>
@@ -302,6 +307,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 							style={{
 								left: `${viewportStartPercent()}%`,
 								transform: "translateX(-50%)",
+								transition: motionTransition("left"),
 							}}
 							onMouseDown={handleMouseDown("left-handle")}
 						>
@@ -315,6 +321,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 							style={{
 								left: `${viewportEndPercent()}%`,
 								transform: "translateX(-50%)",
+								transition: motionTransition("left"),
 							}}
 							onMouseDown={handleMouseDown("right-handle")}
 						>

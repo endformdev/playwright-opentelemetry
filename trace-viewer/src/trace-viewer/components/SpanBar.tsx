@@ -7,6 +7,8 @@ import { getSpanEventSeverity } from "./spanEventStyles";
 
 /** Height of each span row in pixels */
 export const ROW_HEIGHT = 28;
+/** Height of a span bar within its row in pixels */
+export const BAR_HEIGHT = 24;
 
 /** Minimum width percentage to show text content inside span */
 const MIN_VISIBLE_WIDTH_PERCENT = 2;
@@ -72,6 +74,8 @@ export interface SpanBarProps {
 	row: number;
 	color: string;
 	isError?: boolean;
+	/** The locked span: drawn with a focus ring above its neighbours */
+	isFocused?: boolean;
 	events?: SpanEvent[];
 	/** Optional icon to display before the span name */
 	icon?: JSX.Element;
@@ -97,11 +101,15 @@ export function SpanBar(props: SpanBarProps) {
 		if (!geometry().shouldShowContent) {
 			return null;
 		}
+		// Hidden instantly while the plot layer zooms, then faded back in.
 		return (
-			<>
+			<span
+				data-span-label
+				class="flex min-w-0 items-center gap-1.5 transition-opacity duration-(--label-fade-in) group-data-[labels-hidden]/plot:opacity-0 group-data-[labels-hidden]/plot:transition-none"
+			>
 				{props.icon}
 				<span class="truncate select-none">{props.name}</span>
-			</>
+			</span>
 		);
 	};
 
@@ -130,15 +138,20 @@ export function SpanBar(props: SpanBarProps) {
 			data-span-end-ms={props.startOffset + props.duration}
 			data-span-row={props.row}
 			data-span-error={props.isError ? "true" : undefined}
-			class="absolute h-6 rounded-xs border-r border-gray-50 text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
+			data-span-focused={props.isFocused ? "true" : undefined}
+			class="absolute rounded-xs border-r border-gray-50 text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
 			classList={{
-				"ring-2 ring-yellow-400 ring-offset-1": shouldHighlight(),
+				"ring-2 ring-yellow-400 ring-offset-1":
+					shouldHighlight() && !props.isFocused,
+				"z-10 ring-2 ring-gray-900 ring-offset-2 ring-offset-white shadow-md":
+					props.isFocused,
 				"px-2": geometry().shouldShowContent,
 			}}
 			style={{
 				left: `${geometry().leftPercent}%`,
 				width: `${geometry().widthPercent}%`,
 				top: `${props.row * ROW_HEIGHT}px`,
+				height: `${BAR_HEIGHT}px`,
 				"background-color": props.color,
 			}}
 			title={`${props.name} (${props.duration}ms)`}

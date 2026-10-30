@@ -8,6 +8,10 @@ describe("getSpanSelectionTimeMs", () => {
 		expect(getSpanSelectionTimeMs(span, "start")).toBe(1200);
 	});
 
+	it("returns the span midpoint for center placement", () => {
+		expect(getSpanSelectionTimeMs(span, "center")).toBe(1375);
+	});
+
 	it("returns the span end for end placement", () => {
 		expect(getSpanSelectionTimeMs(span, "end")).toBe(1550);
 	});
