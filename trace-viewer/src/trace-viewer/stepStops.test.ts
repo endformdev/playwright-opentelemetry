@@ -3,10 +3,10 @@ import type { Span } from "../trace-data-loader/exportToSpans";
 import {
 	computeStepStops,
 	getAdjacentStopIndex,
-	getSteppableSteps,
 	getStopIndexAtTime,
 	type StepStop,
 } from "./stepStops";
+import { buildTestStructure } from "./testStructure";
 
 function createStep(overrides: Partial<Span>): Span {
 	return {
@@ -32,150 +32,94 @@ const root = createStep({
 	durationMs: 5000,
 });
 
-describe("getSteppableSteps", () => {
-	it("returns leaf steps of the test body in start order", () => {
-		const steps = [
+describe("computeStepStops", () => {
+	it("stops at the start of each leaf step, then where the steps end", () => {
+		const structure = buildTestStructure([
 			root,
-			createStep({ id: "group", title: "Login", startOffsetMs: 100 }),
+			createStep({ id: "before", title: "Before Hooks", durationMs: 50 }),
+			createStep({ id: "group", startOffsetMs: 100, durationMs: 1200 }),
 			createStep({
-				id: "click",
-				parentId: "group",
-				startOffsetMs: 300,
-				attributes: { "test.step.category": "pw:api" },
-			}),
-			createStep({
-				id: "fill",
+				id: "a",
 				parentId: "group",
 				startOffsetMs: 100,
-				attributes: { "test.step.category": "pw:api" },
-			}),
-			createStep({ id: "expect", startOffsetMs: 1000 }),
-		];
-
-		expect(getSteppableSteps(steps).map((step) => step.id)).toEqual([
-			"fill",
-			"click",
-			"expect",
-		]);
-	});
-
-	it("skips hooks by phase attribute and by container title", () => {
-		const steps = [
-			root,
-			createStep({ id: "before", title: "Before Hooks", durationMs: 200 }),
-			createStep({
-				id: "before-each",
-				parentId: "before",
-				attributes: { "test.step.category": "hook" },
+				durationMs: 400,
 			}),
 			createStep({
-				id: "goto-in-hook",
-				parentId: "before-each",
-				attributes: { "playwright.test.phase": "before" },
-			}),
-			createStep({ id: "body-step", startOffsetMs: 300 }),
-			createStep({
-				id: "after",
-				title: "After Hooks",
-				startOffsetMs: 4000,
-			}),
-			createStep({ id: "cleanup", parentId: "after", startOffsetMs: 4000 }),
-		];
-
-		expect(getSteppableSteps(steps).map((step) => step.id)).toEqual([
-			"body-step",
-		]);
-	});
-
-	it("treats a group whose only children are fixtures as a leaf", () => {
-		const steps = [
-			root,
-			createStep({ id: "group" }),
-			createStep({
-				id: "fixture",
+				id: "b",
 				parentId: "group",
-				attributes: { "test.step.category": "fixture" },
+				startOffsetMs: 600,
+				durationMs: 400,
 			}),
-		];
+			createStep({ id: "after", title: "After Hooks", startOffsetMs: 4000 }),
+		]);
 
-		expect(getSteppableSteps(steps).map((step) => step.id)).toEqual(["group"]);
-	});
-});
-
-describe("computeStepStops", () => {
-	it("stops at the start and end of each step", () => {
-		const steps = [
-			root,
-			createStep({ id: "a", startOffsetMs: 100, durationMs: 400 }),
-			createStep({ id: "b", startOffsetMs: 600, durationMs: 400 }),
-		];
-
-		expect(computeStepStops(steps)).toEqual([
-			{ timeMs: 100, stepId: "a", edge: "start" },
-			{ timeMs: 500, stepId: "a", edge: "end" },
-			{ timeMs: 600, stepId: "b", edge: "start" },
-			{ timeMs: 1000, stepId: "b", edge: "end" },
+		// The group outlasts its last child; the end stop waits for it.
+		expect(computeStepStops(structure)).toEqual([
+			{ timeMs: 100, stepId: "a", kind: "step" },
+			{ timeMs: 600, stepId: "b", kind: "step" },
+			{ timeMs: 1300, stepId: "b", kind: "end" },
 		]);
 	});
 
-	it("stops once at steps without duration", () => {
-		const steps = [
+	it("ends on the step that finishes last", () => {
+		const structure = buildTestStructure([
 			root,
-			createStep({ id: "a", startOffsetMs: 100, durationMs: 0 }),
-		];
-
-		expect(computeStepStops(steps)).toEqual([
-			{ timeMs: 100, stepId: "a", edge: "start" },
+			createStep({ id: "long", startOffsetMs: 0, durationMs: 900 }),
+			createStep({ id: "short", startOffsetMs: 100, durationMs: 100 }),
 		]);
+
+		expect(computeStepStops(structure).at(-1)).toEqual({
+			timeMs: 900,
+			stepId: "long",
+			kind: "end",
+		});
+	});
+
+	it("has no stops without body steps", () => {
+		expect(computeStepStops(buildTestStructure([root]))).toEqual([]);
 	});
 });
 
 describe("getAdjacentStopIndex", () => {
 	const stops: StepStop[] = [
-		{ timeMs: 100, stepId: "a", edge: "start" },
-		{ timeMs: 200, stepId: "a", edge: "end" },
-		{ timeMs: 200, stepId: "b", edge: "start" },
-		{ timeMs: 400, stepId: "c", edge: "start" },
+		{ timeMs: 100, stepId: "a", kind: "step" },
+		{ timeMs: 200, stepId: "b", kind: "step" },
+		{ timeMs: 200, stepId: "c", kind: "step" },
+		{ timeMs: 400, stepId: "c", kind: "end" },
 	];
 
-	it("starts at the first stop when nothing is locked", () => {
+	it("starts at the first stop from nowhere, in either direction", () => {
 		expect(getAdjacentStopIndex(stops, null, 1)).toBe(0);
 		expect(getAdjacentStopIndex(stops, null, -1)).toBe(0);
 	});
 
-	it("moves between stops that share a time by step", () => {
-		expect(getAdjacentStopIndex(stops, { timeMs: 200, stepId: "a" }, 1)).toBe(
-			2,
-		);
-		expect(getAdjacentStopIndex(stops, { timeMs: 200, stepId: "b" }, -1)).toBe(
-			1,
-		);
+	it("moves to the neighbouring stop, even at the same time", () => {
+		expect(getAdjacentStopIndex(stops, { stopIndex: 1 }, 1)).toBe(2);
+		expect(getAdjacentStopIndex(stops, { stopIndex: 2 }, -1)).toBe(1);
 	});
 
 	it("clamps at both ends", () => {
-		expect(getAdjacentStopIndex(stops, { timeMs: 100, stepId: "a" }, -1)).toBe(
-			0,
-		);
-		expect(getAdjacentStopIndex(stops, { timeMs: 400, stepId: "c" }, 1)).toBe(
-			3,
-		);
+		expect(getAdjacentStopIndex(stops, { stopIndex: 0 }, -1)).toBe(0);
+		expect(getAdjacentStopIndex(stops, { stopIndex: 3 }, 1)).toBe(3);
 	});
 
 	it("moves to the nearest stop from a time that is not a stop", () => {
-		expect(
-			getAdjacentStopIndex(stops, { timeMs: 300, stepId: undefined }, 1),
-		).toBe(3);
-		expect(
-			getAdjacentStopIndex(stops, { timeMs: 300, stepId: undefined }, -1),
-		).toBe(2);
+		expect(getAdjacentStopIndex(stops, { timeMs: 300 }, 1)).toBe(3);
+		expect(getAdjacentStopIndex(stops, { timeMs: 300 }, -1)).toBe(2);
+		expect(getAdjacentStopIndex(stops, { timeMs: 50 }, -1)).toBe(0);
+		expect(getAdjacentStopIndex(stops, { timeMs: 500 }, 1)).toBe(3);
+	});
+
+	it("has nowhere to go without stops", () => {
+		expect(getAdjacentStopIndex([], null, 1)).toBeNull();
 	});
 });
 
 describe("getStopIndexAtTime", () => {
 	it("returns the last stop at or before the time", () => {
 		const stops: StepStop[] = [
-			{ timeMs: 100, stepId: "a", edge: "start" },
-			{ timeMs: 300, stepId: "b", edge: "start" },
+			{ timeMs: 100, stepId: "a", kind: "step" },
+			{ timeMs: 300, stepId: "b", kind: "step" },
 		];
 
 		expect(getStopIndexAtTime(stops, 50)).toBe(0);

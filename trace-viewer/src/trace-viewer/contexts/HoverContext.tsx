@@ -1,5 +1,6 @@
 import {
 	type Accessor,
+	batch,
 	createContext,
 	createMemo,
 	createSignal,
@@ -14,6 +15,9 @@ import { timeToViewportPosition, viewportPositionToTime } from "../viewport";
 import { useViewportContext } from "./ViewportContext";
 
 export type HoverMode = "hover" | "locked" | "search-override";
+
+/** Who locked the timeline; any new lock or unlock replaces it. */
+export type LockSource = "timeline" | "step-viewer";
 
 export type FocusedElementType = "screenshot" | "step" | "span";
 
@@ -31,9 +35,14 @@ export interface HoverContextValue {
 	setHoverPosition: (position: number | null) => void;
 	lockedPosition: Accessor<number | null>;
 	lockedTimeMs: Accessor<number | null>;
+	lockSource: Accessor<LockSource | null>;
 
 	// Actions
-	lock: (timeMs: number, element: FocusedElement | null) => void;
+	lock: (
+		timeMs: number,
+		element: FocusedElement | null,
+		source?: LockSource,
+	) => void;
 	unlock: () => void;
 	enterSearchOverride: () => void;
 	exitSearchOverride: () => void;
@@ -65,6 +74,7 @@ export function HoverProvider(props: HoverProviderProps) {
 	const [mode, setMode] = createSignal<HoverMode>("hover");
 	const [hoverPosition, setHoverPosition] = createSignal<number | null>(null);
 	const [lockedTimeMs, setLockedTimeMs] = createSignal<number | null>(null);
+	const [lockSource, setLockSource] = createSignal<LockSource | null>(null);
 	const [hoveredElement, setHoveredElement] =
 		createSignal<FocusedElement | null>(null, {
 			equals: (previous, next) =>
@@ -181,16 +191,26 @@ export function HoverProvider(props: HoverProviderProps) {
 			: null;
 	};
 
-	const lock = (timeMs: number, element: FocusedElement | null) => {
-		setMode("locked");
-		setLockedTimeMs(timeMs);
-		setLockedElement(element);
+	const lock = (
+		timeMs: number,
+		element: FocusedElement | null,
+		source: LockSource = "timeline",
+	) => {
+		batch(() => {
+			setMode("locked");
+			setLockedTimeMs(timeMs);
+			setLockedElement(element);
+			setLockSource(source);
+		});
 	};
 
 	const unlock = () => {
-		setMode("hover");
-		setLockedTimeMs(null);
-		setLockedElement(null);
+		batch(() => {
+			setMode("hover");
+			setLockedTimeMs(null);
+			setLockedElement(null);
+			setLockSource(null);
+		});
 	};
 
 	const enterSearchOverride = () => {
@@ -213,6 +233,7 @@ export function HoverProvider(props: HoverProviderProps) {
 		setHoverPosition,
 		lockedPosition,
 		lockedTimeMs,
+		lockSource,
 		lock,
 		unlock,
 		enterSearchOverride,

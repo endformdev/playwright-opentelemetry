@@ -159,9 +159,9 @@ function duplicateNativeRequestStepSpans(
 			span.name === "playwright.test.step" &&
 			span.serviceName === "playwright-tests" &&
 			attrs["test.step.category"] === "pw:api" &&
-			typeof attrs["test.step.title"] === "string" &&
-			attrs["test.step.title"].startsWith(`${method} "`) &&
-			attrs["test.step.title"].includes(`/native-request?${query}`)
+			attrs["test.step.param.method"] === method &&
+			typeof attrs["test.step.param.url"] === "string" &&
+			attrs["test.step.param.url"].includes(`/native-request?${query}`)
 		);
 	});
 }

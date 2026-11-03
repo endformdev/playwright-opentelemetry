@@ -8,7 +8,8 @@ interface CreateScreenshotsZipOptions {
 
 interface CreateScreenshotsZipFromOffsetsOptions {
 	testStartTime: number;
-	screenshotOffsetsMs: number[];
+	/** Offsets on `pageId`, or offsets each with their own page */
+	screenshotOffsetsMs: Array<number | { offsetMs: number; pageId: string }>;
 	pageId?: string;
 }
 
@@ -69,13 +70,17 @@ export async function createScreenshotsZip({
 export async function createScreenshotsZipFromOffsets({
 	testStartTime,
 	screenshotOffsetsMs,
-	pageId = "context-1-page-1",
+	pageId: defaultPageId = "context-1-page-1",
 }: CreateScreenshotsZipFromOffsetsOptions): Promise<Blob> {
 	const blobWriter = new BlobWriter("application/zip");
 	const zipWriter = new ZipWriter(blobWriter);
 	const screenshots: ScreenshotManifestEntry[] = [];
 
-	for (const offsetMs of screenshotOffsetsMs) {
+	for (const entry of screenshotOffsetsMs) {
+		const { offsetMs, pageId } =
+			typeof entry === "number"
+				? { offsetMs: entry, pageId: defaultPageId }
+				: entry;
 		const timestamp = testStartTime + offsetMs;
 		const file = `${pageId}-${timestamp}.svg`;
 		const path = `screenshots/${file}`;

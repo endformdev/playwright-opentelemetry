@@ -20,9 +20,6 @@ test("renders separate screenshot rows for multiple browser contexts", async ({
 		"utf-8",
 	).trim();
 	const viewer = new TraceViewerPage(page);
-	// Hovering previews only while nothing is selected; the step viewer
-	// selects its first stop on load.
-	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 
 	await expect(viewer.header.root).toBeVisible({ timeout: 10000 });
@@ -330,9 +327,6 @@ test("shows the most recent screenshot at the hovered timestamp when filmstrip f
 	);
 
 	const viewer = new TraceViewerPage(page);
-	// Hovering previews only while nothing is selected; the step viewer
-	// selects its first stop on load.
-	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Dense screenshots are sampled in the filmstrip",
@@ -424,9 +418,6 @@ test("focuses the active screenshot when moving from a span into a filmstrip gap
 	);
 
 	const viewer = new TraceViewerPage(page);
-	// Hovering previews only while nothing is selected; the step viewer
-	// selects its first stop on load.
-	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Screenshot focus from span hover",

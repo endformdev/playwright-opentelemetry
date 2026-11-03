@@ -1,120 +1,71 @@
 import type { Span } from "../trace-data-loader/exportToSpans";
+import type { TestStructure } from "./testStructure";
 
 /**
- * A position the step viewer can be moved to with the arrow keys: a time on
- * the timeline paired with the step it belongs to.
+ * A position the step viewer can be moved to: a time on the timeline and the
+ * step shown there.
  */
 export interface StepStop {
 	/** Time to lock, relative to test start */
 	timeMs: number;
+	/** The step starting here; at the end stop, the step that finished last */
 	stepId: string;
-	/** Whether this stop is at the start or the end of the step */
-	edge: "start" | "end";
+	/** A step's start, or the end of the test body's steps */
+	kind: "step" | "end";
 }
 
-const HOOK_PHASES = new Set(["before", "after"]);
-const HOOK_CONTAINER_TITLES = new Set(["before hooks", "after hooks"]);
-const EXCLUDED_CATEGORIES = new Set(["hook", "fixture"]);
+/** Where the step viewer stands: on a stop, at another time, or nowhere. */
+export type StopPosition = { stopIndex: number } | { timeMs: number } | null;
 
 /**
- * Steps the viewer walks through: the leaves of the test body's step tree,
- * in start order. Hooks, fixtures and the steps inside them are skipped, and
- * grouping steps are represented by their children.
+ * Builds the ordered stops for the step viewer: the start of each leaf step
+ * of the test body, then one stop where the body's steps have all finished.
  */
-export function getSteppableSteps(steps: Span[]): Span[] {
-	const stepsById = new Map(steps.map((step) => [step.id, step]));
-	const isInHooks = (step: Span): boolean => {
-		for (
-			let current: Span | undefined = step;
-			current;
-			current = current.parentId ? stepsById.get(current.parentId) : undefined
-		) {
-			if (HOOK_PHASES.has(String(current.attributes["playwright.test.phase"])))
-				return true;
-			if (
-				current.name === "playwright.test.step" &&
-				HOOK_CONTAINER_TITLES.has(current.title.toLowerCase())
-			)
-				return true;
-		}
-		return false;
-	};
+export function computeStepStops(structure: TestStructure): StepStop[] {
+	const stops: StepStop[] = structure.bodyLeafSteps.map((step) => ({
+		timeMs: step.startOffsetMs,
+		stepId: step.id,
+		kind: "step",
+	}));
 
-	const candidates = steps.filter(
-		(step) =>
-			step.name === "playwright.test.step" &&
-			!EXCLUDED_CATEGORIES.has(String(step.attributes["test.step.category"])) &&
-			!isInHooks(step),
+	const endOf = (step: Span) => step.startOffsetMs + step.durationMs;
+	const lastLeaf = structure.bodyLeafSteps.reduce<Span | null>(
+		(last, step) => (!last || endOf(step) >= endOf(last) ? step : last),
+		null,
 	);
-	const parentIds = new Set(candidates.map((step) => step.parentId));
-
-	return candidates
-		.filter((step) => !parentIds.has(step.id))
-		.sort((a, b) => a.startOffsetMs - b.startOffsetMs);
-}
-
-/**
- * Builds the ordered stops for the step viewer: the start and the end of each
- * step, so every stop answers "this is the page as this step began / ended".
- * A step without duration gets a single stop.
- */
-export function computeStepStops(steps: Span[]): StepStop[] {
-	const stops: StepStop[] = [];
-	for (const step of getSteppableSteps(steps)) {
-		const startMs = step.startOffsetMs;
-		const endMs = step.startOffsetMs + step.durationMs;
-		stops.push({ timeMs: startMs, stepId: step.id, edge: "start" });
-		if (endMs > startMs) {
-			stops.push({ timeMs: endMs, stepId: step.id, edge: "end" });
-		}
+	if (lastLeaf) {
+		const bodyEndMs = Math.max(...structure.bodySteps.map(endOf));
+		stops.push({ timeMs: bodyEndMs, stepId: lastLeaf.id, kind: "end" });
 	}
 	return stops;
 }
 
-/** Index of the stop exactly matching a locked time and step, if any. */
-export function findStopIndex(
-	stops: StepStop[],
-	timeMs: number,
-	stepId: string | undefined,
-): number | null {
-	const index = stops.findIndex(
-		(stop) => stop.timeMs === timeMs && stop.stepId === stepId,
-	);
-	return index === -1 ? null : index;
-}
-
 /**
- * The stop to move to from the current position. From an exact stop this is
- * the neighbouring stop; from any other locked time it is the nearest stop in
- * that direction; with nothing locked it is the first stop.
+ * The stop to move to. From a stop this is its neighbour; from any other time
+ * it is the nearest stop in that direction; from nowhere it is the first stop.
  */
 export function getAdjacentStopIndex(
 	stops: StepStop[],
-	current: { timeMs: number; stepId: string | undefined } | null,
+	from: StopPosition,
 	direction: -1 | 1,
 ): number | null {
 	if (stops.length === 0) return null;
-	if (!current) return 0;
+	if (!from) return 0;
 
-	const exact = findStopIndex(stops, current.timeMs, current.stepId);
-	if (exact !== null) {
-		return Math.max(0, Math.min(stops.length - 1, exact + direction));
+	if ("stopIndex" in from) {
+		return Math.max(0, Math.min(stops.length - 1, from.stopIndex + direction));
 	}
 
 	if (direction === 1) {
-		const next = stops.findIndex((stop) => stop.timeMs > current.timeMs);
+		const next = stops.findIndex((stop) => stop.timeMs > from.timeMs);
 		return next === -1 ? stops.length - 1 : next;
 	}
-	const previous = findLastStopIndex(
-		stops,
-		(stop) => stop.timeMs < current.timeMs,
-	);
-	return previous ?? 0;
+	return findLastStopIndex(stops, (stop) => stop.timeMs < from.timeMs) ?? 0;
 }
 
 /**
- * The stop that best represents a locked time: the last stop at or before
- * it, falling back to the first stop.
+ * The stop that best represents a time: the last stop at or before it,
+ * falling back to the first stop.
  */
 export function getStopIndexAtTime(
 	stops: StepStop[],

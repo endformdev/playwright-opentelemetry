@@ -1,43 +1,49 @@
-import { ChevronLeft, ChevronRight } from "lucide-solid";
+import { ChevronLeft, ChevronRight, Flag, Pin } from "lucide-solid";
 import { For, Show } from "solid-js";
-import type { Span } from "../trace-data-loader/exportToSpans";
 import type { ScreenshotInfo } from "../trace-info-loader";
 import type { StepStop } from "./stepStops";
+import type { StepViewerPage } from "./useStepViewer";
 
 export interface StepViewerProps {
-	/** Screenshot for the displayed time (hovered or locked) */
 	screenshot: ScreenshotInfo | null;
 	screenshotsLoading: boolean;
 	stopCount: number;
-	/** Index of the locked stop, or null when not positioned on a stop */
+	/** Index of the stop the timeline is locked on, or null when not on one */
 	stopIndex: number | null;
-	stopEdge: StepStop["edge"] | null;
-	step: Span | null;
-	/** Titles of the step's ancestors below the test, outermost first */
-	stepPath: string[];
+	stopKind: StepStop["kind"] | null;
+	pages: StepViewerPage[];
+	pinnedPageId: string | null;
+	onPinPage: (pageId: string | null) => void;
 	ref: (element: HTMLElement) => void;
 	onActivate: () => void;
 	onNavigate: (direction: -1 | 1) => void;
 }
 
 /**
- * Large screenshot of the current moment in the test. While it has focus or
- * the timeline is on one of its stops, the trace viewer's Left/Right keys step
- * through it one step boundary at a time and Home/End jump to the ends.
+ * Large screenshot of the current moment in the test. Left/Right step through
+ * the start of each test body step, ending on a stop where all steps are done;
+ * Home/End jump to the ends (see useStepViewer for when the keys apply).
+ *
+ * Controls live in gutters either side of the screenshot so they never cover
+ * it: the step counter and back arrow on the left, the page picker and next
+ * arrow on the right. The counter lights up while the viewer drives the
+ * selection; the step itself is marked on its card in the details panel.
  */
 export function StepViewer(props: StepViewerProps) {
+	const active = () => props.stopIndex !== null;
 	const atFirst = () => props.stopIndex === 0;
 	const atLast = () => props.stopIndex === props.stopCount - 1;
+	const shownPageId = () => props.screenshot?.pageId ?? null;
 
 	const navigationButton = (direction: -1 | 1) => (
 		<button
 			type="button"
-			class="absolute top-1/2 z-10 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-gray-600 opacity-0 shadow-md ring-1 ring-gray-200 transition-opacity hover:text-gray-900 group-hover:opacity-100 group-focus-within:opacity-100 disabled:!opacity-0"
-			classList={{ "left-3": direction === -1, "right-3": direction === 1 }}
+			class="absolute top-1/2 z-10 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-white text-gray-600 shadow-md ring-1 ring-gray-200 transition-opacity enabled:hover:text-gray-900 disabled:cursor-default disabled:opacity-40"
+			classList={{ "left-5": direction === -1, "right-5": direction === 1 }}
 			aria-label={direction === -1 ? "Previous step" : "Next step"}
 			disabled={
 				props.stopCount === 0 ||
-				(props.stopIndex !== null && (direction === -1 ? atFirst() : atLast()))
+				(active() && (direction === -1 ? atFirst() : atLast()))
 			}
 			onClick={(event) => {
 				event.stopPropagation();
@@ -55,50 +61,12 @@ export function StepViewer(props: StepViewerProps) {
 	return (
 		<section
 			ref={props.ref}
-			class="group relative flex h-full flex-col bg-gray-100 outline-none"
+			class="relative h-full bg-gray-100 outline-none"
 			aria-label="Step viewer"
 			tabIndex={0}
 			onClick={props.onActivate}
 		>
-			{/* Always reserved so the screenshot keeps its size while stepping. */}
-			<div class="flex h-7 flex-shrink-0 items-center justify-center px-14 pt-1">
-				<Show when={props.step}>
-					{(step) => (
-						<div
-							class="flex min-w-0 max-w-full items-baseline gap-2 rounded-full bg-gray-900/85 px-2.5 py-0.5 text-[11px] text-white shadow-sm"
-							data-testid="step-viewer-step"
-						>
-							<span
-								class="flex-shrink-0 font-mono tabular-nums text-white/60"
-								data-testid="step-viewer-position"
-							>
-								{(props.stopIndex ?? 0) + 1}/{props.stopCount}
-							</span>
-							<For each={props.stepPath}>
-								{(title) => (
-									<span class="flex-shrink-0 truncate text-white/60">
-										{title} ›
-									</span>
-								)}
-							</For>
-							<span
-								class="truncate font-medium"
-								data-testid="step-viewer-step-title"
-							>
-								{step().title}
-							</span>
-							<span
-								class="flex-shrink-0 rounded-full bg-white/15 px-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/80"
-								data-testid="step-viewer-edge"
-							>
-								{props.stopEdge}
-							</span>
-						</div>
-					)}
-				</Show>
-			</div>
-
-			<div class="relative min-h-0 flex-1 px-3 pt-1.5 pb-3">
+			<div class="absolute inset-y-0 left-20 right-20 py-3">
 				<Show
 					when={props.screenshot}
 					fallback={
@@ -114,12 +82,92 @@ export function StepViewer(props: StepViewerProps) {
 							src={screenshot().url}
 							alt={`Step viewer screenshot at ${screenshot().timestamp}`}
 							data-screenshot-timestamp={screenshot().timestamp}
+							data-page-id={screenshot().pageId}
 							class="h-full w-full select-none object-contain drop-shadow-md"
 							draggable={false}
 						/>
 					)}
 				</Show>
 			</div>
+
+			<Show when={props.stopCount > 0}>
+				<button
+					type="button"
+					class="absolute top-3 left-3 z-10 inline-flex h-6 min-w-14 items-center justify-center gap-1 rounded-full px-2 font-mono text-[11px] tabular-nums shadow-sm transition-colors"
+					classList={{
+						"bg-blue-600 text-white": active(),
+						"bg-white text-gray-500 ring-1 ring-gray-200 hover:text-gray-800":
+							!active(),
+					}}
+					data-testid="step-viewer-position"
+					data-active={active() ? "true" : undefined}
+					title={
+						active()
+							? "Stepping through the test with ← →"
+							: "Step through the test with ← →"
+					}
+					onClick={(event) => {
+						event.stopPropagation();
+						props.onActivate();
+					}}
+				>
+					<Show when={props.stopKind === "end"}>
+						<Flag size={11} aria-hidden="true" />
+					</Show>
+					{active() ? (props.stopIndex ?? 0) + 1 : "–"}/{props.stopCount}
+				</button>
+			</Show>
+
+			<Show when={props.pages.length > 1}>
+				<div
+					class="absolute top-3 right-3 z-10 flex max-h-[calc(50%-1.5rem)] w-16 flex-col items-stretch gap-1.5 overflow-y-auto"
+					role="group"
+					aria-label="Pages"
+					data-testid="step-viewer-pages"
+					onClick={(event) => event.stopPropagation()}
+				>
+					<For each={props.pages}>
+						{(page) => {
+							const pinned = () => props.pinnedPageId === page.pageId;
+							const shown = () => shownPageId() === page.pageId;
+							return (
+								<button
+									type="button"
+									class="relative flex-shrink-0 overflow-hidden rounded bg-white shadow-sm transition"
+									classList={{
+										"ring-2 ring-blue-600": shown(),
+										"ring-1 ring-gray-300 hover:ring-gray-500": !shown(),
+										"opacity-40": !page.hasFrame,
+									}}
+									aria-label={`Page ${page.number}`}
+									aria-pressed={pinned()}
+									title={
+										pinned()
+											? `Page ${page.number}, pinned. Click to follow the latest page again.`
+											: `Show page ${page.number}`
+									}
+									onClick={() => props.onPinPage(pinned() ? null : page.pageId)}
+								>
+									<img
+										src={page.screenshot.url}
+										alt=""
+										class="block aspect-video w-full object-cover object-top"
+										draggable={false}
+									/>
+									<span class="absolute bottom-0 left-0 rounded-tr bg-gray-900/75 px-1 font-mono text-[9px] leading-[14px] text-white">
+										{page.number}
+									</span>
+									<Show when={pinned()}>
+										<span class="absolute top-0.5 right-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-white">
+											<Pin size={8} aria-hidden="true" />
+										</span>
+									</Show>
+								</button>
+							);
+						}}
+					</For>
+				</div>
+			</Show>
 
 			{navigationButton(-1)}
 			{navigationButton(1)}

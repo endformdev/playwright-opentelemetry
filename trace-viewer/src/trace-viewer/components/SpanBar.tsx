@@ -1,5 +1,6 @@
-import { For, type JSX } from "solid-js";
+import { For, type JSX, Show } from "solid-js";
 import type { SpanEvent } from "../../trace-data-loader/exportToSpans";
+import { formatStepTitle } from "../../trace-data-loader/stepTitle";
 import { useViewportContext } from "../contexts/ViewportContext";
 import type { TimelineViewport } from "../viewport";
 import { timeToViewportPosition } from "../viewport";
@@ -69,6 +70,8 @@ export function calculateHighlight(
 export interface SpanBarProps {
 	id: string;
 	name: string;
+	/** Drawn after the name in a lighter monospace, e.g. a step's locator */
+	subtitle?: string;
 	startOffset: number;
 	duration: number;
 	row: number;
@@ -97,6 +100,9 @@ export function SpanBar(props: SpanBarProps) {
 			props.hoveredSearchSpanId,
 		);
 
+	const label = () =>
+		formatStepTitle({ title: props.name, subtitle: props.subtitle });
+
 	const displayText = () => {
 		if (!geometry().shouldShowContent) {
 			return null;
@@ -108,7 +114,16 @@ export function SpanBar(props: SpanBarProps) {
 				class="flex min-w-0 items-center gap-1.5 transition-opacity duration-(--label-fade-in) group-data-[labels-hidden]/plot:opacity-0 group-data-[labels-hidden]/plot:transition-none"
 			>
 				{props.icon}
-				<span class="truncate select-none">{props.name}</span>
+				<span class="truncate select-none">
+					<span classList={{ "font-semibold": !!props.subtitle }}>
+						{props.name}
+					</span>
+					<Show when={props.subtitle}>
+						{(subtitle) => (
+							<span class="ml-1.5 font-normal text-white/90">{subtitle()}</span>
+						)}
+					</Show>
+				</span>
 			</span>
 		);
 	};
@@ -130,9 +145,9 @@ export function SpanBar(props: SpanBarProps) {
 	return (
 		<div
 			role="listitem"
-			aria-label={props.name}
+			aria-label={label()}
 			data-span-id={props.id}
-			data-span-name={props.name}
+			data-span-name={label()}
 			data-span-start-ms={props.startOffset}
 			data-span-duration-ms={props.duration}
 			data-span-end-ms={props.startOffset + props.duration}
@@ -154,7 +169,7 @@ export function SpanBar(props: SpanBarProps) {
 				height: `${BAR_HEIGHT}px`,
 				"background-color": props.color,
 			}}
-			title={`${props.name} (${props.duration}ms)`}
+			title={`${label()} (${props.duration}ms)`}
 			onMouseEnter={() => props.onHover?.(props.id)}
 			onMouseLeave={() => props.onHover?.(null)}
 		>

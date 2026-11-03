@@ -1,5 +1,6 @@
 import uFuzzy from "@leeoniya/ufuzzy";
 import type { Span } from "../trace-data-loader/exportToSpans";
+import { formatStepTitle } from "../trace-data-loader/stepTitle";
 import { normalizeKey, normalizeQuery } from "./normalizers";
 
 export interface IndexedAttribute {
@@ -116,7 +117,7 @@ export function searchSpans(
 		matches.push({
 			spanId: indexedAttr.spanId,
 			spanName: span.name,
-			spanTitle: span.title,
+			spanTitle: formatStepTitle(span),
 			key: indexedAttr.key,
 			value: indexedAttr.value,
 			searchText: indexedAttr.searchText,

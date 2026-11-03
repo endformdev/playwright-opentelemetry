@@ -124,6 +124,15 @@ export class DetailsPanel {
 		return this.root.locator(`[data-span-id="${id}"]`);
 	}
 
+	/** The badge naming what put the selection on this card, e.g. "Step 2/5" */
+	badge(id: string): Locator {
+		return this.spanDetailsById(id).getByTestId("span-details-badge");
+	}
+
+	get badges(): Locator {
+		return this.root.getByTestId("span-details-badge");
+	}
+
 	parentButtonForSpan(spanId: string, parentName: string): Locator {
 		return this.spanDetailsById(spanId).getByRole("button", {
 			name: parentName,
@@ -198,20 +207,30 @@ export class ErrorSpansComponent {
 
 export class StepViewerComponent {
 	readonly root: Locator;
-	readonly caption: Locator;
+	/** Step counter; reads "3/12" on a stop and "–/12" otherwise */
 	readonly position: Locator;
-	readonly stepTitle: Locator;
-	readonly edge: Locator;
 	readonly screenshot: Locator;
+	readonly pagePicker: Locator;
+	readonly previousButton: Locator;
+	readonly nextButton: Locator;
 
 	constructor(page: Page) {
 		this.root = page.getByRole("region", { name: "Step viewer" });
-		this.caption = this.root.getByTestId("step-viewer-step");
 		this.position = this.root.getByTestId("step-viewer-position");
-		this.stepTitle = this.root.getByTestId("step-viewer-step-title");
-		this.edge = this.root.getByTestId("step-viewer-edge");
+		this.pagePicker = this.root.getByRole("group", { name: "Pages" });
 		this.screenshot = this.root.getByRole("img", {
 			name: /Step viewer screenshot/,
+		});
+		this.previousButton = this.root.getByRole("button", {
+			name: "Previous step",
+		});
+		this.nextButton = this.root.getByRole("button", { name: "Next step" });
+	}
+
+	page(number: number): Locator {
+		return this.pagePicker.getByRole("button", {
+			name: `Page ${number}`,
+			exact: true,
 		});
 	}
 }

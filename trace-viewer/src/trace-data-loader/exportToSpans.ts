@@ -4,6 +4,7 @@ import type {
 	OtlpSpan,
 	OtlpSpanEvent,
 } from "./otlp";
+import { splitLegacyStepTitle } from "./stepTitle";
 
 /**
  * A span with timing relative to test start.
@@ -17,6 +18,8 @@ export interface Span {
 	name: string;
 	/** Display title (e.g., test.step.title attribute, or span name as fallback) */
 	title: string;
+	/** What a step acted on, e.g. the locator of a `Click` (see stepTitle.ts) */
+	subtitle?: string;
 	/** Start time in milliseconds, relative to test start */
 	startOffsetMs: number;
 	/** Duration in milliseconds */
@@ -100,12 +103,15 @@ export function otlpSpanToSpan(
 	const startTimeMs = nanoToMs(span.startTimeUnixNano);
 	const endTimeMs = nanoToMs(span.endTimeUnixNano);
 
+	const { title, subtitle } = extractTitles(attributes, span.name);
+
 	return {
 		id: span.spanId,
 		parentId: span.parentSpanId ?? null,
 		traceId: span.traceId,
 		name: span.name,
-		title: extractTitle(attributes, span.name),
+		title,
+		subtitle,
 		startOffsetMs: startTimeMs - testStartTimeMs,
 		durationMs: endTimeMs - startTimeMs,
 		kind: spanKindFromOtlp(span.kind),
@@ -215,6 +221,29 @@ function extractTitle(
 		}
 	}
 	return spanName;
+}
+
+/** Steps of these categories had a locator glued onto the title before 1.63 */
+const LEGACY_LOCATOR_STEP_CATEGORIES = new Set(["pw:api", "expect"]);
+
+function extractTitles(
+	attrs: Record<string, AttributeValue>,
+	spanName: string,
+): { title: string; subtitle?: string } {
+	const title = extractTitle(attrs, spanName);
+	const subtitle = attrs["test.step.subtitle"];
+	if (typeof subtitle === "string" && subtitle.length > 0) {
+		return { title, subtitle };
+	}
+	const category = attrs["test.step.category"];
+	if (
+		typeof category === "string" &&
+		LEGACY_LOCATOR_STEP_CATEGORIES.has(category) &&
+		title === attrs["test.step.title"]
+	) {
+		return splitLegacyStepTitle(title) ?? { title };
+	}
+	return { title };
 }
 
 function nanoToMs(nanoStr: string): number {

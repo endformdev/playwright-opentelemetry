@@ -332,10 +332,10 @@ test("the step viewer still steps with the steps timeline hidden", async ({
 	await loadTrace(viewer, await createTrace(request));
 	await viewer.settings.toggle("Steps timeline");
 
-	await viewer.stepViewer.root.click();
-	await expect(viewer.stepViewer.stepTitle).toHaveText("Open the app");
-	await expect(viewer.stepViewer.edge).toHaveText("start");
 	await page.keyboard.press("ArrowRight");
-	await expect(viewer.stepViewer.edge).toHaveText("end");
+	await expect(viewer.stepViewer.position).toHaveText("1/2");
+	await expect(viewer.details.badges).toHaveText("Step 1/2");
+	await page.keyboard.press("ArrowRight");
+	await expect(viewer.details.badges).toHaveText("End of steps · 2/2");
 	await expect(viewer.details.root).toContainText("Open the app");
 });

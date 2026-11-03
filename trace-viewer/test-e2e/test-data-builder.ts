@@ -228,6 +228,8 @@ export class TraceDataBuilder {
 			startOffsetMs?: number;
 			parentSpanId?: string;
 			status?: { code: number; message?: string };
+			/** More string attributes, e.g. `test.step.subtitle` */
+			attributes?: Record<string, string>;
 		} = {},
 	): string {
 		return this.addSpan(
@@ -235,7 +237,13 @@ export class TraceDataBuilder {
 			"playwright",
 			"playwright.test.step",
 			SpanKind.INTERNAL,
-			[{ key: "test.step.title", value: { stringValue: title } }],
+			[
+				{ key: "test.step.title", value: { stringValue: title } },
+				...Object.entries(options.attributes ?? {}).map(([key, value]) => ({
+					key,
+					value: { stringValue: value },
+				})),
+			],
 			{
 				parentSpanId: options.parentSpanId ?? this.testSpanId ?? undefined,
 				durationMs,

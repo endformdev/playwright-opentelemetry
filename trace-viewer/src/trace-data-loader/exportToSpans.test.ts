@@ -211,6 +211,52 @@ describe("otlpSpanToSpan", () => {
 	});
 });
 
+describe("step titles", () => {
+	const stepSpan = (attributes: Record<string, string>) =>
+		otlpSpanToSpan(
+			createOtlpSpan({
+				name: "playwright.test.step",
+				attributes: Object.entries(attributes).map(([key, value]) => ({
+					key,
+					value: { stringValue: value },
+				})),
+			}),
+			0,
+			"playwright-tests",
+		);
+
+	it("reads the subtitle the reporter recorded", () => {
+		const span = stepSpan({
+			"test.step.title": "Click",
+			"test.step.subtitle": "getByRole('button')",
+			"test.step.category": "pw:api",
+		});
+
+		expect(span.title).toBe("Click");
+		expect(span.subtitle).toBe("getByRole('button')");
+	});
+
+	it("splits the locator off titles recorded without a subtitle", () => {
+		const span = stepSpan({
+			"test.step.title": `Expect "toBeVisible" getByText('No active subscription')`,
+			"test.step.category": "expect",
+		});
+
+		expect(span.title).toBe(`Expect "toBeVisible"`);
+		expect(span.subtitle).toBe("getByText('No active subscription')");
+	});
+
+	it("leaves user step titles whole", () => {
+		const span = stepSpan({
+			"test.step.title": "Check getByRole(button) works",
+			"test.step.category": "test.step",
+		});
+
+		expect(span.title).toBe("Check getByRole(button) works");
+		expect(span.subtitle).toBeUndefined();
+	});
+});
+
 describe("otlpExportToSpans", () => {
 	it("returns empty array for empty export", () => {
 		const otlp: OtlpExport = { resourceSpans: [] };

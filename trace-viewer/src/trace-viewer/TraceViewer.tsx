@@ -1,5 +1,4 @@
 import {
-	batch,
 	createEffect,
 	createMemo,
 	createSignal,
@@ -40,18 +39,14 @@ import { calculateInitialPanelSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import type { NavigationDirection } from "./spanNavigation";
+import type { SpanSelectionPlacement } from "./spanSelection";
 import { StepViewer } from "./StepViewer";
-import {
-	computeStepStops,
-	findStopIndex,
-	getAdjacentStopIndex,
-	getStopIndexAtTime,
-	type StepStop,
-} from "./stepStops";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
+import { buildTestStructure } from "./testStructure";
 import { layoutTimelineSpans } from "./timelineLayout";
 import { useSpanFocus } from "./useSpanFocus";
+import { useStepViewer } from "./useStepViewer";
 import { createViewerSettings } from "./viewerSettings";
 import {
 	isTimeRangeVisible,
@@ -187,7 +182,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enterSearchOverride,
 		exitSearchOverride,
 		setHoveredElement,
-		lockedElement,
 		displayTimeMs,
 		displayElements,
 		displayFocusedElement,
@@ -231,18 +225,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		type: panelOfSpan(span.id)?.definition.elementType ?? "span",
 		id: span.id,
 	});
+	const testStructure = createMemo(() =>
+		buildTestStructure(props.traceData.steps()),
+	);
 	/** With nothing focused, arrow keys start at the root test step. */
-	const rootTestSpanId = createMemo(() => {
-		const steps = props.traceData.steps();
-		const ids = new Set(steps.map((span) => span.id));
-		return (
-			steps.find(
-				(span) =>
-					span.name === "playwright.test" &&
-					(span.parentId === null || !ids.has(span.parentId)),
-			)?.id ?? null
-		);
-	});
+	const rootTestSpanId = () => testStructure().root?.id ?? null;
 	const errorSpans = createMemo(() =>
 		allSpans()
 			.filter(isErrorSpan)
@@ -251,7 +238,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	let plotRef: HTMLDivElement | undefined;
 	let detailsRef: HTMLDivElement | undefined;
-	let stepViewerRef: HTMLElement | undefined;
 	const spanFocus = useSpanFocus({
 		panels: () =>
 			shownTimelinePanels().map((panel) => ({
@@ -313,9 +299,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	});
 
 	// Detect test phases (before hooks, test body, after hooks) for the phase indicator bar
-	const testPhases = createMemo(() =>
-		detectTestPhases(props.traceData.steps()),
-	);
+	const testPhases = createMemo(() => detectTestPhases(testStructure()));
 
 	// Track whether we've done the initial zoom
 	const [hasInitialZoom, setHasInitialZoom] = createSignal(false);
@@ -502,25 +486,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				return;
 			}
 
-			// Left/Right, Home and End step through the step viewer while it is
-			// focused or the timeline is locked on one of its stops.
-			const stepping =
-				showStepViewer() &&
-				(currentStopIndex() !== null ||
-					(e.target instanceof Node && !!stepViewerRef?.contains(e.target)));
-			if (stepping && (e.key === "Home" || e.key === "End")) {
-				e.preventDefault();
-				handleStepViewerNavigateToEnd(e.key === "Home" ? "first" : "last");
-				return;
-			}
+			if (stepViewer.handleKeyDown(e)) return;
 
 			const direction = ARROW_KEY_DIRECTIONS[e.key];
 			if (!direction) return;
 			e.preventDefault();
-			if (stepping && (direction === "left" || direction === "right")) {
-				handleStepViewerNavigate(direction === "left" ? -1 : 1);
-				return;
-			}
 			spanFocus.navigate(direction);
 		};
 		document.addEventListener("keydown", onKeyDown);
@@ -540,117 +510,29 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		});
 	});
 
-	// Step viewer: walks the start and end of each test body step (see
-	// stepStops.ts) by focusing the step at that time, like arrow-key navigation.
-	const screenshotList = () => props.traceInfo.screenshots() ?? [];
-	const stepStops = createMemo(() => computeStepStops(props.traceData.steps()));
-	// The stop the step viewer selected. Any other change to the lock (span
-	// navigation, a click, search, Escape) hands the selection back to the
-	// timeline, even if it lands on the same step and time.
-	const [viewerStop, setViewerStop] = createSignal<StepStop | null>(null);
-	createEffect(() => {
-		const stop = viewerStop();
-		if (
-			stop &&
-			(lockedTimeMs() !== stop.timeMs || lockedElement()?.id !== stop.stepId)
-		) {
-			setViewerStop(null);
-		}
+	const stepViewer = useStepViewer({
+		structure: testStructure,
+		screenshots: () => props.traceInfo.screenshots() ?? [],
+		testStartTimeMs: props.testStartTimeMs,
+		enabled: showStepViewer,
+		canFrame: () => settings().steps,
+		spanFocus,
 	});
-	const currentStopIndex = createMemo(() => {
-		const stop = viewerStop();
-		return stop ? findStopIndex(stepStops(), stop.timeMs, stop.stepId) : null;
-	});
-	const currentStop = () => {
-		const index = currentStopIndex();
-		return index === null ? null : stepStops()[index];
-	};
-	const currentStopStep = () => {
-		const stop = currentStop();
-		return stop ? (spanById().get(stop.stepId) ?? null) : null;
-	};
-	const currentStopStepPath = createMemo(() => {
-		const path: string[] = [];
-		let parentId = currentStopStep()?.parentId ?? null;
-		while (parentId) {
-			const parent = spanById().get(parentId);
-			if (!parent || parent.name !== "playwright.test.step") break;
-			path.unshift(parent.title);
-			parentId = parent.parentId;
-		}
-		return path;
-	});
-	const firstScreenshot = createMemo(() =>
-		screenshotList().reduce<ScreenshotInfo | null>(
-			(first, screenshot) =>
-				!first || screenshot.timestamp < first.timestamp ? screenshot : first,
-			null,
-		),
-	);
-	// Before the first frame there is nothing on screen yet; show the first one.
-	const stepViewerScreenshot = () =>
-		displayElements()?.screenshot ?? firstScreenshot();
 
-	// Once loaded, select the first stop without framing it, so the timeline
-	// keeps its overview until the user starts stepping.
-	const [hasInitialStop, setHasInitialStop] = createSignal(false);
-	createEffect(() => {
-		if (
-			hasInitialStop() ||
-			props.traceData.isLoading() ||
-			!settings().stepViewer ||
-			!hasLoadedScreenshots()
-		)
-			return;
-		const firstStop = stepStops()[0];
-		if (!firstStop) return;
-		setHasInitialStop(true);
-		if (untrack(mode) === "hover") selectStop(firstStop, { frame: false });
-	});
+	/** Names the viewer's stop on the focused step's details card. */
+	const stepViewerBadge = () => {
+		const index = stepViewer.currentIndex();
+		if (index === null || mode() !== "locked") return null;
+		const position = `${index + 1}/${stepViewer.stops().length}`;
+		return stepViewer.currentStop()?.kind === "end"
+			? `End of steps · ${position}`
+			: `Step ${position}`;
+	};
 
 	// The focus ring marks span navigation. On a step viewer stop the subject
 	// is a moment, shown by the time line and the viewer's caption instead.
 	const timelineFocusedSpanId = () =>
-		currentStopIndex() === null ? spanFocus.focusedSpanId() : null;
-
-	/** Locks on a stop; `frame` also frames its step like span navigation. */
-	function selectStop(stop: StepStop, options: { frame: boolean }) {
-		batch(() => {
-			setViewerStop(stop);
-			if (options.frame && settings().steps) {
-				spanFocus.focusSpan(stop.stepId, stop.timeMs);
-			} else {
-				lock(stop.timeMs, { type: "step", id: stop.stepId });
-			}
-		});
-	}
-
-	const goToStop = (index: number | null) => {
-		if (index === null) return;
-		const stop = stepStops()[index];
-		if (stop) selectStop(stop, { frame: true });
-	};
-
-	const handleStepViewerActivate = () => {
-		if (currentStopIndex() !== null) return;
-		const timeMs = lockedTimeMs();
-		goToStop(timeMs === null ? 0 : getStopIndexAtTime(stepStops(), timeMs));
-	};
-
-	const handleStepViewerNavigate = (direction: -1 | 1) => {
-		const timeMs = lockedTimeMs();
-		goToStop(
-			getAdjacentStopIndex(
-				stepStops(),
-				timeMs === null ? null : { timeMs, stepId: lockedElement()?.id },
-				direction,
-			),
-		);
-	};
-
-	const handleStepViewerNavigateToEnd = (end: "first" | "last") => {
-		goToStop(end === "first" ? 0 : stepStops().length - 1);
-	};
+		stepViewer.currentIndex() === null ? spanFocus.focusedSpanId() : null;
 
 	const handleViewportChange = (newViewport: TimelineViewport) => {
 		setViewport(newViewport);
@@ -714,8 +596,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		setPointerElement(id ? { type: definition.elementType, id } : null);
 	};
 
-	/** Search results and error spans select a span like any other focus. */
-	const handleSpanSelect = spanFocus.focusSpan;
+	/**
+	 * Search results and error spans take over the selection and go to the
+	 * span: zoomed to fit and with its row centred.
+	 */
+	const handleSpanSelect = (
+		spanId: string,
+		placement: SpanSelectionPlacement,
+	) => {
+		spanFocus.focusSpan(spanId, { at: placement, zoom: "fit" });
+	};
 
 	/** The details panel's span links focus a span and hand arrow keys back. */
 	const handleNavigateToSpan = (spanId: string) => {
@@ -1035,18 +925,17 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 								maxFirstPanelSize={85}
 								firstPanel={
 									<StepViewer
-										ref={(element) => {
-											stepViewerRef = element;
-										}}
-										screenshot={stepViewerScreenshot()}
+										ref={stepViewer.ref}
+										screenshot={stepViewer.screenshot()}
 										screenshotsLoading={props.traceInfo.screenshots.loading}
-										stopCount={stepStops().length}
-										stopIndex={currentStopIndex()}
-										stopEdge={currentStop()?.edge ?? null}
-										step={currentStopStep()}
-										stepPath={currentStopStepPath()}
-										onActivate={handleStepViewerActivate}
-										onNavigate={handleStepViewerNavigate}
+										stopCount={stepViewer.stops().length}
+										stopIndex={stepViewer.currentIndex()}
+										stopKind={stepViewer.currentStop()?.kind ?? null}
+										pages={stepViewer.pages()}
+										pinnedPageId={stepViewer.pinnedPageId()}
+										onPinPage={stepViewer.pinPage}
+										onActivate={stepViewer.activate}
+										onNavigate={stepViewer.navigate}
 									/>
 								}
 								secondPanel={<MainPanelContent />}
@@ -1060,6 +949,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 								hoveredElements={displayElements()}
 								testStartTimeMs={props.testStartTimeMs()}
 								focusedElement={displayFocusedElement()}
+								focusedBadge={stepViewerBadge()}
 								onNavigateToSpan={handleNavigateToSpan}
 							/>
 						</div>

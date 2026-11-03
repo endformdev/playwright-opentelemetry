@@ -66,7 +66,7 @@ This repo ships the reporter and fixture, plus tooling for viewing and storing t
 
 ## Quick start
 
-Install the package:
+Install the package (requires `@playwright/test` 1.63 or newer):
 
 ```bash
 npm install --save-dev playwright-opentelemetry
