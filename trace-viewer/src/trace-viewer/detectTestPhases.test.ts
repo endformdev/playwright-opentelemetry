@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Span } from "../trace-data-loader/exportToSpans";
 import { detectTestPhases, getTestBodyPhase } from "./detectTestPhases";
+import { buildTestStructure } from "./testStructure";
+
+const detect = (steps: Span[]) => detectTestPhases(buildTestStructure(steps));
 
 function createSpan(overrides: Partial<Span>): Span {
 	return {
@@ -20,7 +23,7 @@ function createSpan(overrides: Partial<Span>): Span {
 
 describe("detectTestPhases", () => {
 	it("returns null for empty steps", () => {
-		expect(detectTestPhases([])).toBeNull();
+		expect(detect([])).toBeNull();
 	});
 
 	it("returns null when there is no root test span", () => {
@@ -31,7 +34,7 @@ describe("detectTestPhases", () => {
 				title: "Some step",
 			}),
 		];
-		expect(detectTestPhases(steps)).toBeNull();
+		expect(detect(steps)).toBeNull();
 	});
 
 	it("returns null when there are no hooks", () => {
@@ -52,7 +55,7 @@ describe("detectTestPhases", () => {
 				durationMs: 500,
 			}),
 		];
-		expect(detectTestPhases(steps)).toBeNull();
+		expect(detect(steps)).toBeNull();
 	});
 
 	it("detects before hooks phase", () => {
@@ -82,7 +85,7 @@ describe("detectTestPhases", () => {
 			}),
 		];
 
-		const phases = detectTestPhases(steps);
+		const phases = detect(steps);
 		expect(phases).not.toBeNull();
 		expect(phases).toHaveLength(2);
 
@@ -127,7 +130,7 @@ describe("detectTestPhases", () => {
 			}),
 		];
 
-		const phases = detectTestPhases(steps);
+		const phases = detect(steps);
 		expect(phases).not.toBeNull();
 		expect(phases).toHaveLength(2);
 
@@ -180,7 +183,7 @@ describe("detectTestPhases", () => {
 			}),
 		];
 
-		const phases = detectTestPhases(steps);
+		const phases = detect(steps);
 		expect(phases).not.toBeNull();
 		expect(phases).toHaveLength(3);
 
@@ -231,7 +234,7 @@ describe("detectTestPhases", () => {
 			}),
 		];
 
-		const phases = detectTestPhases(steps);
+		const phases = detect(steps);
 		expect(phases).not.toBeNull();
 		expect(phases).toHaveLength(3);
 		expect(phases![0].type).toBe("before-hooks");

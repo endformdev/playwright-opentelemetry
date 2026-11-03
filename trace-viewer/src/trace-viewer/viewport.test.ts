@@ -4,6 +4,7 @@ import {
 	changesScale,
 	clampViewport,
 	createViewport,
+	fitTimeRange,
 	frameTimeRange,
 	getMinVisibleDuration,
 	getViewportTransform,
@@ -486,6 +487,34 @@ describe("getMinVisibleDuration", () => {
 
 	it("never exceeds the timeline itself", () => {
 		expect(getMinVisibleDuration(4)).toBe(4);
+	});
+});
+
+describe("fitTimeRange", () => {
+	const view = (visibleStartMs: number, visibleEndMs: number) => ({
+		visibleStartMs,
+		visibleEndMs,
+		totalDurationMs: 10000,
+	});
+
+	it("zooms in on a range that already fits the window", () => {
+		expect(fitTimeRange(view(0, 10000), 2000, 5000)).toEqual(view(1000, 6000));
+	});
+
+	it("zooms out to a range wider than the window", () => {
+		expect(fitTimeRange(view(4000, 4500), 2000, 5000)).toEqual(
+			view(1000, 6000),
+		);
+	});
+
+	it("stays within the trace", () => {
+		expect(fitTimeRange(view(4000, 6000), 0, 3000)).toEqual(view(0, 5000));
+	});
+
+	it("does not zoom past the zoom limit for an instant", () => {
+		const fitted = fitTimeRange(view(0, 10000), 5000, 5000);
+		expect(fitted.visibleEndMs - fitted.visibleStartMs).toBeGreaterThan(0);
+		expect((fitted.visibleStartMs + fitted.visibleEndMs) / 2).toBe(5000);
 	});
 });
 

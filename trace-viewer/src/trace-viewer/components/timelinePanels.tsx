@@ -18,6 +18,7 @@ export type TimelinePanelId = "steps" | "browser" | "external";
 /** How one bar is drawn, apart from the error colour every panel shares. */
 export interface BarAppearance {
 	name: string;
+	subtitle?: string;
 	color: string;
 	icon?: JSX.Element;
 	events?: SpanEvent[];
@@ -84,6 +85,7 @@ export const TIMELINE_PANELS: TimelinePanelDefinition[] = [
 			const depths = createMemo(() => buildDepthMap(spans()));
 			return (span) => ({
 				name: span.title,
+				subtitle: span.subtitle,
 				color: getStepTimelineColor(span, depths().get(span.id) ?? 0),
 			});
 		},

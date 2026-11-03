@@ -187,6 +187,13 @@ test("renders browser page, route, and network spans from independent trace frag
 	const docsRoute = routeSpan(spans, "/docs/intro");
 	const pythonDocsPage = pageSpan(spans, "/python/docs/intro");
 	const fixtureFetch = fixtureFetchSpan(spans);
+	const docsClick = requiredSpan(
+		spans,
+		"Click step on the Docs link",
+		(span) =>
+			span.name === "playwright.test.step" &&
+			attributes(span)["test.step.title"] === "Click",
+	);
 
 	expect(homePage.serviceName).toBe(BROWSER_SERVICE_NAME);
 	expect(docsRoute.serviceName).toBe(BROWSER_SERVICE_NAME);
@@ -242,9 +249,22 @@ test("renders browser page, route, and network spans from independent trace frag
 		}),
 	);
 
+	// The reporter keeps what a step acted on apart from what it did.
+	expect(attributes(docsClick)).toEqual(
+		expect.objectContaining({
+			"test.step.category": "pw:api",
+			"test.step.subtitle": "getByRole('link', { name: 'Docs' }).first()",
+			"test.step.param.locator": "getByRole('link', { name: 'Docs' }).first()",
+		}),
+	);
+
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(TEST_NAME);
+	await expect(viewer.steps.spanById(docsClick.spanId)).toHaveAttribute(
+		"data-span-name",
+		"Click getByRole('link', { name: 'Docs' }).first()",
+	);
 	await expect(viewer.browserSpans.root).toBeVisible();
 	await expect(viewer.browserSpans.spanById(homePage.spanId)).toBeVisible();
 	await expect(viewer.browserSpans.spanById(docsRoute.spanId)).toBeVisible();

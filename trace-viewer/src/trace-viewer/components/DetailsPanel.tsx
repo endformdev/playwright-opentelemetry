@@ -30,6 +30,8 @@ export interface DetailsPanelProps {
 	hoveredElements: HoveredElements | null;
 	testStartTimeMs: number;
 	focusedElement: FocusedElement | null;
+	/** Badge for the focused card, naming what is driving the selection */
+	focusedBadge?: string | null;
 	onNavigateToSpan?: (spanId: string) => void;
 }
 
@@ -247,6 +249,11 @@ export function DetailsPanel(props: DetailsPanelProps) {
 													getStepTimelineColor(span, depth)
 												}
 												isFocused={isSpanFocused(hoveredSpan.span.id)}
+												badge={
+													isSpanFocused(hoveredSpan.span.id)
+														? (props.focusedBadge ?? undefined)
+														: undefined
+												}
 												onNavigateToSpan={props.onNavigateToSpan}
 											/>
 										)}
@@ -273,6 +280,11 @@ export function DetailsPanel(props: DetailsPanelProps) {
 														getResourceColor(getResourceType(span))
 													}
 													isFocused={isSpanFocused(hoveredSpan.span.id)}
+													badge={
+														isSpanFocused(hoveredSpan.span.id)
+															? (props.focusedBadge ?? undefined)
+															: undefined
+													}
 													icon={getResourceIcon(resourceType, 16)}
 													displayTitle={getResourceDisplayName(
 														hoveredSpan.span,
@@ -300,6 +312,11 @@ export function DetailsPanel(props: DetailsPanelProps) {
 												testStartTimeMs={props.testStartTimeMs}
 												colorFn={(_, span) => getSpanColor(span.kind)}
 												isFocused={isSpanFocused(hoveredSpan.span.id)}
+												badge={
+													isSpanFocused(hoveredSpan.span.id)
+														? (props.focusedBadge ?? undefined)
+														: undefined
+												}
 												onNavigateToSpan={props.onNavigateToSpan}
 											/>
 										)}

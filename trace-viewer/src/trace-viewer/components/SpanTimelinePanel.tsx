@@ -6,6 +6,7 @@ import {
 	useViewportLayer,
 } from "../contexts/ViewportContext";
 import type { TimelineBar, TimelineLayout } from "../timelineLayout";
+import type { RevealRequest } from "../useSpanFocus";
 import { isTimeRangeVisible } from "../viewport";
 import { PanelCornerLabel } from "./PanelHeader";
 import { BAR_HEIGHT, ROW_HEIGHT, SpanBar } from "./SpanBar";
@@ -23,7 +24,7 @@ export interface SpanTimelinePanelProps {
 	layout: TimelineLayout<TimelineBar>;
 	focusedSpanId: string | null;
 	/** Scrolls the bar's row into view each time a new request arrives */
-	revealRequest: { spanId: string } | null;
+	revealRequest: RevealRequest | null;
 	onBarHover: (spanId: string | null) => void;
 	matchedSpanIds?: Set<string>;
 	hoveredSearchSpanId?: string | null;
@@ -57,7 +58,10 @@ export function SpanTimelinePanel(props: SpanTimelinePanelProps) {
 				if (!bar || !scrollerRef) return;
 				const top = PLOT_PADDING_Y_PX + bar.row * ROW_HEIGHT;
 				const bottom = top + BAR_HEIGHT;
-				if (top - REVEAL_MARGIN_TOP_PX < scrollerRef.scrollTop) {
+				if (request.align === "center") {
+					scrollerRef.scrollTop =
+						top + BAR_HEIGHT / 2 - scrollerRef.clientHeight / 2;
+				} else if (top - REVEAL_MARGIN_TOP_PX < scrollerRef.scrollTop) {
 					scrollerRef.scrollTop = top - REVEAL_MARGIN_TOP_PX;
 				} else if (
 					bottom + REVEAL_MARGIN_BOTTOM_PX >
@@ -102,6 +106,7 @@ export function SpanTimelinePanel(props: SpanTimelinePanelProps) {
 								<SpanBar
 									id={bar.id}
 									name={appearance.name}
+									subtitle={appearance.subtitle}
 									startOffset={bar.startOffset}
 									duration={bar.duration}
 									row={bar.row}

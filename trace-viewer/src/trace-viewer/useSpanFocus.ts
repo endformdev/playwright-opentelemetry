@@ -1,5 +1,5 @@
 import { type Accessor, batch, createSignal, untrack } from "solid-js";
-import type { FocusedElementType } from "./contexts/HoverContext";
+import type { FocusedElementType, LockSource } from "./contexts/HoverContext";
 import { useHoverContext } from "./contexts/HoverContext";
 import { useViewportContext } from "./contexts/ViewportContext";
 import {
@@ -12,7 +12,7 @@ import {
 	type SpanSelectionPlacement,
 } from "./spanSelection";
 import type { TimelineBar, TimelineLayout } from "./timelineLayout";
-import { frameTimeRange, getVisibleDuration } from "./viewport";
+import { fitTimeRange, frameTimeRange, getVisibleDuration } from "./viewport";
 
 /** How close to the time line a bar counts as on it for Up/Down */
 const NAVIGATION_SLOP_PX = 24;
@@ -30,27 +30,46 @@ export interface SpanFocusOptions {
 	plotWidthPx: () => number;
 }
 
+export interface FocusSpanOptions {
+	/** Where to lock: a placement within the span, or a time. Default center. */
+	at?: SpanSelectionPlacement | number;
+	source?: LockSource;
+	/**
+	 * `frame` (default) moves the view only as much as needed to keep a span
+	 * comfortably in frame, so hopping between neighbours stays steady. `fit`
+	 * zooms to the span and centres its row, for jumps from search or errors.
+	 */
+	zoom?: "frame" | "fit";
+}
+
+/** A request for the panel holding a bar to scroll its row into view. */
+export interface RevealRequest {
+	spanId: string;
+	/** `nearest` scrolls as little as possible; `center` centres the row */
+	align: "nearest" | "center";
+}
+
 export interface SpanFocus {
 	/** The locked span, or null while hovering */
 	focusedSpanId: Accessor<string | null>;
 	/**
-	 * Selects a span: frames it in the timeline, locks time at `at` (a
-	 * placement within the span, or a time) and scrolls its bar into view.
-	 * Every way of going to a span should come through here.
+	 * Selects a span: frames it in the timeline, locks time on it and scrolls
+	 * its bar into view. Every way of going to a span should come through
+	 * here. Returns false when the span is not in a shown panel.
 	 */
-	focusSpan: (spanId: string, at?: SpanSelectionPlacement | number) => void;
+	focusSpan: (spanId: string, options?: FocusSpanOptions) => boolean;
 	/** Moves focus with an arrow key, starting at `startSpanId` if unfocused. */
 	navigate: (direction: NavigationDirection) => void;
 	/** The latest request for a panel to scroll a bar into view */
-	revealRequest: Accessor<{ spanId: string } | null>;
+	revealRequest: Accessor<RevealRequest | null>;
 }
 
 export function useSpanFocus(options: SpanFocusOptions): SpanFocus {
 	const { viewport, animateTo } = useViewportContext();
 	const { mode, lockedElement, lockedTimeMs, lock } = useHoverContext();
-	const [revealRequest, setRevealRequest] = createSignal<{
-		spanId: string;
-	} | null>(null);
+	const [revealRequest, setRevealRequest] = createSignal<RevealRequest | null>(
+		null,
+	);
 	let history: NavigationStep[] = [];
 
 	const findBar = (spanId: string) => {
@@ -67,27 +86,32 @@ export function useSpanFocus(options: SpanFocusOptions): SpanFocus {
 		return element && element.type !== "screenshot" ? element.id : null;
 	};
 
-	const focusSpan = (
-		spanId: string,
-		at: SpanSelectionPlacement | number = "center",
-	) => {
+	const focusSpan = (spanId: string, focusOptions: FocusSpanOptions = {}) => {
+		const { at = "center", source = "timeline", zoom = "frame" } = focusOptions;
 		const found = untrack(() => findBar(spanId));
-		if (!found) return;
+		if (!found) return false;
 		const { span } = found.bar;
+		const toViewport = zoom === "fit" ? fitTimeRange : frameTimeRange;
+		const timeMs =
+			typeof at === "number" ? at : getSpanSelectionTimeMs(span, at);
+		const endMs = span.startOffsetMs + span.durationMs;
 		batch(() => {
+			// The locked time can fall outside the span (a step viewer stop sits
+			// after its step), so frame both.
 			animateTo(
-				frameTimeRange(
+				toViewport(
 					untrack(viewport),
-					span.startOffsetMs,
-					span.startOffsetMs + span.durationMs,
+					Math.min(span.startOffsetMs, timeMs),
+					Math.max(endMs, timeMs),
 				),
 			);
-			lock(typeof at === "number" ? at : getSpanSelectionTimeMs(span, at), {
-				type: found.panel.elementType,
-				id: spanId,
+			lock(timeMs, { type: found.panel.elementType, id: spanId }, source);
+			setRevealRequest({
+				spanId,
+				align: zoom === "fit" ? "center" : "nearest",
 			});
-			setRevealRequest({ spanId });
 		});
+		return true;
 	};
 
 	const navigate = (direction: NavigationDirection) => {
@@ -119,7 +143,7 @@ export function useSpanFocus(options: SpanFocusOptions): SpanFocus {
 		);
 		if (!result) return;
 		history = result.history;
-		focusSpan(result.target.spanId, result.target.timeMs);
+		focusSpan(result.target.spanId, { at: result.target.timeMs });
 	};
 
 	return { focusedSpanId, focusSpan, navigate, revealRequest };

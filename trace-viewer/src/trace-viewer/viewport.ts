@@ -192,6 +192,33 @@ export function getMinVisibleDuration(totalDurationMs: number): number {
 }
 
 /**
+ * Zooms and pans so a time range fills `fraction` of the window, centred,
+ * whatever the current zoom. Used when jumping to something found elsewhere
+ * (search, errors), where the user expects the view to go to it.
+ */
+export function fitTimeRange(
+	viewport: TimelineViewport,
+	startMs: number,
+	endMs: number,
+	fraction = 0.6,
+): TimelineViewport {
+	const rangeDuration = Math.max(0, endMs - startMs);
+	const targetDuration = Math.min(
+		viewport.totalDurationMs,
+		Math.max(
+			getMinVisibleDuration(viewport.totalDurationMs),
+			rangeDuration / fraction,
+		),
+	);
+	const centerMs = startMs + rangeDuration / 2;
+	return clampViewport({
+		visibleStartMs: centerMs - targetDuration / 2,
+		visibleEndMs: centerMs + targetDuration / 2,
+		totalDurationMs: viewport.totalDurationMs,
+	});
+}
+
+/**
  * Brings a time range into frame so it occupies a proportion of the window
  * within the tolerance. Ranges already in frame leave the viewport untouched,
  * so hopping between similar ranges does not move the timeline. Otherwise the
