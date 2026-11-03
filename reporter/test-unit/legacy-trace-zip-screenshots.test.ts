@@ -413,10 +413,8 @@ describe("reporter screenshots before Playwright 1.61", () => {
 				call[0] ===
 				"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip",
 		);
-		if (!call) {
-			throw new Error("Expected trace API screenshots request");
-		}
-		return readScreenshotsZip(call[1].body);
+		// No request means there were no screenshots to upload.
+		return call ? readScreenshotsZip(call[1].body) : null;
 	}
 
 	it("reads screenshots from Playwright's trace", async () => {
@@ -440,6 +438,6 @@ describe("reporter screenshots before Playwright 1.61", () => {
 			await uploadedScreenshots({
 				playwrightOpentelemetry: { screenshots: false },
 			}),
-		).toEqual([]);
+		).toBeNull();
 	});
 });

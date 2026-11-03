@@ -342,9 +342,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		options: PrepareTraceArtifactOptions,
 	): Promise<PreparedTraceArtifact> {
 		const screenshots = await readTestScreenshots(options);
-		// Even without screenshots, an empty ZIP keeps the viewer's request for
-		// it from failing.
-		const screenshotsZip = await createScreenshotsZip(screenshots);
 
 		const traceZipBlobPromise = options.config.storeTraceZip
 			? createTraceZipBlob({
@@ -356,15 +353,21 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				})
 			: undefined;
 
-		const uploadPromises = options.config.playwrightTraceApiDestinations
-			.filter((destination) => destination.url)
-			.map((destination) =>
-				this.sendScreenshotsZipToTraceApi({
-					traceId: options.traceId,
-					screenshotsZip,
-					destination,
-				}),
-			);
+		// Without screenshots there is nothing to upload: the Trace API answers
+		// a missing screenshots ZIP with 404, which the viewer shows as none.
+		const screenshotsZip =
+			screenshots.length > 0 ? await createScreenshotsZip(screenshots) : null;
+		const uploadPromises = screenshotsZip
+			? options.config.playwrightTraceApiDestinations
+					.filter((destination) => destination.url)
+					.map((destination) =>
+						this.sendScreenshotsZipToTraceApi({
+							traceId: options.traceId,
+							screenshotsZip,
+							destination,
+						}),
+					)
+			: [];
 
 		const [traceZipBlob] = await Promise.all([
 			traceZipBlobPromise,

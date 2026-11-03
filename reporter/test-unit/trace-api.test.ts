@@ -9,13 +9,24 @@ import {
 	PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 } from "../src/shared/otel";
 import {
-	createScreenshotsZip,
 	readScreenshotsZip,
 	SCREENSHOTS_ATTACHMENT_NAME,
 } from "../src/shared/screenshots-zip";
-import { retainedTraceAttachment, runReporterTest } from "./reporter-harness";
+import {
+	retainedTraceAttachment,
+	runReporterTest,
+	screenshotsAttachment,
+} from "./reporter-harness";
 
 const mockFetch = vi.fn();
+
+function screenshotsRequests(url = "https://traces.example.com") {
+	return mockFetch.mock.calls.filter(
+		(call) =>
+			call[0] === `${url}/playwright-otel-reporter/v1/screenshots.zip` &&
+			call[1]?.method === "PUT",
+	);
+}
 
 describe("Trace API Integration", () => {
 	beforeEach(() => {
@@ -30,7 +41,6 @@ describe("Trace API Integration", () => {
 		 * should send all data to the trace API:
 		 * 1. OTLP spans to POST {endpoint}/v1/traces
 		 * 2. Test metadata as root playwright.test span attributes
-		 * 3. Screenshots to PUT {endpoint}/playwright-otel-reporter/v1/screenshots.zip
 		 *
 		 * All requests should include:
 		 * - X-Trace-Id header with the test's traceId
@@ -216,21 +226,8 @@ describe("Trace API Integration", () => {
 			}),
 		);
 
-		const screenshotsCall = mockFetch.mock.calls.find(
-			(call) =>
-				call[0] ===
-					"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip" &&
-				call[1]?.method === "PUT",
-		);
-		if (!screenshotsCall) {
-			throw new Error("Expected trace API screenshots request");
-		}
-		expect(screenshotsCall[1].headers).toMatchObject({
-			"x-trace-id": testSpan.traceId,
-			[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
-				PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
-			Authorization: "Bearer test-token",
-		});
+		// Without the fixture there are no screenshots to upload.
+		expect(screenshotsRequests()).toEqual([]);
 
 		expect(testResult.annotations).toContainEqual({
 			type: "playwrightOpentelemetryTraceId",
@@ -239,59 +236,36 @@ describe("Trace API Integration", () => {
 	});
 
 	it("uploads the screenshots ZIP the fixture attached", async () => {
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "trace-api-test-"));
-		const screenshotsZipPath = path.join(dir, "screenshots.zip");
-		const screenshotsZip = await createScreenshotsZip([
-			{
-				pageId: "page-0",
-				timestamp: 1000,
-				file: "page-0-1000.jpeg",
-				contentType: "image/jpeg",
-				blob: new Blob(["frame"]),
+		await runReporterTest({
+			playwrightOpentelemetry: {
+				playwrightTraceApiEndpoint: {
+					url: "https://traces.example.com",
+					headers: { Authorization: "Bearer test-token" },
+				},
 			},
-		]);
-		await fs.writeFile(
-			screenshotsZipPath,
-			Buffer.from(await screenshotsZip.arrayBuffer()),
-		);
+			test: { title: "screenshots test" },
+			result: {
+				attachments: [
+					retainedTraceAttachment(),
+					await screenshotsAttachment([{ pageId: "page-0", timestamp: 1000 }]),
+				],
+			},
+		});
 
-		try {
-			await runReporterTest({
-				playwrightOpentelemetry: {
-					playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
-				},
-				test: {
-					title: "screenshots test",
-					titlePath: [
-						"",
-						"chromium",
-						"screenshots.spec.ts",
-						"screenshots test",
-					],
-				},
-				result: {
-					attachments: [
-						retainedTraceAttachment(),
-						{
-							name: SCREENSHOTS_ATTACHMENT_NAME,
-							contentType: "application/zip",
-							path: screenshotsZipPath,
-						},
-					],
-				},
-			});
-		} finally {
-			await fs.rm(dir, { recursive: true, force: true });
-		}
-
-		const screenshotsCall = mockFetch.mock.calls.find(
-			(call) =>
-				call[0] ===
-				"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip",
+		const otlpCall = mockFetch.mock.calls.find(
+			(call) => call[0] === "https://traces.example.com/v1/traces",
 		);
-		if (!screenshotsCall) {
-			throw new Error("Expected trace API screenshots request");
-		}
+		const traceId = JSON.parse(otlpCall?.[1].body).resourceSpans[0]
+			.scopeSpans[0].spans[0].traceId;
+		const [screenshotsCall, ...otherCalls] = screenshotsRequests();
+		expect(otherCalls).toEqual([]);
+		expect(screenshotsCall[1].headers).toMatchObject({
+			"content-type": "application/zip",
+			"x-trace-id": traceId,
+			[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
+				PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
+			Authorization: "Bearer test-token",
+		});
 		expect(await readScreenshotsZip(screenshotsCall[1].body)).toEqual([
 			expect.objectContaining({
 				pageId: "page-0",
@@ -334,15 +308,7 @@ describe("Trace API Integration", () => {
 			await fs.rm(dir, { recursive: true, force: true });
 		}
 
-		const screenshotsCall = mockFetch.mock.calls.find(
-			(call) =>
-				call[0] ===
-				"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip",
-		);
-		if (!screenshotsCall) {
-			throw new Error("Expected trace API screenshots request");
-		}
-		expect(await readScreenshotsZip(screenshotsCall[1].body)).toEqual([]);
+		expect(screenshotsRequests()).toEqual([]);
 	});
 
 	it("still sends spans when the fixture's screenshots can't be read", async () => {
@@ -373,42 +339,20 @@ describe("Trace API Integration", () => {
 
 		const urls = mockFetch.mock.calls.map((call) => call[0]);
 		expect(urls).toContain("https://traces.example.com/v1/traces");
-		const screenshotsCall = mockFetch.mock.calls.find(
-			(call) =>
-				call[0] ===
-				"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip",
-		);
-		if (!screenshotsCall) {
-			throw new Error("Expected trace API screenshots request");
-		}
-		expect(await readScreenshotsZip(screenshotsCall[1].body)).toEqual([]);
+		expect(screenshotsRequests()).toEqual([]);
 	});
 
-	it("uploads an empty screenshots ZIP when the fixture captured none", async () => {
+	it("doesn't upload screenshots when the test has none", async () => {
 		await runReporterTest({
 			playwrightOpentelemetry: {
 				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
 			},
-			test: {
-				title: "no screenshots test",
-				titlePath: [
-					"",
-					"chromium",
-					"screenshots.spec.ts",
-					"no screenshots test",
-				],
-			},
+			test: { title: "no screenshots test" },
 		});
 
-		const screenshotsCall = mockFetch.mock.calls.find(
-			(call) =>
-				call[0] ===
-				"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip",
-		);
-		if (!screenshotsCall) {
-			throw new Error("Expected trace API screenshots request");
-		}
-		expect(await readScreenshotsZip(screenshotsCall[1].body)).toEqual([]);
+		const urls = mockFetch.mock.calls.map((call) => call[0]);
+		expect(urls).toContain("https://traces.example.com/v1/traces");
+		expect(screenshotsRequests()).toEqual([]);
 	});
 
 	it("sends data to both OTLP endpoint and trace API endpoint when both configured", async () => {
@@ -522,6 +466,9 @@ describe("Trace API Integration", () => {
 			test: {
 				title: "should fan out trace API uploads",
 			},
+			result: {
+				attachments: [retainedTraceAttachment(), await screenshotsAttachment()],
+			},
 		});
 
 		for (const [url, authorization] of [
@@ -538,11 +485,7 @@ describe("Trace API Integration", () => {
 				Authorization: authorization,
 			});
 
-			const screenshotsCall = mockFetch.mock.calls.find(
-				(call) =>
-					call[0] === `${url}/playwright-otel-reporter/v1/screenshots.zip` &&
-					call[1]?.method === "PUT",
-			);
+			const [screenshotsCall] = screenshotsRequests(url);
 			expect(screenshotsCall?.[1].headers).toMatchObject({
 				"content-type": "application/zip",
 				[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
