@@ -14,6 +14,8 @@ export interface SpanDetailsProps {
 	testStartTimeMs: number;
 	colorFn: (depth: number, span: Span) => string;
 	isFocused: boolean;
+	/** Marks the card as what a navigator is on, e.g. "Step 3/12" */
+	badge?: string;
 	/** Optional icon to display in header */
 	icon?: JSX.Element;
 	/** Optional override for display title */
@@ -52,7 +54,7 @@ export function SpanDetails(props: SpanDetailsProps) {
 
 	const attributeEntries = () => {
 		return Object.entries(span.attributes).filter(
-			([key]) => key !== "test.step.title" && key !== "test.case.title",
+			([key]) => !HEADER_ATTRIBUTES.has(key),
 		);
 	};
 
@@ -69,21 +71,64 @@ export function SpanDetails(props: SpanDetailsProps) {
 	return (
 		<div
 			data-span-id={span.id}
-			class="rounded-md border-2 overflow-hidden transition-all duration-150"
+			class="overflow-hidden rounded-md border bg-white transition-all duration-150"
 			classList={{
-				"ring-2 ring-blue-200": props.isFocused,
-			}}
-			style={{
-				"border-color": props.isFocused ? "#3b82f6" : color(),
+				"border-gray-200": !props.isFocused,
+				"border-blue-500 ring-2 ring-blue-200": props.isFocused,
 			}}
 		>
-			{/* Header with span name and color indicator */}
+			{/* Header: a tint of the span's colour, with the colour itself as a stripe */}
 			<div
-				class="px-3 py-2 text-white text-sm font-medium flex items-center gap-2"
-				style={{ "background-color": color() }}
+				class="flex items-start gap-2 border-l-4 px-3 py-2 text-gray-900"
+				style={{
+					"border-left-color": color(),
+					"background-color": `color-mix(in srgb, ${color()} 12%, white)`,
+				}}
+				data-testid="span-details-header"
 			>
-				{props.icon}
-				<span class="truncate">{props.displayTitle ?? span.title}</span>
+				<Show when={props.icon}>
+					<span class="mt-0.5 flex-shrink-0">{props.icon}</span>
+				</Show>
+				<div class="min-w-0 flex-1">
+					<div
+						class="text-[13px] font-semibold leading-snug"
+						classList={{
+							truncate: !props.isFocused,
+							"break-words": props.isFocused,
+						}}
+						data-testid="span-details-title"
+					>
+						<StepTitleText
+							title={props.displayTitle ?? span.title}
+							emphasisColor={`color-mix(in srgb, ${color()} 65%, black)`}
+						/>
+					</div>
+					<Show when={!props.displayTitle && span.subtitle}>
+						{(subtitle) => (
+							<div
+								class="mt-0.5 font-mono text-xs leading-snug text-gray-700"
+								classList={{
+									truncate: !props.isFocused,
+									"wrap-anywhere": props.isFocused,
+								}}
+								title={subtitle()}
+								data-testid="span-details-subtitle"
+							>
+								{subtitle()}
+							</div>
+						)}
+					</Show>
+				</div>
+				<Show when={props.badge}>
+					{(badge) => (
+						<span
+							class="flex-shrink-0 rounded-full bg-blue-600 px-2 py-0.5 font-mono text-[10px] font-semibold tabular-nums text-white shadow-sm"
+							data-testid="span-details-badge"
+						>
+							{badge()}
+						</span>
+					)}
+				</Show>
 			</div>
 
 			{/* Details */}
@@ -257,6 +302,32 @@ export function SpanDetails(props: SpanDetailsProps) {
 				</Show>
 			</div>
 		</div>
+	);
+}
+
+/** Shown in the card header, so left out of the attribute list */
+const HEADER_ATTRIBUTES = new Set([
+	"test.step.title",
+	"test.step.subtitle",
+	"test.case.title",
+]);
+
+/**
+ * Playwright quotes the values it fills into a title (`Expect "toBeVisible"`,
+ * `Fill "a@b.c"`); they are set off from the words around them.
+ */
+function StepTitleText(props: { title: string; emphasisColor: string }) {
+	const parts = () => props.title.split(/("[^"]*")/).filter(Boolean);
+	return (
+		<For each={parts()}>
+			{(part) =>
+				part.length > 1 && part.startsWith('"') && part.endsWith('"') ? (
+					<span style={{ color: props.emphasisColor }}>{part}</span>
+				) : (
+					part
+				)
+			}
+		</For>
 	);
 }
 

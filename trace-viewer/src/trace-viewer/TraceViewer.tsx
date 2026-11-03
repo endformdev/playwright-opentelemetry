@@ -6,6 +6,7 @@ import {
 	onCleanup,
 	onMount,
 	Show,
+	untrack,
 } from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
@@ -38,10 +39,15 @@ import { calculateInitialPanelSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import type { NavigationDirection } from "./spanNavigation";
+import type { SpanSelectionPlacement } from "./spanSelection";
+import { StepViewer } from "./StepViewer";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
+import { buildTestStructure } from "./testStructure";
 import { layoutTimelineSpans } from "./timelineLayout";
 import { useSpanFocus } from "./useSpanFocus";
+import { useStepViewer } from "./useStepViewer";
+import { createViewerSettings } from "./viewerSettings";
 import {
 	isTimeRangeVisible,
 	type TimelineViewport,
@@ -209,24 +215,21 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const activeTimelinePanels = createMemo(() =>
 		timelinePanels.filter((panel) => panel.layout().bars.length > 0),
 	);
+	const { settings, setSetting } = createViewerSettings();
+	const shownTimelinePanels = createMemo(() =>
+		activeTimelinePanels().filter((panel) => settings()[panel.definition.id]),
+	);
 	const panelOfSpan = (spanId: string) =>
 		timelinePanels.find((panel) => panel.layout().byId.has(spanId));
 	const focusedElementFor = (span: Span): FocusedElement => ({
 		type: panelOfSpan(span.id)?.definition.elementType ?? "span",
 		id: span.id,
 	});
+	const testStructure = createMemo(() =>
+		buildTestStructure(props.traceData.steps()),
+	);
 	/** With nothing focused, arrow keys start at the root test step. */
-	const rootTestSpanId = createMemo(() => {
-		const steps = props.traceData.steps();
-		const ids = new Set(steps.map((span) => span.id));
-		return (
-			steps.find(
-				(span) =>
-					span.name === "playwright.test" &&
-					(span.parentId === null || !ids.has(span.parentId)),
-			)?.id ?? null
-		);
-	});
+	const rootTestSpanId = () => testStructure().root?.id ?? null;
 	const errorSpans = createMemo(() =>
 		allSpans()
 			.filter(isErrorSpan)
@@ -237,13 +240,13 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	let detailsRef: HTMLDivElement | undefined;
 	const spanFocus = useSpanFocus({
 		panels: () =>
-			timelinePanels.map((panel) => ({
+			shownTimelinePanels().map((panel) => ({
 				elementType: panel.definition.elementType,
 				layout: panel.layout(),
 			})),
 		startSpanId: () =>
-			rootTestSpanId() ??
-			activeTimelinePanels()[0]?.layout().rows[0]?.[0]?.id ??
+			(settings().steps ? rootTestSpanId() : null) ??
+			shownTimelinePanels()[0]?.layout().rows[0]?.[0]?.id ??
 			null,
 		plotWidthPx: () => plotRef?.getBoundingClientRect().width ?? 0,
 	});
@@ -268,6 +271,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		(props.traceInfo.screenshots() ?? []).length > 0;
 	const hasScreenshots = () =>
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
+	const showStepViewer = () => settings().stepViewer && hasScreenshots();
+	const showFilmstrip = () => settings().filmstrip && hasScreenshots();
 	const screenshotPageCount = createMemo(() =>
 		countScreenshotPages(props.traceInfo.screenshots() ?? []),
 	);
@@ -294,9 +299,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	});
 
 	// Detect test phases (before hooks, test body, after hooks) for the phase indicator bar
-	const testPhases = createMemo(() =>
-		detectTestPhases(props.traceData.steps()),
-	);
+	const testPhases = createMemo(() => detectTestPhases(testStructure()));
 
 	// Track whether we've done the initial zoom
 	const [hasInitialZoom, setHasInitialZoom] = createSignal(false);
@@ -327,7 +330,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	// Calculate initial sizes for span panels (just the sizing data, not content)
 	const spanPanelSizeConfigs = createMemo((): PanelSizeConfig[] => {
-		const active = activeTimelinePanels().map((panel) => panel.definition.id);
+		const active = shownTimelinePanels().map((panel) => panel.definition.id);
 		const sizes = calculateInitialPanelSizes({
 			steps: active.includes("steps"),
 			browser: active.includes("browser"),
@@ -471,9 +474,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				return;
 			}
 
-			const direction = ARROW_KEY_DIRECTIONS[e.key];
 			if (
-				!direction ||
 				e.defaultPrevented ||
 				e.altKey ||
 				e.ctrlKey ||
@@ -484,6 +485,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			) {
 				return;
 			}
+
+			if (stepViewer.handleKeyDown(e)) return;
+
+			const direction = ARROW_KEY_DIRECTIONS[e.key];
+			if (!direction) return;
 			e.preventDefault();
 			spanFocus.navigate(direction);
 		};
@@ -503,6 +509,27 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			document.removeEventListener("pointerdown", onPointerDown, true);
 		});
 	});
+
+	const stepViewer = useStepViewer({
+		structure: testStructure,
+		screenshots: () => props.traceInfo.screenshots() ?? [],
+		testStartTimeMs: props.testStartTimeMs,
+		enabled: showStepViewer,
+		canFrame: () => settings().steps,
+		spanFocus,
+	});
+
+	/** Names the viewer's stop on the focused step's details card. */
+	const stepViewerBadge = () => {
+		const index = stepViewer.currentIndex();
+		if (index === null || mode() !== "locked") return null;
+		return `Step ${index + 1}/${stepViewer.stops().length}`;
+	};
+
+	// The focus ring marks span navigation. On a step viewer stop the subject
+	// is a moment, shown by the time line and the viewer's caption instead.
+	const timelineFocusedSpanId = () =>
+		stepViewer.currentIndex() === null ? spanFocus.focusedSpanId() : null;
 
 	const handleViewportChange = (newViewport: TimelineViewport) => {
 		setViewport(newViewport);
@@ -566,8 +593,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		setPointerElement(id ? { type: definition.elementType, id } : null);
 	};
 
-	/** Search results and error spans select a span like any other focus. */
-	const handleSpanSelect = spanFocus.focusSpan;
+	/**
+	 * Search results and error spans take over the selection and go to the
+	 * span: zoomed to fit and with its row centred.
+	 */
+	const handleSpanSelect = (
+		spanId: string,
+		placement: SpanSelectionPlacement,
+	) => {
+		spanFocus.focusSpan(spanId, { at: placement, zoom: "fit" });
+	};
 
 	/** The details panel's span links focus a span and hand arrow keys back. */
 	const handleNavigateToSpan = (spanId: string) => {
@@ -642,7 +677,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				<SpanTimelinePanel
 					definition={definition}
 					layout={panel.layout()}
-					focusedSpanId={spanFocus.focusedSpanId()}
+					focusedSpanId={timelineFocusedSpanId()}
 					revealRequest={spanFocus.revealRequest()}
 					onBarHover={(id) => handleBarHover(definition, id)}
 					matchedSpanIds={search.matchedSpanIds()}
@@ -651,22 +686,34 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			);
 		};
 
-		const configs = spanPanelSizeConfigs().map((config) => ({
-			...config,
-			content: renderPanelContent(config.id),
-		}));
+		// Rebuild the panels, with fresh initial sizes, whenever settings change
+		// which of them are shown.
+		const shownPanelKey = createMemo(() =>
+			spanPanelSizeConfigs()
+				.map((config) => config.id)
+				.join("|"),
+		);
 
-		if (configs.length === 0) {
-			return null;
-		}
+		return (
+			<Show when={shownPanelKey()} keyed>
+				{(_key) => {
+					const configs = untrack(spanPanelSizeConfigs).map((config) => ({
+						...config,
+						content: renderPanelContent(config.id),
+					}));
 
-		if (configs.length === 1) {
-			return (
-				<div class="h-full min-h-0 overflow-hidden">{configs[0].content}</div>
-			);
-		}
+					if (configs.length === 1) {
+						return (
+							<div class="h-full min-h-0 overflow-hidden">
+								{configs[0].content}
+							</div>
+						);
+					}
 
-		return <MultiResizablePanel direction="vertical" panels={configs} />;
+					return <MultiResizablePanel direction="vertical" panels={configs} />;
+				}}
+			</Show>
+		);
 	};
 
 	const MainPanelContent = () => (
@@ -709,10 +756,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				{/* Active panels section */}
 				<div class="flex-1 min-h-0 overflow-hidden">
 					<Show
-						when={hasScreenshots() && hasAnySpanPanels()}
+						when={showFilmstrip() && hasAnySpanPanels()}
 						fallback={
 							<Show
-								when={hasScreenshots()}
+								when={showFilmstrip()}
 								fallback={
 									<Show when={hasAnySpanPanels()}>
 										<SpanPanelsContent />
@@ -856,6 +903,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				hoverTimeMs={displayTimeMs}
 				onSpanSelect={handleSpanSelect}
 				onSpanHover={handleSearchResultHover}
+				settings={settings()}
+				onSettingChange={setSetting}
 			/>
 
 			<div class="flex-1 min-h-0">
@@ -864,7 +913,31 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					initialFirstPanelSize={75}
 					minFirstPanelSize={50}
 					maxFirstPanelSize={90}
-					firstPanel={<MainPanelContent />}
+					firstPanel={
+						<Show when={showStepViewer()} fallback={<MainPanelContent />}>
+							<ResizablePanel
+								direction="vertical"
+								initialFirstPanelSize={45}
+								minFirstPanelSize={20}
+								maxFirstPanelSize={85}
+								firstPanel={
+									<StepViewer
+										ref={stepViewer.ref}
+										screenshot={stepViewer.screenshot()}
+										screenshotsLoading={props.traceInfo.screenshots.loading}
+										stopCount={stepViewer.stops().length}
+										stopIndex={stepViewer.currentIndex()}
+										pages={stepViewer.pages()}
+										pinnedPageId={stepViewer.pinnedPageId()}
+										onPinPage={stepViewer.pinPage}
+										onActivate={stepViewer.activate}
+										onNavigate={stepViewer.navigate}
+									/>
+								}
+								secondPanel={<MainPanelContent />}
+							/>
+						</Show>
+					}
 					secondPanel={
 						<div ref={detailsRef} class="h-full min-h-0">
 							<DetailsPanel
@@ -872,6 +945,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 								hoveredElements={displayElements()}
 								testStartTimeMs={props.testStartTimeMs()}
 								focusedElement={displayFocusedElement()}
+								focusedBadge={stepViewerBadge()}
 								onNavigateToSpan={handleNavigateToSpan}
 							/>
 						</div>

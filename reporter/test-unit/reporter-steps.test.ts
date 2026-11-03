@@ -8,6 +8,7 @@ import {
 	ATTR_TEST_PHASE,
 	ATTR_TEST_STEP_CATEGORY,
 	ATTR_TEST_STEP_NAME,
+	ATTR_TEST_STEP_SUBTITLE,
 	ATTR_TEST_STEP_TITLE,
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
@@ -694,6 +695,141 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 			]),
 			expect.any(Object),
 		);
+	});
+
+	it("records the step subtitle and params next to the title", async () => {
+		await runReporterTest({
+			test: {
+				title: "structured steps",
+				titlePath: ["", "chromium", "test.spec.ts", "structured steps"],
+			},
+			result: {
+				steps: [
+					{
+						title: "Click",
+						subtitle: "getByRole('button', { name: 'Upgrade' })",
+						category: "pw:api",
+						params: {
+							locator: "getByRole('button', { name: 'Upgrade' })",
+							clickCount: 2,
+							force: true,
+							modifiers: ["Shift"],
+							position: { x: 1, y: 2 },
+							expected: {},
+							timeout: undefined,
+						},
+					},
+					{ title: "Add to cart", category: "test.step" },
+				],
+			},
+		});
+
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const click = spans.find(
+			(span: { attributes: Record<string, unknown> }) =>
+				span.attributes[ATTR_TEST_STEP_TITLE] === "Click",
+		);
+		expect(click.attributes).toEqual(
+			expect.objectContaining({
+				[ATTR_TEST_STEP_NAME]: "Click",
+				[ATTR_TEST_STEP_SUBTITLE]: "getByRole('button', { name: 'Upgrade' })",
+				"test.step.param.locator": "getByRole('button', { name: 'Upgrade' })",
+				"test.step.param.clickCount": 2,
+				"test.step.param.force": true,
+				"test.step.param.modifiers": ["Shift"],
+				"test.step.param.position": '{"x":1,"y":2}',
+			}),
+		);
+		expect(click.attributes).not.toHaveProperty("test.step.param.expected");
+		expect(click.attributes).not.toHaveProperty("test.step.param.timeout");
+
+		const userStep = spans.find(
+			(span: { attributes: Record<string, unknown> }) =>
+				span.attributes[ATTR_TEST_STEP_TITLE] === "Add to cart",
+		);
+		expect(userStep.attributes).not.toHaveProperty(ATTR_TEST_STEP_SUBTITLE);
+	});
+
+	it("skips API request steps made by the playwright-opentelemetry fixture", async () => {
+		const fixtureFile =
+			"/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture.mjs";
+		await runReporterTest({
+			test: {
+				title: "request fixture",
+				titlePath: ["", "chromium", "test.spec.ts", "request fixture"],
+			},
+			result: {
+				steps: [
+					{
+						title: "GET",
+						subtitle: "127.0.0.1:3000/internal",
+						category: "pw:api",
+						params: { url: "http://127.0.0.1:3000/internal", method: "GET" },
+						location: { file: fixtureFile, line: 40 },
+					},
+					{
+						title: "Navigate",
+						subtitle: "127.0.0.1:3000/page",
+						category: "pw:api",
+						params: { url: "http://127.0.0.1:3000/page" },
+						location: { file: fixtureFile, line: 41 },
+					},
+					{
+						title: "POST",
+						subtitle: "127.0.0.1:3000/user",
+						category: "pw:api",
+						params: { url: "http://127.0.0.1:3000/user", method: "POST" },
+						location: {
+							file: "/Users/test/project/test-e2e/test.spec.ts",
+							line: 12,
+						},
+					},
+				],
+			},
+		});
+
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const titles = spans.map(
+			(span: { attributes: Record<string, unknown> }) =>
+				span.attributes[ATTR_TEST_STEP_TITLE],
+		);
+		expect(titles).not.toContain("GET");
+		expect(titles).toContain("Navigate");
+		expect(titles).toContain("POST");
+	});
+
+	it("skips the fixture's API request steps on Playwright before 1.63", async () => {
+		// Older versions report no params: the url is part of the title.
+		const fixtureFile =
+			"/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture.mjs";
+		await runReporterTest({
+			test: {
+				title: "legacy request fixture",
+				titlePath: ["", "chromium", "test.spec.ts", "legacy request fixture"],
+			},
+			result: {
+				steps: [
+					{
+						title: 'GET "/internal"',
+						category: "pw:api",
+						location: { file: fixtureFile, line: 40 },
+					},
+					{
+						title: 'Navigate to "/page"',
+						category: "pw:api",
+						location: { file: fixtureFile, line: 41 },
+					},
+				],
+			},
+		});
+
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const titles = spans.map(
+			(span: { attributes: Record<string, unknown> }) =>
+				span.attributes[ATTR_TEST_STEP_TITLE],
+		);
+		expect(titles).not.toContain('GET "/internal"');
+		expect(titles).toContain('Navigate to "/page"');
 	});
 
 	it("skips internal fixture steps from playwright-opentelemetry without causing errors", async () => {

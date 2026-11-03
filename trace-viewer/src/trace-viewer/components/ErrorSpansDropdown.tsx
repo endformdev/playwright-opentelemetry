@@ -7,6 +7,7 @@ import { CircleAlert } from "lucide-solid";
 import { For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { Span } from "../../trace-data-loader/exportToSpans";
+import { formatStepTitle } from "../../trace-data-loader/stepTitle";
 import { formatDuration } from "../formatters";
 
 export interface ErrorSpansDropdownProps {
@@ -76,14 +77,14 @@ export function ErrorSpansDropdown(props: ErrorSpansDropdownProps) {
 								{(span) => (
 									<Menu.Item
 										value={span.id}
-										valueText={span.title}
+										valueText={formatStepTitle(span)}
 										class="block w-full cursor-pointer border-b border-gray-100 px-4 py-3 text-left last:border-b-0 data-[highlighted]:bg-red-50"
 										data-testid="error-spans-item"
 										onSelect={handleItemSelect(span)}
 									>
 										<div class="flex items-baseline gap-2">
 											<span class="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-gray-900">
-												{span.title}
+												{formatStepTitle(span)}
 											</span>
 											<span class="shrink-0 font-mono text-xs text-gray-500">
 												{formatDuration(span.startOffsetMs)}

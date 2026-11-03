@@ -44,6 +44,8 @@ import {
 	ATTR_TEST_PHASE,
 	ATTR_TEST_STEP_CATEGORY,
 	ATTR_TEST_STEP_NAME,
+	ATTR_TEST_STEP_PARAM_PREFIX,
+	ATTR_TEST_STEP_SUBTITLE,
 	ATTR_TEST_STEP_TITLE,
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
@@ -476,8 +478,17 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Add step name (full path from test case to this step)
 		attributes[ATTR_TEST_STEP_NAME] = currentTitlePath.join(" > ");
 
-		// Add step title (just this step's title)
+		// From 1.63, Playwright splits what a step did from what it acted on:
+		// title `Click`, subtitle `getByRole('button')`, and reports the call's
+		// arguments as params. Before that the locator is part of the title.
 		attributes[ATTR_TEST_STEP_TITLE] = step.title;
+		if (step.subtitle) attributes[ATTR_TEST_STEP_SUBTITLE] = step.subtitle;
+		for (const [key, value] of Object.entries(step.params ?? {})) {
+			const attributeValue = toStepParamAttribute(value);
+			if (attributeValue !== undefined) {
+				attributes[`${ATTR_TEST_STEP_PARAM_PREFIX}${key}`] = attributeValue;
+			}
+		}
 
 		// Add step category
 		attributes[ATTR_TEST_STEP_CATEGORY] = step.category;
@@ -787,14 +798,44 @@ function isInternalApiRequestStep(step: TestStep): boolean {
 		return false;
 	}
 
-	return (
-		isApiRequestStepTitle(step.title) &&
-		isInternalFixtureFile(step.location.file)
-	);
+	return isApiRequestStep(step) && isInternalFixtureFile(step.location.file);
 }
 
-function isApiRequestStepTitle(title: string): boolean {
-	return /^(?:DELETE|FETCH|GET|HEAD|PATCH|POST|PUT)\s+"/.test(title);
+/**
+ * `APIRequestContext` calls. From Playwright 1.63 they report a url and a
+ * method; before that they show up only in the title, e.g. `GET "/api"`.
+ */
+function isApiRequestStep(step: TestStep): boolean {
+	if (step.params) {
+		return (
+			typeof step.params.url === "string" &&
+			typeof step.params.method === "string"
+		);
+	}
+	return /^(?:DELETE|FETCH|GET|HEAD|PATCH|POST|PUT)\s+"/.test(step.title);
+}
+
+/**
+ * Span attributes hold primitives and string arrays, so other param values
+ * (options objects, mixed arrays) are stored as JSON.
+ */
+function toStepParamAttribute(
+	value: unknown,
+): string | number | boolean | string[] | undefined {
+	if (value === undefined || value === null) return undefined;
+	if (
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	) {
+		return value;
+	}
+	if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+		return value;
+	}
+	const json = JSON.stringify(value);
+	// Values JSON can't describe, like a RegExp, come through as `{}`.
+	return json === undefined || json === "{}" ? undefined : json;
 }
 
 function isInternalFixtureFile(filePath: string): boolean {

@@ -100,6 +100,8 @@ export interface BrowserPageAction {
 
 export interface StepDefinition {
 	title: string;
+	subtitle?: string;
+	params?: Record<string, unknown>;
 	category?: string;
 	startTime?: Date;
 	duration?: number;
@@ -449,6 +451,8 @@ function buildSteps(
 
 		const step: TestStep = {
 			title: def.title,
+			subtitle: def.subtitle,
+			params: def.params,
 			titlePath: () => stepTitlePath,
 			category: def.category ?? DEFAULT_STEP_CATEGORY,
 			startTime: stepStartTime,
