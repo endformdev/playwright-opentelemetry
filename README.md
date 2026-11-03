@@ -99,7 +99,7 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 	reporter: [["playwright-opentelemetry/reporter"]],
 	use: {
 		playwrightOpentelemetry,
-		// Screenshots come from Playwright's retained trace.
+		// OpenTelemetry output follows Playwright's trace retention.
 		trace: "retain-on-failure",
 	},
 });
@@ -126,7 +126,7 @@ You can also boot the viewer locally:
 npx @playwright-opentelemetry/trace-viewer
 ```
 
-Two things set the boundary on what you will see. Connected backend spans require services that are already instrumented with OpenTelemetry and honor the propagated trace context. Screenshots depend on Playwright retaining a trace for the test, which follows your `use.trace` setting.
+Two things set the boundary on what you will see. Connected backend spans require services that are already instrumented with OpenTelemetry and honor the propagated trace context. Screenshots are captured by the fixture, so tests need to use its `test`.
 
 ## Usage
 
@@ -194,34 +194,13 @@ test("has title", async ({ page }) => {
 });
 ```
 
-### Add screenshots
+### Screenshots
 
-Screenshots are reused from the trace Playwright already captured, rather than taken as a second independent stream. Configure Playwright's `trace` setting to control them:
+The fixture captures screenshots of every page in a test through Playwright's [`page.screencast`](https://playwright.dev/docs/api/class-screencast) API, sharing the browser's existing screencast rather than starting a second one. They are stored with the trace and follow the [trace retention](#trace-retention) settings. They don't depend on Playwright's own trace screenshots, so you can set `screenshots: false` in Playwright's `trace` option.
 
-```ts
-import { defineConfig, devices } from "@playwright/test";
-import type { PlaywrightOpentelemetryUseOptions } from "playwright-opentelemetry/fixture";
+Tests can still use `page.screencast` themselves. To turn screenshots off, set `use.playwrightOpentelemetry.screenshots` to `false`.
 
-export default defineConfig<PlaywrightOpentelemetryUseOptions>({
-	// ... other Playwright config
-	use: {
-		playwrightOpentelemetry: {
-			storeTraceZip: true,
-		},
-		// Most performant method of screenshot collection
-		trace: {
-			mode: "on",
-			screenshots: true,
-			snapshots: false,
-			sources: false,
-			attachments: false,
-		},
-		// Otherwise this also does the trick!
-		// trace: "on"
-	},
-	// ... rest of Playwright config
-});
-```
+> On Playwright versions before 1.61, screenshots are read from Playwright's trace instead, so keep Playwright's trace screenshots on (for example `trace: "on"`).
 
 ### Trace retention
 
@@ -265,7 +244,7 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 });
 ```
 
-Note: if a Playwright Trace API destination uses `trace: "on"` but Playwright uses `trace: "on-first-retry"` (or `off`), first-run spans still upload, but screenshots may be missing because Playwright did not write a trace file. `storeTraceZip` follows only the top-level trace setting.
+Note: `storeTraceZip` follows only the top-level trace setting.
 
 ### Viewing a trace
 
@@ -312,8 +291,8 @@ When `storeTraceZip: true` and Playwright retained a trace for the test, a local
 - traces/
   - playwright-opentelemetry.json <-- the OTLP request body of all trace data collected by the reporter related to this test. Test metadata is stored on the root `playwright.test` span.
 - manifest.json <-- screenshot metadata with timestamps and ZIP paths
-- screenshots/ <-- any screenshots collected during the test run
-  - {page}@{pageId}-{timestamp}.jpeg
+- screenshots/ <-- the screenshots captured during the test run
+  - {pageId}-{timestamp}.jpeg <-- pageId matches the page's `browser.page.id` span attribute
 ```
 
 ### Trace API

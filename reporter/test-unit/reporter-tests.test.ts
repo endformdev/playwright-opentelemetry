@@ -10,7 +10,11 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "../src/reporter/reporter-attributes";
-import { runReporterTest, type TestResult } from "./reporter-harness";
+import {
+	DEFAULT_VERSION,
+	runReporterTest,
+	type TestResult,
+} from "./reporter-harness";
 
 // Mock the sender module
 vi.mock("../src/reporter/sender", () => ({
@@ -59,7 +63,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				playwrightVersion: "1.56.1",
+				playwrightVersion: DEFAULT_VERSION,
 				debug: true,
 			}),
 		);
@@ -164,7 +168,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				playwrightVersion: "1.56.1",
+				playwrightVersion: DEFAULT_VERSION,
 				debug: true,
 			}),
 		);
@@ -197,7 +201,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				playwrightVersion: "1.56.1",
+				playwrightVersion: DEFAULT_VERSION,
 				debug: true,
 			}),
 		);
@@ -237,7 +241,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				playwrightVersion: "1.56.1",
+				playwrightVersion: DEFAULT_VERSION,
 				debug: true,
 			}),
 		);
@@ -281,7 +285,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				playwrightVersion: "1.56.1",
+				playwrightVersion: DEFAULT_VERSION,
 				debug: true,
 			}),
 		);
@@ -318,7 +322,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				playwrightVersion: "1.56.1",
+				playwrightVersion: DEFAULT_VERSION,
 				debug: true,
 			}),
 		);
@@ -354,7 +358,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 			]),
 			expect.objectContaining({
 				tracesEndpoint: "http://localhost:4317/v1/traces",
-				playwrightVersion: "1.56.1",
+				playwrightVersion: DEFAULT_VERSION,
 				debug: true,
 			}),
 		);

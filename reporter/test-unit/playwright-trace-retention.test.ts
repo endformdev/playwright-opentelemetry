@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { runReporterTest } from "./reporter-harness";
+import { runReporterTest, screenshotsAttachment } from "./reporter-harness";
 
 vi.mock("../src/reporter/sender", () => ({
 	sendSpans: vi.fn(),
@@ -124,7 +124,7 @@ describe("PlaywrightOpentelemetryReporter trace retention", () => {
 				},
 			},
 			test: { title: "trace api destination override" },
-			result: { attachments: [] },
+			result: { attachments: [await screenshotsAttachment()] },
 		});
 
 		expect(sendSpans).toHaveBeenCalledTimes(1);

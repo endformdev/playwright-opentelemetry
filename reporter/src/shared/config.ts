@@ -20,6 +20,11 @@ export interface PlaywrightOpentelemetryConfig {
 	playwrightTraceApiEndpoints?: PlaywrightOpentelemetryDestination[];
 	storeTraceZip?: boolean;
 	trace?: PlaywrightTraceOption;
+	/**
+	 * Capture screenshots from each page's screencast for Trace API
+	 * destinations and the local trace ZIP. Defaults to true.
+	 */
+	screenshots?: boolean;
 	propagateTraceHeaders?: boolean;
 	debug?: boolean;
 }
@@ -33,6 +38,7 @@ export interface ResolvedPlaywrightOpentelemetryConfig {
 	playwrightTraceApiDestinations: ResolvedPlaywrightOpentelemetryDestination[];
 	storeTraceZip: boolean;
 	trace: PlaywrightTraceOption | null;
+	screenshots: boolean;
 	propagateTraceHeaders: boolean;
 	debug: boolean;
 }
@@ -68,6 +74,7 @@ export function resolvePlaywrightOpentelemetryConfig(
 		}),
 		storeTraceZip: config?.storeTraceZip === true,
 		trace: config?.trace ?? null,
+		screenshots: config?.screenshots ?? true,
 		propagateTraceHeaders: config?.propagateTraceHeaders ?? true,
 		debug:
 			debugEnv === undefined

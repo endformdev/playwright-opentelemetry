@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { Request, Response, Route } from "@playwright/test";
 import type {
 	FullConfig,
@@ -19,6 +22,11 @@ import {
 import PlaywrightOpentelemetryReporter from "../src/reporter";
 import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
 import { generateSpanId, generateTraceId } from "../src/shared/otel";
+import {
+	createScreenshotsZip,
+	SCREENSHOTS_ATTACHMENT_NAME,
+} from "../src/shared/screenshots-zip";
+import { onTestFinished } from "vitest";
 
 export interface TestHarnessOptions {
 	playwrightOpentelemetry?: Partial<PlaywrightOpentelemetryConfig>;
@@ -118,7 +126,7 @@ export interface StepDefinition {
 
 export const DEFAULT_ROOT_DIR = "/Users/test/project/test-e2e";
 export const DEFAULT_OUTPUT_DIR = "reporter/test-results/unit-output";
-export const DEFAULT_VERSION = "1.56.1";
+export const DEFAULT_VERSION = "1.63.0";
 export const DEFAULT_START_TIME = new Date("2025-11-06T10:00:00.000Z");
 
 /** Generate a unique output directory for a test to avoid conflicts */
@@ -414,6 +422,38 @@ export function buildTestResult(
 		attachments: def?.attachments ?? [retainedTraceAttachment()],
 		annotations: def?.annotations ?? [],
 	} as Partial<TestResult> as TestResult;
+}
+
+/**
+ * Writes a screenshots ZIP like the one the fixture attaches, with one frame
+ * per entry, and returns its attachment. The file is removed after the test.
+ */
+export async function screenshotsAttachment(
+	screenshots: Array<{ pageId: string; timestamp: number }> = [
+		{ pageId: "page-0", timestamp: 1000 },
+	],
+) {
+	const dir = await fs.mkdtemp(
+		path.join(os.tmpdir(), "playwright-opentelemetry-screenshots-"),
+	);
+	onTestFinished(() => fs.rm(dir, { recursive: true, force: true }));
+
+	const zipPath = path.join(dir, "screenshots.zip");
+	const zip = await createScreenshotsZip(
+		screenshots.map(({ pageId, timestamp }) => ({
+			pageId,
+			timestamp,
+			file: `${pageId}-${timestamp}.jpeg`,
+			contentType: "image/jpeg",
+			blob: new Blob([`frame-${pageId}-${timestamp}`]),
+		})),
+	);
+	await fs.writeFile(zipPath, Buffer.from(await zip.arrayBuffer()));
+	return {
+		name: SCREENSHOTS_ATTACHMENT_NAME,
+		contentType: "application/zip",
+		path: zipPath,
+	};
 }
 
 export function retainedTraceAttachment() {

@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import type {
 	FullConfig,
@@ -33,6 +34,13 @@ import {
 	shouldRetainPlaywrightTrace,
 } from "../shared/playwright-trace";
 import { filterRetainedDestinations } from "../shared/destinations";
+import { supportsScreencastScreenshots } from "../shared/screencast-screenshots";
+import {
+	createScreenshotsZip,
+	readScreenshotsZip,
+	SCREENSHOTS_ATTACHMENT_NAME,
+	type ScreenshotResource,
+} from "../shared/screenshots-zip";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -50,14 +58,9 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "./reporter-attributes";
+import { extractScreenshotsFromPlaywrightTrace } from "./legacy/trace-zip-screenshots";
 import { sendSpans } from "./sender";
-import {
-	createScreenshotsZip,
-	createTraceZipBlob,
-	extractScreenshotsFromPlaywrightTrace,
-	type ScreenshotResource,
-	writeTraceZip,
-} from "./trace-zip-builder";
+import { createTraceZipBlob, writeTraceZip } from "./trace-zip-builder";
 
 export type { Span } from "../shared/otel";
 
@@ -76,6 +79,7 @@ type PrepareTraceArtifactOptions = {
 	test: TestCase;
 	spans: Span[];
 	fixtureSpans: Span[];
+	screenshotsAttachmentPath?: string;
 	traceAttachmentPath?: string;
 	traceId: string;
 	config: ResolvedPlaywrightOpentelemetryConfig;
@@ -262,6 +266,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				test,
 				spans: testSpans,
 				fixtureSpans,
+				screenshotsAttachmentPath: result.attachments.find(
+					(attachment) =>
+						attachment.name === SCREENSHOTS_ATTACHMENT_NAME && attachment.path,
+				)?.path,
 				traceAttachmentPath: traceAttachment?.path,
 				traceId,
 				config: retainedConfig,
@@ -333,12 +341,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private async prepareTraceArtifact(
 		options: PrepareTraceArtifactOptions,
 	): Promise<PreparedTraceArtifact> {
-		const screenshots: Map<string, ScreenshotResource> =
-			options.traceAttachmentPath
-				? await extractScreenshotsFromPlaywrightTrace(
-						options.traceAttachmentPath,
-					)
-				: new Map();
+		const screenshots = await readTestScreenshots(options);
 
 		const traceZipBlobPromise = options.config.storeTraceZip
 			? createTraceZipBlob({
@@ -350,15 +353,21 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				})
 			: undefined;
 
-		const uploadPromises = options.config.playwrightTraceApiDestinations
-			.filter((destination) => destination.url)
-			.map((destination) =>
-				this.sendScreenshotsZipToTraceApi({
-					traceId: options.traceId,
-					screenshots,
-					destination,
-				}),
-			);
+		// Without screenshots there is nothing to upload: the Trace API answers
+		// a missing screenshots ZIP with 404, which the viewer shows as none.
+		const screenshotsZip =
+			screenshots.length > 0 ? await createScreenshotsZip(screenshots) : null;
+		const uploadPromises = screenshotsZip
+			? options.config.playwrightTraceApiDestinations
+					.filter((destination) => destination.url)
+					.map((destination) =>
+						this.sendScreenshotsZipToTraceApi({
+							traceId: options.traceId,
+							screenshotsZip,
+							destination,
+						}),
+					)
+			: [];
 
 		const [traceZipBlob] = await Promise.all([
 			traceZipBlobPromise,
@@ -556,11 +565,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	private async sendScreenshotsZipToTraceApi(params: {
 		traceId: string;
-		screenshots: Map<string, ScreenshotResource>;
+		screenshotsZip: Blob;
 		destination: ResolvedPlaywrightOpentelemetryDestination;
 	}): Promise<void> {
-		const { traceId, screenshots, destination } = params;
-		const screenshotsZip = await createScreenshotsZip(screenshots);
+		const { traceId, screenshotsZip, destination } = params;
 
 		const screenshotUrl = `${destination.url}/playwright-otel-reporter/v1/screenshots.zip`;
 		const response = await fetch(screenshotUrl, {
@@ -582,6 +590,51 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			);
 		}
 	}
+}
+
+/**
+ * A test's screenshots. Playwright versions with a usable screencast only use
+ * the frames the fixture captured and attached; older versions only use
+ * Playwright's trace. Never rejects: a test's spans are still sent without
+ * its screenshots.
+ */
+async function readTestScreenshots(options: {
+	config: ResolvedPlaywrightOpentelemetryConfig;
+	playwrightVersion: string;
+	screenshotsAttachmentPath?: string;
+	traceAttachmentPath?: string;
+}): Promise<ScreenshotResource[]> {
+	if (!options.config.screenshots) {
+		return [];
+	}
+
+	if (supportsScreencastScreenshots(options.playwrightVersion)) {
+		if (!options.screenshotsAttachmentPath) {
+			return [];
+		}
+		try {
+			return await readScreenshotsZip(
+				new Blob([await fs.readFile(options.screenshotsAttachmentPath)]),
+			);
+		} catch (error) {
+			console.warn(
+				`Failed to read the test's screenshots: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return [];
+		}
+	}
+
+	// LEGACY: before SCREENCAST_SCREENSHOTS_MIN_PLAYWRIGHT_VERSION, screenshots
+	// come from Playwright's trace. Remove with ./legacy once the peer
+	// dependency requires that version.
+	if (!options.traceAttachmentPath) {
+		return [];
+	}
+	return Array.from(
+		(
+			await extractScreenshotsFromPlaywrightTrace(options.traceAttachmentPath)
+		).values(),
+	);
 }
 
 function getProjectPlaywrightOpentelemetryConfig(

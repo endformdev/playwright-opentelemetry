@@ -39,6 +39,11 @@ export class BrowserPageTracker {
 		this.pages.add(page);
 	}
 
+	/** The `browser.page.id` used for this page's spans and screenshots. */
+	pageIdFor(page: Page): string {
+		return this.stateFor(page).pageId;
+	}
+
 	unregisterPage(page: Page, endTime = new Date()): void {
 		this.finishPageSpans(page, endTime);
 		this.pages.delete(page);

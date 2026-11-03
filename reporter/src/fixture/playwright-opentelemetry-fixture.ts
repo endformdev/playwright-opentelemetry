@@ -1,5 +1,11 @@
 import path from "node:path";
-import type { Request, Response, test as base } from "@playwright/test";
+import type {
+	BrowserContext,
+	Request,
+	Response,
+	test as base,
+} from "@playwright/test";
+import { supportsScreencastScreenshots } from "../shared/screencast-screenshots";
 import {
 	resolvePlaywrightOpentelemetryConfig,
 	type PlaywrightOpentelemetryUseOptions,
@@ -15,6 +21,8 @@ import {
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
 } from "./reporter-config";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
+import { ScreencastCapture } from "./screencast-capture";
+import { attachScreenshots, shouldCaptureScreenshots } from "./screenshots";
 import { runWithTestFetchCapture } from "./test-fetch-capture";
 import {
 	createTestTraceContext,
@@ -32,10 +40,13 @@ type PlaywrightOpentelemetryFixtures = {
 	testTraceInfo: TestTraceInfo;
 	testTraceContext: TestTraceContext;
 	browserPageTracker: BrowserPageTracker;
+	screencastCapture: ScreencastCapture | undefined;
 };
 
 type PlaywrightOpentelemetryWorkerFixtures = {
 	_playwrightOpentelemetryReporterCheck: void;
+	/** Listeners for contexts created from the worker's `browser` fixture. */
+	_playwrightOpentelemetryNewContexts: Set<(context: BrowserContext) => void>;
 };
 
 export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
@@ -53,6 +64,29 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				await use();
 			},
 			{ scope: "worker", auto: true },
+		],
+		_playwrightOpentelemetryNewContexts: [
+			// oxlint-disable-next-line no-empty-pattern -- Playwright requires an object pattern for fixture dependencies
+			async ({}, use) => {
+				await use(new Set());
+			},
+			{ scope: "worker" },
+		],
+		// Tests can create contexts with `browser.newContext()` instead of using
+		// the `context` fixture. Browser's "context" event (public since
+		// Playwright 1.60) reports them to the screenshot capture.
+		browser: [
+			async ({ browser, _playwrightOpentelemetryNewContexts }, use) => {
+				const onContext = (context: BrowserContext) => {
+					for (const listener of _playwrightOpentelemetryNewContexts) {
+						listener(context);
+					}
+				};
+				browser.on("context", onContext);
+				await use(browser);
+				browser.off("context", onContext);
+			},
+			{ scope: "worker" },
 		],
 		testTraceInfo: [
 			// oxlint-disable-next-line no-unused-vars -- Playwright fails if the fixture dependency is omitted
@@ -95,6 +129,54 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ auto: true },
 		],
+		screencastCapture: [
+			async (
+				{
+					playwright,
+					playwrightOpentelemetry,
+					trace,
+					browserPageTracker,
+					_playwrightOpentelemetryNewContexts: newContexts,
+				},
+				use,
+				testInfo,
+			) => {
+				const config = resolvePlaywrightOpentelemetryConfig(
+					playwrightOpentelemetry,
+				);
+				// On older Playwright versions the reporter reads screenshots from
+				// Playwright's trace.zip instead.
+				if (
+					!supportsScreencastScreenshots(testInfo.config.version) ||
+					!shouldCaptureScreenshots(config, { trace, testInfo })
+				) {
+					await use(undefined);
+					return;
+				}
+
+				let capture: ScreencastCapture;
+				try {
+					capture = await ScreencastCapture.start({
+						playwright,
+						pageIdFor: (page) => browserPageTracker.pageIdFor(page),
+					});
+				} catch (error) {
+					console.warn(`Failed to start screenshot capture: ${error}`);
+					await use(undefined);
+					return;
+				}
+				const addContext = (context: BrowserContext) =>
+					capture.addContext(context);
+				newContexts.add(addContext);
+				try {
+					await use(capture);
+				} finally {
+					newContexts.delete(addContext);
+				}
+				await attachScreenshots(capture, config, { trace, testInfo });
+			},
+			{ auto: true },
+		],
 		request: async ({ request, testTraceContext }, use) => {
 			await use(createCapturedApiRequestContext(request, testTraceContext));
 		},
@@ -104,12 +186,14 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				playwrightOpentelemetry,
 				testTraceContext,
 				browserPageTracker,
+				screencastCapture,
 			},
 			use,
 		) => {
 			const config = resolvePlaywrightOpentelemetryConfig(
 				playwrightOpentelemetry,
 			);
+			screencastCapture?.addContext(context);
 			const captureRequest = (request: Request) => {
 				browserPageTracker.startDocumentNavigation(request);
 				const networkParent = browserPageTracker.getNetworkParent(request);

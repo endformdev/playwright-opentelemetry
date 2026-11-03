@@ -66,9 +66,11 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 		/* Base URL to use in actions like `await page.goto('')`. */
 		// baseURL: 'http://localhost:3000',
 		/* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
+		// Screenshots come from the fixture's screencast capture, not from
+		// Playwright's trace, so prove they work with trace screenshots off.
 		trace: {
 			mode: "on",
-			screenshots: true,
+			screenshots: false,
 			snapshots: false,
 			sources: false,
 			attachments: false,
