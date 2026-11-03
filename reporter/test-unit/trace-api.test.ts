@@ -300,6 +300,45 @@ describe("Trace API Integration", () => {
 		]);
 	});
 
+	it("still sends spans when the fixture's screenshots can't be read", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await runReporterTest({
+				playwrightOpentelemetry: {
+					playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+				},
+				test: { title: "unreadable screenshots test" },
+				result: {
+					attachments: [
+						retainedTraceAttachment(),
+						{
+							name: SCREENSHOTS_ATTACHMENT_NAME,
+							contentType: "application/zip",
+							path: path.join(os.tmpdir(), "missing-screenshots.zip"),
+						},
+					],
+				},
+			});
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining("Failed to read the test's screenshots"),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+
+		const urls = mockFetch.mock.calls.map((call) => call[0]);
+		expect(urls).toContain("https://traces.example.com/v1/traces");
+		const screenshotsCall = mockFetch.mock.calls.find(
+			(call) =>
+				call[0] ===
+				"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip",
+		);
+		if (!screenshotsCall) {
+			throw new Error("Expected trace API screenshots request");
+		}
+		expect(await readScreenshotsZip(screenshotsCall[1].body)).toEqual([]);
+	});
+
 	it("uploads an empty screenshots ZIP when the fixture captured none", async () => {
 		await runReporterTest({
 			playwrightOpentelemetry: {

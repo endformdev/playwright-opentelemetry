@@ -21,7 +21,11 @@ import {
 } from "./reporter-config";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
 import { ScreencastCapture } from "./screencast-capture";
-import { attachScreenshots, shouldCaptureScreenshots } from "./screenshots";
+import {
+	attachScreenshots,
+	shouldCaptureScreenshots,
+	supportsScreencastScreenshots,
+} from "./screenshots";
 import { runWithTestFetchCapture } from "./test-fetch-capture";
 import {
 	createTestTraceContext,
@@ -72,9 +76,8 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			{ scope: "worker" },
 		],
 		// Tests can create contexts with `browser.newContext()` instead of using
-		// the `context` fixture. Browser's "context" event reports them; it is
-		// public since Playwright 1.60; on older versions only the `context`
-		// fixture's context is captured.
+		// the `context` fixture. Browser's "context" event (public since
+		// Playwright 1.60) reports them to the screenshot capture.
 		browser: [
 			async ({ browser, _playwrightOpentelemetryNewContexts }, use) => {
 				const onContext = (context: BrowserContext) => {
@@ -144,7 +147,12 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				const config = resolvePlaywrightOpentelemetryConfig(
 					playwrightOpentelemetry,
 				);
-				if (!shouldCaptureScreenshots(config, { trace, testInfo })) {
+				// On older Playwright versions the reporter reads screenshots from
+				// Playwright's trace.zip instead.
+				if (
+					!supportsScreencastScreenshots(testInfo.config.version) ||
+					!shouldCaptureScreenshots(config, { trace, testInfo })
+				) {
 					await use(undefined);
 					return;
 				}

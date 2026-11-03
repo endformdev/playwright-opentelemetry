@@ -38,6 +38,7 @@ import {
 	createScreenshotsZip,
 	readScreenshotsZip,
 	SCREENSHOTS_ATTACHMENT_NAME,
+	type ScreenshotResource,
 } from "../shared/screenshots-zip";
 import {
 	ATTR_CODE_FILE_PATH,
@@ -54,6 +55,7 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "./reporter-attributes";
+import { extractScreenshotsFromPlaywrightTrace } from "./legacy/trace-zip-screenshots";
 import { sendSpans } from "./sender";
 import { createTraceZipBlob, writeTraceZip } from "./trace-zip-builder";
 
@@ -75,6 +77,7 @@ type PrepareTraceArtifactOptions = {
 	spans: Span[];
 	fixtureSpans: Span[];
 	screenshotsAttachmentPath?: string;
+	traceAttachmentPath?: string;
 	traceId: string;
 	config: ResolvedPlaywrightOpentelemetryConfig;
 	playwrightVersion: string;
@@ -264,6 +267,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					(attachment) =>
 						attachment.name === SCREENSHOTS_ATTACHMENT_NAME && attachment.path,
 				)?.path,
+				traceAttachmentPath: traceAttachment?.path,
 				traceId,
 				config: retainedConfig,
 				playwrightVersion: this.playwrightVersion || "unknown",
@@ -334,23 +338,19 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private async prepareTraceArtifact(
 		options: PrepareTraceArtifactOptions,
 	): Promise<PreparedTraceArtifact> {
-		// The fixture attaches the screenshots it captured as a ready-made
-		// screenshots ZIP; without one, an empty ZIP keeps the viewer's request
-		// for it from failing.
-		const screenshotsZip = options.screenshotsAttachmentPath
-			? new Blob([await fs.readFile(options.screenshotsAttachmentPath)])
-			: await createScreenshotsZip([]);
+		const screenshots = await readTestScreenshots(options);
+		// Even without screenshots, an empty ZIP keeps the viewer's request for
+		// it from failing.
+		const screenshotsZip = await createScreenshotsZip(screenshots);
 
 		const traceZipBlobPromise = options.config.storeTraceZip
-			? readScreenshotsZip(screenshotsZip).then((screenshots) =>
-					createTraceZipBlob({
-						test: options.test,
-						spans: options.spans,
-						fixtureSpans: options.fixtureSpans,
-						playwrightVersion: options.playwrightVersion,
-						screenshots,
-					}),
-				)
+			? createTraceZipBlob({
+					test: options.test,
+					spans: options.spans,
+					fixtureSpans: options.fixtureSpans,
+					playwrightVersion: options.playwrightVersion,
+					screenshots,
+				})
 			: undefined;
 
 		const uploadPromises = options.config.playwrightTraceApiDestinations
@@ -575,6 +575,49 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			);
 		}
 	}
+}
+
+/**
+ * A test's screenshots. The fixture attaches the frames it captured from the
+ * pages' screencasts; without that attachment, they are read from
+ * Playwright's trace. Never rejects: a test's spans are still sent without
+ * its screenshots.
+ */
+async function readTestScreenshots(options: {
+	config: ResolvedPlaywrightOpentelemetryConfig;
+	screenshotsAttachmentPath?: string;
+	traceAttachmentPath?: string;
+}): Promise<ScreenshotResource[]> {
+	if (!options.config.screenshots) {
+		return [];
+	}
+
+	if (options.screenshotsAttachmentPath) {
+		try {
+			return await readScreenshotsZip(
+				new Blob([await fs.readFile(options.screenshotsAttachmentPath)]),
+			);
+		} catch (error) {
+			console.warn(
+				`Failed to read the test's screenshots: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return [];
+		}
+	}
+
+	// LEGACY: the fixture captures nothing on Playwright older than
+	// SCREENCAST_SCREENSHOTS_MIN_PLAYWRIGHT_VERSION, and the reporter can run
+	// without the fixture. Remove with ./legacy once the peer dependency
+	// requires that version; tests without the fixture then get no screenshots.
+	if (options.traceAttachmentPath) {
+		return Array.from(
+			(
+				await extractScreenshotsFromPlaywrightTrace(options.traceAttachmentPath)
+			).values(),
+		);
+	}
+
+	return [];
 }
 
 function getProjectPlaywrightOpentelemetryConfig(

@@ -13,6 +13,7 @@ import {
 import {
 	attachScreenshots,
 	shouldCaptureScreenshots,
+	supportsScreencastScreenshots,
 } from "../src/fixture/screenshots";
 import { resolvePlaywrightOpentelemetryConfig } from "../src/shared/config";
 import {
@@ -209,6 +210,23 @@ describe("ScreencastCapture", () => {
 		expect(frames.map((frame) => frame.timestamp)).toEqual([1000, 2000]);
 		expect(Object.hasOwn(screencast, "start")).toBe(false);
 		await capture.dispose();
+	});
+});
+
+describe("supportsScreencastScreenshots", () => {
+	it("uses the screencast from Playwright 1.61, including its prereleases", () => {
+		expect(supportsScreencastScreenshots("1.61.0")).toBe(true);
+		expect(supportsScreencastScreenshots("1.61.0-next")).toBe(true);
+		expect(supportsScreencastScreenshots("1.63.0")).toBe(true);
+		expect(supportsScreencastScreenshots("2.0.0")).toBe(true);
+	});
+
+	it("leaves older and unknown versions to Playwright's trace", () => {
+		expect(supportsScreencastScreenshots("1.60.1")).toBe(false);
+		expect(supportsScreencastScreenshots("1.59.0")).toBe(false);
+		expect(supportsScreencastScreenshots("1.9.99")).toBe(false);
+		expect(supportsScreencastScreenshots("0.62.0")).toBe(false);
+		expect(supportsScreencastScreenshots("")).toBe(false);
 	});
 });
 
