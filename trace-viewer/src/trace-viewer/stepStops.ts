@@ -1,43 +1,49 @@
-import type { Span } from "../trace-data-loader/exportToSpans";
 import type { TestStructure } from "./testStructure";
 
 /**
- * A position the step viewer can be moved to: a time on the timeline and the
- * step shown there.
+ * A position the step viewer can be moved to: the moment just after a step,
+ * showing what it did.
  */
 export interface StepStop {
 	/** Time to lock, relative to test start */
 	timeMs: number;
-	/** The step starting here; at the end stop, the step that finished last */
+	/** The step that has just finished here */
 	stepId: string;
-	/** A step's start, or the end of the test body's steps */
-	kind: "step" | "end";
 }
 
 /** Where the step viewer stands: on a stop, at another time, or nowhere. */
 export type StopPosition = { stopIndex: number } | { timeMs: number } | null;
 
+/** Stops sit this far before the next step, so they show the one that ended */
+const BEFORE_NEXT_STEP_MS = 1;
+
 /**
- * Builds the ordered stops for the step viewer: the start of each leaf step
- * of the test body, then one stop where the body's steps have all finished.
+ * Builds the ordered stops for the step viewer, one per leaf step of the test
+ * body. Each stop shows the step's result: screenshots are taken in the
+ * background and a step's effect often reaches the screen after it ends, so
+ * a stop waits until just before the next step (or the after hooks) starts,
+ * when the page has settled. The last step without anything after it stops
+ * at its end.
  */
 export function computeStepStops(structure: TestStructure): StepStop[] {
-	const stops: StepStop[] = structure.bodyLeafSteps.map((step) => ({
-		timeMs: step.startOffsetMs,
-		stepId: step.id,
-		kind: "step",
-	}));
+	const { bodyLeafSteps, afterHooks } = structure;
+	const nextStepStarts = [
+		...bodyLeafSteps.map((step) => step.startOffsetMs),
+		...(afterHooks ? [afterHooks.startOffsetMs] : []),
+	].sort((a, b) => a - b);
 
-	const endOf = (step: Span) => step.startOffsetMs + step.durationMs;
-	const lastLeaf = structure.bodyLeafSteps.reduce<Span | null>(
-		(last, step) => (!last || endOf(step) >= endOf(last) ? step : last),
-		null,
-	);
-	if (lastLeaf) {
-		const bodyEndMs = Math.max(...structure.bodySteps.map(endOf));
-		stops.push({ timeMs: bodyEndMs, stepId: lastLeaf.id, kind: "end" });
-	}
-	return stops;
+	return bodyLeafSteps
+		.map((step) => {
+			const endMs = step.startOffsetMs + step.durationMs;
+			const nextStartMs = nextStepStarts.find((startMs) => startMs >= endMs);
+			const timeMs =
+				nextStartMs === undefined
+					? endMs
+					: Math.max(endMs, nextStartMs - BEFORE_NEXT_STEP_MS);
+			return { timeMs, endMs, stepId: step.id };
+		})
+		.sort((a, b) => a.timeMs - b.timeMs || a.endMs - b.endMs)
+		.map(({ timeMs, stepId }) => ({ timeMs, stepId }));
 }
 
 /**

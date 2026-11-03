@@ -523,10 +523,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const stepViewerBadge = () => {
 		const index = stepViewer.currentIndex();
 		if (index === null || mode() !== "locked") return null;
-		const position = `${index + 1}/${stepViewer.stops().length}`;
-		return stepViewer.currentStop()?.kind === "end"
-			? `End of steps · ${position}`
-			: `Step ${position}`;
+		return `Step ${index + 1}/${stepViewer.stops().length}`;
 	};
 
 	// The focus ring marks span navigation. On a step viewer stop the subject
@@ -930,7 +927,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 										screenshotsLoading={props.traceInfo.screenshots.loading}
 										stopCount={stepViewer.stops().length}
 										stopIndex={stepViewer.currentIndex()}
-										stopKind={stepViewer.currentStop()?.kind ?? null}
 										pages={stepViewer.pages()}
 										pinnedPageId={stepViewer.pinnedPageId()}
 										onPinPage={stepViewer.pinPage}

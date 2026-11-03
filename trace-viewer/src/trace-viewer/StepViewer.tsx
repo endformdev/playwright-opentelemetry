@@ -1,7 +1,6 @@
-import { ChevronLeft, ChevronRight, Flag, Pin } from "lucide-solid";
+import { ChevronLeft, ChevronRight, Pin } from "lucide-solid";
 import { For, Show } from "solid-js";
 import type { ScreenshotInfo } from "../trace-info-loader";
-import type { StepStop } from "./stepStops";
 import type { StepViewerPage } from "./useStepViewer";
 
 export interface StepViewerProps {
@@ -10,7 +9,6 @@ export interface StepViewerProps {
 	stopCount: number;
 	/** Index of the stop the timeline is locked on, or null when not on one */
 	stopIndex: number | null;
-	stopKind: StepStop["kind"] | null;
 	pages: StepViewerPage[];
 	pinnedPageId: string | null;
 	onPinPage: (pageId: string | null) => void;
@@ -21,8 +19,8 @@ export interface StepViewerProps {
 
 /**
  * Large screenshot of the current moment in the test. Left/Right step through
- * the start of each test body step, ending on a stop where all steps are done;
- * Home/End jump to the ends (see useStepViewer for when the keys apply).
+ * the test body's steps, showing each once it has finished; Home/End jump to
+ * the first and last step (see useStepViewer for when the keys apply).
  *
  * Controls live in gutters either side of the screenshot so they never cover
  * it: the step counter and back arrow on the left, the page picker and next
@@ -111,9 +109,6 @@ export function StepViewer(props: StepViewerProps) {
 						props.onActivate();
 					}}
 				>
-					<Show when={props.stopKind === "end"}>
-						<Flag size={11} aria-hidden="true" />
-					</Show>
 					{active() ? (props.stopIndex ?? 0) + 1 : "–"}/{props.stopCount}
 				</button>
 			</Show>

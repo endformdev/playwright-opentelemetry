@@ -33,7 +33,7 @@ const root = createStep({
 });
 
 describe("computeStepStops", () => {
-	it("stops at the start of each leaf step, then where the steps end", () => {
+	it("stops just before the next step starts, once each step has settled", () => {
 		const structure = buildTestStructure([
 			root,
 			createStep({ id: "before", title: "Before Hooks", durationMs: 50 }),
@@ -53,26 +53,40 @@ describe("computeStepStops", () => {
 			createStep({ id: "after", title: "After Hooks", startOffsetMs: 4000 }),
 		]);
 
-		// The group outlasts its last child; the end stop waits for it.
+		// The last step settles until the after hooks start.
 		expect(computeStepStops(structure)).toEqual([
-			{ timeMs: 100, stepId: "a", kind: "step" },
-			{ timeMs: 600, stepId: "b", kind: "step" },
-			{ timeMs: 1300, stepId: "b", kind: "end" },
+			{ timeMs: 599, stepId: "a" },
+			{ timeMs: 3999, stepId: "b" },
 		]);
 	});
 
-	it("ends on the step that finishes last", () => {
+	it("stops at the end of a step the next one starts right after", () => {
+		const structure = buildTestStructure([
+			root,
+			createStep({ id: "a", startOffsetMs: 0, durationMs: 100 }),
+			createStep({ id: "b", startOffsetMs: 100, durationMs: 100 }),
+		]);
+
+		// Nothing comes after the last step, so it stops at its own end.
+		expect(computeStepStops(structure)).toEqual([
+			{ timeMs: 100, stepId: "a" },
+			{ timeMs: 200, stepId: "b" },
+		]);
+	});
+
+	it("orders overlapping steps by when they finish", () => {
 		const structure = buildTestStructure([
 			root,
 			createStep({ id: "long", startOffsetMs: 0, durationMs: 900 }),
 			createStep({ id: "short", startOffsetMs: 100, durationMs: 100 }),
+			createStep({ id: "later", startOffsetMs: 1000, durationMs: 100 }),
 		]);
 
-		expect(computeStepStops(structure).at(-1)).toEqual({
-			timeMs: 900,
-			stepId: "long",
-			kind: "end",
-		});
+		expect(computeStepStops(structure)).toEqual([
+			{ timeMs: 999, stepId: "short" },
+			{ timeMs: 999, stepId: "long" },
+			{ timeMs: 1100, stepId: "later" },
+		]);
 	});
 
 	it("has no stops without body steps", () => {
@@ -82,10 +96,10 @@ describe("computeStepStops", () => {
 
 describe("getAdjacentStopIndex", () => {
 	const stops: StepStop[] = [
-		{ timeMs: 100, stepId: "a", kind: "step" },
-		{ timeMs: 200, stepId: "b", kind: "step" },
-		{ timeMs: 200, stepId: "c", kind: "step" },
-		{ timeMs: 400, stepId: "c", kind: "end" },
+		{ timeMs: 100, stepId: "a" },
+		{ timeMs: 200, stepId: "b" },
+		{ timeMs: 200, stepId: "c" },
+		{ timeMs: 400, stepId: "c" },
 	];
 
 	it("starts at the first stop from nowhere, in either direction", () => {
@@ -118,8 +132,8 @@ describe("getAdjacentStopIndex", () => {
 describe("getStopIndexAtTime", () => {
 	it("returns the last stop at or before the time", () => {
 		const stops: StepStop[] = [
-			{ timeMs: 100, stepId: "a", kind: "step" },
-			{ timeMs: 300, stepId: "b", kind: "step" },
+			{ timeMs: 100, stepId: "a" },
+			{ timeMs: 300, stepId: "b" },
 		];
 
 		expect(getStopIndexAtTime(stops, 50)).toBe(0);

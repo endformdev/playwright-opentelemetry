@@ -92,19 +92,20 @@ export function useSpanFocus(options: SpanFocusOptions): SpanFocus {
 		if (!found) return false;
 		const { span } = found.bar;
 		const toViewport = zoom === "fit" ? fitTimeRange : frameTimeRange;
+		const timeMs =
+			typeof at === "number" ? at : getSpanSelectionTimeMs(span, at);
+		const endMs = span.startOffsetMs + span.durationMs;
 		batch(() => {
+			// The locked time can fall outside the span (a step viewer stop sits
+			// after its step), so frame both.
 			animateTo(
 				toViewport(
 					untrack(viewport),
-					span.startOffsetMs,
-					span.startOffsetMs + span.durationMs,
+					Math.min(span.startOffsetMs, timeMs),
+					Math.max(endMs, timeMs),
 				),
 			);
-			lock(
-				typeof at === "number" ? at : getSpanSelectionTimeMs(span, at),
-				{ type: found.panel.elementType, id: spanId },
-				source,
-			);
+			lock(timeMs, { type: found.panel.elementType, id: spanId }, source);
 			setRevealRequest({
 				spanId,
 				align: zoom === "fit" ? "center" : "nearest",

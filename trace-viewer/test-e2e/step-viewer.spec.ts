@@ -7,7 +7,7 @@ import {
 import { createScreenshotsZipFromOffsets } from "./screenshot-zip";
 import { TraceDataBuilder } from "./test-data-builder";
 
-test("steps through the start of each test body step, then the end", async ({
+test("steps through each test body step, showing it once it has finished", async ({
 	page,
 	request,
 }) => {
@@ -45,7 +45,9 @@ test("steps through the start of each test body step, then the end", async ({
 
 	const screenshotsZip = await createScreenshotsZipFromOffsets({
 		testStartTime,
-		screenshotOffsetsMs: [100, 700, 850, 1200, 3600],
+		// Frames land after each step settles: fill ends at 900, click at 1500
+		// and check at 2500, and the after hooks start at 3500.
+		screenshotOffsetsMs: [100, 700, 950, 1600, 2600, 3600],
 	});
 	const upload = await request.put(
 		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
@@ -81,7 +83,7 @@ test("steps through the start of each test body step, then the end", async ({
 		await expect(focusRing).toHaveCount(0);
 	};
 	const expectNotOnStop = async () => {
-		await expect(stepViewer.position).toHaveText("–/4");
+		await expect(stepViewer.position).toHaveText("–/3");
 		await expect(stepViewer.position).not.toHaveAttribute("data-active");
 		await expect(viewer.details.badges).toHaveCount(0);
 	};
@@ -112,32 +114,38 @@ test("steps through the start of each test body step, then the end", async ({
 
 	await test.step("The first arrow press goes to the first step", async () => {
 		await page.keyboard.press("ArrowRight");
-		await expectStop("1/4", "Step 1/4", fill, 100);
-		await expect.poll(focusedStepShare).toBeGreaterThan(0.14);
+		// Shown just before the next step starts, once the page has settled.
+		await expectStop("1/3", "Step 1/3", fill, 950);
+		// Zoomed in from the whole test (where the step is 300 of 4000ms), with
+		// the step and the moment after it both in view.
+		await expect.poll(focusedStepShare).toBeGreaterThan(0.1);
+		const plot = (await page.locator("[data-timeline-plot]").boundingBox())!;
+		const line = (await lockedLine.boundingBox())!;
+		expect(line.x).toBeGreaterThan(plot.x);
+		expect(line.x).toBeLessThan(plot.x + plot.width);
 		await expect(stepViewer.previousButton).toBeDisabled();
 	});
 
-	await test.step("Arrow keys move from step start to step start, then to the end", async () => {
+	await test.step("Arrow keys move from step to step", async () => {
 		await page.keyboard.press("ArrowRight");
-		await expectStop("2/4", "Step 2/4", click, 850);
+		await expectStop("2/3", "Step 2/3", click, 1600);
+		// The last step settles until the after hooks start.
 		await page.keyboard.press("ArrowRight");
-		await expectStop("3/4", "Step 3/4", check, 1200);
-		await page.keyboard.press("ArrowRight");
-		await expectStop("4/4", "End of steps · 4/4", check, 1200);
+		await expectStop("3/3", "Step 3/3", check, 2600);
 		await expect(stepViewer.nextButton).toBeDisabled();
 		await page.keyboard.press("ArrowRight");
-		await expect(stepViewer.position).toHaveText("4/4");
+		await expect(stepViewer.position).toHaveText("3/3");
 		await page.keyboard.press("ArrowLeft");
-		await expectStop("3/4", "Step 3/4", check, 1200);
+		await expectStop("2/3", "Step 2/3", click, 1600);
 		await page.keyboard.press("Home");
-		await expectStop("1/4", "Step 1/4", fill, 100);
+		await expectStop("1/3", "Step 1/3", fill, 950);
 		await page.keyboard.press("End");
-		await expectStop("4/4", "End of steps · 4/4", check, 1200);
+		await expectStop("3/3", "Step 3/3", check, 2600);
 	});
 
 	await test.step("The arrow buttons step too", async () => {
 		await stepViewer.previousButton.click();
-		await expectStop("3/4", "Step 3/4", check, 1200);
+		await expectStop("2/3", "Step 2/3", click, 1600);
 	});
 
 	await test.step("Leaving the stops for span navigation shows the focus ring", async () => {
@@ -152,16 +160,16 @@ test("steps through the start of each test body step, then the end", async ({
 		await expectNotOnStop();
 		await expect(focusRing).toHaveCount(0);
 		await page.keyboard.press("ArrowLeft");
-		await expectStop("1/4", "Step 1/4", fill, 100);
+		await expectStop("1/3", "Step 1/3", fill, 950);
 	});
 
 	await test.step("Clicking the counter or the viewer selects the first stop", async () => {
 		await page.keyboard.press("Escape");
 		await stepViewer.position.click();
-		await expectStop("1/4", "Step 1/4", fill, 100);
+		await expectStop("1/3", "Step 1/3", fill, 950);
 		await page.keyboard.press("Escape");
 		await stepViewer.root.click();
-		await expectStop("1/4", "Step 1/4", fill, 100);
+		await expectStop("1/3", "Step 1/3", fill, 950);
 	});
 
 	await test.step("The step viewer can be hidden from settings", async () => {
@@ -234,9 +242,9 @@ test("with several pages, a page can be pinned in the step viewer", async ({
 	};
 
 	await test.step("Each page gets a thumbnail; pages with no frame yet are dimmed", async () => {
-		await expect(stepViewer.position).toHaveText("–/4");
+		await expect(stepViewer.position).toHaveText("–/3");
 		await page.keyboard.press("ArrowRight");
-		await expect(stepViewer.position).toHaveText("1/4");
+		await expect(stepViewer.position).toHaveText("1/3");
 		await expect(stepViewer.pagePicker.getByRole("button")).toHaveCount(2);
 		await expect(stepViewer.page(1)).toHaveCSS("opacity", "1");
 		await expect(stepViewer.page(2)).toHaveCSS("opacity", "0.4");
@@ -244,8 +252,7 @@ test("with several pages, a page can be pinned in the step viewer", async ({
 
 	await test.step("Unpinned, the viewer shows whichever page drew last", async () => {
 		await page.keyboard.press("ArrowRight");
-		await page.keyboard.press("ArrowRight");
-		await expect(stepViewer.position).toHaveText("3/4");
+		await expect(stepViewer.position).toHaveText("2/3");
 		await expectShown("help", 650);
 	});
 
@@ -256,7 +263,7 @@ test("with several pages, a page can be pinned in the step viewer", async ({
 		await page.keyboard.press("ArrowRight");
 		await expectShown("shop", 1250);
 		await page.keyboard.press("ArrowLeft");
-		await expect(stepViewer.position).toHaveText("3/4");
+		await expect(stepViewer.position).toHaveText("2/3");
 		await expectShown("shop", 50);
 	});
 
@@ -304,9 +311,9 @@ test("a search result takes over from the step viewer and goes to the span", asy
 	};
 
 	await test.step("Selecting a result leaves the stop and zooms to the span", async () => {
-		await expect(stepViewer.position).toHaveText("–/3");
+		await expect(stepViewer.position).toHaveText("–/2");
 		await page.keyboard.press("ArrowRight");
-		await expect(stepViewer.position).toHaveText("1/3");
+		await expect(stepViewer.position).toHaveText("1/2");
 		await search.input.fill("Save the form");
 		await expect(search.resultItems.first()).toBeVisible();
 		await search.resultItems
@@ -314,7 +321,7 @@ test("a search result takes over from the step viewer and goes to the span", asy
 			.first()
 			.click();
 		await expect(focusRing).toHaveAttribute("data-span-id", save);
-		await expect(stepViewer.position).toHaveText("–/3");
+		await expect(stepViewer.position).toHaveText("–/2");
 		// Zoomed to fit: the span fills about 60% of the plot.
 		await expect.poll(saveShare).toBeGreaterThan(0.5);
 		await expect.poll(saveShare).toBeLessThan(0.7);
@@ -324,9 +331,9 @@ test("a search result takes over from the step viewer and goes to the span", asy
 		// Selecting blurs the search, so the arrow keys work straight away.
 		await page.keyboard.press("Escape");
 		await page.keyboard.press("ArrowRight");
-		await expect(stepViewer.position).toHaveText("1/3");
+		await expect(stepViewer.position).toHaveText("1/2");
 		await selectSaveFromSearch();
 		await expect(focusRing).toHaveAttribute("data-span-id", save);
-		await expect(stepViewer.position).toHaveText("–/3");
+		await expect(stepViewer.position).toHaveText("–/2");
 	});
 });

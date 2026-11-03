@@ -56,8 +56,8 @@ export interface StepViewer {
 }
 
 /**
- * The step viewer walks the start of each test body step (see stepStops.ts),
- * locking the timeline there like arrow-key span navigation does. The lock's
+ * The step viewer walks the test body's steps, stopping just after each one
+ * to show what it did (see stepStops.ts). It locks the timeline there like arrow-key span navigation does. The lock's
  * source tells whether the viewer is on a stop: any other lock or unlock
  * hands the selection back to the timeline.
  */
