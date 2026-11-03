@@ -43,7 +43,7 @@ import type { SpanSelectionPlacement } from "./spanSelection";
 import { StepViewer } from "./StepViewer";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
-import { buildTestStructure } from "./testStructure";
+import { buildTestStructure, getStepAncestry } from "./testStructure";
 import { layoutTimelineSpans } from "./timelineLayout";
 import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
@@ -519,6 +519,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		spanFocus,
 	});
 
+	const stepViewerStepAncestry = createMemo(() => {
+		const stop = stepViewer.currentStop();
+		return stop ? getStepAncestry(stop.stepId, spanById()) : [];
+	});
+
 	/** Names the viewer's stop on the focused step's details card. */
 	const stepViewerBadge = () => {
 		const index = stepViewer.currentIndex();
@@ -927,6 +932,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 										screenshotsLoading={props.traceInfo.screenshots.loading}
 										stopCount={stepViewer.stops().length}
 										stopIndex={stepViewer.currentIndex()}
+										stepAncestry={stepViewerStepAncestry()}
 										pages={stepViewer.pages()}
 										pinnedPageId={stepViewer.pinnedPageId()}
 										onPinPage={stepViewer.pinPage}

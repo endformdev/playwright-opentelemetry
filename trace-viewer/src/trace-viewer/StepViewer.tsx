@@ -1,6 +1,9 @@
 import { ChevronLeft, ChevronRight, Pin } from "lucide-solid";
 import { For, Show } from "solid-js";
+import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
 import type { ScreenshotInfo } from "../trace-info-loader";
+import { getStepTimelineColor } from "./components/stepSpanStyles";
+import { StepTitleText } from "./components/StepTitleText";
 import type { StepViewerPage } from "./useStepViewer";
 
 export interface StepViewerProps {
@@ -9,6 +12,11 @@ export interface StepViewerProps {
 	stopCount: number;
 	/** Index of the stop the timeline is locked on, or null when not on one */
 	stopIndex: number | null;
+	/**
+	 * The stop's step and the spans it is nested in, outermost first (see
+	 * getStepAncestry); empty when not on a stop.
+	 */
+	stepAncestry: Span[];
 	pages: StepViewerPage[];
 	pinnedPageId: string | null;
 	onPinPage: (pageId: string | null) => void;
@@ -25,7 +33,7 @@ export interface StepViewerProps {
  * Controls live in gutters either side of the screenshot so they never cover
  * it: the step counter and back arrow on the left, the page picker and next
  * arrow on the right. The counter lights up while the viewer drives the
- * selection; the step itself is marked on its card in the details panel.
+ * selection, and the step it is on is named in the top right corner.
  */
 export function StepViewer(props: StepViewerProps) {
 	const active = () => props.stopIndex !== null;
@@ -164,8 +172,90 @@ export function StepViewer(props: StepViewerProps) {
 				</div>
 			</Show>
 
+			<Show when={active() && props.stepAncestry.at(-1)}>
+				{(step) => (
+					<StepCaption
+						step={step()}
+						depth={props.stepAncestry.length - 1}
+						parents={props.stepAncestry
+							.slice(0, -1)
+							.filter((span) => span.name === "playwright.test.step")}
+						besidePagePicker={props.pages.length > 1}
+					/>
+				)}
+			</Show>
+
 			{navigationButton(-1)}
 			{navigationButton(1)}
 		</section>
+	);
+}
+
+/**
+ * The step the viewer is on, in full: the steps it is nested in, its title
+ * and the locator it acted on. Pinned to the top right corner, beside the page
+ * picker when there is one.
+ */
+function StepCaption(props: {
+	step: Span;
+	depth: number;
+	parents: Span[];
+	besidePagePicker: boolean;
+}) {
+	const color = () =>
+		isErrorSpan(props.step)
+			? "#dc2626"
+			: getStepTimelineColor(props.step, props.depth);
+
+	return (
+		<div
+			class="pointer-events-none absolute top-3 z-10 w-max max-w-[min(28rem,calc(100%-11rem))] rounded-md border-l-4 bg-white/95 px-3 py-2 shadow-md ring-1 ring-gray-200 backdrop-blur-sm"
+			classList={{
+				"right-20": props.besidePagePicker,
+				"right-3": !props.besidePagePicker,
+			}}
+			style={{ "border-left-color": color() }}
+			data-testid="step-viewer-step"
+			data-span-id={props.step.id}
+		>
+			<Show when={props.parents.length > 0}>
+				<div
+					class="mb-0.5 text-[11px] leading-snug text-gray-500 break-words"
+					data-testid="step-viewer-step-parents"
+				>
+					<For each={props.parents}>
+						{(parent, index) => (
+							<>
+								<Show when={index() > 0}>
+									<span class="mx-1 text-gray-400" aria-hidden="true">
+										›
+									</span>
+								</Show>
+								{parent.title}
+							</>
+						)}
+					</For>
+				</div>
+			</Show>
+			<div
+				class="text-[13px] font-semibold leading-snug text-gray-900 break-words"
+				data-testid="step-viewer-step-title"
+			>
+				<StepTitleText
+					title={props.step.title}
+					emphasisColor={`color-mix(in srgb, ${color()} 65%, black)`}
+				/>
+			</div>
+			<Show when={props.step.subtitle}>
+				{(subtitle) => (
+					<code
+						class="mt-1 block rounded-sm bg-gray-100 px-1.5 py-0.5 font-mono text-xs leading-snug text-gray-700 wrap-anywhere"
+						data-testid="step-viewer-step-subtitle"
+					>
+						{subtitle()}
+					</code>
+				)}
+			</Show>
+		</div>
 	);
 }
