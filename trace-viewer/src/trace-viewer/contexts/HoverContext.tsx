@@ -17,7 +17,7 @@ import { useViewportContext } from "./ViewportContext";
 export type HoverMode = "hover" | "locked" | "search-override";
 
 /** Who locked the timeline; any new lock or unlock replaces it. */
-export type LockSource = "timeline" | "step-viewer";
+export type LockSource = "timeline" | "step-viewer" | "playback";
 
 export type FocusedElementType = "screenshot" | "step" | "span";
 

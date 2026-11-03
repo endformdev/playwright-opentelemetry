@@ -45,6 +45,7 @@ import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
 import { buildTestStructure } from "./testStructure";
 import { layoutTimelineSpans } from "./timelineLayout";
+import { usePlayback } from "./usePlayback";
 import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
 import { createViewerSettings } from "./viewerSettings";
@@ -486,6 +487,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				return;
 			}
 
+			if (playback.handleKeyDown(e)) return;
 			if (stepViewer.handleKeyDown(e)) return;
 
 			const direction = ARROW_KEY_DIRECTIONS[e.key];
@@ -517,6 +519,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enabled: showStepViewer,
 		canFrame: () => settings().steps,
 		spanFocus,
+	});
+
+	const playback = usePlayback({
+		endMs: () => props.traceData.totalDurationMs(),
+		enabled: () => showStepViewer() && !props.traceData.isLoading(),
 	});
 
 	/** Names the viewer's stop on the focused step's details card. */
@@ -852,6 +859,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					<Show when={mode() === "locked" && lockedPosition() !== null}>
 						<div
 							data-locked-time-line
+							data-time-ms={lockedTimeMs()}
 							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
 							style={{
 								left: `${lockedPosition()! * 100}%`,
@@ -932,6 +940,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 										onPinPage={stepViewer.pinPage}
 										onActivate={stepViewer.activate}
 										onNavigate={stepViewer.navigate}
+										playing={playback.playing()}
+										playbackSpeed={playback.speed()}
+										onTogglePlayback={playback.toggle}
+										onCycleSpeed={playback.cycleSpeed}
 									/>
 								}
 								secondPanel={<MainPanelContent />}

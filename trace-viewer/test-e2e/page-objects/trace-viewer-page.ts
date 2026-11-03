@@ -213,6 +213,10 @@ export class StepViewerComponent {
 	readonly pagePicker: Locator;
 	readonly previousButton: Locator;
 	readonly nextButton: Locator;
+	readonly playButton: Locator;
+	readonly pauseButton: Locator;
+	/** Reads the playback speed, as in "2×"; clicking moves to the next one */
+	readonly speedButton: Locator;
 
 	constructor(page: Page) {
 		this.root = page.getByRole("region", { name: "Step viewer" });
@@ -225,6 +229,16 @@ export class StepViewerComponent {
 			name: "Previous step",
 		});
 		this.nextButton = this.root.getByRole("button", { name: "Next step" });
+		const playback = this.root.getByRole("group", { name: "Playback" });
+		this.playButton = playback.getByRole("button", {
+			name: "Play",
+			exact: true,
+		});
+		this.pauseButton = playback.getByRole("button", {
+			name: "Pause",
+			exact: true,
+		});
+		this.speedButton = playback.getByRole("button", { name: "Playback speed" });
 	}
 
 	page(number: number): Locator {
