@@ -1,7 +1,7 @@
 /**
  * LEGACY: reading screenshots from Playwright's trace.zip, for Playwright
- * versions whose screencast the fixture doesn't use and for the reporter
- * running without the fixture. Delete with src/reporter/legacy/.
+ * versions whose screencast the fixture doesn't use. Delete with
+ * src/reporter/legacy/.
  */
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -348,7 +348,7 @@ describe("extractScreenshotsFromPlaywrightTrace", () => {
 	});
 });
 
-describe("reporter screenshot fallback to Playwright's trace", () => {
+describe("reporter screenshots before Playwright 1.61", () => {
 	const mockFetch = vi.fn();
 	const traceApiConfig: PlaywrightOpentelemetryConfig = {
 		playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
@@ -399,6 +399,7 @@ describe("reporter screenshot fallback to Playwright's trace", () => {
 		}
 
 		await runReporterTest({
+			config: { version: "1.60.0" },
 			playwrightOpentelemetry: {
 				...traceApiConfig,
 				...options.playwrightOpentelemetry,
@@ -418,7 +419,7 @@ describe("reporter screenshot fallback to Playwright's trace", () => {
 		return readScreenshotsZip(call[1].body);
 	}
 
-	it("reads screenshots from the trace when the fixture attached none", async () => {
+	it("reads screenshots from Playwright's trace", async () => {
 		expect(await uploadedScreenshots({})).toEqual([
 			expect.objectContaining({
 				pageId: "page@aaa111",
@@ -428,9 +429,9 @@ describe("reporter screenshot fallback to Playwright's trace", () => {
 		]);
 	});
 
-	it("prefers the fixture's screenshots over the trace's", async () => {
+	it("ignores a screenshots attachment", async () => {
 		expect(await uploadedScreenshots({ withFixtureScreenshots: true })).toEqual(
-			[expect.objectContaining({ pageId: "page-0", timestamp: 2000 })],
+			[expect.objectContaining({ pageId: "page@aaa111", timestamp: 1000 })],
 		);
 	});
 

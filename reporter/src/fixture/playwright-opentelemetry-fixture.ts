@@ -5,6 +5,7 @@ import type {
 	Response,
 	test as base,
 } from "@playwright/test";
+import { supportsScreencastScreenshots } from "../shared/screencast-screenshots";
 import {
 	resolvePlaywrightOpentelemetryConfig,
 	type PlaywrightOpentelemetryUseOptions,
@@ -21,11 +22,7 @@ import {
 } from "./reporter-config";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
 import { ScreencastCapture } from "./screencast-capture";
-import {
-	attachScreenshots,
-	shouldCaptureScreenshots,
-	supportsScreencastScreenshots,
-} from "./screenshots";
+import { attachScreenshots, shouldCaptureScreenshots } from "./screenshots";
 import { runWithTestFetchCapture } from "./test-fetch-capture";
 import {
 	createTestTraceContext,

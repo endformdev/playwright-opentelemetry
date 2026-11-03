@@ -1,10 +1,8 @@
 /**
- * LEGACY: reads screenshots out of Playwright's trace.zip.
- *
- * Used when the fixture didn't attach screencast screenshots: Playwright
- * older than SCREENCAST_SCREENSHOTS_MIN_PLAYWRIGHT_VERSION, or the reporter
- * running without the fixture. Delete this directory, its tests and the
- * reporter's fallback to it once the peer dependency requires that version.
+ * LEGACY: reads screenshots out of Playwright's trace.zip, for Playwright
+ * older than SCREENCAST_SCREENSHOTS_MIN_PLAYWRIGHT_VERSION. Delete this
+ * directory, its tests and the reporter's legacy branch once the peer
+ * dependency requires that version.
  */
 import fs from "node:fs/promises";
 import type { Entry, FileEntry } from "@zip.js/zip.js";

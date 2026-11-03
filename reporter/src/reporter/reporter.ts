@@ -34,6 +34,7 @@ import {
 	shouldRetainPlaywrightTrace,
 } from "../shared/playwright-trace";
 import { filterRetainedDestinations } from "../shared/destinations";
+import { supportsScreencastScreenshots } from "../shared/screencast-screenshots";
 import {
 	createScreenshotsZip,
 	readScreenshotsZip,
@@ -578,13 +579,14 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 }
 
 /**
- * A test's screenshots. The fixture attaches the frames it captured from the
- * pages' screencasts; without that attachment, they are read from
+ * A test's screenshots. Playwright versions with a usable screencast only use
+ * the frames the fixture captured and attached; older versions only use
  * Playwright's trace. Never rejects: a test's spans are still sent without
  * its screenshots.
  */
 async function readTestScreenshots(options: {
 	config: ResolvedPlaywrightOpentelemetryConfig;
+	playwrightVersion: string;
 	screenshotsAttachmentPath?: string;
 	traceAttachmentPath?: string;
 }): Promise<ScreenshotResource[]> {
@@ -592,7 +594,10 @@ async function readTestScreenshots(options: {
 		return [];
 	}
 
-	if (options.screenshotsAttachmentPath) {
+	if (supportsScreencastScreenshots(options.playwrightVersion)) {
+		if (!options.screenshotsAttachmentPath) {
+			return [];
+		}
 		try {
 			return await readScreenshotsZip(
 				new Blob([await fs.readFile(options.screenshotsAttachmentPath)]),
@@ -605,19 +610,17 @@ async function readTestScreenshots(options: {
 		}
 	}
 
-	// LEGACY: the fixture captures nothing on Playwright older than
-	// SCREENCAST_SCREENSHOTS_MIN_PLAYWRIGHT_VERSION, and the reporter can run
-	// without the fixture. Remove with ./legacy once the peer dependency
-	// requires that version; tests without the fixture then get no screenshots.
-	if (options.traceAttachmentPath) {
-		return Array.from(
-			(
-				await extractScreenshotsFromPlaywrightTrace(options.traceAttachmentPath)
-			).values(),
-		);
+	// LEGACY: before SCREENCAST_SCREENSHOTS_MIN_PLAYWRIGHT_VERSION, screenshots
+	// come from Playwright's trace. Remove with ./legacy once the peer
+	// dependency requires that version.
+	if (!options.traceAttachmentPath) {
+		return [];
 	}
-
-	return [];
+	return Array.from(
+		(
+			await extractScreenshotsFromPlaywrightTrace(options.traceAttachmentPath)
+		).values(),
+	);
 }
 
 function getProjectPlaywrightOpentelemetryConfig(

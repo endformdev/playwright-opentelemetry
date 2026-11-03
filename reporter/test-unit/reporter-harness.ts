@@ -116,7 +116,7 @@ export interface StepDefinition {
 
 export const DEFAULT_ROOT_DIR = "/Users/test/project/test-e2e";
 export const DEFAULT_OUTPUT_DIR = "reporter/test-results/unit-output";
-export const DEFAULT_VERSION = "1.56.1";
+export const DEFAULT_VERSION = "1.63.0";
 export const DEFAULT_START_TIME = new Date("2025-11-06T10:00:00.000Z");
 
 /** Generate a unique output directory for a test to avoid conflicts */

@@ -13,8 +13,8 @@ import {
 import {
 	attachScreenshots,
 	shouldCaptureScreenshots,
-	supportsScreencastScreenshots,
 } from "../src/fixture/screenshots";
+import { supportsScreencastScreenshots } from "../src/shared/screencast-screenshots";
 import { resolvePlaywrightOpentelemetryConfig } from "../src/shared/config";
 import {
 	readScreenshotsZip,

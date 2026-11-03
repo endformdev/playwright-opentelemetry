@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { BlobWriter, ZipWriter } from "@zip.js/zip.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
 import {
@@ -298,6 +299,50 @@ describe("Trace API Integration", () => {
 				file: "page-0-1000.jpeg",
 			}),
 		]);
+	});
+
+	it("doesn't read screenshots from Playwright's trace", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "trace-api-test-"));
+		const traceZipPath = path.join(dir, "trace.zip");
+		const zipWriter = new ZipWriter(new BlobWriter("application/zip"));
+		await zipWriter.add(
+			"resources/page@abc123-1000.jpeg",
+			new Blob(["frame"]).stream(),
+		);
+		await fs.writeFile(
+			traceZipPath,
+			Buffer.from(await (await zipWriter.close()).arrayBuffer()),
+		);
+
+		try {
+			await runReporterTest({
+				playwrightOpentelemetry: {
+					playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+				},
+				test: { title: "test without the fixture" },
+				result: {
+					attachments: [
+						{
+							name: "trace",
+							contentType: "application/zip",
+							path: traceZipPath,
+						},
+					],
+				},
+			});
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+
+		const screenshotsCall = mockFetch.mock.calls.find(
+			(call) =>
+				call[0] ===
+				"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip",
+		);
+		if (!screenshotsCall) {
+			throw new Error("Expected trace API screenshots request");
+		}
+		expect(await readScreenshotsZip(screenshotsCall[1].body)).toEqual([]);
 	});
 
 	it("still sends spans when the fixture's screenshots can't be read", async () => {
