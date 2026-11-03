@@ -273,6 +273,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
 	const showStepViewer = () => settings().stepViewer && hasScreenshots();
 	const showFilmstrip = () => settings().filmstrip && hasScreenshots();
+	// The step viewer already shows the hovered screenshot large.
+	const filmstripPreviewEnabled = () => mode() === "hover" && !showStepViewer();
 	const screenshotPageCount = createMemo(() =>
 		countScreenshotPages(props.traceInfo.screenshots() ?? []),
 	);
@@ -772,7 +774,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}
-									previewEnabled={mode() === "hover"}
+									previewEnabled={filmstripPreviewEnabled()}
 								/>
 							</Show>
 						}
@@ -789,7 +791,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}
-									previewEnabled={mode() === "hover"}
+									previewEnabled={filmstripPreviewEnabled()}
 								/>
 							}
 							secondPanel={<SpanPanelsContent />}
