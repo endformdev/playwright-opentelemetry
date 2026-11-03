@@ -55,6 +55,20 @@ test("plays the test back in real time at the chosen speed", async ({
 		expect(lineBox.x).toBeLessThanOrEqual(plotBox.x + plotBox.width);
 	};
 
+	/**
+	 * The step counter during playback: Login runs 600-1800 and shows its
+	 * result until Check dashboard starts at 2000, which then stays on.
+	 */
+	const playingPosition = (timeMs: number) =>
+		timeMs < 600 ? "–/2" : timeMs < 2000 ? "1/2" : "2/2";
+	const expectPositionAtLockedTime = async () => {
+		const timeMs = await timeMsOf(lockedLine);
+		await expect(stepViewer.position).toHaveText(playingPosition(timeMs));
+		if (timeMs >= 600) {
+			await expect(stepViewer.position).toHaveAttribute("data-active", "true");
+		}
+	};
+
 	/** Real time and trace time that pass while playing for about a second. */
 	const measurePlayback = async () => {
 		const startTimeMs = await timeMsOf(lockedLine);
@@ -95,6 +109,8 @@ test("plays the test back in real time at the chosen speed", async ({
 		const pausedAt = await timeMsOf(lockedLine);
 		await page.waitForTimeout(300);
 		expect(await timeMsOf(lockedLine)).toBe(pausedAt);
+		// Paused, the counter still shows the step playback is on.
+		await expectPositionAtLockedTime();
 	});
 
 	await test.step("Playing at double speed resumes from there and keeps the time in view", async () => {
@@ -103,6 +119,8 @@ test("plays the test back in real time at the chosen speed", async ({
 		await stepViewer.speedButton.click();
 		await expect(stepViewer.speedButton).toHaveText("2×");
 		await stepViewer.playButton.click();
+		// Playing lights up the counter with the step playing, like stepping.
+		await expect(stepViewer.position).toHaveAttribute("data-active", "true");
 
 		const { traceMs, realMs } = await measurePlayback();
 		expect(await timeMsOf(lockedLine)).toBeGreaterThan(pausedAt);
@@ -114,6 +132,7 @@ test("plays the test back in real time at the chosen speed", async ({
 	await test.step("Playback stops at the end of the trace, on its last screenshot", async () => {
 		await expect(stepViewer.playButton).toBeVisible({ timeout: 5000 });
 		expect(await timeMsOf(lockedLine)).toBe(4000);
+		await expect(stepViewer.position).toHaveText("2/2");
 		await expect(stepViewer.screenshot).toHaveAttribute(
 			"data-screenshot-timestamp",
 			String(testStartTime + 3600),
@@ -131,6 +150,8 @@ test("plays the test back in real time at the chosen speed", async ({
 		await page.keyboard.press("Escape");
 		await expect(stepViewer.playButton).toBeVisible();
 		await expect(lockedLine).toHaveCount(0);
+		await expect(stepViewer.position).toHaveText("–/2");
+		await expect(stepViewer.position).not.toHaveAttribute("data-active");
 	});
 
 	await test.step("Space plays and pauses", async () => {
@@ -142,10 +163,29 @@ test("plays the test back in real time at the chosen speed", async ({
 		await expect(stepViewer.playButton).toBeVisible();
 	});
 
+	await test.step("The counter follows playback from step to step", async () => {
+		await stepViewer.speedButton.click();
+		await expect(stepViewer.speedButton).toHaveText("0.5×");
+		await stepViewer.playButton.click();
+		await expect(stepViewer.position).toHaveText("1/2");
+		await expect(stepViewer.position).toHaveAttribute("data-active", "true");
+		await stepViewer.pauseButton.click();
+		await expectPositionAtLockedTime();
+	});
+
+	await test.step("Arrow keys step on from the step playback is on", async () => {
+		await expect(stepViewer.position).toHaveText("1/2");
+		await page.keyboard.press("ArrowRight");
+		// Now on the second step's stop, which the details panel marks.
+		await expect(stepViewer.position).toHaveText("2/2");
+		await expect(viewer.details.badges).toHaveText("Step 2/2");
+		await expect(stepViewer.playButton).toBeVisible();
+	});
+
 	await test.step("Stepping through steps takes over from playback", async () => {
 		await stepViewer.playButton.click();
 		await expect(stepViewer.pauseButton).toBeVisible();
-		await stepViewer.nextButton.click();
+		await stepViewer.previousButton.click();
 		await expect(stepViewer.playButton).toBeVisible();
 		await expect(stepViewer.position).toHaveAttribute("data-active", "true");
 	});

@@ -8,7 +8,10 @@ export interface StepViewerProps {
 	screenshot: ScreenshotInfo | null;
 	screenshotsLoading: boolean;
 	stopCount: number;
-	/** Index of the stop the timeline is locked on, or null when not on one */
+	/**
+	 * Index of the stop the timeline is locked on, or of the step playing
+	 * while playback holds the timeline; null otherwise
+	 */
 	stopIndex: number | null;
 	pages: StepViewerPage[];
 	pinnedPageId: string | null;
@@ -106,9 +109,11 @@ export function StepViewer(props: StepViewerProps) {
 					data-testid="step-viewer-position"
 					data-active={active() ? "true" : undefined}
 					title={
-						active()
-							? "Stepping through the test with ← →"
-							: "Step through the test with ← →"
+						props.playing
+							? "Playing through the test"
+							: active()
+								? "Stepping through the test with ← →"
+								: "Step through the test with ← →"
 					}
 					onClick={(event) => {
 						event.stopPropagation();

@@ -934,7 +934,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 										screenshot={stepViewer.screenshot()}
 										screenshotsLoading={props.traceInfo.screenshots.loading}
 										stopCount={stepViewer.stops().length}
-										stopIndex={stepViewer.currentIndex()}
+										stopIndex={stepViewer.shownIndex()}
 										pages={stepViewer.pages()}
 										pinnedPageId={stepViewer.pinnedPageId()}
 										onPinPage={stepViewer.pinPage}
