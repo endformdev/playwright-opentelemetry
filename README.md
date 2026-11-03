@@ -196,9 +196,9 @@ test("has title", async ({ page }) => {
 
 ### Screenshots
 
-The fixture records screenshots of every page in the test, in every browser context, through Playwright's [`page.screencast`](https://playwright.dev/docs/api/class-screencast) API. They are stored with the trace for Trace API destinations and local trace ZIPs, and kept or dropped with it, following the [trace retention](#trace-retention) settings. Each screenshot carries the same `browser.page.id` as its page's spans.
+The fixture records screenshots of every page in the test's browser contexts, through Playwright's [`page.screencast`](https://playwright.dev/docs/api/class-screencast) API. They are stored with the trace for Trace API destinations and local trace ZIPs, and kept or dropped with it, following the [trace retention](#trace-retention) settings. Each screenshot carries the same `browser.page.id` as its page's spans, and the page's viewport size. The `context` fixture's context is always covered; contexts the test creates with `browser.newContext()` are covered on Playwright 1.60 or later.
 
-This doesn't take a second screencast. Playwright shares one browser screencast per page between tracing, video recording and the API, and the fixture keeps frames at the same rhythm as Playwright's own trace recorder: about five per second, and every frame for half a second around each page action. Screenshots don't depend on Playwright's `trace` screenshot setting, so you can turn those off if you don't need them in Playwright's own trace:
+This doesn't take a second screencast. Playwright shares one browser screencast per page between tracing, video recording and the API, and the fixture keeps frames at the same rhythm as Playwright's own trace recorder: about five per second, and every frame for half a second around each action on that page. Screenshots don't depend on Playwright's `trace` screenshot setting, so you can turn those off if you don't need them in Playwright's own trace:
 
 ```ts
 export default defineConfig<PlaywrightOpentelemetryUseOptions>({

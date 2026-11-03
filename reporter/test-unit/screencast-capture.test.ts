@@ -101,42 +101,89 @@ describe("ScreencastCapture", () => {
 		expect(existsSync(capture.dir)).toBe(false);
 	});
 
-	it("adds contexts created while it runs", async () => {
-		const { capture, instrumentation } = await startCapture();
-		const context = new FakeContext();
-
-		await instrumentation.runAfterCreateBrowserContext(context.asContext());
-		const page = context.newPage();
-		await page.screencastStarted();
-		await page.emit(frame(1000));
-
-		expect(await capture.stop()).toHaveLength(1);
-		await capture.dispose();
-	});
-
 	it("keeps every frame around page API calls only", async () => {
-		const { capture, context, instrumentation } = await startCapture();
+		const { capture, context, connection } = await startCapture();
 		const page = context.newPage();
 		capture.addContext(context.asContext());
 		await page.screencastStarted();
 
 		await page.emit(frame(1));
 		await page.emit(frame(2));
-		instrumentation.onApiCallBegin({}, { type: "APIRequestContext" });
+		connection.call({ _type: "APIRequestContext" });
+		connection.call(page.mainFrame, { internal: true });
 		await page.emit(frame(3));
-		const apiCall = {};
-		instrumentation.onApiCallBegin(apiCall, { type: "Frame" });
+		const call = connection.call(page.mainFrame);
 		await page.emit(frame(4));
 		await page.emit(frame(5));
+		call.resolve();
 
 		const frames = await capture.stop();
 		expect(frames.map((frame) => frame.timestamp)).toEqual([1, 4, 5]);
-		expect(instrumentation.listeners).toHaveLength(0);
+		expect(Object.hasOwn(connection, "sendMessageToServer")).toBe(false);
 		await capture.dispose();
 	});
 
+	it("keeps every frame only on the page an API call acts on", async () => {
+		vi.useFakeTimers({ toFake: ["performance"] });
+		try {
+			const { capture, context, connection } = await startCapture();
+			const acted = context.newPage();
+			const background = context.newPage();
+			capture.addContext(context.asContext());
+			await acted.screencastStarted();
+			await background.screencastStarted();
+			await acted.emit(frame(1));
+			await background.emit(frame(1));
+
+			const call = connection.call({
+				_type: "ElementHandle",
+				_parent: acted.mainFrame,
+			});
+			await acted.emit(frame(2));
+			await background.emit(frame(2));
+			vi.advanceTimersByTime(SCREENCAST_UNTHROTTLE_MS);
+			call.resolve();
+			await Promise.resolve();
+			await acted.emit(frame(3));
+			await background.emit(frame(3));
+
+			const frames = await capture.stop();
+			expect(
+				frames.map(({ pageId, timestamp }) => `${pageId}@${timestamp}`).sort(),
+			).toEqual(["page-0@1", "page-0@2", "page-0@3", "page-1@1"]);
+			await capture.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps capturing with one warning when Playwright's private hooks are missing", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			for (let run = 0; run < 2; run++) {
+				const capture = await ScreencastCapture.start({
+					playwright: {},
+					pageIdFor: () => "page-0",
+				});
+				const context = new FakeContext();
+				const page = context.newPage();
+				page._wrapApiCall = undefined;
+				capture.addContext(context.asContext());
+				await page.screencastStarted();
+				await page.emit(frame(1000 + run));
+
+				expect(await capture.stop()).toHaveLength(1);
+				await capture.dispose();
+			}
+			// Once for the API call hook, once for hiding internal calls.
+			expect(warn).toHaveBeenCalledTimes(2);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
 	it("lets the test run its own screencast and captures its frames", async () => {
-		const { capture, context, instrumentation } = await startCapture();
+		const { capture, context, connection } = await startCapture();
 		const page = context.newPage();
 		capture.addContext(context.asContext());
 		await page.screencastStarted();
@@ -155,7 +202,7 @@ describe("ScreencastCapture", () => {
 		await disposable[Symbol.asyncDispose]();
 		await page.screencastStarted();
 		expect(page.screencast.starts).toBe(3);
-		instrumentation.onApiCallBegin({}, { type: "Page" });
+		connection.call(page);
 		await page.emit(frame(2000));
 
 		const frames = await capture.stop();
@@ -202,7 +249,11 @@ describe("screenshots attachment", () => {
 		const page = context.newPage();
 		capture.addContext(context.asContext());
 		await page.screencastStarted();
-		await page.emit(frame(1000));
+		await page.emit({
+			...frame(1000),
+			viewportWidth: 1280,
+			viewportHeight: 720,
+		});
 
 		const attached: Array<{ name: string; zip: Blob }> = [];
 		const attach = vi.fn(async (name: string, options: { path: string }) => {
@@ -224,6 +275,8 @@ describe("screenshots attachment", () => {
 				pageId: "page-0",
 				timestamp: 1000,
 				file: "page-0-1000.jpeg",
+				viewportWidth: 1280,
+				viewportHeight: 720,
 			}),
 		]);
 		expect(existsSync(capture.dir)).toBe(false);
@@ -252,17 +305,17 @@ function frame(timestamp: number): ScreencastFrame {
 }
 
 async function startCapture() {
-	const instrumentation = new FakeInstrumentation();
+	const connection = new FakeConnection();
 	const pageIds = new Map<Page, string>();
 	const capture = await ScreencastCapture.start({
-		playwright: { _instrumentation: instrumentation },
+		playwright: { _connection: connection },
 		pageIdFor: (page) => {
 			const pageId = pageIds.get(page) ?? `page-${pageIds.size}`;
 			pageIds.set(page, pageId);
 			return pageId;
 		},
 	});
-	return { capture, context: new FakeContext(), instrumentation };
+	return { capture, context: new FakeContext(), connection };
 }
 
 type FrameCallback = (frame: ScreencastFrame) => unknown;
@@ -289,7 +342,12 @@ class FakeScreencast {
 }
 
 class FakePage {
+	readonly _type = "Page";
 	readonly screencast = new FakeScreencast();
+	readonly mainFrame = { _type: "Frame", _page: this };
+
+	/** Playwright's private hook for running calls as internal ones. */
+	_wrapApiCall?: <T>(call: () => Promise<T>) => Promise<T> = (call) => call();
 
 	asPage(): Page {
 		return this as unknown as Page;
@@ -329,30 +387,24 @@ class FakeContext extends EventEmitter {
 	}
 }
 
-class FakeInstrumentation {
-	listeners: Array<{
-		onApiCallBegin?(apiZone: unknown, channel: { type?: string }): void;
-		onApiCallEnd?(apiZone: unknown): void;
-		runAfterCreateBrowserContext?(context: BrowserContext): Promise<void>;
-	}> = [];
-
-	addListener(listener: FakeInstrumentation["listeners"][number]) {
-		this.listeners.push(listener);
+/** Stands in for the client connection every Playwright API call goes through. */
+class FakeConnection {
+	async sendMessageToServer(
+		_object: unknown,
+		_method: string,
+		_params: unknown,
+		options: { internal?: boolean; reply: Promise<void> },
+	): Promise<void> {
+		await options.reply;
 	}
 
-	removeListener(listener: FakeInstrumentation["listeners"][number]) {
-		this.listeners = this.listeners.filter((existing) => existing !== listener);
-	}
-
-	onApiCallBegin(apiZone: unknown, channel: { type?: string }) {
-		for (const listener of this.listeners) {
-			listener.onApiCallBegin?.(apiZone, channel);
-		}
-	}
-
-	async runAfterCreateBrowserContext(context: BrowserContext) {
-		for (const listener of this.listeners) {
-			await listener.runAfterCreateBrowserContext?.(context);
-		}
+	/** Sends an API call on `object` and returns a way to finish it. */
+	call(object: object, options: { internal?: boolean } = {}) {
+		let resolve!: () => void;
+		const reply = new Promise<void>((r) => {
+			resolve = r;
+		});
+		void this.sendMessageToServer(object, "method", {}, { ...options, reply });
+		return { resolve };
 	}
 }

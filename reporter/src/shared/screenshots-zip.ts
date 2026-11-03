@@ -18,7 +18,17 @@ export const SCREENSHOTS_ATTACHMENT_NAME =
 const MANIFEST_PATH = "manifest.json";
 const SCREENSHOTS_DIR = "screenshots/";
 
-export interface ScreenshotManifestEntry {
+/**
+ * The page's viewport size in CSS pixels when a frame was captured. Frames are
+ * scaled down, so this maps page coordinates, such as an action's point, onto
+ * the image.
+ */
+export interface ScreenshotViewport {
+	viewportWidth?: number;
+	viewportHeight?: number;
+}
+
+export interface ScreenshotManifestEntry extends ScreenshotViewport {
 	timestamp: number;
 	file: string;
 	path: string;
@@ -31,7 +41,7 @@ export interface ScreenshotManifest {
 	screenshots: ScreenshotManifestEntry[];
 }
 
-export interface ScreenshotResource {
+export interface ScreenshotResource extends ScreenshotViewport {
 	timestamp: number;
 	file: string;
 	contentType: string;
@@ -64,6 +74,7 @@ export async function addScreenshotsToZip(
 			path: `${SCREENSHOTS_DIR}${screenshot.file}`,
 			contentType: screenshot.contentType,
 			pageId: screenshot.pageId,
+			...viewportOf(screenshot),
 		})),
 	};
 
@@ -114,6 +125,7 @@ export async function readScreenshotsZip(
 					file: screenshot.file,
 					contentType: screenshot.contentType,
 					pageId: screenshot.pageId,
+					...viewportOf(screenshot),
 					blob: await entry.getData(new BlobWriter(screenshot.contentType)),
 				};
 			}),
@@ -121,4 +133,14 @@ export async function readScreenshotsZip(
 	} finally {
 		await zipReader.close();
 	}
+}
+
+function viewportOf(screenshot: ScreenshotViewport): ScreenshotViewport {
+	return screenshot.viewportWidth !== undefined &&
+		screenshot.viewportHeight !== undefined
+		? {
+				viewportWidth: screenshot.viewportWidth,
+				viewportHeight: screenshot.viewportHeight,
+			}
+		: {};
 }

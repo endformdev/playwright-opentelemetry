@@ -61,6 +61,8 @@ export async function attachScreenshots(
 					file: frame.file,
 					contentType: "image/jpeg",
 					pageId: frame.pageId,
+					viewportWidth: frame.viewportWidth,
+					viewportHeight: frame.viewportHeight,
 					blob: new Blob([await fs.readFile(frame.path)]),
 				})),
 			),

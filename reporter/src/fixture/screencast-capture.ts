@@ -20,10 +20,15 @@ const PAGE_CHANNEL_TYPES = new Set([
 	"ElementHandle",
 	"JSHandle",
 ]);
+// The page of a page API call that couldn't be resolved, such as a handle in a
+// worker: every page's throttling stops.
+const UNKNOWN_PAGE = Symbol("unknown page");
 
 export interface ScreencastFrame {
 	data: Buffer;
 	timestamp: number;
+	viewportWidth?: number;
+	viewportHeight?: number;
 }
 
 export interface CapturedFrame {
@@ -31,21 +36,21 @@ export interface CapturedFrame {
 	timestamp: number;
 	file: string;
 	path: string;
+	viewportWidth?: number;
+	viewportHeight?: number;
 }
 
 type ScreencastStartOptions = NonNullable<
 	Parameters<Page["screencast"]["start"]>[0]
 >;
 
-interface ClientInstrumentationListener {
-	onApiCallBegin?(apiZone: unknown, channel: { type?: string }): void;
-	onApiCallEnd?(apiZone: unknown): void;
-	runAfterCreateBrowserContext?(context: BrowserContext): Promise<void>;
-}
-
-interface ClientInstrumentation {
-	addListener(listener: ClientInstrumentationListener): void;
-	removeListener(listener: ClientInstrumentationListener): void;
+interface ClientConnection {
+	sendMessageToServer(
+		object: unknown,
+		method: string,
+		params: unknown,
+		options?: { internal?: boolean },
+	): Promise<unknown>;
 }
 
 /**
@@ -112,46 +117,31 @@ export class ScreencastCapture {
 	private readonly frames: CapturedFrame[] = [];
 	private readonly writes = new Set<Promise<void>>();
 	private readonly files = new Set<string>();
-	private readonly pageApiCalls = new WeakSet<object>();
-	private readonly instrumentationListener: ClientInstrumentationListener;
+	private readonly apiCalls: PageApiCallHook | undefined;
 	private stopped = false;
 
 	private constructor(
 		readonly dir: string,
 		private readonly pageIdFor: (page: Page) => string,
-		private readonly instrumentation: ClientInstrumentation | undefined,
+		playwright: unknown,
 	) {
-		this.instrumentationListener = {
-			onApiCallBegin: (apiZone, channel) => {
-				if (!PAGE_CHANNEL_TYPES.has(channel?.type ?? "")) {
-					return;
-				}
-				if (typeof apiZone === "object" && apiZone !== null) {
-					this.pageApiCalls.add(apiZone);
-				}
-				this.unthrottleAll();
-			},
-			onApiCallEnd: (apiZone) => {
-				if (
-					typeof apiZone === "object" &&
-					apiZone !== null &&
-					this.pageApiCalls.has(apiZone)
-				) {
-					this.unthrottleAll();
-				}
-			},
-			runAfterCreateBrowserContext: async (context) => {
-				this.addContext(context);
-			},
-		};
-		instrumentation?.addListener(this.instrumentationListener);
+		this.apiCalls = PageApiCallHook.install(playwright, (page) =>
+			this.unthrottle(page),
+		);
+		if (!this.apiCalls) {
+			warnOnce(
+				"api-calls",
+				"playwright-opentelemetry: this Playwright version doesn't expose the API call hook screenshots use. Screenshots are still captured, but actions are detected from page activity, so fewer frames are kept around them.",
+			);
+		}
 	}
 
 	/**
-	 * @param playwright The `playwright` fixture. Its private client
-	 * instrumentation is what @playwright/test itself uses to see API calls and
-	 * new browser contexts; without it, the capture only covers contexts added
-	 * explicitly and detects activity from the frames.
+	 * Contexts are added by the caller with `addContext`.
+	 *
+	 * @param playwright The `playwright` fixture. Its private connection shows
+	 * which page each API call acts on; without it, activity is detected from
+	 * the frames.
 	 */
 	static async start(options: {
 		playwright: unknown;
@@ -160,11 +150,7 @@ export class ScreencastCapture {
 		const dir = await fs.mkdtemp(
 			path.join(os.tmpdir(), "playwright-opentelemetry-screencast-"),
 		);
-		return new ScreencastCapture(
-			dir,
-			options.pageIdFor,
-			getClientInstrumentation(options.playwright),
-		);
+		return new ScreencastCapture(dir, options.pageIdFor, options.playwright);
 	}
 
 	addContext(context: BrowserContext): void {
@@ -191,7 +177,7 @@ export class ScreencastCapture {
 			screencast = new PageScreencast(
 				page,
 				(frame) => this.keepFrame(pageId, frame),
-				{ detectActivityFromFrames: !this.instrumentation },
+				{ detectActivityFromFrames: !this.apiCalls },
 			);
 		} catch (error) {
 			// Runs inside Playwright's "page" event; a missing page's screenshots
@@ -207,7 +193,7 @@ export class ScreencastCapture {
 	async stop(): Promise<CapturedFrame[]> {
 		if (!this.stopped) {
 			this.stopped = true;
-			this.instrumentation?.removeListener(this.instrumentationListener);
+			this.apiCalls?.uninstall();
 			for (const [context, onPage] of this.contexts) {
 				context.off("page", onPage);
 			}
@@ -225,7 +211,11 @@ export class ScreencastCapture {
 		await fs.rm(this.dir, { recursive: true, force: true });
 	}
 
-	private unthrottleAll(): void {
+	private unthrottle(page: object | typeof UNKNOWN_PAGE): void {
+		if (page !== UNKNOWN_PAGE) {
+			this.pages.get(page as Page)?.unthrottle();
+			return;
+		}
 		for (const screencast of this.pages.values()) {
 			screencast.unthrottle();
 		}
@@ -243,7 +233,13 @@ export class ScreencastCapture {
 		const framePath = path.join(this.dir, file);
 		const write = fs.writeFile(framePath, frame.data).then(
 			() => {
-				this.frames.push({ pageId, timestamp, file, path: framePath });
+				this.frames.push({
+					pageId,
+					timestamp,
+					file,
+					path: framePath,
+					...viewportOf(frame),
+				});
 			},
 			() => {
 				// Missing a frame is acceptable; the next one shows the same page.
@@ -399,6 +395,95 @@ class PageScreencast {
 }
 
 /**
+ * Sees which page each Playwright API call acts on, so only that page's
+ * throttling stops around it, like Playwright's trace recorder does on the
+ * server. The client instrumentation reports API calls without their object,
+ * so this wraps the private connection method every call goes through instead.
+ * Only the first message of a test-facing API call is sent as non-internal:
+ * the same call @playwright/test reports as a step.
+ */
+class PageApiCallHook {
+	private constructor(
+		private readonly connection: ClientConnection,
+		private readonly wrapper: ClientConnection["sendMessageToServer"],
+		private readonly original: ClientConnection["sendMessageToServer"],
+		private readonly hadOwnMethod: boolean,
+	) {}
+
+	static install(
+		playwright: unknown,
+		onPageApiCall: (page: object | typeof UNKNOWN_PAGE) => void,
+	): PageApiCallHook | undefined {
+		const connection = (playwright as { _connection?: unknown } | null)
+			?._connection as Partial<ClientConnection> | undefined;
+		const original = connection?.sendMessageToServer;
+		if (!connection || typeof original !== "function") {
+			return undefined;
+		}
+
+		const wrapper: ClientConnection["sendMessageToServer"] = function (
+			this: unknown,
+			object,
+			method,
+			params,
+			options,
+		) {
+			const result = original.call(this, object, method, params, options);
+			const page = options?.internal ? undefined : pageOfApiCall(object);
+			if (page) {
+				onPageApiCall(page);
+				const onEnd = () => onPageApiCall(page);
+				void result.then(onEnd, onEnd);
+			}
+			return result;
+		};
+		const hadOwnMethod = Object.hasOwn(connection, "sendMessageToServer");
+		connection.sendMessageToServer = wrapper;
+		return new PageApiCallHook(
+			connection as ClientConnection,
+			wrapper,
+			original,
+			hadOwnMethod,
+		);
+	}
+
+	uninstall(): void {
+		// Another wrapper installed after this one would be lost by restoring.
+		if (this.connection.sendMessageToServer !== this.wrapper) {
+			return;
+		}
+		if (this.hadOwnMethod) {
+			this.connection.sendMessageToServer = this.original;
+		} else {
+			delete (this.connection as Partial<ClientConnection>).sendMessageToServer;
+		}
+	}
+}
+
+/**
+ * The page a call on a Playwright client object acts on: the page itself, a
+ * frame's page, or the page of the frame that owns a handle.
+ */
+function pageOfApiCall(
+	object: unknown,
+): object | typeof UNKNOWN_PAGE | undefined {
+	const channelOwner = object as {
+		_type?: string;
+		_parent?: { _type?: string; _page?: object };
+		_page?: object;
+	} | null;
+	const type = channelOwner?._type ?? "";
+	if (!PAGE_CHANNEL_TYPES.has(type)) {
+		return undefined;
+	}
+	if (type === "Page") {
+		return channelOwner as object;
+	}
+	const frame = type === "Frame" ? channelOwner : channelOwner?._parent;
+	return (frame?._type === "Frame" && frame._page) || UNKNOWN_PAGE;
+}
+
+/**
  * Runs Playwright calls as internal ones, so they aren't reported as test
  * steps or seen by the API call hooks.
  */
@@ -412,20 +497,32 @@ function runInternalApiCall<T>(page: Page, call: () => Promise<T>): Promise<T> {
 		}
 	)._wrapApiCall;
 
-	return typeof wrapApiCall === "function"
-		? wrapApiCall.call(page, call, { internal: true })
-		: call();
+	if (typeof wrapApiCall === "function") {
+		return wrapApiCall.call(page, call, { internal: true });
+	}
+	warnOnce(
+		"internal-calls",
+		"playwright-opentelemetry: this Playwright version can't hide the screencast calls screenshots use, so they may show up as test steps.",
+	);
+	return call();
 }
 
-function getClientInstrumentation(
-	playwright: unknown,
-): ClientInstrumentation | undefined {
-	const instrumentation = (
-		playwright as { _instrumentation?: Partial<ClientInstrumentation> } | null
-	)?._instrumentation;
+function viewportOf(
+	frame: ScreencastFrame,
+): Pick<CapturedFrame, "viewportWidth" | "viewportHeight"> {
+	const { viewportWidth, viewportHeight } = frame;
+	return Number.isFinite(viewportWidth) && Number.isFinite(viewportHeight)
+		? { viewportWidth, viewportHeight }
+		: {};
+}
 
-	return typeof instrumentation?.addListener === "function" &&
-		typeof instrumentation.removeListener === "function"
-		? (instrumentation as ClientInstrumentation)
-		: undefined;
+const warnings = new Set<string>();
+
+/** Warns once per worker: the same fallback applies to every test. */
+function warnOnce(key: string, message: string): void {
+	if (warnings.has(key)) {
+		return;
+	}
+	warnings.add(key);
+	console.warn(message);
 }
