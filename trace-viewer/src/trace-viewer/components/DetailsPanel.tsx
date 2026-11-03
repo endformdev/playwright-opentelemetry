@@ -55,6 +55,19 @@ export function DetailsPanel(props: DetailsPanelProps) {
 	let spacerLayoutKey: string | undefined;
 
 	const [bottomSpacerHeight, setBottomSpacerHeight] = createSignal(0);
+	// Cards the user opened by hand. Kept by span id so a card stays open as
+	// the selected time moves on and comes back to it.
+	const [expandedSpanIds, setExpandedSpanIds] = createSignal<
+		ReadonlySet<string>
+	>(new Set());
+
+	const isSpanExpanded = (spanId: string) => expandedSpanIds().has(spanId);
+	const toggleSpanExpanded = (spanId: string) =>
+		setExpandedSpanIds((current) => {
+			const next = new Set(current);
+			if (!next.delete(spanId)) next.add(spanId);
+			return next;
+		});
 
 	const flatSteps = createMemo(() =>
 		props.hoveredElements
@@ -249,6 +262,10 @@ export function DetailsPanel(props: DetailsPanelProps) {
 													getStepTimelineColor(span, depth)
 												}
 												isFocused={isSpanFocused(hoveredSpan.span.id)}
+												isExpanded={isSpanExpanded(hoveredSpan.span.id)}
+												onToggleExpanded={() =>
+													toggleSpanExpanded(hoveredSpan.span.id)
+												}
 												badge={
 													isSpanFocused(hoveredSpan.span.id)
 														? (props.focusedBadge ?? undefined)
@@ -280,6 +297,10 @@ export function DetailsPanel(props: DetailsPanelProps) {
 														getResourceColor(getResourceType(span))
 													}
 													isFocused={isSpanFocused(hoveredSpan.span.id)}
+													isExpanded={isSpanExpanded(hoveredSpan.span.id)}
+													onToggleExpanded={() =>
+														toggleSpanExpanded(hoveredSpan.span.id)
+													}
 													badge={
 														isSpanFocused(hoveredSpan.span.id)
 															? (props.focusedBadge ?? undefined)
@@ -312,6 +333,10 @@ export function DetailsPanel(props: DetailsPanelProps) {
 												testStartTimeMs={props.testStartTimeMs}
 												colorFn={(_, span) => getSpanColor(span.kind)}
 												isFocused={isSpanFocused(hoveredSpan.span.id)}
+												isExpanded={isSpanExpanded(hoveredSpan.span.id)}
+												onToggleExpanded={() =>
+													toggleSpanExpanded(hoveredSpan.span.id)
+												}
 												badge={
 													isSpanFocused(hoveredSpan.span.id)
 														? (props.focusedBadge ?? undefined)
