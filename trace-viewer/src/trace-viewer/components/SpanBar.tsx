@@ -115,12 +115,12 @@ export function SpanBar(props: SpanBarProps) {
 			>
 				{props.icon}
 				<span class="truncate select-none">
-					<span classList={{ "font-semibold": !!props.subtitle }}>
-						{props.name}
-					</span>
+					{props.name}
 					<Show when={props.subtitle}>
 						{(subtitle) => (
-							<span class="ml-1.5 font-normal text-white/90">{subtitle()}</span>
+							<code class="ml-1.5 rounded-sm bg-black/25 px-1 py-px font-mono text-[11px] text-white antialiased">
+								{subtitle()}
+							</code>
 						)}
 					</Show>
 				</span>
