@@ -478,8 +478,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Add step name (full path from test case to this step)
 		attributes[ATTR_TEST_STEP_NAME] = currentTitlePath.join(" > ");
 
-		// Playwright splits what a step did from what it acted on: title `Click`,
-		// subtitle `getByRole('button')`. Params carry the call's arguments.
+		// From 1.63, Playwright splits what a step did from what it acted on:
+		// title `Click`, subtitle `getByRole('button')`, and reports the call's
+		// arguments as params. Before that the locator is part of the title.
 		attributes[ATTR_TEST_STEP_TITLE] = step.title;
 		if (step.subtitle) attributes[ATTR_TEST_STEP_SUBTITLE] = step.subtitle;
 		for (const [key, value] of Object.entries(step.params ?? {})) {
@@ -800,12 +801,18 @@ function isInternalApiRequestStep(step: TestStep): boolean {
 	return isApiRequestStep(step) && isInternalFixtureFile(step.location.file);
 }
 
-/** `APIRequestContext` calls are the steps that report a url and a method. */
+/**
+ * `APIRequestContext` calls. From Playwright 1.63 they report a url and a
+ * method; before that they show up only in the title, e.g. `GET "/api"`.
+ */
 function isApiRequestStep(step: TestStep): boolean {
-	return (
-		typeof step.params?.url === "string" &&
-		typeof step.params?.method === "string"
-	);
+	if (step.params) {
+		return (
+			typeof step.params.url === "string" &&
+			typeof step.params.method === "string"
+		);
+	}
+	return /^(?:DELETE|FETCH|GET|HEAD|PATCH|POST|PUT)\s+"/.test(step.title);
 }
 
 /**

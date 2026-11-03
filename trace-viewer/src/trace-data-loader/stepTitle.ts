@@ -1,7 +1,7 @@
 /**
  * Step titles say what a step did and subtitles what it acted on: title
- * `Click`, subtitle `getByRole('button')`. The reporter records both from
- * Playwright (1.63+) as `test.step.title` and `test.step.subtitle`.
+ * `Click`, subtitle `getByRole('button')`. With Playwright 1.63 and newer the
+ * reporter records both, as `test.step.title` and `test.step.subtitle`.
  */
 export interface StepTitle {
 	title: string;
@@ -9,9 +9,9 @@ export interface StepTitle {
 }
 
 /**
- * Traces recorded before the reporter kept subtitles have the locator glued
- * onto the title, e.g. `Click getByRole('button')` or
- * `Expect "toBeVisible" getByText('Plan')`. Splits off that trailing locator,
+ * Before Playwright 1.63 (and in traces recorded before the reporter kept
+ * subtitles) the locator is glued onto the title, e.g.
+ * `Click getByRole('button')` or `Expect "toBeVisible" getByText('Plan')`. Splits off that trailing locator,
  * stepping over quoted values so a filled-in `"getByRole("` stays put.
  * Returns null when the title has no trailing locator.
  */

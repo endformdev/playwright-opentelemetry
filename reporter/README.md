@@ -23,8 +23,6 @@ Playwright test
 
 ## Quick start
 
-Requires `@playwright/test` 1.63 or newer.
-
 ```bash
 npm install --save-dev playwright-opentelemetry
 ```

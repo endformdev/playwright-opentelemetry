@@ -223,7 +223,7 @@ function extractTitle(
 	return spanName;
 }
 
-/** Steps of these categories had a locator glued onto the title before 1.63 */
+/** Before Playwright 1.63 these steps have the locator glued onto the title */
 const LEGACY_LOCATOR_STEP_CATEGORIES = new Set(["pw:api", "expect"]);
 
 function extractTitles(

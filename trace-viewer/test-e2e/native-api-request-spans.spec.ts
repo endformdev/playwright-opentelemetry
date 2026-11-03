@@ -159,9 +159,15 @@ function duplicateNativeRequestStepSpans(
 			span.name === "playwright.test.step" &&
 			span.serviceName === "playwright-tests" &&
 			attrs["test.step.category"] === "pw:api" &&
-			attrs["test.step.param.method"] === method &&
-			typeof attrs["test.step.param.url"] === "string" &&
-			attrs["test.step.param.url"].includes(`/native-request?${query}`)
+			// Playwright 1.63+ reports params; older versions only a title.
+			((attrs["test.step.param.method"] === method &&
+				String(attrs["test.step.param.url"]).includes(
+					`/native-request?${query}`,
+				)) ||
+				(String(attrs["test.step.title"]).startsWith(`${method} "`) &&
+					String(attrs["test.step.title"]).includes(
+						`/native-request?${query}`,
+					)))
 		);
 	});
 }

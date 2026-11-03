@@ -798,6 +798,40 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		expect(titles).toContain("POST");
 	});
 
+	it("skips the fixture's API request steps on Playwright before 1.63", async () => {
+		// Older versions report no params: the url is part of the title.
+		const fixtureFile =
+			"/Users/test/project/node_modules/playwright-opentelemetry/dist/fixture.mjs";
+		await runReporterTest({
+			test: {
+				title: "legacy request fixture",
+				titlePath: ["", "chromium", "test.spec.ts", "legacy request fixture"],
+			},
+			result: {
+				steps: [
+					{
+						title: 'GET "/internal"',
+						category: "pw:api",
+						location: { file: fixtureFile, line: 40 },
+					},
+					{
+						title: 'Navigate to "/page"',
+						category: "pw:api",
+						location: { file: fixtureFile, line: 41 },
+					},
+				],
+			},
+		});
+
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const titles = spans.map(
+			(span: { attributes: Record<string, unknown> }) =>
+				span.attributes[ATTR_TEST_STEP_TITLE],
+		);
+		expect(titles).not.toContain('GET "/internal"');
+		expect(titles).toContain('Navigate to "/page"');
+	});
+
 	it("skips internal fixture steps from playwright-opentelemetry without causing errors", async () => {
 		// This test reproduces a bug where internal fixture steps were being marked
 		// with empty marker objects that later caused "Cannot read properties of undefined"
