@@ -116,9 +116,10 @@ test("steps through each test body step, showing it once it has finished", async
 		await page.keyboard.press("ArrowRight");
 		// Shown just before the next step starts, once the page has settled.
 		await expectStop("1/3", "Step 1/3", fill, 950);
-		// Zoomed in from the whole test (where the step is 300 of 4000ms), with
-		// the step and the moment after it both in view.
-		await expect.poll(focusedStepShare).toBeGreaterThan(0.1);
+		// Stepping keeps the zoom: the whole test stays in view, where the step
+		// is 300 of 4000ms, with the step and the moment after it both shown.
+		await expect.poll(focusedStepShare).toBeGreaterThan(0.06);
+		await expect.poll(focusedStepShare).toBeLessThan(0.09);
 		const plot = (await page.locator("[data-timeline-plot]").boundingBox())!;
 		const line = (await lockedLine.boundingBox())!;
 		expect(line.x).toBeGreaterThan(plot.x);

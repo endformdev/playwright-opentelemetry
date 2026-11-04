@@ -87,6 +87,22 @@ async function expectNoHorizontalScroll(page: Page): Promise<void> {
 	).toEqual({ scrollX: 0, overflow: 0 });
 }
 
+/**
+ * The whole test's bar width as a share of the timeline plot: the zoom level,
+ * 1 when the whole trace is in view.
+ */
+async function zoomLevel(page: Page): Promise<number> {
+	return page.evaluate(() => {
+		const plot = document
+			.querySelector("[data-timeline-plot]")!
+			.getBoundingClientRect();
+		const root = document
+			.querySelector('[data-span-name="Keyboard navigation"]')!
+			.getBoundingClientRect();
+		return root.width / plot.width;
+	});
+}
+
 // Steps (10s test):
 // row 0: test                                                   [0, 10000]
 // row 1: Before Hooks [100,1600]  Open page [2000,4000]  Verify [5000,8000]  After Hooks [9000,9900]
@@ -172,7 +188,7 @@ test("arrow keys start at the root test step without scrolling the page", async 
 	await expectNoHorizontalScroll(page);
 });
 
-test("left and right hop along a row and frame each span within tolerance", async ({
+test("left and right hop along a row without zooming", async ({
 	page,
 	request,
 }) => {
@@ -185,9 +201,8 @@ test("left and right hop along a row and frame each span within tolerance", asyn
 	await page.keyboard.press("ArrowLeft");
 	await expectFocused(page, { name: "Open page" });
 	await page.keyboard.press("ArrowLeft");
-	const beforeHooks = await expectFocused(page, { name: "Before Hooks" });
-	expect(beforeHooks.widthFraction).toBeGreaterThanOrEqual(0.14);
-	expect(beforeHooks.widthFraction).toBeLessThanOrEqual(0.61);
+	await expectFocused(page, { name: "Before Hooks" });
+	expect(await zoomLevel(page)).toBeCloseTo(1, 2);
 
 	// The focused step is visible in the timeline and the details panel.
 	await expect(viewer.steps.spanById(ids.beforeHooks)).toHaveClass(
@@ -199,26 +214,56 @@ test("left and right hop along a row and frame each span within tolerance", asyn
 
 	for (const name of ["Open page", "Verify", "After Hooks"]) {
 		await page.keyboard.press("ArrowRight");
-		const bar = await expectFocused(page, { name });
-		expect(bar.widthFraction).toBeGreaterThanOrEqual(0.14);
-		expect(bar.widthFraction).toBeLessThanOrEqual(0.61);
+		await expectFocused(page, { name });
+		expect(await zoomLevel(page)).toBeCloseTo(1, 2);
 	}
 	await page.keyboard.press("ArrowRight");
 	await expectFocused(page, { name: "After Hooks" });
 
-	// Hopping to a much smaller span on the next row zooms in on it.
+	// Even a much smaller span on the next row keeps the zoom level.
 	await page.keyboard.press("Escape");
 	await page.keyboard.press("ArrowRight");
 	await page.keyboard.press("ArrowDown");
 	await page.keyboard.press("ArrowLeft");
 	await expectFocused(page, { name: "Open page" });
 	await page.keyboard.press("ArrowDown");
-	const click = await expectFocused(page, { name: "Click" });
-	expect(click.widthFraction).toBeGreaterThanOrEqual(0.14);
-	expect(click.widthFraction).toBeLessThanOrEqual(0.61);
+	await expectFocused(page, { name: "Click" });
+	expect(await zoomLevel(page)).toBeCloseTo(1, 2);
 	await expect(viewer.details.spanDetailsById(ids.click)).toHaveClass(
 		/ring-blue-200/,
 	);
+	await expectNoHorizontalScroll(page);
+});
+
+test("zoomed in, arrows pan a span into view and keep the zoom", async ({
+	page,
+	request,
+}) => {
+	const { viewer } = await sendNavigationTrace(page, request, "kbdnavpan");
+	const openPage = viewer.steps.spanByName("Open page");
+	const plot = page.locator("[data-timeline-plot]");
+
+	await page.keyboard.press("ArrowDown");
+	await page.keyboard.press("ArrowDown");
+	await expectFocused(page, { name: "Verify" });
+	// Two 2x steps around the line locked at 5000ms: 3750-6250ms in view.
+	await viewer.wheelTimelineAtRatio(0.5, -200, { shift: true, repeat: 2 });
+	await expect.poll(() => zoomLevel(page)).toBeGreaterThan(3.9);
+	const zoomed = await zoomLevel(page);
+	expect((await openPage.boundingBox())!.x).toBeLessThan(
+		(await plot.boundingBox())!.x,
+	);
+
+	// Open page (2000-4000ms) fits in the window, so it pans fully into view.
+	await page.keyboard.press("ArrowLeft");
+	await expectFocused(page, { name: "Open page" });
+	expect(await zoomLevel(page)).toBeCloseTo(zoomed, 3);
+
+	// Click is already in view, so nothing moves.
+	const before = await openPage.boundingBox();
+	await page.keyboard.press("ArrowDown");
+	await expectFocused(page, { name: "Click" });
+	expect(await openPage.boundingBox()).toEqual(before);
 	await expectNoHorizontalScroll(page);
 });
 
@@ -307,7 +352,7 @@ test("clicking a span then using arrows continues from that span", async ({
 	await expect(page.locator("[data-span-focused]")).toHaveCount(0);
 });
 
-test("the details panel parent button focuses and frames the parent", async ({
+test("the details panel parent button focuses the parent", async ({
 	page,
 	request,
 }) => {
@@ -325,9 +370,8 @@ test("the details panel parent button focuses and frames the parent", async ({
 	await expectFocused(page, { name: "Click" });
 
 	await viewer.details.parentButtonForSpanId(ids.click, ids.openPage).click();
-	const parent = await expectFocused(page, { name: "Open page" });
-	expect(parent.widthFraction).toBeGreaterThanOrEqual(0.14);
-	expect(parent.widthFraction).toBeLessThanOrEqual(0.61);
+	await expectFocused(page, { name: "Open page" });
+	expect(await zoomLevel(page)).toBeCloseTo(1, 2);
 	await expect(viewer.details.spanDetailsById(ids.openPage)).toHaveClass(
 		/ring-blue-200/,
 	);
@@ -429,22 +473,98 @@ test.describe("with motion", () => {
 			.toBe(0);
 	}
 
-	/** Goes to Open page and presses Down, starting the zoom onto Click. */
-	async function startZoomOntoClick(page: Page) {
+	/**
+	 * Goes to Open page, zooms in on the line locked at its center (3000ms),
+	 * scrolls the timeline past Click, then presses Down, starting the pan
+	 * back onto Click. Each scrolled pixel moves the view 2.5ms.
+	 */
+	async function startPanOntoClick(
+		page: Page,
+		viewer: TraceViewerPage,
+		scrollPx = 1000,
+	) {
 		await page.keyboard.press("ArrowDown");
 		await page.keyboard.press("ArrowDown");
 		await page.keyboard.press("ArrowLeft");
 		await expectFocused(page, { name: "Open page" });
 		await waitForStillness(page);
+		// Three 2x steps: 2625-3875ms in view.
+		await viewer.wheelTimelineAtRatio(0.5, -200, { shift: true, repeat: 3 });
+		await page.mouse.wheel(scrollPx, 0);
+		// Click has left the comfortable middle of the view, so Down pans.
+		await expect
+			.poll(() =>
+				page.evaluate(() => {
+					// Bars out of view are not rendered at all.
+					const click = document.querySelector('[data-span-name="Click"]');
+					const plot = document
+						.querySelector("[data-timeline-plot]")!
+						.getBoundingClientRect();
+					return (
+						!click ||
+						click.getBoundingClientRect().left < plot.left + plot.width * 0.05
+					);
+				}),
+			)
+			.toBe(true);
+		await waitForStillness(page);
 		await page.keyboard.press("ArrowDown");
 	}
 
-	test("framing moves animate and settle on the framed span", async ({
+	/** Selects Click from search, starting the zoom to fit it. */
+	async function startZoomOntoClick(viewer: TraceViewerPage) {
+		await viewer.search.input.fill("Click");
+		await viewer.search.resultItems
+			.filter({ hasText: "Click" })
+			.filter({ hasNotText: "request" })
+			.first()
+			.click();
+	}
+
+	test("arrow key moves pan without zooming and keep labels shown", async ({
 		page,
 		request,
 	}) => {
-		await sendNavigationTrace(page, request, "kbdnavmotion");
-		await startZoomOntoClick(page);
+		const { viewer } = await sendNavigationTrace(
+			page,
+			request,
+			"kbdnavmotionpan",
+		);
+		await startPanOntoClick(page, viewer);
+
+		const transforms = await page.evaluate(() =>
+			document.getAnimations().map((animation) =>
+				(animation.effect as KeyframeEffect)
+					.getKeyframes()
+					.map((keyframe) => keyframe.transform)
+					.join(" -> "),
+			),
+		);
+		expect(transforms.some((t) => t.includes("translateX"))).toBe(true);
+		for (const transform of transforms.filter((t) => t.includes("scaleX"))) {
+			expect(transform).toMatch(/scaleX\(1\)/);
+		}
+		// Only zooming stretches text, so labels stay shown through a pan.
+		const labelOpacities = () =>
+			page.evaluate(() => [
+				...new Set(
+					[...document.querySelectorAll("[data-span-label]")].map(
+						(label) => getComputedStyle(label).opacity,
+					),
+				),
+			]);
+		expect(await labelOpacities()).toEqual(["1"]);
+
+		await waitForStillness(page);
+		await expectFocused(page, { name: "Click" });
+	});
+
+	test("search selection zooms, animating and settling on the span", async ({
+		page,
+		request,
+	}) => {
+		const { viewer } = await sendNavigationTrace(page, request, "kbdnavmotion");
+		await startZoomOntoClick(viewer);
 
 		const transforms = await page.evaluate(() =>
 			document.getAnimations().map((animation) =>
@@ -484,19 +604,7 @@ test.describe("with motion", () => {
 			request,
 			"kbdnavmotionline",
 		);
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("ArrowLeft");
-		await expectFocused(page, { name: "Open page" });
-		await waitForStillness(page);
-		// Pan so the locked 3000ms is off center; framing Click recenters it.
-		const timeline = await viewer.timelineContent.boundingBox();
-		await page.mouse.move(
-			timeline!.x + timeline!.width / 2,
-			timeline!.y + timeline!.height / 2,
-		);
-		await page.mouse.wheel(150, 0);
-		await page.keyboard.press("ArrowDown");
+		await startPanOntoClick(page, viewer);
 
 		const samples = await page.evaluate(async () => {
 			const results: Array<{ lineX: number; offset: number }> = [];
@@ -531,7 +639,9 @@ test.describe("with motion", () => {
 			request,
 			"kbdnavmotionwheel",
 		);
-		await startZoomOntoClick(page);
+		// A short scroll keeps the locked line in view, so the wheel zooms
+		// around it.
+		await startPanOntoClick(page, viewer, 140);
 
 		const timeline = await viewer.timelineContent.boundingBox();
 		const result = await page.evaluate(async (box) => {
@@ -604,7 +714,7 @@ test.describe("with motion", () => {
 			request,
 			"kbdnavmotionclick",
 		);
-		await startZoomOntoClick(page);
+		await startZoomOntoClick(viewer);
 		await page.keyboard.press("Escape");
 
 		const animating = await page.evaluate(async () => {
