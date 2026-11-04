@@ -45,6 +45,7 @@ import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
 import { buildTestStructure, getStepAncestry } from "./testStructure";
 import { layoutTimelineSpans } from "./timelineLayout";
+import { usePlayback } from "./usePlayback";
 import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
 import { createViewerSettings } from "./viewerSettings";
@@ -273,6 +274,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
 	const showStepViewer = () => settings().stepViewer && hasScreenshots();
 	const showFilmstrip = () => settings().filmstrip && hasScreenshots();
+	// The step viewer already shows the hovered screenshot large.
+	const filmstripPreviewEnabled = () => mode() === "hover" && !showStepViewer();
 	const screenshotPageCount = createMemo(() =>
 		countScreenshotPages(props.traceInfo.screenshots() ?? []),
 	);
@@ -486,6 +489,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				return;
 			}
 
+			if (playback.handleKeyDown(e)) return;
 			if (stepViewer.handleKeyDown(e)) return;
 
 			const direction = ARROW_KEY_DIRECTIONS[e.key];
@@ -519,8 +523,15 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		spanFocus,
 	});
 
+	const playback = usePlayback({
+		endMs: () => props.traceData.totalDurationMs(),
+		enabled: () => showStepViewer() && !props.traceData.isLoading(),
+	});
+
+	/** The shown step (the stop, or the step playing) and its ancestors */
 	const stepViewerStepAncestry = createMemo(() => {
-		const stop = stepViewer.currentStop();
+		const index = stepViewer.shownIndex();
+		const stop = index === null ? null : stepViewer.stops()[index];
 		return stop ? getStepAncestry(stop.stepId, spanById()) : [];
 	});
 
@@ -777,7 +788,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}
-									previewEnabled={mode() === "hover"}
+									previewEnabled={filmstripPreviewEnabled()}
 								/>
 							</Show>
 						}
@@ -794,7 +805,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 									viewport={viewport()}
 									testStartTimeMs={props.testStartTimeMs()}
 									onScreenshotHover={handleScreenshotHover}
-									previewEnabled={mode() === "hover"}
+									previewEnabled={filmstripPreviewEnabled()}
 								/>
 							}
 							secondPanel={<SpanPanelsContent />}
@@ -857,6 +868,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					<Show when={mode() === "locked" && lockedPosition() !== null}>
 						<div
 							data-locked-time-line
+							data-time-ms={lockedTimeMs()}
 							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
 							style={{
 								left: `${lockedPosition()! * 100}%`,
@@ -931,13 +943,17 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 										screenshot={stepViewer.screenshot()}
 										screenshotsLoading={props.traceInfo.screenshots.loading}
 										stopCount={stepViewer.stops().length}
-										stopIndex={stepViewer.currentIndex()}
+										stopIndex={stepViewer.shownIndex()}
 										stepAncestry={stepViewerStepAncestry()}
 										pages={stepViewer.pages()}
 										pinnedPageId={stepViewer.pinnedPageId()}
 										onPinPage={stepViewer.pinPage}
 										onActivate={stepViewer.activate}
 										onNavigate={stepViewer.navigate}
+										playing={playback.playing()}
+										playbackSpeed={playback.speed()}
+										onTogglePlayback={playback.toggle}
+										onCycleSpeed={playback.cycleSpeed}
 									/>
 								}
 								secondPanel={<MainPanelContent />}

@@ -195,6 +195,45 @@ test("anchors screenshot previews to the steps timeline while following the curs
 	});
 });
 
+test("does not enlarge filmstrip screenshots while the step viewer is shown", async ({
+	page,
+	request,
+}) => {
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const screenshotsZip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [0, 1000, 2000, 3000],
+	});
+	await new TraceDataBuilder(traceId, testStartTime)
+		.addTestSpan("Step viewer replaces hover preview", 4000)
+		.addStepSpan("Inspect page", 3000, { startOffsetMs: 500 })
+		.send(request);
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await screenshotsZip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
+	);
+	expect(upload.ok()).toBeTruthy();
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	await expect(viewer.stepViewer.root).toBeVisible();
+	const thumbnail = viewer.screenshots.rows().first().getByRole("img").nth(1);
+	await expect(thumbnail).toBeVisible();
+	const preview = page.getByTestId("screenshot-hover-preview");
+
+	await thumbnail.hover();
+	await expect(viewer.details.screenshot()).toBeVisible();
+	await expect(preview).toBeHidden();
+
+	await viewer.settings.toggle("Step viewer");
+	await expect(viewer.stepViewer.root).toBeHidden();
+	await thumbnail.hover();
+	await expect(preview).toBeVisible();
+});
+
 test("shows separate page rows with two and a half rows by default", async ({
 	page,
 	request,
@@ -327,6 +366,8 @@ test("shows the most recent screenshot at the hovered timestamp when filmstrip f
 	);
 
 	const viewer = new TraceViewerPage(page);
+	// The hover preview only appears without the step viewer.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Dense screenshots are sampled in the filmstrip",
@@ -418,6 +459,8 @@ test("focuses the active screenshot when moving from a span into a filmstrip gap
 	);
 
 	const viewer = new TraceViewerPage(page);
+	// The hover preview only appears without the step viewer.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Screenshot focus from span hover",

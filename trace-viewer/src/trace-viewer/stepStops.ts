@@ -81,6 +81,22 @@ export function getStopIndexAtTime(
 	return findLastStopIndex(stops, (stop) => stop.timeMs <= timeMs) ?? 0;
 }
 
+/**
+ * The stop of the step playing at a time, for playback: the step running
+ * then, or between steps the one whose result is on screen. That is the first
+ * stop at or after the time. Before the first step starts nothing is playing
+ * yet; after the last stop the last step stays on.
+ */
+export function getPlayingStopIndex(
+	stops: StepStop[],
+	timeMs: number,
+	firstStepStartMs: number,
+): number | null {
+	if (stops.length === 0 || timeMs < firstStepStartMs) return null;
+	const index = stops.findIndex((stop) => stop.timeMs >= timeMs);
+	return index === -1 ? stops.length - 1 : index;
+}
+
 function findLastStopIndex(
 	stops: StepStop[],
 	predicate: (stop: StepStop) => boolean,
