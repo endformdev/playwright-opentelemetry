@@ -31,8 +31,6 @@ export interface StepViewerPage {
 	number: number;
 	/** The page's frame at the displayed time, or its first frame */
 	screenshot: ScreenshotInfo;
-	/** False before the page's first frame at the displayed time */
-	hasFrame: boolean;
 }
 
 export interface StepViewer {
@@ -42,7 +40,7 @@ export interface StepViewer {
 	currentStop: Accessor<StepStop | null>;
 	/**
 	 * Index of the step the counter shows: the stop locked on, or while
-	 * playback holds the timeline (playing or paused) the step playing.
+	 * playback or the step ruler holds the timeline the step at that time.
 	 */
 	shownIndex: Accessor<number | null>;
 	/** Screenshot to show: the pinned page's, else the latest of any page */
@@ -55,7 +53,6 @@ export interface StepViewer {
 	/** Goes to the stop at the locked time, unless already on a stop */
 	activate: () => void;
 	navigate: (direction: -1 | 1) => void;
-	goToStop: (index: number) => void;
 	/** Takes Left/Right/Home/End when stepping applies; true if handled */
 	handleKeyDown: (event: KeyboardEvent) => boolean;
 	ref: (element: HTMLElement) => void;
@@ -86,7 +83,8 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 			? selectedIndex()
 			: null,
 	);
-	// Playback is a way of stepping through too: it shows the step it is on.
+	// Playback and scrubbing the step ruler are ways of stepping through too:
+	// they show the step they are on.
 	const firstStepStartMs = createMemo(() =>
 		Math.min(
 			...options.structure().bodyLeafSteps.map((step) => step.startOffsetMs),
@@ -94,7 +92,12 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 	);
 	const playingIndex = createMemo(() => {
 		const timeMs = lockedTimeMs();
-		if (mode() === "hover" || lockSource() !== "playback" || timeMs === null) {
+		const source = lockSource();
+		if (
+			mode() === "hover" ||
+			(source !== "playback" && source !== "ruler") ||
+			timeMs === null
+		) {
 			return null;
 		}
 		return getPlayingStopIndex(stops(), timeMs, firstStepStartMs());
@@ -132,7 +135,6 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 				pageId,
 				number: index + 1,
 				screenshot: atTime ?? screenshots[0],
-				hasFrame: absoluteTimeMs === null || atTime !== null,
 			};
 		});
 	});
@@ -181,7 +183,7 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 	const activate = () => {
 		if (currentIndex() !== null) return;
 		const timeMs = mode() === "hover" ? null : lockedTimeMs();
-		// From playback, go to the stop of the step the counter shows.
+		// From playback or a seek, go to the stop of the step the counter shows.
 		const index =
 			playingIndex() ??
 			(timeMs === null ? 0 : getStopIndexAtTime(stops(), timeMs));
@@ -229,7 +231,6 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		pinPage: setPinnedPageId,
 		activate,
 		navigate,
-		goToStop,
 		handleKeyDown,
 		ref: (element) => {
 			rootElement = element;

@@ -147,23 +147,83 @@ export class DetailsPanel {
 	}
 }
 
-export class ScreenshotSection {
+/** The screenshot filmstrip the step ruler opens while it is hovered */
+export class RulerFilmstrip {
 	readonly root: Locator;
+	/** Names what is under the pointer, as in "2. Click · 1.2s" */
+	readonly label: Locator;
+	/** Shades the time range of the step or hooks under the pointer */
+	readonly range: Locator;
+	/** The frame under the pointer, one per row */
+	readonly framesUnderPointer: Locator;
 
 	constructor(page: Page) {
-		this.root = page.getByRole("region", { name: "Screenshots" });
+		this.root = page.getByTestId("ruler-filmstrip");
+		this.label = this.root.getByTestId("ruler-filmstrip-label");
+		this.range = this.root.getByTestId("ruler-filmstrip-range");
+		this.framesUnderPointer = this.root.locator("[data-under-pointer]");
 	}
 
-	images(): Locator {
-		return this.root.getByRole("img", { name: /Screenshot at/ });
-	}
-
+	/** Frames with a screenshot, which carry its timestamp and page */
 	screenshots(): Locator {
-		return this.root.locator("[data-screenshot-timestamp]");
+		return this.root.locator("img[data-screenshot-timestamp]");
 	}
 
 	rows(): Locator {
 		return this.root.getByTestId("screenshot-row");
+	}
+}
+
+/** The step ruler: the whole test, its steps along the top, ticks below. */
+export class TimelineRulerComponent {
+	readonly page: Page;
+	readonly root: Locator;
+	/** The step bar, which seeks and goes to steps */
+	readonly bar: Locator;
+	/** One per step viewer stop, in order */
+	readonly steps: Locator;
+	readonly hooks: Locator;
+	/** The playhead knob, carrying the locked time */
+	readonly playhead: Locator;
+	readonly zoomWindow: Locator;
+	readonly filmstrip: RulerFilmstrip;
+
+	constructor(page: Page) {
+		this.page = page;
+		this.root = page.getByTestId("timeline-ruler");
+		this.bar = this.root.getByTestId("step-ruler-bar");
+		this.steps = this.root.getByTestId("step-ruler-step");
+		this.hooks = this.root.getByTestId("step-ruler-hooks");
+		this.playhead = this.root.getByTestId("step-ruler-playhead");
+		this.zoomWindow = this.root.getByTestId("ruler-zoom-window");
+		this.filmstrip = new RulerFilmstrip(page);
+	}
+
+	/** Where on screen a share of the whole test is, on the step bar */
+	async pointAt(ratio: number): Promise<{ x: number; y: number }> {
+		const plot = await this.bar.boundingBox();
+		if (!plot) throw new Error("Step ruler is not visible");
+		return { x: plot.x + plot.width * ratio, y: plot.y + plot.height / 2 };
+	}
+
+	async hoverAt(ratio: number): Promise<void> {
+		const { x, y } = await this.pointAt(ratio);
+		await this.page.mouse.move(x, y);
+	}
+
+	async clickAt(ratio: number): Promise<void> {
+		const { x, y } = await this.pointAt(ratio);
+		await this.page.mouse.click(x, y);
+	}
+
+	/** Share of the whole test an element's centre sits at */
+	async ratioOf(locator: Locator): Promise<number> {
+		const [box, plot] = await Promise.all([
+			locator.boundingBox(),
+			this.bar.boundingBox(),
+		]);
+		if (!box || !plot) throw new Error("Not visible on the step ruler");
+		return (box.x + box.width / 2 - plot.x) / plot.width;
 	}
 }
 
@@ -201,16 +261,48 @@ export class ErrorSpansComponent {
 	}
 }
 
-export class StepViewerComponent {
+/** The step viewer's filmstrip screen, in place of the big screen */
+export class PlayerFilmstrip {
 	readonly root: Locator;
+	/** The hovered frame, zoomed below the player */
+	readonly zoom: Locator;
+	/** Names the step at the hovered moment, as in "2. Click · 1.2s" */
+	readonly zoomCaption: Locator;
+
+	constructor(page: Page) {
+		this.root = page.getByTestId("step-viewer-filmstrip");
+		this.zoom = page.getByTestId("screenshot-zoom");
+		this.zoomCaption = this.zoom.getByTestId("screenshot-zoom-caption");
+	}
+
+	rows(): Locator {
+		return this.root.getByTestId("screenshot-row");
+	}
+
+	row(pageId: string): Locator {
+		return this.root.locator(
+			`[data-testid="screenshot-row"][data-screenshot-page-id="${pageId}"]`,
+		);
+	}
+}
+
+export class StepViewerComponent {
+	/** The player: screenshot, control bar and step ruler */
+	readonly root: Locator;
+	readonly filmstrip: PlayerFilmstrip;
+	/** The area the screenshot fills, above the control bar */
+	readonly screen: Locator;
+	readonly controlBar: Locator;
 	/** Step counter; reads "3/12" on a stop and "–/12" otherwise */
 	readonly position: Locator;
 	readonly screenshot: Locator;
-	/** The step the viewer is on, named in the top right corner */
+	/**
+	 * The step the viewer is on, named in the control bar; its title
+	 * tooltip holds its parents, title and locator, one per line
+	 */
 	readonly step: Locator;
 	readonly stepTitle: Locator;
 	readonly stepSubtitle: Locator;
-	readonly stepParents: Locator;
 	readonly pagePicker: Locator;
 	readonly previousButton: Locator;
 	readonly nextButton: Locator;
@@ -221,20 +313,22 @@ export class StepViewerComponent {
 
 	constructor(page: Page) {
 		this.root = page.getByRole("region", { name: "Step viewer" });
+		this.filmstrip = new PlayerFilmstrip(page);
+		this.screen = this.root.getByTestId("step-viewer-screen");
+		this.controlBar = this.root.getByTestId("player-control-bar");
 		this.position = this.root.getByTestId("step-viewer-position");
 		this.step = this.root.getByTestId("step-viewer-step");
 		this.stepTitle = this.step.getByTestId("step-viewer-step-title");
 		this.stepSubtitle = this.step.getByTestId("step-viewer-step-subtitle");
-		this.stepParents = this.step.getByTestId("step-viewer-step-parents");
 		this.pagePicker = this.root.getByRole("group", { name: "Pages" });
 		this.screenshot = this.root.getByRole("img", {
 			name: /Step viewer screenshot/,
 		});
-		this.previousButton = this.root.getByRole("button", {
+		const playback = this.root.getByRole("group", { name: "Playback" });
+		this.previousButton = playback.getByRole("button", {
 			name: "Previous step",
 		});
-		this.nextButton = this.root.getByRole("button", { name: "Next step" });
-		const playback = this.root.getByRole("group", { name: "Playback" });
+		this.nextButton = playback.getByRole("button", { name: "Next step" });
 		this.playButton = playback.getByRole("button", {
 			name: "Play",
 			exact: true,
@@ -256,7 +350,6 @@ export class StepViewerComponent {
 
 export type ViewerSectionLabel =
 	| "Step viewer"
-	| "Screenshot filmstrip"
 	| "Steps timeline"
 	| "Browser spans"
 	| "External spans";
@@ -276,6 +369,17 @@ export class ViewerSettingsMenu {
 
 	item(label: ViewerSectionLabel): Locator {
 		return this.page.getByRole("menuitemcheckbox", { name: label });
+	}
+
+	/** What the step viewer shows: the big screen or a filmstrip */
+	screen(label: "Big screen" | "Filmstrip"): Locator {
+		return this.page.getByRole("menuitemradio", { name: label });
+	}
+
+	async chooseScreen(label: "Big screen" | "Filmstrip"): Promise<void> {
+		await this.open();
+		await this.screen(label).click();
+		await this.close();
 	}
 
 	async open(): Promise<void> {
@@ -305,8 +409,8 @@ export class TraceViewerPage {
 	readonly root: Locator;
 	readonly header: TraceViewerHeader;
 	readonly timelineContent: Locator;
+	readonly ruler: TimelineRulerComponent;
 	readonly timelineRuler: Locator;
-	readonly screenshots: ScreenshotSection;
 	readonly steps: SpanSection;
 	readonly browserSpans: SpanSection;
 	readonly externalSpans: SpanSection;
@@ -322,8 +426,8 @@ export class TraceViewerPage {
 		this.root = page.getByRole("main", { name: "Trace viewer" });
 		this.header = new TraceViewerHeader(page);
 		this.timelineContent = page.getByRole("region", { name: "Trace timeline" });
-		this.timelineRuler = page.getByTestId("timeline-ruler");
-		this.screenshots = new ScreenshotSection(page);
+		this.ruler = new TimelineRulerComponent(page);
+		this.timelineRuler = this.ruler.root;
 		this.steps = new SpanSection(page, "Steps Timeline");
 		this.browserSpans = new SpanSection(page, "Browser Spans");
 		this.externalSpans = new SpanSection(page, "External Spans");
@@ -343,7 +447,9 @@ export class TraceViewerPage {
 	}
 
 	/** Stores viewer settings before the app loads. */
-	async useViewerSettings(settings: Record<string, boolean>): Promise<void> {
+	async useViewerSettings(
+		settings: Record<string, boolean | string>,
+	): Promise<void> {
 		await this.page.addInitScript((stored) => {
 			localStorage.setItem("trace-viewer-settings", stored);
 		}, JSON.stringify(settings));

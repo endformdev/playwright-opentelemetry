@@ -40,21 +40,20 @@ test.describe("reporter, trace-api, trace-viewer flow", () => {
 			timeout: 10000,
 		});
 
-		// Verify screenshots are displayed in the filmstrip
-		await expect(viewer.screenshots.root).toBeVisible();
-
-		// Verify at least one screenshot image exists and has a valid src
-		const screenshotImages = viewer.screenshots.images();
-		await expect(screenshotImages.first()).toBeVisible({ timeout: 10000 });
-
-		// Verify the screenshot has a valid src URL (should point to a screenshot endpoint)
-		const firstImageSrc = await screenshotImages.first().getAttribute("src");
+		// The step viewer shows a screenshot with a valid src URL (pointing to
+		// a screenshot endpoint).
+		await expect(viewer.stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+		const firstImageSrc =
+			await viewer.stepViewer.screenshot.getAttribute("src");
 		expect(firstImageSrc).toBeTruthy();
 		expect(firstImageSrc).toContain("screenshots/");
 
-		// Verify multiple screenshots exist (the test navigates, so should have multiple)
-		const screenshotCount = await screenshotImages.count();
-		expect(screenshotCount).toBeGreaterThan(0);
+		// Hovering the ruler shows the screenshots in its filmstrip (the test
+		// navigates, so there are several).
+		await viewer.ruler.hoverAt(0.9);
+		const screenshotImages = viewer.ruler.filmstrip.screenshots();
+		await expect(screenshotImages.first()).toBeVisible({ timeout: 10000 });
+		expect(await screenshotImages.count()).toBeGreaterThan(0);
 	});
 
 	test("keeps API screenshot URLs loadable after service worker state is lost", async ({
@@ -73,7 +72,7 @@ test.describe("reporter, trace-api, trace-viewer flow", () => {
 		const viewer = new TraceViewerPage(page);
 		await viewer.loadTraceFromApi(traceId);
 
-		const firstImage = viewer.screenshots.images().first();
+		const firstImage = viewer.stepViewer.screenshot;
 		await expect(firstImage).toBeVisible({ timeout: 10000 });
 
 		const screenshotUrl = await firstImage.getAttribute("src");

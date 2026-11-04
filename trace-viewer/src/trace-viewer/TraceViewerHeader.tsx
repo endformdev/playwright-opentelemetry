@@ -6,7 +6,7 @@ import { SearchCombobox } from "./components/SearchCombobox";
 import { SettingsMenu } from "./components/SettingsMenu";
 import { useSearch } from "./contexts/SearchContext";
 import type { SpanSelectionPlacement } from "./spanSelection";
-import type { ViewerSettingKey, ViewerSettings } from "./viewerSettings";
+import type { SetViewerSetting, ViewerSettings } from "./viewerSettings";
 
 export interface TraceViewerHeaderProps {
 	testInfo: TestInfo;
@@ -15,7 +15,7 @@ export interface TraceViewerHeaderProps {
 	onSpanSelect?: (spanId: string, placement: SpanSelectionPlacement) => void;
 	onSpanHover?: (spanId: string | null) => void;
 	settings: ViewerSettings;
-	onSettingChange: (key: ViewerSettingKey, value: boolean) => void;
+	onSettingChange: SetViewerSetting;
 }
 
 export function TraceViewerHeader(props: TraceViewerHeaderProps) {

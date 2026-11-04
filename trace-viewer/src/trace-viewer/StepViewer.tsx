@@ -1,362 +1,87 @@
-import { ChevronLeft, ChevronRight, Pause, Pin, Play } from "lucide-solid";
-import { createSignal, For, onCleanup, Show } from "solid-js";
-import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
+import { type JSX, Show, splitProps } from "solid-js";
 import type { ScreenshotInfo } from "../trace-info-loader";
-import { getStepTimelineColor } from "./components/stepSpanStyles";
-import { StepTitleText } from "./components/StepTitleText";
-import { formatPlaybackSpeed, type PlaybackSpeed } from "./playback";
-import { getCaptionWidthPx } from "./stepViewerLayout";
-import type { StepViewerPage } from "./useStepViewer";
+import {
+	PlayerControlBar,
+	type PlayerControlBarProps,
+} from "./PlayerControlBar";
 
-export interface StepViewerProps {
+export interface StepViewerProps extends Omit<
+	PlayerControlBarProps,
+	"shownPageId"
+> {
 	screenshot: ScreenshotInfo | null;
 	screenshotsLoading: boolean;
-	stopCount: number;
-	/**
-	 * Index of the stop the timeline is locked on, or of the step playing
-	 * while playback holds the timeline; null otherwise
-	 */
-	stopIndex: number | null;
-	/**
-	 * The stop's step and the spans it is nested in, outermost first (see
-	 * getStepAncestry); empty when not on a stop.
-	 */
-	stepAncestry: Span[];
-	pages: StepViewerPage[];
-	pinnedPageId: string | null;
-	onPinPage: (pageId: string | null) => void;
 	ref: (element: HTMLElement) => void;
-	onActivate: () => void;
-	onNavigate: (direction: -1 | 1) => void;
-	playing: boolean;
-	playbackSpeed: PlaybackSpeed;
-	onTogglePlayback: () => void;
-	onCycleSpeed: () => void;
+	/** The step ruler, at the bottom of the player; absent when left out */
+	ruler?: JSX.Element;
+	/** Shown in place of the big screenshot, in the filmstrip screen mode */
+	filmstrip?: JSX.Element;
 }
 
 /**
- * Large screenshot of the current moment in the test. Left/Right step through
- * the test body's steps, showing each once it has finished; Home/End jump to
- * the first and last step (see useStepViewer for when the keys apply).
- *
- * Controls live in gutters either side of the screenshot so they never cover
- * it: the step counter, back arrow and playback controls on the left, the
- * page picker and next arrow on the right. The counter lights up while the
- * viewer drives the selection, and the step it is on is named in the top
- * right corner.
+ * The player: the big screen, one large screenshot of the current moment in
+ * the test with nothing over it, or else a filmstrip of every page; then one
+ * bar of controls and the step ruler. Left/Right
+ * step through the test body's steps, showing each once it has finished;
+ * Home/End jump to the first and last step (see useStepViewer for when the
+ * keys apply).
  */
 export function StepViewer(props: StepViewerProps) {
-	const active = () => props.stopIndex !== null;
-	const atFirst = () => props.stopIndex === 0;
-	const atLast = () => props.stopIndex === props.stopCount - 1;
-	const shownPageId = () => props.screenshot?.pageId ?? null;
-
-	// The caption sits in the space right of the screenshot, so it needs the
-	// screenshot's rendered width: the viewer's size and the image's aspect.
-	const [viewerSize, setViewerSize] = createSignal({ width: 0, height: 0 });
-	const [screenshotAspect, setScreenshotAspect] = createSignal<number | null>(
-		null,
-	);
-	const resizeObserver = new ResizeObserver(([entry]) => {
-		if (!entry) return;
-		const { width, height } = entry.contentRect;
-		setViewerSize({ width, height });
-	});
-	onCleanup(() => resizeObserver.disconnect());
-	const captionWidthPx = () =>
-		getCaptionWidthPx(
-			viewerSize().width,
-			viewerSize().height,
-			screenshotAspect(),
-		);
-
-	const navigationButton = (direction: -1 | 1) => (
-		<button
-			type="button"
-			class="absolute top-1/2 z-10 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-white text-gray-600 shadow-md ring-1 ring-gray-200 transition-opacity enabled:hover:text-gray-900 disabled:cursor-default disabled:opacity-40"
-			classList={{ "left-5": direction === -1, "right-5": direction === 1 }}
-			aria-label={direction === -1 ? "Previous step" : "Next step"}
-			disabled={
-				props.stopCount === 0 ||
-				(active() && (direction === -1 ? atFirst() : atLast()))
-			}
-			onClick={(event) => {
-				event.stopPropagation();
-				props.onNavigate(direction);
-			}}
-		>
-			{direction === -1 ? (
-				<ChevronLeft size={18} aria-hidden="true" />
-			) : (
-				<ChevronRight size={18} aria-hidden="true" />
-			)}
-		</button>
-	);
-
+	const [, controlBarProps] = splitProps(props, [
+		"screenshot",
+		"screenshotsLoading",
+		"ref",
+		"ruler",
+		"filmstrip",
+	]);
 	return (
 		<section
-			ref={(element) => {
-				props.ref(element);
-				resizeObserver.observe(element);
-			}}
-			class="relative h-full bg-gray-100 outline-none"
+			ref={props.ref}
+			class="flex h-full flex-col bg-white outline-none"
 			aria-label="Step viewer"
 			tabIndex={0}
-			onClick={props.onActivate}
 		>
-			<div class="absolute inset-y-0 left-20 right-20 py-3">
-				<Show
-					when={props.screenshot}
-					fallback={
-						<div class="flex h-full items-center justify-center text-sm text-gray-400">
-							{props.screenshotsLoading
-								? "Loading screenshots..."
-								: "No screenshot at this time"}
-						</div>
-					}
-				>
-					{(screenshot) => (
-						<img
-							src={screenshot().url}
-							alt={`Step viewer screenshot at ${screenshot().timestamp}`}
-							data-screenshot-timestamp={screenshot().timestamp}
-							data-page-id={screenshot().pageId}
-							class="h-full w-full select-none object-contain drop-shadow-md"
-							draggable={false}
-							onLoad={(event) => {
-								const image = event.currentTarget;
-								if (image.naturalHeight > 0) {
-									setScreenshotAspect(image.naturalWidth / image.naturalHeight);
-								}
-							}}
-						/>
-					)}
-				</Show>
-			</div>
-
-			<Show when={props.stopCount > 0}>
-				<button
-					type="button"
-					class="absolute top-3 left-3 z-10 inline-flex h-6 min-w-14 items-center justify-center gap-1 rounded-full px-2 font-mono text-[11px] tabular-nums shadow-sm transition-colors"
-					classList={{
-						"bg-blue-600 text-white": active(),
-						"bg-white text-gray-500 ring-1 ring-gray-200 hover:text-gray-800":
-							!active(),
-					}}
-					data-testid="step-viewer-position"
-					data-active={active() ? "true" : undefined}
-					title={
-						props.playing
-							? "Playing through the test"
-							: active()
-								? "Stepping through the test with ← →"
-								: "Step through the test with ← →"
-					}
-					onClick={(event) => {
-						event.stopPropagation();
-						props.onActivate();
-					}}
-				>
-					{active() ? (props.stopIndex ?? 0) + 1 : "–"}/{props.stopCount}
-				</button>
-			</Show>
-
-			<Show when={props.pages.length > 1}>
-				<div
-					class="absolute right-3 bottom-3 z-10 flex max-h-[calc(50%-2.5rem)] w-16 flex-col items-stretch gap-1.5 overflow-y-auto"
-					role="group"
-					aria-label="Pages"
-					data-testid="step-viewer-pages"
-					onClick={(event) => event.stopPropagation()}
-				>
-					<For each={props.pages}>
-						{(page) => {
-							const pinned = () => props.pinnedPageId === page.pageId;
-							const shown = () => shownPageId() === page.pageId;
-							return (
-								<button
-									type="button"
-									class="relative flex-shrink-0 overflow-hidden rounded bg-white shadow-sm transition"
-									classList={{
-										"ring-2 ring-blue-600": shown(),
-										"ring-1 ring-gray-300 hover:ring-gray-500": !shown(),
-										"opacity-40": !page.hasFrame,
-									}}
-									aria-label={`Page ${page.number}`}
-									aria-pressed={pinned()}
-									title={
-										pinned()
-											? `Page ${page.number}, pinned. Click to follow the latest page again.`
-											: `Show page ${page.number}`
-									}
-									onClick={() => props.onPinPage(pinned() ? null : page.pageId)}
-								>
-									<img
-										src={page.screenshot.url}
-										alt=""
-										class="block aspect-video w-full object-cover object-top"
-										draggable={false}
-									/>
-									<span class="absolute bottom-0 left-0 rounded-tr bg-gray-900/75 px-1 font-mono text-[9px] leading-[14px] text-white">
-										{page.number}
-									</span>
-									<Show when={pinned()}>
-										<span class="absolute top-0.5 right-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-white">
-											<Pin size={8} aria-hidden="true" />
-										</span>
-									</Show>
-								</button>
-							);
-						}}
-					</For>
-				</div>
-			</Show>
-
-			<Show when={active() && props.stepAncestry.at(-1)}>
-				{(step) => (
-					<StepCaption
-						step={step()}
-						depth={props.stepAncestry.length - 1}
-						parents={props.stepAncestry
-							.slice(0, -1)
-							.filter((span) => span.name === "playwright.test.step")}
-						widthPx={captionWidthPx()}
-					/>
-				)}
-			</Show>
-
-			{navigationButton(-1)}
-			{navigationButton(1)}
-
-			<PlaybackControls
-				playing={props.playing}
-				speed={props.playbackSpeed}
-				onToggle={props.onTogglePlayback}
-				onCycleSpeed={props.onCycleSpeed}
-			/>
-		</section>
-	);
-}
-
-/**
- * The step the viewer is on, in full: the steps it is nested in, its title
- * and the locator it acted on. Pinned to the top right corner, as wide as the
- * space right of the screenshot allows, so it grows down towards the next
- * arrow rather than across the screenshot.
- */
-function StepCaption(props: {
-	step: Span;
-	depth: number;
-	parents: Span[];
-	widthPx: number;
-}) {
-	const color = () =>
-		isErrorSpan(props.step)
-			? "#dc2626"
-			: getStepTimelineColor(props.step, props.depth);
-
-	return (
-		<div
-			class="pointer-events-none absolute top-3 right-3 z-10 rounded-md border-l-4 bg-white/95 px-3 py-2 shadow-md ring-1 ring-gray-200 backdrop-blur-sm"
-			style={{
-				"border-left-color": color(),
-				"max-width": `${props.widthPx}px`,
-				width: "max-content",
-			}}
-			data-testid="step-viewer-step"
-			data-span-id={props.step.id}
-		>
-			<Show when={props.parents.length > 0}>
-				<div
-					class="mb-0.5 text-[11px] leading-snug text-gray-500 break-words"
-					data-testid="step-viewer-step-parents"
-				>
-					<For each={props.parents}>
-						{(parent, index) => (
-							<>
-								<Show when={index() > 0}>
-									<span class="mx-1 text-gray-400" aria-hidden="true">
-										›
-									</span>
-								</Show>
-								{parent.title}
-							</>
-						)}
-					</For>
-				</div>
-			</Show>
-			<div
-				class="text-[13px] font-semibold leading-snug text-gray-900 break-words"
-				data-testid="step-viewer-step-title"
-			>
-				<StepTitleText
-					title={props.step.title}
-					emphasisColor={`color-mix(in srgb, ${color()} 65%, black)`}
-				/>
-			</div>
-			<Show when={props.step.subtitle}>
-				{(subtitle) => (
-					<code
-						class="mt-1 block rounded-sm bg-gray-100 px-1.5 py-0.5 font-mono text-xs leading-snug text-gray-700 wrap-anywhere"
-						data-testid="step-viewer-step-subtitle"
+			<Show
+				when={props.filmstrip}
+				fallback={
+					<div
+						class="relative min-h-0 flex-1 bg-gray-100 p-3"
+						data-testid="step-viewer-screen"
+						onClick={props.onActivate}
 					>
-						{subtitle()}
-					</code>
-				)}
+						<Show
+							when={props.screenshot}
+							fallback={
+								<div class="flex h-full items-center justify-center text-sm text-gray-400">
+									{props.screenshotsLoading
+										? "Loading screenshots..."
+										: "No screenshot at this time"}
+								</div>
+							}
+						>
+							{(screenshot) => (
+								<img
+									src={screenshot().url}
+									alt={`Step viewer screenshot at ${screenshot().timestamp}`}
+									data-screenshot-timestamp={screenshot().timestamp}
+									data-page-id={screenshot().pageId}
+									class="h-full w-full select-none object-contain drop-shadow-md"
+									draggable={false}
+								/>
+							)}
+						</Show>
+					</div>
+				}
+			>
+				<div class="min-h-0 flex-1">{props.filmstrip}</div>
 			</Show>
-		</div>
-	);
-}
 
-/**
- * Play/pause and playback speed, pinned to the bottom left corner. Playing
- * runs through the test as fast as it ran, or at the chosen speed.
- */
-function PlaybackControls(props: {
-	playing: boolean;
-	speed: PlaybackSpeed;
-	onToggle: () => void;
-	onCycleSpeed: () => void;
-}) {
-	return (
-		<div
-			class="absolute bottom-3 left-3 z-10 inline-flex h-7 items-center rounded-full bg-white shadow-sm ring-1 ring-gray-200"
-			role="group"
-			aria-label="Playback"
-			onClick={(event) => event.stopPropagation()}
-		>
-			<button
-				type="button"
-				class="inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors"
-				classList={{
-					"bg-blue-600 text-white": props.playing,
-					"text-gray-600 hover:text-gray-900": !props.playing,
-				}}
-				aria-label={props.playing ? "Pause" : "Play"}
-				title={props.playing ? "Pause (Space)" : "Play (Space)"}
-				onClick={props.onToggle}
-			>
-				{props.playing ? (
-					<Pause size={13} fill="currentColor" aria-hidden="true" />
-				) : (
-					<Play
-						size={13}
-						fill="currentColor"
-						class="translate-x-px"
-						aria-hidden="true"
-					/>
-				)}
-			</button>
-			<button
-				type="button"
-				class="inline-flex h-7 min-w-8 items-center justify-center pr-2 pl-1 font-mono text-[10px] tabular-nums text-gray-500 hover:text-gray-900"
-				aria-label="Playback speed"
-				title="Playback speed: click to change"
-				data-testid="playback-speed"
-				onClick={props.onCycleSpeed}
-			>
-				{formatPlaybackSpeed(props.speed)}
-			</button>
-		</div>
+			<PlayerControlBar
+				{...controlBarProps}
+				shownPageId={props.screenshot?.pageId ?? null}
+			/>
+
+			{props.ruler}
+		</section>
 	);
 }

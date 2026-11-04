@@ -10,6 +10,21 @@ describe("parseViewerSettings", () => {
 		expect(parseViewerSettings("{")).toEqual(DEFAULT_VIEWER_SETTINGS);
 	});
 
+	it("ignores settings since removed, such as the filmstrip", () => {
+		expect(parseViewerSettings(JSON.stringify({ filmstrip: false }))).toEqual(
+			DEFAULT_VIEWER_SETTINGS,
+		);
+	});
+
+	it("keeps a stored player screen and ignores unknown ones", () => {
+		expect(
+			parseViewerSettings(JSON.stringify({ playerScreen: "filmstrip" })),
+		).toEqual({ ...DEFAULT_VIEWER_SETTINGS, playerScreen: "filmstrip" });
+		expect(
+			parseViewerSettings(JSON.stringify({ playerScreen: "cinema" })),
+		).toEqual(DEFAULT_VIEWER_SETTINGS);
+	});
+
 	it("keeps stored booleans and fills in missing or invalid keys", () => {
 		expect(
 			parseViewerSettings(

@@ -15,7 +15,6 @@ import { SpanKind, TraceDataBuilder } from "./test-data-builder";
 
 const ALL_SECTIONS: ViewerSectionLabel[] = [
 	"Step viewer",
-	"Screenshot filmstrip",
 	"Steps timeline",
 	"Browser spans",
 	"External spans",
@@ -80,7 +79,6 @@ function sectionRoots(
 ): Record<ViewerSectionLabel, Locator> {
 	return {
 		"Step viewer": viewer.stepViewer.root,
-		"Screenshot filmstrip": viewer.screenshots.root,
 		"Steps timeline": viewer.steps.root,
 		"Browser spans": viewer.browserSpans.root,
 		"External spans": viewer.externalSpans.root,
@@ -170,11 +168,7 @@ test("the menu stays open so several sections can be changed at once", async ({
 	await expect(viewer.settings.menu).toBeVisible();
 	await viewer.settings.close();
 
-	await expectSections(viewer, [
-		"Screenshot filmstrip",
-		"Steps timeline",
-		"External spans",
-	]);
+	await expectSections(viewer, ["Steps timeline", "External spans"]);
 });
 
 test("span panels can be hidden in any combination", async ({
@@ -183,10 +177,7 @@ test("span panels can be hidden in any combination", async ({
 }) => {
 	const viewer = new TraceViewerPage(page);
 	await loadTrace(viewer, await createTrace(request));
-	const screenshotSections: ViewerSectionLabel[] = [
-		"Step viewer",
-		"Screenshot filmstrip",
-	];
+	const screenshotSections: ViewerSectionLabel[] = ["Step viewer"];
 
 	// A Gray-code walk through all eight subsets of the span panels, one
 	// toggle at a time, so each change starts from a different set on screen.
@@ -209,8 +200,8 @@ test("span panels can be hidden in any combination", async ({
 				...screenshotSections,
 				...SPAN_PANELS.filter((panel) => shown.has(panel)),
 			]);
-			// With every span panel hidden, the ruler and filmstrip remain.
-			if (shown.size === 0) await expect(viewer.timelineContent).toBeVisible();
+			// With every span panel hidden, the player and its ruler remain.
+			if (shown.size === 0) await expect(viewer.timelineRuler).toBeVisible();
 		});
 	}
 
@@ -263,9 +254,9 @@ test("settings are remembered across reloads and traces", async ({
 	const viewer = new TraceViewerPage(page);
 	await loadTrace(viewer, await createTrace(request));
 
-	await viewer.settings.toggle("Screenshot filmstrip", "External spans");
+	await viewer.settings.toggle("Step viewer", "External spans");
 	const shown = ALL_SECTIONS.filter(
-		(label) => label !== "Screenshot filmstrip" && label !== "External spans",
+		(label) => label !== "Step viewer" && label !== "External spans",
 	);
 	await expectSections(viewer, shown);
 

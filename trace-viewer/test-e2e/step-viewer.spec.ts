@@ -92,7 +92,10 @@ test("steps through each test body step, showing it once it has finished", async
 		await expect(focusRing).toHaveCount(0);
 		await expect(stepViewer.step).toHaveAttribute("data-span-id", stepId);
 	};
-	/** The step named in the viewer's top right corner. */
+	/**
+	 * The step named in the control bar, on one line; its tooltip names it in
+	 * full with its parents.
+	 */
 	const expectStepCaption = async (
 		title: string,
 		subtitle: string | null,
@@ -101,8 +104,10 @@ test("steps through each test body step, showing it once it has finished", async
 		await expect(stepViewer.stepTitle).toHaveText(title);
 		if (subtitle === null) await expect(stepViewer.stepSubtitle).toBeHidden();
 		else await expect(stepViewer.stepSubtitle).toHaveText(subtitle);
-		if (parents === null) await expect(stepViewer.stepParents).toBeHidden();
-		else await expect(stepViewer.stepParents).toHaveText(parents);
+		await expect(stepViewer.step).toHaveAttribute(
+			"title",
+			[parents, title, subtitle].filter(Boolean).join("\n"),
+		);
 	};
 	const expectNotOnStop = async () => {
 		await expect(stepViewer.position).toHaveText("–/3");
@@ -174,19 +179,109 @@ test("steps through each test body step, showing it once it has finished", async
 		await expectStop("3/3", check, 2600);
 	});
 
-	await test.step("The ruler marks each step", async () => {
-		const ticks = viewer.timelineRuler.getByTestId("ruler-step-tick");
-		await expect(ticks).toHaveCount(3);
-		const plot = (await page.locator("[data-timeline-plot]").boundingBox())!;
-		const shareOf = async (index: number) => {
-			const box = (await ticks.nth(index).boundingBox())!;
-			return (box.x + box.width / 2 - plot.x) / plot.width;
-		};
-		// Stops sit just before the next step: 1000, 2000 and, for the last
-		// step, the after hooks at 3500, of 4000ms.
-		expect(await shareOf(0)).toBeCloseTo(0.25, 1);
-		expect(await shareOf(1)).toBeCloseTo(0.5, 1);
-		expect(await shareOf(2)).toBeCloseTo(0.875, 1);
+	await test.step("The ruler draws each step, filled up to the playhead", async () => {
+		const { ruler } = viewer;
+		await expect(ruler.steps).toHaveCount(3);
+		// Over the time each ran, of 4000ms: fill 600-900, click 1000-1500
+		// and check 2000-2500.
+		expect(await ruler.ratioOf(ruler.steps.nth(0))).toBeCloseTo(0.1875, 2);
+		expect(await ruler.ratioOf(ruler.steps.nth(1))).toBeCloseTo(0.3125, 2);
+		expect(await ruler.ratioOf(ruler.steps.nth(2))).toBeCloseTo(0.5625, 2);
+		// The hooks are hatched at either end.
+		await expect(ruler.hooks).toHaveCount(2);
+		// On the last stop, the steps before it are done and it is current.
+		await expect(ruler.steps.nth(0)).toHaveAttribute("data-state", "done");
+		await expect(ruler.steps.nth(1)).toHaveAttribute("data-state", "done");
+		await expect(ruler.steps.nth(2)).toHaveAttribute("data-state", "current");
+		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "3499");
+		// The playhead carries on down as the locked line, in the same place
+		// once the line has moved there.
+		await expect
+			.poll(async () => {
+				const knob = (await ruler.playhead.boundingBox())!;
+				const line = (await lockedLine.boundingBox())!;
+				return Math.abs(knob.x - line.x);
+			})
+			.toBeLessThan(2);
+	});
+
+	await test.step("Clicking a step on the ruler locks the time clicked, not the step's end", async () => {
+		// The middle of fill, 750 of 4000ms.
+		await viewer.ruler.clickAt(0.1875);
+		await expect(viewer.ruler.playhead).toHaveAttribute(
+			"data-time-ms",
+			/^7[45]\d(\.\d+)?$/,
+		);
+		await expect(stepViewer.position).toHaveText("1/3");
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 700),
+		);
+		await expect(viewer.ruler.steps.nth(0)).toHaveAttribute(
+			"data-state",
+			"current",
+		);
+		await expect(viewer.ruler.steps.nth(1)).toHaveAttribute(
+			"data-state",
+			"upcoming",
+		);
+	});
+
+	await test.step("Clicking the time ticks locks the time too", async () => {
+		// Below the step bar, in the middle of click: 1250ms.
+		const rulerBox = (await viewer.ruler.root.boundingBox())!;
+		const { x } = await viewer.ruler.pointAt(0.3125);
+		await page.mouse.click(x, rulerBox.y + rulerBox.height - 8);
+		await expect(viewer.ruler.playhead).toHaveAttribute(
+			"data-time-ms",
+			/^12[45]\d(\.\d+)?$/,
+		);
+		await expect(stepViewer.position).toHaveText("2/3");
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 950),
+		);
+		await page.keyboard.press("End");
+	});
+
+	await test.step("Clicking the hooks on the ruler seeks there", async () => {
+		await viewer.ruler.clickAt(0.05);
+		await expect(viewer.ruler.playhead).toHaveAttribute(
+			"data-time-ms",
+			/^(19\d|20\d)(\.\d+)?$/,
+		);
+		await expect(stepViewer.position).toHaveText("–/3");
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 100),
+		);
+		await expect(viewer.ruler.steps.nth(0)).toHaveAttribute(
+			"data-state",
+			"upcoming",
+		);
+	});
+
+	await test.step("Dragging along the ruler scrubs, naming the step there", async () => {
+		const from = await viewer.ruler.pointAt(0.05);
+		const to = await viewer.ruler.pointAt(0.45);
+		await page.mouse.move(from.x, from.y);
+		await page.mouse.down();
+		await page.mouse.move(to.x, to.y, { steps: 6 });
+		await page.mouse.up();
+		// 1800ms: the click step's result is on screen.
+		await expect(stepViewer.position).toHaveText("2/3");
+		await expect(stepViewer.position).toHaveAttribute("data-active", "true");
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 1600),
+		);
+		await expect(viewer.ruler.steps.nth(1)).toHaveAttribute(
+			"data-state",
+			"current",
+		);
+		// Stepping moves on from the step the counter shows.
+		await page.keyboard.press("ArrowRight");
+		await expectStop("3/3", check, 2600);
 	});
 
 	await test.step("The arrow buttons step too", async () => {
@@ -214,7 +309,7 @@ test("steps through each test body step, showing it once it has finished", async
 		await stepViewer.position.click();
 		await expectStop("1/3", fill, 950);
 		await page.keyboard.press("Escape");
-		await stepViewer.root.click();
+		await stepViewer.screen.click();
 		await expectStop("1/3", fill, 950);
 	});
 
@@ -227,7 +322,7 @@ test("steps through each test body step, showing it once it has finished", async
 		await page.reload();
 		await viewer.loadTraceFromApi(traceId);
 		await expect(viewer.header.root).toBeVisible();
-		await expect(viewer.screenshots.root).toBeVisible();
+		await expect(viewer.timelineRuler).toBeVisible();
 		await expect(stepViewer.root).toBeHidden();
 	});
 });
@@ -287,19 +382,27 @@ test("with several pages, a page can be pinned in the step viewer", async ({
 		);
 	};
 
-	await test.step("Each page gets a thumbnail; pages with no frame yet are dimmed", async () => {
+	await test.step("Each page gets a thumbnail in the control bar; the one shown is ringed", async () => {
 		await expect(stepViewer.position).toHaveText("–/3");
 		await page.keyboard.press("ArrowRight");
 		await expect(stepViewer.position).toHaveText("1/3");
 		await expect(stepViewer.pagePicker.getByRole("button")).toHaveCount(2);
+		const bar = (await stepViewer.controlBar.boundingBox())!;
+		const picker = (await stepViewer.pagePicker.boundingBox())!;
+		expect(picker.y).toBeGreaterThanOrEqual(bar.y);
+		expect(picker.y + picker.height).toBeLessThanOrEqual(bar.y + bar.height);
+		expect(picker.x + picker.width).toBeGreaterThan(bar.x + bar.width * 0.8);
+		await expect(stepViewer.page(1)).toHaveClass(/ring-blue-600/);
 		await expect(stepViewer.page(1)).toHaveCSS("opacity", "1");
-		await expect(stepViewer.page(2)).toHaveCSS("opacity", "0.4");
+		await expect(stepViewer.page(2)).toHaveCSS("opacity", "0.5");
 	});
 
 	await test.step("Unpinned, the viewer shows whichever page drew last", async () => {
 		await page.keyboard.press("ArrowRight");
 		await expect(stepViewer.position).toHaveText("2/3");
 		await expectShown("help", 650);
+		await expect(stepViewer.page(2)).toHaveClass(/ring-blue-600/);
+		await expect(stepViewer.page(1)).toHaveCSS("opacity", "0.5");
 	});
 
 	await test.step("A pinned page stays on screen while stepping", async () => {

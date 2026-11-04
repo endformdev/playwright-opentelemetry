@@ -1,5 +1,5 @@
 import {
-	createEffect,
+	batch,
 	createMemo,
 	createSignal,
 	For,
@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
-import type { ScreenshotInfo, TraceInfo } from "../trace-info-loader";
+import type { TraceInfo } from "../trace-info-loader";
 import { DetailsPanel } from "./components/DetailsPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { PanelHeader } from "./components/PanelHeader";
@@ -29,20 +29,16 @@ import {
 	useViewportContext,
 	ViewportProvider,
 } from "./contexts/ViewportContext";
-import {
-	detectTestPhases,
-	getTestBodyPhase,
-	type TestPhase,
-} from "./detectTestPhases";
 import { MultiResizablePanel } from "./MultiResizablePanel";
-import {
-	calculateInitialPanelSizes,
-	getStepViewerAboveFilmstripInitialSize,
-} from "./panelSizing";
+import { calculateInitialPanelSizes } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
-import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import type { NavigationDirection } from "./spanNavigation";
 import type { SpanSelectionPlacement } from "./spanSelection";
+import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
+import {
+	computeStepRulerSegments,
+	describeStepRulerTime,
+} from "./stepRulerSegments";
 import { StepViewer } from "./StepViewer";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
@@ -55,6 +51,7 @@ import { type ViewerPanels, viewerSettingsFromPanels } from "./viewerPanels";
 import { createViewerSettings } from "./viewerSettings";
 import {
 	isTimeRangeVisible,
+	panTimeRangeIntoView,
 	type TimelineViewport,
 	timeToViewportPosition,
 	viewportPositionToTime,
@@ -90,7 +87,6 @@ const SCREENSHOTS_DISABLED_SECTION: DisabledSection = {
 const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
-const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 10;
 const TIMELINE_PLOT_INSET_PX = 12;
 /** Step viewer height above timeline span panels */
 const STEP_VIEWER_INITIAL_SIZE_PERCENT = 45;
@@ -111,17 +107,6 @@ function isKeyboardControlTarget(target: EventTarget | null): boolean {
 				'input, textarea, select, [role="menu"], [role="listbox"], [role="combobox"]',
 			) !== null)
 	);
-}
-
-function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
-	if (screenshots.length === 0) return 1;
-	return new Set(screenshots.map((screenshot) => screenshot.pageId)).size;
-}
-
-function getDefaultVisibleScreenshotRows(rowCount: number): number {
-	if (rowCount <= 1) return 1;
-	if (rowCount === 2) return 2;
-	return 2.5;
 }
 
 export function TraceViewer(props: TraceViewerProps) {
@@ -180,6 +165,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		displayedViewport,
 		motionTransition,
 		setViewport,
+		animateTo,
 		zoomToRange,
 		pan,
 		zoom,
@@ -239,7 +225,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const showDetails = () => props.panels?.details ?? true;
 	/** Whether `panels` leaves a section out entirely, even as a disabled row */
 	const isLeftOutByPanels = (
-		id: "filmstrip" | "steps" | "browser" | "external",
+		id: "viewer" | "steps" | "browser" | "external",
 	) => (props.panels ? !props.panels[id] : false);
 	const shownTimelinePanels = createMemo(() =>
 		activeTimelinePanels().filter((panel) => settings()[panel.definition.id]),
@@ -263,6 +249,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	let plotRef: HTMLDivElement | undefined;
 	let detailsRef: HTMLDivElement | undefined;
+	/** The span panels' region, below the player, where zoomed frames open */
+	let spansRegionRef: HTMLDivElement | undefined;
 	const spanFocus = useSpanFocus({
 		panels: () =>
 			shownTimelinePanels().map((panel) => ({
@@ -297,22 +285,14 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const hasScreenshots = () =>
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
 	const showStepViewer = () => settings().stepViewer && hasScreenshots();
-	const showFilmstrip = () => settings().filmstrip && hasScreenshots();
-	// The step viewer already shows the hovered screenshot large.
-	const filmstripPreviewEnabled = () => mode() === "hover" && !showStepViewer();
-	const screenshotPageCount = createMemo(() =>
-		countScreenshotPages(props.traceInfo.screenshots() ?? []),
-	);
-	const screenshotPanelInitialSize = createMemo(
-		() =>
-			SCREENSHOT_PANEL_ROW_SIZE_PERCENT *
-			getDefaultVisibleScreenshotRows(screenshotPageCount()),
-	);
+	/** The step viewer shows a filmstrip rather than the big screen */
+	const showPlayerFilmstrip = () =>
+		showStepViewer() && settings().playerScreen === "filmstrip";
 	// Get list of disabled sections for the footer
 	const disabledSections = createMemo((): DisabledSection[] => {
 		const sections: DisabledSection[] = [];
 		if (
-			!isLeftOutByPanels("filmstrip") &&
+			!isLeftOutByPanels("viewer") &&
 			!props.traceInfo.screenshots.loading &&
 			!hasLoadedScreenshots()
 		) {
@@ -329,36 +309,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 		return sections;
 	});
-
-	// Detect test phases (before hooks, test body, after hooks) for the phase indicator bar
-	const testPhases = createMemo(() => detectTestPhases(testStructure()));
-
-	// Track whether we've done the initial zoom
-	const [hasInitialZoom, setHasInitialZoom] = createSignal(false);
-
-	// Auto-zoom to test body on initial load when phases are detected
-	createEffect(() => {
-		// Wait for loading to complete
-		if (props.traceData.isLoading()) return;
-
-		// Only do this once
-		if (hasInitialZoom()) return;
-
-		const phases = testPhases();
-		if (!phases) return;
-
-		const testBody = getTestBodyPhase(phases);
-		if (testBody) {
-			// Zoom to test body with some padding
-			zoomToRange(testBody.startMs, testBody.endMs);
-			setHasInitialZoom(true);
-		}
-	});
-
-	// Handle phase click - zoom to the clicked phase
-	const handlePhaseClick = (phase: TestPhase) => {
-		zoomToRange(phase.startMs, phase.endMs);
-	};
 
 	// Calculate initial sizes for span panels (just the sizing data, not content)
 	const spanPanelSizeConfigs = createMemo((): PanelSizeConfig[] => {
@@ -377,12 +327,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	// Check if we have any active span panels
 	const hasAnySpanPanels = () => spanPanelSizeConfigs().length > 0;
-	const showTimeline = () =>
-		showRuler() ||
-		showFilmstrip() ||
-		hasAnySpanPanels() ||
-		disabledSections().length > 0;
-	const showMainColumn = () => showStepViewer() || showTimeline();
+	/** Span panels, or the footer naming those without data */
+	const showSpansRegion = () =>
+		hasAnySpanPanels() || disabledSections().length > 0;
+	const showMainColumn = () =>
+		showStepViewer() || showRuler() || showSpansRegion();
 
 	const handleMouseDown = (e: MouseEvent) => {
 		// Only start selection on primary button
@@ -563,9 +512,17 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enabled: () => showStepViewer() && !props.traceData.isLoading(),
 	});
 
-	const stepStopTimesMs = createMemo(() =>
-		stepViewer.stops().map((stop) => stop.timeMs),
+	const rulerSegments = createMemo(() =>
+		computeStepRulerSegments(testStructure(), stepViewer.stops()),
 	);
+	/** The locked time the ruler's playhead marks */
+	const playheadMs = () => (mode() === "hover" ? null : lockedTimeMs());
+	/** Time hovered in the span panels, which the ruler marks too */
+	const spanHoverTimeMs = () => {
+		const position = hoverPosition();
+		if (mode() === "locked" || position === null) return null;
+		return viewportPositionToTime(position, viewport());
+	};
 
 	/** The shown step (the stop, or the step playing) and its ancestors */
 	const stepViewerStepAncestry = createMemo(() => {
@@ -583,8 +540,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		setViewport(newViewport);
 	};
 
-	const handleWheel = (e: WheelEvent) => {
-		if (!plotRef) return;
+	/** Wheel zooms and pans the timeline; `plot` is the plot box under it. */
+	const handleWheel = (
+		e: WheelEvent,
+		plot: DOMRect | undefined = plotRef?.getBoundingClientRect(),
+	) => {
+		if (!plot) return;
 
 		// Check for zoom modifier keys (Cmd, Ctrl, or Shift)
 		const isZoomModifier = e.metaKey || e.ctrlKey || e.shiftKey;
@@ -592,7 +553,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (isZoomModifier && e.deltaY !== 0) {
 			e.preventDefault();
 
-			const rect = plotRef.getBoundingClientRect();
+			const rect = plot;
 			const pointerPosition = Math.max(
 				0,
 				Math.min(1, (e.clientX - rect.left) / rect.width),
@@ -630,8 +591,28 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		reset();
 	};
 
-	const handleScreenshotHover = (id: string | null) => {
-		setPointerElement(id ? { type: "screenshot", id } : null);
+	/** Seeking on the step ruler locks there, keeping the time in view. */
+	const handleRulerSeek = (timeMs: number) => {
+		batch(() => {
+			lock(timeMs, null, "ruler");
+			animateTo(panTimeRangeIntoView(viewport(), timeMs, timeMs, timeMs));
+		});
+	};
+
+	/** The filmstrip hovers like the span panels: the time under it. */
+	const handleFilmstripPointerTime = (timeMs: number | null) => {
+		handleRulerPointerTime(timeMs, null);
+	};
+
+	/** The ruler hovers like the span panels: the step under it, at its time. */
+	const handleRulerPointerTime = (
+		timeMs: number | null,
+		stepId: string | null,
+	) => {
+		pointerPosition =
+			timeMs === null ? null : timeToViewportPosition(timeMs, viewport());
+		setPointerElement(stepId ? { type: "step", id: stepId } : null);
+		if (mode() === "hover") setHoverPosition(pointerPosition);
 	};
 
 	const handleBarHover = (
@@ -764,146 +745,129 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		);
 	};
 
-	const MainPanelContent = () => (
-		// One plot box defines ruler, pointer, screenshots and span coordinates.
-		// Panels stay full width; only their plotted content is inset. Reserve the
-		// native scrollbar width in every plot, even in unscrolled panels.
-		<div
-			class="flex flex-col h-full relative"
-			style={{
-				"container-type": "inline-size",
-				"--timeline-plot-inset": `${TIMELINE_PLOT_INSET_PX}px`,
-				"--timeline-plot-width": `calc(100cqw - ${2 * TIMELINE_PLOT_INSET_PX + scrollbarWidth()}px)`,
-			}}
-		>
-			<Show when={props.traceData.isLoading()}>
-				<LoadingOverlay />
-			</Show>
+	/**
+	 * Whether a hovered position is on the plot. The ruler hovers the whole
+	 * test, out of view when zoomed. Locked lines are still drawn off the
+	 * plot, so they can slide into view with the bars.
+	 */
+	const isInPlot = (position: number | null) =>
+		position !== null && position >= 0 && position <= 1;
 
-			<Show when={showRuler()}>
-				<TimelineRuler
-					durationMs={props.traceData.totalDurationMs()}
-					viewport={viewport()}
-					hoverPosition={hoverPosition()}
-					onViewportChange={handleViewportChange}
-					testPhases={testPhases()}
-					onPhaseClick={handlePhaseClick}
-					onDoubleClick={handleDoubleClick}
-					stepStopTimesMs={stepStopTimesMs()}
-				/>
-			</Show>
+	const DisabledSectionsFooter = () => (
+		<Show when={disabledSections().length > 0}>
+			<div class="flex-shrink-0 border-t border-gray-300">
+				<For each={disabledSections()}>
+					{(section) => (
+						<PanelHeader
+							title={section.title}
+							disabled={true}
+							disabledTooltip={section.tooltip}
+						/>
+					)}
+				</For>
+			</div>
+		</Show>
+	);
+
+	// The step ruler: at the bottom of the player, right on top of the steps
+	// timeline, or without the player at the top of the span panels.
+	const Ruler = () => (
+		<TimelineRuler
+			durationMs={props.traceData.totalDurationMs()}
+			viewport={viewport()}
+			onViewportChange={handleViewportChange}
+			onDoubleClick={reset}
+			segments={rulerSegments()}
+			stops={stepViewer.stops()}
+			playheadMs={playheadMs()}
+			currentStopIndex={stepViewer.shownIndex()}
+			hoverTimeMs={spanHoverTimeMs()}
+			onSeek={handleRulerSeek}
+			onPointerTime={handleRulerPointerTime}
+			screenshots={props.traceInfo.screenshots() ?? []}
+			testStartTimeMs={props.testStartTimeMs()}
+			showFilmstrip={!showPlayerFilmstrip()}
+			filmstripPlacement={showStepViewer() ? "above" : "below"}
+		/>
+	);
+
+	/** The span panels, sharing the plot box and the time lines */
+	const SpansRegion = () => (
+		<div
+			class="flex-1 min-h-0 relative flex flex-col"
+			role="region"
+			aria-label="Trace timeline"
+			style={{ cursor: selectionState() ? "crosshair" : undefined }}
+			onMouseDown={handleMouseDown}
+			onMouseMove={handleMouseMove}
+			onMouseLeave={handleMouseLeave}
+			onWheel={(event) => handleWheel(event)}
+			onDblClick={handleDoubleClick}
+			ref={spansRegionRef}
+		>
+			<div class="flex-1 min-h-0 overflow-hidden">
+				<Show when={hasAnySpanPanels()}>
+					<SpanPanelsContent />
+				</Show>
+			</div>
+
+			<DisabledSectionsFooter />
 
 			<div
-				class="flex-1 min-h-0 relative flex flex-col"
-				role="region"
-				aria-label="Trace timeline"
-				style={{ cursor: selectionState() ? "crosshair" : undefined }}
-				onMouseDown={handleMouseDown}
-				onMouseMove={handleMouseMove}
-				onMouseLeave={handleMouseLeave}
-				onWheel={handleWheel}
-				onDblClick={handleDoubleClick}
+				ref={plotRef}
+				data-timeline-plot
+				class="absolute inset-y-0 pointer-events-none"
+				style={{
+					left: "var(--timeline-plot-inset)",
+					width: "var(--timeline-plot-width)",
+				}}
 			>
-				{/* Active panels section */}
-				<div class="flex-1 min-h-0 overflow-hidden">
-					<Show
-						when={showFilmstrip() && hasAnySpanPanels()}
-						fallback={
-							<Show
-								when={showFilmstrip()}
-								fallback={
-									<Show when={hasAnySpanPanels()}>
-										<SpanPanelsContent />
-									</Show>
-								}
-							>
-								{/* Only screenshots active */}
-								<ScreenshotFilmstrip
-									screenshots={props.traceInfo.screenshots}
-									viewport={viewport()}
-									testStartTimeMs={props.testStartTimeMs()}
-									onScreenshotHover={handleScreenshotHover}
-									previewEnabled={filmstripPreviewEnabled()}
-								/>
-							</Show>
-						}
-					>
-						{/* Both screenshots and span panels active */}
-						<ResizablePanel
-							direction="vertical"
-							initialFirstPanelSize={screenshotPanelInitialSize()}
-							minFirstPanelSize={7}
-							maxFirstPanelSize={80}
-							firstPanel={
-								<ScreenshotFilmstrip
-									screenshots={props.traceInfo.screenshots}
-									viewport={viewport()}
-									testStartTimeMs={props.testStartTimeMs()}
-									onScreenshotHover={handleScreenshotHover}
-									previewEnabled={filmstripPreviewEnabled()}
-								/>
-							}
-							secondPanel={<SpanPanelsContent />}
-						/>
-					</Show>
-				</div>
-
-				{/* Disabled sections footer */}
-				<Show when={disabledSections().length > 0}>
-					<div class="flex-shrink-0 border-t border-gray-300">
-						<For each={disabledSections()}>
-							{(section) => (
-								<PanelHeader
-									title={section.title}
-									disabled={true}
-									disabledTooltip={section.tooltip}
-								/>
-							)}
-						</For>
-					</div>
+				{/* Selection overlay - only show when selection is meaningful */}
+				<Show
+					when={
+						selectionState() && selectionWidth() > MIN_SELECTION_DISPLAY_PERCENT
+					}
+				>
+					<div
+						class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
+						style={{
+							left: `${selectionLeft()}%`,
+							width: `${selectionWidth()}%`,
+						}}
+					/>
 				</Show>
 
-				<div
-					ref={plotRef}
-					data-timeline-plot
-					class="absolute inset-y-0 pointer-events-none"
-					style={{
-						left: "var(--timeline-plot-inset)",
-						width: "var(--timeline-plot-width)",
-					}}
-				>
-					{/* Selection overlay - only show when selection is meaningful */}
-					<Show
-						when={
-							selectionState() &&
-							selectionWidth() > MIN_SELECTION_DISPLAY_PERCENT
-						}
-					>
-						<div
-							class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
-							style={{
-								left: `${selectionLeft()}%`,
-								width: `${selectionWidth()}%`,
-							}}
-						/>
-					</Show>
+				{/* Position indicator - hover mode: thin blue line */}
+				<Show when={mode() === "hover" && isInPlot(hoverPosition())}>
+					<div
+						class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
+						style={{
+							left: `${hoverPosition()! * 100}%`,
+							transition: motionTransition("left"),
+						}}
+					/>
+				</Show>
 
-					{/* Position indicator - hover mode: thin blue line */}
-					<Show when={mode() === "hover" && hoverPosition() !== null}>
-						<div
-							class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
-							style={{
-								left: `${hoverPosition()! * 100}%`,
-								transition: motionTransition("left"),
-							}}
-						/>
-					</Show>
+				{/* Position indicator - locked mode: thick blue line */}
+				<Show when={mode() === "locked" && lockedPosition() !== null}>
+					<div
+						data-locked-time-line
+						data-time-ms={lockedTimeMs()}
+						class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
+						style={{
+							left: `${lockedPosition()! * 100}%`,
+							width: "3px",
+							"margin-left": "-1px",
+							transition: motionTransition("left"),
+						}}
+					/>
+				</Show>
 
-					{/* Position indicator - locked mode: thick blue line */}
-					<Show when={mode() === "locked" && lockedPosition() !== null}>
+				{/* Position indicator - search-override mode: both lines */}
+				<Show when={mode() === "search-override"}>
+					{/* Locked position - thick blue line */}
+					<Show when={lockedPosition() !== null}>
 						<div
-							data-locked-time-line
-							data-time-ms={lockedTimeMs()}
 							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
 							style={{
 								left: `${lockedPosition()! * 100}%`,
@@ -913,34 +877,29 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 							}}
 						/>
 					</Show>
-
-					{/* Position indicator - search-override mode: both lines */}
-					<Show when={mode() === "search-override"}>
-						{/* Locked position - thick blue line */}
-						<Show when={lockedPosition() !== null}>
-							<div
-								class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
-								style={{
-									left: `${lockedPosition()! * 100}%`,
-									width: "3px",
-									"margin-left": "-1px",
-									transition: motionTransition("left"),
-								}}
-							/>
-						</Show>
-						{/* Search hover position - thin lighter blue line */}
-						<Show when={hoverPosition() !== null}>
-							<div
-								class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
-								style={{
-									left: `${hoverPosition()! * 100}%`,
-									transition: motionTransition("left"),
-								}}
-							/>
-						</Show>
+					{/* Search hover position - thin lighter blue line */}
+					<Show when={isInPlot(hoverPosition())}>
+						<div
+							class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
+							style={{
+								left: `${hoverPosition()! * 100}%`,
+								transition: motionTransition("left"),
+							}}
+						/>
 					</Show>
-				</div>
+				</Show>
 			</div>
+		</div>
+	);
+
+	const SpansColumn = () => (
+		<div class="flex flex-col h-full">
+			<Show when={!showStepViewer() && showRuler()}>
+				<Ruler />
+			</Show>
+			<Show when={showSpansRegion()}>
+				<SpansRegion />
+			</Show>
 		</div>
 	);
 
@@ -952,7 +911,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			stopCount={stepViewer.stops().length}
 			stopIndex={stepViewer.shownIndex()}
 			stepAncestry={stepViewerStepAncestry()}
-			pages={stepViewer.pages()}
+			// In the filmstrip, every page has a row; there is no page to pick.
+			pages={showPlayerFilmstrip() ? [] : stepViewer.pages()}
 			pinnedPageId={stepViewer.pinnedPageId()}
 			onPinPage={stepViewer.pinPage}
 			onActivate={stepViewer.activate}
@@ -961,6 +921,30 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			playbackSpeed={playback.speed()}
 			onTogglePlayback={playback.toggle}
 			onCycleSpeed={playback.cycleSpeed}
+			ruler={
+				<Show when={showRuler()}>
+					<Ruler />
+				</Show>
+			}
+			filmstrip={
+				showPlayerFilmstrip() ? (
+					<ScreenshotFilmstrip
+						screenshots={props.traceInfo.screenshots() ?? []}
+						screenshotsLoading={props.traceInfo.screenshots.loading}
+						viewport={viewport()}
+						testStartTimeMs={props.testStartTimeMs()}
+						lockedTimeMs={playheadMs()}
+						hoverTimeMs={spanHoverTimeMs()}
+						describeTime={(timeMs) =>
+							describeStepRulerTime(rulerSegments(), stepViewer.stops(), timeMs)
+						}
+						zoomArea={() => spansRegionRef?.getBoundingClientRect() ?? null}
+						onPointerTime={handleFilmstripPointerTime}
+						onSeek={handleRulerSeek}
+						onWheel={handleWheel}
+					/>
+				) : undefined
+			}
 		/>
 	);
 
@@ -976,28 +960,46 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		</div>
 	);
 
-	// The step viewer stacks above the timeline; either can be left out.
+	// The player stacks above the span panels, resizable against them; either
+	// can be left out. One plot box, shared by the step ruler and the span
+	// panels, lines up their times. Panels stay full width; only their
+	// plotted content is inset, reserving the native scrollbar width in every
+	// plot, even in unscrolled panels.
 	const MainColumnContent = () => (
-		<Show when={showStepViewer()} fallback={<MainPanelContent />}>
-			<Show when={showTimeline()} fallback={<StepViewerContent />}>
-				<ResizablePanel
-					direction="vertical"
-					initialFirstPanelSize={
-						hasAnySpanPanels()
-							? STEP_VIEWER_INITIAL_SIZE_PERCENT
-							: getStepViewerAboveFilmstripInitialSize(
-									showFilmstrip()
-										? getDefaultVisibleScreenshotRows(screenshotPageCount())
-										: 1,
-								)
-					}
-					minFirstPanelSize={20}
-					maxFirstPanelSize={85}
-					firstPanel={<StepViewerContent />}
-					secondPanel={<MainPanelContent />}
-				/>
+		<div
+			class="relative flex flex-col h-full"
+			style={{
+				"container-type": "inline-size",
+				"--timeline-plot-inset": `${TIMELINE_PLOT_INSET_PX}px`,
+				"--timeline-plot-width": `calc(100cqw - ${2 * TIMELINE_PLOT_INSET_PX + scrollbarWidth()}px)`,
+			}}
+		>
+			<Show when={props.traceData.isLoading()}>
+				<LoadingOverlay />
 			</Show>
-		</Show>
+			<Show when={showStepViewer()} fallback={<SpansColumn />}>
+				<Show
+					when={hasAnySpanPanels()}
+					fallback={
+						<>
+							<div class="flex-1 min-h-0">
+								<StepViewerContent />
+							</div>
+							<DisabledSectionsFooter />
+						</>
+					}
+				>
+					<ResizablePanel
+						direction="vertical"
+						initialFirstPanelSize={STEP_VIEWER_INITIAL_SIZE_PERCENT}
+						minFirstPanelSize={20}
+						maxFirstPanelSize={85}
+						firstPanel={<StepViewerContent />}
+						secondPanel={<SpansColumn />}
+					/>
+				</Show>
+			</Show>
+		</div>
 	);
 
 	return (

@@ -3,7 +3,7 @@ import type { ViewerSettings } from "./viewerSettings";
 /**
  * Which regions of the trace viewer are shown, controlled by the `view`
  * preset query parameter (e.g. `?view=player`) and/or an explicit `panels`
- * list (e.g. `?panels=viewer,filmstrip`).
+ * list (e.g. `?panels=viewer,ruler`).
  *
  * This is read-only layout configuration intended for embedding: it is read
  * once when the viewer mounts and is never written back to the URL. When
@@ -14,10 +14,11 @@ import type { ViewerSettings } from "./viewerSettings";
 export const VIEWER_PANEL_IDS = [
 	/** Top bar: test name, status, error spans, search, settings, time readout */
 	"header",
-	/** Timeline ruler with the test phase bar */
+	/**
+	 * Step ruler: the whole test with its steps, to scrub through it, showing
+	 * a screenshot filmstrip on hover
+	 */
 	"ruler",
-	/** Screenshot filmstrip rows */
-	"filmstrip",
 	/** Step viewer: the large screenshot with step and playback controls */
 	"viewer",
 	/** Test steps timeline */
@@ -37,18 +38,10 @@ export type ViewerPanels = Record<ViewerPanelId, boolean>;
 export const VIEWER_VIEWS = {
 	/** Every panel */
 	full: VIEWER_PANEL_IDS,
-	/** Step viewer with a ruler and filmstrip to scrub through the test */
-	player: ["viewer", "ruler", "filmstrip"],
-	/** Everything except the step viewer: header, timelines, filmstrip and details */
-	spans: [
-		"header",
-		"ruler",
-		"filmstrip",
-		"steps",
-		"browser",
-		"external",
-		"details",
-	],
+	/** Step viewer with the step ruler to scrub through the test */
+	player: ["viewer", "ruler"],
+	/** Everything except the step viewer: header, ruler, timelines and details */
+	spans: ["header", "ruler", "steps", "browser", "external", "details"],
 } as const satisfies Record<string, readonly ViewerPanelId[]>;
 
 export type ViewerViewId = keyof typeof VIEWER_VIEWS;
@@ -82,7 +75,8 @@ function parsePanelList(value: string | null): ViewerPanelId[] {
  * Resolves the shown panels from the query parameters:
  *
  * 1. `panels`, a comma-separated list of panel names, wins when it contains
- *    any recognised name. Unknown names are ignored.
+ *    any recognised name. Unknown names are ignored, so links naming panels
+ *    since removed (such as `filmstrip`) still work.
  * 2. Otherwise `view` selects a preset (`full`, `player`, `spans`).
  * 3. Otherwise `null`: the URL doesn't choose, so the saved viewer settings
  *    apply. A typo therefore never results in an empty viewer.
@@ -108,9 +102,9 @@ export function readViewerPanelsFromQueryParams(): ViewerPanels | null {
 export function viewerSettingsFromPanels(panels: ViewerPanels): ViewerSettings {
 	return {
 		stepViewer: panels.viewer,
-		filmstrip: panels.filmstrip,
 		steps: panels.steps,
 		browser: panels.browser,
 		external: panels.external,
+		playerScreen: "big-screen",
 	};
 }

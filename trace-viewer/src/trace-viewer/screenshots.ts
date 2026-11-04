@@ -15,10 +15,3 @@ export function findScreenshotAtTime(
 	}
 	return bestScreenshot;
 }
-
-export function isSameScreenshotPage(
-	first: ScreenshotInfo,
-	second: ScreenshotInfo,
-): boolean {
-	return first.pageId === second.pageId;
-}

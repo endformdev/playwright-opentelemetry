@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	calculateInitialPanelSizes,
-	getStepViewerAboveFilmstripInitialSize,
-} from "./panelSizing";
+import { calculateInitialPanelSizes } from "./panelSizing";
 
 describe("calculateInitialPanelSizes", () => {
 	it("returns empty object when no panels are active", () => {
@@ -65,16 +62,5 @@ describe("calculateInitialPanelSizes", () => {
 		expect(result.steps).toBeCloseTo(33.33, 1);
 		expect(result.browser).toBeCloseTo(33.33, 1);
 		expect(result.external).toBeCloseTo(33.33, 1);
-	});
-});
-
-describe("getStepViewerAboveFilmstripInitialSize", () => {
-	it("leaves the filmstrip a fifth of the height for one page", () => {
-		expect(getStepViewerAboveFilmstripInitialSize(1)).toBe(80);
-	});
-
-	it("gives the filmstrip a little more room for each further row", () => {
-		expect(getStepViewerAboveFilmstripInitialSize(2)).toBe(72);
-		expect(getStepViewerAboveFilmstripInitialSize(2.5)).toBe(68);
 	});
 });

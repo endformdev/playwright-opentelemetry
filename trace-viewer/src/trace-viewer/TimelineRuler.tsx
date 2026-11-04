@@ -1,23 +1,30 @@
-import { Tooltip } from "@ark-ui/solid/tooltip";
-import ZoomIn from "lucide-solid/icons/zoom-in";
 import {
 	createEffect,
+	createMemo,
 	createSignal,
 	For,
+	on,
 	onCleanup,
 	onMount,
 	Show,
 } from "solid-js";
-import { Portal } from "solid-js/web";
+import type { ScreenshotInfo } from "../trace-info-loader";
 import { useViewportContext } from "./contexts/ViewportContext";
-import type { TestPhase } from "./detectTestPhases";
+import { RulerFilmstrip } from "./RulerFilmstrip";
+import {
+	describeStepRulerTime,
+	getStepRulerItemAtTime,
+	getStepRulerSegmentState,
+	type StepRulerItem,
+	type StepRulerSegments,
+} from "./stepRulerSegments";
+import type { StepStop } from "./stepStops";
 import { calculateTimelineScale, type TimelineTick } from "./timelineScale";
 import {
 	clampViewport,
 	isFullyZoomedOut,
 	type TimelineViewport,
 	timeToTotalPosition,
-	viewportPositionToTime,
 } from "./viewport";
 
 export interface TimelineRulerProps {
@@ -25,22 +32,34 @@ export interface TimelineRulerProps {
 	durationMs: number;
 	/** Current viewport state for showing the visible region indicator */
 	viewport: TimelineViewport;
-	/** Current hover position in viewport space (0-1), or null if not hovering */
-	hoverPosition: number | null;
 	/** Callback when viewport is adjusted via handle drag or pan */
 	onViewportChange?: (newViewport: TimelineViewport) => void;
-	/** Test phases (before hooks, test body, after hooks) - if present, shows phase indicator bar */
-	testPhases?: TestPhase[] | null;
-	/** Callback when a phase is clicked */
-	onPhaseClick?: (phase: TestPhase) => void;
 	/** Callback when ruler is double-clicked (for zoom reset) */
 	onDoubleClick?: () => void;
+	segments: StepRulerSegments;
+	stops: StepStop[];
+	/** The locked time, marked with the playhead knob; null when unlocked */
+	playheadMs: number | null;
+	/** The stop of the step the viewer is on, drawn as current */
+	currentStopIndex: number | null;
+	/** Time hovered elsewhere (the span panels), marked with a thin line */
+	hoverTimeMs: number | null;
+	/** A press anywhere on the ruler, or a drag along it, seeks */
+	onSeek: (timeMs: number) => void;
 	/**
-	 * Times of the step viewer's stops (relative to test start), marked with
-	 * small ticks along the ruler's bottom edge so playback and stepping show
-	 * where the current time sits among the steps.
+	 * The pointer moving over the ruler, with the step under it, or leaving
+	 * it (null)
 	 */
-	stepStopTimesMs?: number[];
+	onPointerTime: (timeMs: number | null, stepId: string | null) => void;
+	screenshots: ScreenshotInfo[];
+	testStartTimeMs: number;
+	/**
+	 * Whether hovering opens a filmstrip of the whole test; not while the
+	 * step viewer already shows one
+	 */
+	showFilmstrip: boolean;
+	/** Where the filmstrip opens while the pointer is on the ruler */
+	filmstripPlacement: "above" | "below";
 }
 
 /** Aligns ruler content with the shared timeline plot box. */
@@ -49,13 +68,14 @@ const PLOT_STYLE = {
 	width: "var(--timeline-plot-width)",
 };
 
-/** Height of the test phase bar under the ruler (h-1.5) */
-const PHASE_BAR_HEIGHT_PX = 6;
-/** How far step ticks rise into the time ruler */
-const STEP_TICK_RISE_PX = 4;
-
 /** Minimum viewport width as percentage of total duration */
 const MIN_VIEWPORT_WIDTH_PERCENT = 0.01;
+/** How far a press on the zoom window moves before it pans instead of seeking */
+const CLICK_SLOP_PX = 3;
+
+/** Light stripes over the bar, so hooks read hatched both before and after the playhead */
+const HOOKS_BACKGROUND =
+	"repeating-linear-gradient(135deg, rgb(255 255 255 / 0.7) 0 2px, transparent 2px 5px)";
 
 type RulerDragMode = "left-handle" | "right-handle" | "pan";
 
@@ -67,63 +87,95 @@ interface RulerDragState {
 }
 
 /**
- * A fixed-height timeline ruler showing time divisions.
- * Automatically adapts the number and spacing of tick marks based on available width.
- * When zoomed, shows an overlay indicating the currently visible region with draggable handles.
+ * The step ruler: the whole test as a scrubber. A solid bar along the top,
+ * filled blue up to the playhead, with a line at each step's edges and the
+ * hooks hatched at either end; the time ticks run below it. When zoomed, the
+ * visible window is drawn over the ticks and can be dragged or resized.
+ *
+ * Hovering anywhere on the ruler opens a filmstrip of the whole test, lined
+ * up with it. Pressing anywhere on it locks that exact time, and dragging
+ * keeps locking under the pointer.
  */
 export function TimelineRuler(props: TimelineRulerProps) {
 	const { motionTransition } = useViewportContext();
-	let containerRef: HTMLDivElement | undefined;
+	let plotRef: HTMLDivElement | undefined;
 
 	const [ticks, setTicks] = createSignal<TimelineTick[]>([]);
 	const [dragState, setDragState] = createSignal<RulerDragState | null>(null);
+	/** The pointer pressed on the ruler, scrubbing while it moves */
+	const [scrubPointerId, setScrubPointerId] = createSignal<number | null>(null);
+	const [pointer, setPointer] = createSignal<{
+		timeMs: number;
+		item: StepRulerItem | null;
+	} | null>(null);
 
-	// Set up ResizeObserver to recalculate ticks when width changes
-	createEffect(() => {
-		if (!containerRef) return;
-
-		const resizeObserver = new ResizeObserver((entries) => {
-			for (const entry of entries) {
-				const width = entry.contentRect.width;
-				if (width > 0) {
-					const scale = calculateTimelineScale(props.durationMs, width);
-					setTicks(scale.ticks);
-				}
-			}
-		});
-
-		resizeObserver.observe(containerRef);
-
-		onCleanup(() => {
-			resizeObserver.disconnect();
-		});
+	const updateTicks = () => {
+		const width = plotRef?.getBoundingClientRect().width ?? 0;
+		if (width > 0)
+			setTicks(calculateTimelineScale(props.durationMs, width).ticks);
+	};
+	onMount(() => {
+		if (!plotRef) return;
+		const resizeObserver = new ResizeObserver(updateTicks);
+		resizeObserver.observe(plotRef);
+		onCleanup(() => resizeObserver.disconnect());
 	});
+	createEffect(on(() => props.durationMs, updateTicks));
 
-	// Recalculate when duration changes
-	createEffect(() => {
-		if (containerRef) {
-			const width = containerRef.getBoundingClientRect().width;
-			if (width > 0) {
-				const scale = calculateTimelineScale(props.durationMs, width);
-				setTicks(scale.ticks);
-			}
+	const toPercent = (timeMs: number) =>
+		timeToTotalPosition(timeMs, props.viewport) * 100;
+	const viewportStartPercent = () => toPercent(props.viewport.visibleStartMs);
+	const viewportEndPercent = () => toPercent(props.viewport.visibleEndMs);
+
+	const timeAtClientX = (clientX: number): number | null => {
+		const rect = plotRef?.getBoundingClientRect();
+		if (!rect || rect.width <= 0) return null;
+		const position = Math.max(
+			0,
+			Math.min(1, (clientX - rect.left) / rect.width),
+		);
+		return position * props.durationMs;
+	};
+
+	const seekAt = (clientX: number) => {
+		const timeMs = timeAtClientX(clientX);
+		if (timeMs !== null) props.onSeek(timeMs);
+	};
+
+	const handlePointerMove = (event: PointerEvent) => {
+		const timeMs = timeAtClientX(event.clientX);
+		if (timeMs === null) return;
+		const item = getStepRulerItemAtTime(props.segments, props.stops, timeMs);
+		setPointer({ timeMs, item });
+		props.onPointerTime(timeMs, item?.kind === "step" ? item.step.id : null);
+		if (scrubPointerId() === event.pointerId) props.onSeek(timeMs);
+	};
+
+	const handlePointerLeave = () => {
+		if (scrubPointerId() !== null) return;
+		setPointer(null);
+		props.onPointerTime(null, null);
+	};
+
+	// The zoom window and its handles drag with the mouse; everywhere else a
+	// press locks the time under it.
+	const handlePointerDown = (event: PointerEvent) => {
+		if (event.button !== 0) return;
+		if (
+			event.target instanceof Element &&
+			event.target.closest("[data-zoom-control]")
+		) {
+			return;
 		}
-	});
+		event.preventDefault();
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		setScrubPointerId(event.pointerId);
+		seekAt(event.clientX);
+	};
 
-	// Calculate viewport indicator positions (as percentages of total timeline)
-	const viewportStartPercent = () =>
-		timeToTotalPosition(props.viewport.visibleStartMs, props.viewport) * 100;
-	const viewportEndPercent = () =>
-		timeToTotalPosition(props.viewport.visibleEndMs, props.viewport) * 100;
-	const viewportWidthPercent = () =>
-		viewportEndPercent() - viewportStartPercent();
-
-	// Calculate hover position on the total timeline (not viewport)
-	// Convert from viewport space (0-1) to absolute time, then to total position
-	const hoverPositionOnTotal = () => {
-		if (props.hoverPosition === null) return null;
-		const timeMs = viewportPositionToTime(props.hoverPosition, props.viewport);
-		return timeToTotalPosition(timeMs, props.viewport) * 100;
+	// Released outside the ruler, the pointer leaves it once capture ends.
+	const endScrub = (event: PointerEvent) => {
+		if (scrubPointerId() === event.pointerId) setScrubPointerId(null);
 	};
 
 	// Handle drag start on handles or viewport center
@@ -131,19 +183,16 @@ export function TimelineRuler(props: TimelineRulerProps) {
 		e.preventDefault();
 		e.stopPropagation();
 
-		if (!containerRef) return;
-
-		const containerWidth = containerRef.getBoundingClientRect().width;
+		if (!plotRef) return;
 
 		setDragState({
 			mode,
 			startMouseX: e.clientX,
-			containerWidth,
+			containerWidth: plotRef.getBoundingClientRect().width,
 			initialViewport: { ...props.viewport },
 		});
 	};
 
-	// Handle drag movement
 	const handleMouseMove = (e: MouseEvent) => {
 		const state = dragState();
 		if (!state || !props.onViewportChange) return;
@@ -158,14 +207,13 @@ export function TimelineRuler(props: TimelineRulerProps) {
 			case "left-handle": {
 				// Move left edge, keep right edge fixed
 				const newStart = state.initialViewport.visibleStartMs + deltaMsTotal;
-				const minStart = 0;
 				const maxStart =
 					state.initialViewport.visibleEndMs -
 					state.initialViewport.totalDurationMs * MIN_VIEWPORT_WIDTH_PERCENT;
 
 				newViewport = {
 					...state.initialViewport,
-					visibleStartMs: Math.max(minStart, Math.min(maxStart, newStart)),
+					visibleStartMs: Math.max(0, Math.min(maxStart, newStart)),
 				};
 				break;
 			}
@@ -215,15 +263,20 @@ export function TimelineRuler(props: TimelineRulerProps) {
 		props.onViewportChange(clampViewport(newViewport));
 	};
 
-	// Handle drag end
-	const handleMouseUp = () => {
-		setDragState(null);
-	};
-
 	// Set up global mouse event listeners for drag
 	onMount(() => {
 		const onMouseMove = (e: MouseEvent) => handleMouseMove(e);
-		const onMouseUp = () => handleMouseUp();
+		const onMouseUp = (e: MouseEvent) => {
+			const state = dragState();
+			setDragState(null);
+			// A click on the zoom window, without panning it, seeks there too.
+			if (
+				state?.mode === "pan" &&
+				Math.abs(e.clientX - state.startMouseX) < CLICK_SLOP_PX
+			) {
+				seekAt(e.clientX);
+			}
+		};
 
 		document.addEventListener("mousemove", onMouseMove);
 		document.addEventListener("mouseup", onMouseUp);
@@ -234,7 +287,6 @@ export function TimelineRuler(props: TimelineRulerProps) {
 		});
 	});
 
-	// Determine cursor based on drag state
 	const getCursor = () => {
 		const state = dragState();
 		if (!state) return undefined;
@@ -242,29 +294,36 @@ export function TimelineRuler(props: TimelineRulerProps) {
 		return "ew-resize";
 	};
 
-	// Get phase color based on type
-	const getPhaseColor = (type: TestPhase["type"]) => {
-		switch (type) {
-			case "before-hooks":
-				return "bg-amber-300/60 hover:bg-amber-300/80";
-			case "test-body":
-				return "bg-green-300/60 hover:bg-green-300/80";
-			case "after-hooks":
-				return "bg-amber-300/60 hover:bg-amber-300/80";
-		}
-	};
+	// While the pointer is on the ruler it marks the time; otherwise the
+	// time hovered in the span panels does.
+	const hoverLineTimeMs = () => pointer()?.timeMs ?? props.hoverTimeMs;
 
-	// Calculate phase position as percentage of total duration
-	const getPhasePosition = (phase: TestPhase) => {
-		const startPercent = (phase.startMs / props.durationMs) * 100;
-		const endPercent = (phase.endMs / props.durationMs) * 100;
-		return {
-			left: startPercent,
-			width: endPercent - startPercent,
-		};
-	};
+	const filmstripLabel = createMemo(() => {
+		const current = pointer();
+		return current
+			? describeStepRulerTime(props.segments, props.stops, current.timeMs)
+			: "";
+	});
 
-	const hasPhases = () => props.testPhases && props.testPhases.length > 0;
+	const rangeStyle = (startMs: number, endMs: number) => ({
+		left: `${toPercent(startMs)}%`,
+		width: `${toPercent(endMs) - toPercent(startMs)}%`,
+	});
+
+	const currentSegment = () =>
+		props.segments.steps.find(
+			(segment) => segment.stopIndex === props.currentStopIndex,
+		);
+
+	/** Where a line marks a step's start or end, once per time */
+	const stepEdgesMs = createMemo(() => [
+		...new Set(
+			props.segments.steps.flatMap((segment) => [
+				segment.startMs,
+				segment.endMs,
+			]),
+		),
+	]);
 
 	const handleDoubleClick = (e: MouseEvent) => {
 		e.stopPropagation();
@@ -273,173 +332,208 @@ export function TimelineRuler(props: TimelineRulerProps) {
 
 	return (
 		<div
-			class="flex-shrink-0 select-none"
+			class="relative flex-shrink-0 cursor-pointer select-none border-b border-gray-200 bg-white"
 			data-testid="timeline-ruler"
+			style={{ cursor: getCursor() }}
+			onPointerDown={handlePointerDown}
+			onPointerMove={handlePointerMove}
+			onPointerUp={endScrub}
+			onPointerCancel={endScrub}
+			onPointerLeave={handlePointerLeave}
 			onDblClick={handleDoubleClick}
 		>
-			{/* Main ruler area */}
-			<div
-				class="relative h-6 bg-gray-50"
-				classList={{ "border-b border-gray-200": !hasPhases() }}
-				style={{ cursor: getCursor() }}
-			>
-				<div ref={containerRef} class="absolute inset-y-0" style={PLOT_STYLE}>
-					{/* Viewport indicator overlay - shows when zoomed in */}
+			<Show when={props.showFilmstrip}>
+				<RulerFilmstrip
+					open={pointer() !== null}
+					placement={props.filmstripPlacement}
+					screenshots={props.screenshots}
+					testStartTimeMs={props.testStartTimeMs}
+					durationMs={props.durationMs}
+					pointerTimeMs={pointer()?.timeMs ?? null}
+					label={filmstripLabel()}
+					range={pointer()?.item ?? null}
+				/>
+			</Show>
+
+			<div class="relative h-[52px]">
+				<div ref={plotRef} class="absolute inset-y-0" style={PLOT_STYLE}>
+					{/* Out of view when zoomed: dimmed across the whole ruler */}
 					<Show when={!isFullyZoomedOut(props.viewport)}>
-						{/* Dimmed areas outside viewport */}
 						<div
-							class="absolute top-0 bottom-0 bg-gray-300/30 pointer-events-none"
+							class="pointer-events-none absolute inset-y-0 left-0 z-20 bg-gray-400/15"
 							style={{
-								left: "0%",
 								width: `${viewportStartPercent()}%`,
 								transition: motionTransition("width"),
 							}}
 						/>
 						<div
-							class="absolute top-0 bottom-0 bg-gray-300/30 pointer-events-none"
+							class="pointer-events-none absolute inset-y-0 right-0 z-20 bg-gray-400/15"
 							style={{
 								left: `${viewportEndPercent()}%`,
-								right: "0%",
 								transition: motionTransition("left"),
 							}}
 						/>
-
-						{/* Viewport box - draggable center for panning */}
-						<div
-							class="absolute top-0 bottom-0 bg-blue-500/10 border-y border-blue-400/50"
-							style={{
-								left: `${viewportStartPercent()}%`,
-								width: `${viewportWidthPercent()}%`,
-								cursor: dragState()?.mode === "pan" ? "grabbing" : "grab",
-								transition: motionTransition("left", "width"),
-							}}
-							onMouseDown={handleMouseDown("pan")}
-						/>
-
-						{/* Left handle */}
-						<div
-							class="absolute top-0 bottom-0 w-1.5 bg-blue-500 hover:bg-blue-600 cursor-ew-resize z-10 transition-colors"
-							style={{
-								left: `${viewportStartPercent()}%`,
-								transform: "translateX(-50%)",
-								transition: motionTransition("left"),
-							}}
-							onMouseDown={handleMouseDown("left-handle")}
-						>
-							{/* Handle grip indicator */}
-							<div class="absolute inset-y-1 left-0.5 w-px bg-blue-300" />
-						</div>
-
-						{/* Right handle */}
-						<div
-							class="absolute top-0 bottom-0 w-1.5 bg-blue-500 hover:bg-blue-600 cursor-ew-resize z-10 transition-colors"
-							style={{
-								left: `${viewportEndPercent()}%`,
-								transform: "translateX(-50%)",
-								transition: motionTransition("left"),
-							}}
-							onMouseDown={handleMouseDown("right-handle")}
-						>
-							{/* Handle grip indicator */}
-							<div class="absolute inset-y-1 left-0.5 w-px bg-blue-300" />
-						</div>
 					</Show>
 
-					{/* Tick marks and labels */}
-					<For each={ticks()}>
-						{(tick, index) => {
-							const isLast = () => index() === ticks().length - 1;
-
-							return (
+					{/* Step bar: one solid bar, lined at each step's edges */}
+					<div
+						class="absolute inset-x-0 top-0 h-6"
+						data-testid="step-ruler-bar"
+					>
+						<div class="absolute inset-x-0 top-2 h-3 overflow-hidden rounded-[3px] bg-gray-200">
+							{/* Steps sit a shade darker than the time between them */}
+							<For each={props.segments.steps}>
+								{(segment) => (
+									<div
+										class="absolute inset-y-0 bg-gray-300"
+										style={rangeStyle(segment.startMs, segment.endMs)}
+										data-testid="step-ruler-step"
+										data-stop-index={segment.stopIndex}
+										data-span-id={segment.step.id}
+										data-state={getStepRulerSegmentState(
+											segment,
+											props.playheadMs,
+											props.currentStopIndex,
+										)}
+									/>
+								)}
+							</For>
+							<Show when={props.playheadMs !== null}>
 								<div
-									class="absolute top-0 bottom-0 flex items-center pointer-events-none"
-									style={{
-										left: `${tick.position * 100}%`,
-									}}
-								>
-									{/* Vertical tick line - almost full height */}
-									<div class="w-px h-5 bg-gray-300" />
-
-									{/* Label - to the right of the tick, except for last tick */}
-									<span
-										class="text-[10px] text-gray-500 whitespace-nowrap pl-1"
+									class="absolute inset-y-0 left-0 bg-blue-500"
+									style={{ width: `${toPercent(props.playheadMs!)}%` }}
+								/>
+							</Show>
+							<Show when={currentSegment()}>
+								{(segment) => (
+									<div
+										class="absolute inset-y-0 bg-gray-900/25"
+										style={rangeStyle(segment().startMs, segment().endMs)}
+									/>
+								)}
+							</Show>
+							<Show when={pointer()?.item}>
+								{(item) => (
+									<div
+										class="absolute inset-y-0 bg-gray-900/15"
+										style={rangeStyle(item().startMs, item().endMs)}
+									/>
+								)}
+							</Show>
+							<For each={props.segments.hooks}>
+								{(hooks) => (
+									<div
+										class="absolute inset-y-0"
 										style={{
-											position: isLast() ? "absolute" : "relative",
-											right: isLast() ? "1px" : undefined,
+											...rangeStyle(hooks.startMs, hooks.endMs),
+											background: HOOKS_BACKGROUND,
+										}}
+										data-testid="step-ruler-hooks"
+										data-hooks={hooks.kind}
+									/>
+								)}
+							</For>
+						</div>
+						{/* Step edges stand a little proud of the bar, blue once played */}
+						<For each={stepEdgesMs()}>
+							{(timeMs) => (
+								<div
+									class="pointer-events-none absolute top-[5px] h-[18px] w-px"
+									classList={{
+										"bg-blue-800":
+											props.playheadMs !== null && timeMs <= props.playheadMs,
+										"bg-gray-400":
+											props.playheadMs === null || timeMs > props.playheadMs,
+									}}
+									style={{ left: `${toPercent(timeMs)}%` }}
+									data-testid="step-ruler-edge"
+								/>
+							)}
+						</For>
+					</div>
+
+					{/* Time ticks, with the zoom window over them when zoomed */}
+					<div class="absolute inset-x-0 top-6 bottom-0">
+						<For each={ticks()}>
+							{(tick, index) => (
+								<div
+									class="pointer-events-none absolute inset-y-0 flex items-center"
+									style={{ left: `${tick.position * 100}%` }}
+								>
+									<div class="h-3 w-px bg-gray-300" />
+									<span
+										class="whitespace-nowrap pl-1 text-[10px] text-gray-500"
+										style={{
+											position:
+												index() === ticks().length - 1
+													? "absolute"
+													: "relative",
+											right: index() === ticks().length - 1 ? "1px" : undefined,
 										}}
 									>
 										{tick.label}
 									</span>
 								</div>
-							);
-						}}
-					</For>
+							)}
+						</For>
 
-					{/* Step ticks rise a little into the time ruler and run down
-					    through the phase bar below it */}
-					<For each={props.stepStopTimesMs ?? []}>
-						{(timeMs) => {
-							const belowPx = () => (hasPhases() ? PHASE_BAR_HEIGHT_PX : 0);
-							return (
-								<div
-									class="absolute z-10 w-px bg-gray-500 pointer-events-none"
-									style={{
-										left: `${timeToTotalPosition(timeMs, props.viewport) * 100}%`,
-										bottom: `${-belowPx()}px`,
-										height: `${belowPx() + STEP_TICK_RISE_PX}px`,
-									}}
-									data-testid="ruler-step-tick"
-								/>
-							);
-						}}
-					</For>
-
-					{/* Hover indicator on total timeline */}
-					<Show when={hoverPositionOnTotal()} keyed>
-						{(pos) => (
+						<Show when={!isFullyZoomedOut(props.viewport)}>
 							<div
-								class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
-								style={{ left: `${pos}%` }}
+								class="absolute inset-y-1 rounded-sm border border-blue-400/60 bg-blue-500/10"
+								data-zoom-control
+								style={{
+									left: `${viewportStartPercent()}%`,
+									width: `${viewportEndPercent() - viewportStartPercent()}%`,
+									cursor: dragState()?.mode === "pan" ? "grabbing" : "grab",
+									transition: motionTransition("left", "width"),
+								}}
+								data-testid="ruler-zoom-window"
+								onMouseDown={handleMouseDown("pan")}
 							/>
-						)}
+							<For each={["left-handle", "right-handle"] as const}>
+								{(mode) => (
+									<div
+										class="absolute inset-y-1 z-10 w-1.5 cursor-ew-resize rounded-sm bg-blue-500 transition-colors hover:bg-blue-600"
+										data-zoom-control
+										style={{
+											left: `${mode === "left-handle" ? viewportStartPercent() : viewportEndPercent()}%`,
+											transform: "translateX(-50%)",
+											transition: motionTransition("left"),
+										}}
+										onMouseDown={handleMouseDown(mode)}
+									>
+										<div class="absolute inset-y-1 left-0.5 w-px bg-blue-300" />
+									</div>
+								)}
+							</For>
+						</Show>
+					</div>
+
+					{/* Hover line */}
+					<Show when={hoverLineTimeMs() !== null}>
+						<div
+							class="pointer-events-none absolute inset-y-0 z-30 w-px bg-blue-500"
+							style={{ left: `${toPercent(hoverLineTimeMs()!)}%` }}
+						/>
+					</Show>
+
+					{/* Playhead: a knob on the step bar, its line running down into
+					    the span panels' locked time line below */}
+					<Show when={props.playheadMs !== null}>
+						<div
+							class="pointer-events-none absolute inset-y-0 z-40"
+							style={{ left: `${toPercent(props.playheadMs!)}%` }}
+						>
+							<div
+								class="absolute top-2 bottom-0 -ml-px w-[3px] bg-blue-600"
+								data-testid="step-ruler-playhead"
+								data-time-ms={props.playheadMs}
+							/>
+							<div class="absolute top-[7px] -ml-[7px] h-3.5 w-3.5 rounded-full bg-blue-600 shadow ring-2 ring-white" />
+						</div>
 					</Show>
 				</div>
 			</div>
-
-			{/* Test phase indicator bar */}
-			<Show when={hasPhases()}>
-				<div class="relative h-1.5 bg-gray-100 border-b border-gray-200">
-					<div class="absolute inset-y-0" style={PLOT_STYLE}>
-						<For each={props.testPhases!}>
-							{(phase) => {
-								const position = getPhasePosition(phase);
-								return (
-									<Tooltip.Root openDelay={300} closeDelay={0}>
-										<Tooltip.Trigger
-											class={`absolute top-0 bottom-0 cursor-pointer transition-colors ${getPhaseColor(phase.type)}`}
-											style={{
-												left: `${position.left}%`,
-												width: `${position.width}%`,
-											}}
-											onClick={() => {
-												props.onPhaseClick?.(phase);
-											}}
-										/>
-										<Portal>
-											<Tooltip.Positioner>
-												<Tooltip.Content class="bg-gray-900 text-white text-xs px-2 py-1 rounded shadow-lg z-50 flex items-center gap-1.5">
-													<ZoomIn size={12} />
-													{phase.label}
-												</Tooltip.Content>
-											</Tooltip.Positioner>
-										</Portal>
-									</Tooltip.Root>
-								);
-							}}
-						</For>
-					</div>
-				</div>
-			</Show>
 		</div>
 	);
 }

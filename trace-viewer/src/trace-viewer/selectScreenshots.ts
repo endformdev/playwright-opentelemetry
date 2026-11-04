@@ -1,12 +1,9 @@
 /**
- * Screenshot selection utilities for the filmstrip component.
- * Extracted for better testability.
+ * Screenshot selection for the step ruler's filmstrip.
  *
  * The core principle is causality: each slot in the filmstrip represents a time range,
  * and we only show screenshots that existed at that time (never future screenshots).
  */
-
-import type { TimelineViewport } from "./viewport";
 
 export interface Screenshot {
 	timestamp: number;
@@ -14,7 +11,7 @@ export interface Screenshot {
 
 /**
  * Represents a time range for selecting screenshots.
- * Used to specify the visible viewport range.
+ * The filmstrip spreads its slots across the whole test.
  */
 export interface TimeRange {
 	startMs: number;
@@ -72,14 +69,4 @@ export function selectScreenshots<T extends Screenshot>(
 		result.push(current);
 	}
 	return result;
-}
-
-/**
- * Converts a TimelineViewport to a TimeRange for screenshot selection.
- */
-export function viewportToTimeRange(viewport: TimelineViewport): TimeRange {
-	return {
-		startMs: viewport.visibleStartMs,
-		endMs: viewport.visibleEndMs,
-	};
 }

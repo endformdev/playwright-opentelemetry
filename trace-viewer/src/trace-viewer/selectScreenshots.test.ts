@@ -5,9 +5,7 @@ import {
 	type SlotScreenshot,
 	selectScreenshots,
 	type TimeRange,
-	viewportToTimeRange,
 } from "./selectScreenshots";
-import { createViewport, zoomToRange } from "./viewport";
 
 function makeScreenshots(...timestamps: number[]): Screenshot[] {
 	return timestamps.map((timestamp) => ({ timestamp }));
@@ -159,51 +157,6 @@ describe("selectScreenshots", () => {
 			const range: TimeRange = { startMs: 500, endMs: 1000 };
 			const result = selectScreenshots(screenshots, 3, range);
 			expect(getTimestamps(result)).toEqual([300, 300, 300]);
-		});
-	});
-
-	describe("viewportToTimeRange", () => {
-		it("converts a full viewport to time range", () => {
-			const viewport = createViewport(1000);
-			const range = viewportToTimeRange(viewport);
-			expect(range.startMs).toBe(0);
-			expect(range.endMs).toBe(1000);
-		});
-
-		it("converts a zoomed viewport to time range", () => {
-			const viewport = createViewport(1000);
-			const zoomed = zoomToRange(viewport, 250, 750, 0);
-			const range = viewportToTimeRange(zoomed);
-			expect(range.startMs).toBe(250);
-			expect(range.endMs).toBe(750);
-		});
-	});
-
-	describe("integration with viewport zooming", () => {
-		it("shows screenshots respecting time boundaries when fully zoomed out", () => {
-			const screenshots = makeScreenshots(0, 250, 500, 750, 1000);
-			const viewport = createViewport(1000);
-			const range = viewportToTimeRange(viewport);
-			const result = selectScreenshots(screenshots, 3, range);
-			expect(getTimestamps(result)).toEqual([0, 250, 500]);
-		});
-
-		it("shows subset and earlier fallbacks when zoomed into a region", () => {
-			const screenshots = makeScreenshots(0, 250, 500, 750, 1000);
-			const viewport = createViewport(1000);
-			const zoomed = zoomToRange(viewport, 200, 600, 0);
-			const range = viewportToTimeRange(zoomed);
-			const result = selectScreenshots(screenshots, 3, range);
-			expect(getTimestamps(result)).toEqual([0, 250, 250]);
-		});
-
-		it("shows closest earlier screenshot when zoomed into empty region", () => {
-			const screenshots = makeScreenshots(100, 200, 800, 900);
-			const viewport = createViewport(1000);
-			const zoomed = zoomToRange(viewport, 400, 600, 0);
-			const range = viewportToTimeRange(zoomed);
-			const result = selectScreenshots(screenshots, 4, range);
-			expect(getTimestamps(result)).toEqual([200, 200, 200, 200]);
 		});
 	});
 });

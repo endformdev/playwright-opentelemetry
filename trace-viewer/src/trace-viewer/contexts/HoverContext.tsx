@@ -10,20 +10,23 @@ import {
 import type { Span } from "../../trace-data-loader/exportToSpans";
 import type { ScreenshotInfo } from "../../trace-info-loader";
 import { getElementsAtTime, type HoveredElements } from "../getElementsAtTime";
-import { findScreenshotAtTime, isSameScreenshotPage } from "../screenshots";
 import { timeToViewportPosition, viewportPositionToTime } from "../viewport";
 import { useViewportContext } from "./ViewportContext";
 
 export type HoverMode = "hover" | "locked" | "search-override";
 
-/** Who locked the timeline; any new lock or unlock replaces it. */
-export type LockSource = "timeline" | "step-viewer" | "playback";
+/**
+ * Who locked the timeline; any new lock or unlock replaces it. `ruler` is a
+ * seek or scrub on the step ruler.
+ */
+export type LockSource = "timeline" | "step-viewer" | "playback" | "ruler";
 
-export type FocusedElementType = "screenshot" | "step" | "span";
+export type FocusedElementType = "step" | "span";
 
 export interface FocusedElement {
 	type: FocusedElementType;
-	id: string; // span ID for steps/spans, or screenshot URL for screenshots
+	/** The span's ID */
+	id: string;
 }
 
 export interface HoverContextValue {
@@ -105,9 +108,7 @@ export function HoverProvider(props: HoverProviderProps) {
 			props.spans(),
 			props.screenshots(),
 			props.testStartTimeMs(),
-			hoveredElement()?.type === "screenshot"
-				? undefined
-				: hoveredElement()?.id,
+			hoveredElement()?.id,
 		);
 	});
 
@@ -120,7 +121,7 @@ export function HoverProvider(props: HoverProviderProps) {
 			props.spans(),
 			props.screenshots(),
 			props.testStartTimeMs(),
-			lockedElement()?.type === "screenshot" ? undefined : lockedElement()?.id,
+			lockedElement()?.id,
 		);
 	});
 
@@ -138,57 +139,21 @@ export function HoverProvider(props: HoverProviderProps) {
 	const displayElements = (): HoveredElements | null => {
 		switch (mode()) {
 			case "hover":
-				return withFocusedScreenshotPage(
-					hoveredElements(),
-					hoveredElement(),
-					props.screenshots(),
-					hoverTimeMs(),
-					props.testStartTimeMs(),
-				);
-			case "locked":
-				return withFocusedScreenshotPage(
-					lockedElements(),
-					lockedElement(),
-					props.screenshots(),
-					lockedTimeMs(),
-					props.testStartTimeMs(),
-				);
 			case "search-override":
-				return withFocusedScreenshotPage(
-					hoveredElements(),
-					hoveredElement(),
-					props.screenshots(),
-					hoverTimeMs(),
-					props.testStartTimeMs(),
-				);
+				return hoveredElements();
+			case "locked":
+				return lockedElements();
 		}
 	};
 
 	const displayFocusedElement = (): FocusedElement | null => {
-		let focused: FocusedElement | null;
 		switch (mode()) {
 			case "hover":
-				focused = hoveredElement();
-				break;
-			case "locked":
-				focused = lockedElement();
-				break;
 			case "search-override":
-				focused = hoveredElement();
-				break;
+				return hoveredElement();
+			case "locked":
+				return lockedElement();
 		}
-
-		if (focused?.type !== "screenshot") return focused;
-
-		const screenshot = displayElements()?.screenshot;
-		const focusedScreenshot = props
-			.screenshots()
-			.find((candidate) => candidate.url === focused.id);
-		return screenshot &&
-			focusedScreenshot &&
-			isSameScreenshotPage(screenshot, focusedScreenshot)
-			? focused
-			: null;
 	};
 
 	const lock = (
@@ -251,34 +216,6 @@ export function HoverProvider(props: HoverProviderProps) {
 			{props.children}
 		</HoverContext.Provider>
 	);
-}
-
-function withFocusedScreenshotPage(
-	elements: HoveredElements | null,
-	focused: FocusedElement | null,
-	screenshots: ScreenshotInfo[],
-	timeMs: number | null,
-	testStartTimeMs: number,
-): HoveredElements | null {
-	if (!elements || focused?.type !== "screenshot" || timeMs === null) {
-		return elements;
-	}
-
-	const focusedScreenshot = screenshots.find(
-		(screenshot) => screenshot.url === focused.id,
-	);
-	if (!focusedScreenshot) return elements;
-
-	const absoluteTimeMs = testStartTimeMs + timeMs;
-	const pageScreenshots = screenshots.filter((screenshot) =>
-		isSameScreenshotPage(screenshot, focusedScreenshot),
-	);
-	const bestScreenshot = findScreenshotAtTime(pageScreenshots, absoluteTimeMs);
-
-	return {
-		...elements,
-		screenshot: bestScreenshot ?? elements.screenshot,
-	};
 }
 
 export function useHoverContext(): HoverContextValue {

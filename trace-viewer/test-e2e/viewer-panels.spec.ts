@@ -64,7 +64,7 @@ function disabledRows(viewer: TraceViewerPage) {
 	return viewer.root.locator(".cursor-not-allowed");
 }
 
-test("shows the step viewer, ruler and filmstrip in the player view", async ({
+test("shows the step viewer with its control bar and step ruler in the player view", async ({
 	page,
 	request,
 }) => {
@@ -72,12 +72,11 @@ test("shows the step viewer, ruler and filmstrip in the player view", async ({
 	await viewer.loadTraceFromUrlParam(await createTrace(request), {
 		view: "player",
 	});
+	const { stepViewer, ruler } = viewer;
 
-	await expect(viewer.screenshots.images().first()).toBeVisible({
-		timeout: 10000,
-	});
-	await expect(viewer.stepViewer.root).toBeVisible();
-	await expect(viewer.timelineRuler).toBeVisible();
+	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+	await expect(stepViewer.controlBar).toBeVisible();
+	await expect(ruler.root).toBeVisible();
 
 	await expect(viewer.header.root).toHaveCount(0);
 	await expect(viewer.steps.root).toHaveCount(0);
@@ -87,46 +86,55 @@ test("shows the step viewer, ruler and filmstrip in the player view", async ({
 	// Panels the view leaves out aren't listed as empty either
 	await expect(disabledRows(viewer)).toHaveCount(0);
 
-	const stepViewerBox = (await viewer.stepViewer.root.boundingBox())!;
-	const rulerBox = (await viewer.timelineRuler.boundingBox())!;
-	const filmstripBox = (await viewer.screenshots.root.boundingBox())!;
-	expect(stepViewerBox.y + stepViewerBox.height).toBeLessThanOrEqual(
-		rulerBox.y,
-	);
-	expect(rulerBox.y + rulerBox.height).toBeLessThanOrEqual(filmstripBox.y);
-	expect(stepViewerBox.width).toBeCloseTo(filmstripBox.width, 0);
-	expect(stepViewerBox.height).toBeGreaterThan(filmstripBox.height);
+	await test.step("Screenshot, control bar and ruler stack down the whole viewer", async () => {
+		const viewport = page.viewportSize()!;
+		const screen = (await stepViewer.screen.boundingBox())!;
+		const bar = (await stepViewer.controlBar.boundingBox())!;
+		const rulerBox = (await ruler.root.boundingBox())!;
+		expect(screen.width).toBeCloseTo(viewport.width, 0);
+		expect(screen.y + screen.height).toBeCloseTo(bar.y, 0);
+		expect(bar.y + bar.height).toBeCloseTo(rulerBox.y, 0);
+		expect(rulerBox.y + rulerBox.height).toBeCloseTo(viewport.height, 0);
+		// The screenshot gets all the room the controls leave.
+		expect(screen.height).toBeGreaterThan(viewport.height - 120);
+		// Nothing sits over the screenshot.
+		await expect(stepViewer.screen.getByRole("button")).toHaveCount(0);
+	});
+
+	await test.step("Hovering the ruler slides the filmstrip up over the controls", async () => {
+		await expect(ruler.filmstrip.root).toBeHidden();
+		await ruler.hoverAt(0.5);
+		await expect(ruler.filmstrip.root).toBeVisible();
+		const filmstrip = (await ruler.filmstrip.root.boundingBox())!;
+		const bar = (await stepViewer.controlBar.boundingBox())!;
+		const rulerBox = (await ruler.root.boundingBox())!;
+		expect(filmstrip.y + filmstrip.height).toBeCloseTo(rulerBox.y, 0);
+		expect(filmstrip.y).toBeLessThan(bar.y);
+		await page.mouse.move(10, 10);
+		await expect(ruler.filmstrip.root).toBeHidden();
+	});
 });
 
-test("the player view's filmstrip gets more room for several pages", async ({
+test("the player view's filmstrip shows a row per page and the control bar picks pages", async ({
 	page,
 	request,
 }) => {
 	const viewer = new TraceViewerPage(page);
-	const heights = async (traceId: string) => {
-		await viewer.loadTraceFromUrlParam(traceId, { view: "player" });
-		await expect(viewer.screenshots.images().first()).toBeVisible({
-			timeout: 10000,
-		});
-		return {
-			stepViewer: (await viewer.stepViewer.root.boundingBox())!.height,
-			filmstrip: (await viewer.screenshots.root.boundingBox())!.height,
-		};
-	};
-
-	const onePage = await test.step("One page", async () =>
-		heights(await createTrace(request)));
-	const threePages = await test.step("Three pages", async () => {
-		const traceId = await createTrace(request, { pages: 3 });
-		await viewer.loadTraceFromUrlParam(traceId, { view: "player" });
-		await expect(viewer.screenshots.rows()).toHaveCount(3, { timeout: 10000 });
-		return heights(traceId);
+	await viewer.loadTraceFromUrlParam(await createTrace(request, { pages: 3 }), {
+		view: "player",
 	});
+	const { stepViewer, ruler } = viewer;
+	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
 
-	expect(threePages.filmstrip).toBeGreaterThan(onePage.filmstrip * 1.4);
-	expect(threePages.stepViewer).toBeLessThan(onePage.stepViewer);
-	// The screenshot still gets most of the room.
-	expect(threePages.stepViewer).toBeGreaterThan(threePages.filmstrip);
+	await expect(stepViewer.pagePicker.getByRole("button")).toHaveCount(3);
+	await ruler.hoverAt(0.9);
+	await expect(ruler.filmstrip.rows()).toHaveCount(3);
+	const pageIds = await ruler.filmstrip
+		.rows()
+		.evaluateAll((rows) =>
+			rows.map((row) => row.getAttribute("data-screenshot-page-id")),
+		);
+	expect(new Set(pageIds).size).toBe(3);
 });
 
 test("shows everything except the step viewer in the spans view", async ({
@@ -138,12 +146,9 @@ test("shows everything except the step viewer in the spans view", async ({
 		view: "spans",
 	});
 
-	await expect(viewer.screenshots.images().first()).toBeVisible({
-		timeout: 10000,
-	});
+	await expect(viewer.steps.root).toBeVisible({ timeout: 10000 });
 	await expect(viewer.header.root).toBeVisible();
 	await expect(viewer.timelineRuler).toBeVisible();
-	await expect(viewer.steps.root).toBeVisible();
 	await expect(viewer.browserSpans.root).toBeVisible();
 	await expect(viewer.details.root).toBeVisible();
 	await expect(viewer.stepViewer.root).toHaveCount(0);
@@ -153,6 +158,15 @@ test("shows everything except the step viewer in the spans view", async ({
 	expect(detailsBox.x).toBeGreaterThanOrEqual(
 		timelineBox.x + timelineBox.width,
 	);
+
+	// With no player above it, the ruler's filmstrip opens downwards.
+	await viewer.ruler.hoverAt(0.5);
+	await expect(viewer.ruler.filmstrip.screenshots().first()).toBeVisible();
+	const rulerBox = (await viewer.timelineRuler.boundingBox())!;
+	const filmstripBox = (await viewer.ruler.filmstrip.root.boundingBox())!;
+	expect(
+		Math.abs(filmstripBox.y - (rulerBox.y + rulerBox.height)),
+	).toBeLessThanOrEqual(1);
 });
 
 test("lets an explicit panels list override the view", async ({
@@ -160,15 +174,14 @@ test("lets an explicit panels list override the view", async ({
 	request,
 }) => {
 	const viewer = new TraceViewerPage(page);
+	// The filmstrip is no longer a panel of its own; naming it is ignored.
 	await viewer.loadTraceFromUrlParam(await createTrace(request), {
 		view: "player",
 		panels: "viewer,filmstrip",
 	});
 
-	await expect(viewer.screenshots.images().first()).toBeVisible({
-		timeout: 10000,
-	});
-	await expect(viewer.stepViewer.root).toBeVisible();
+	await expect(viewer.stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+	await expect(viewer.stepViewer.controlBar).toBeVisible();
 	await expect(viewer.timelineRuler).toHaveCount(0);
 });
 
@@ -185,10 +198,13 @@ test("only shows listed panels that have data", async ({ page, request }) => {
 	await expect(viewer.details.root).toBeVisible();
 	await expect(viewer.header.root).toHaveCount(0);
 	await expect(viewer.timelineRuler).toHaveCount(0);
-	// Listed, but the trace has no screenshots
+	// Listed, but the trace has no screenshots: listed as empty instead
 	await expect(viewer.stepViewer.root).toHaveCount(0);
-	// Not listed, so not shown as empty sections either
-	await expect(disabledRows(viewer)).toHaveCount(0);
+	await expect(
+		viewer.emptySection("No screenshots were captured during this test"),
+	).toBeVisible();
+	// The rest aren't listed, so not shown as empty sections either
+	await expect(disabledRows(viewer)).toHaveCount(1);
 });
 
 test("panels from the URL neither use nor change the saved viewer settings", async ({
