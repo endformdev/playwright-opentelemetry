@@ -12,7 +12,11 @@ import {
 	type SpanSelectionPlacement,
 } from "./spanSelection";
 import type { TimelineBar, TimelineLayout } from "./timelineLayout";
-import { fitTimeRange, frameTimeRange, getVisibleDuration } from "./viewport";
+import {
+	fitTimeRange,
+	getVisibleDuration,
+	panTimeRangeIntoView,
+} from "./viewport";
 
 /** How close to the time line a bar counts as on it for Up/Down */
 const NAVIGATION_SLOP_PX = 24;
@@ -35,11 +39,12 @@ export interface FocusSpanOptions {
 	at?: SpanSelectionPlacement | number;
 	source?: LockSource;
 	/**
-	 * `frame` (default) moves the view only as much as needed to keep a span
-	 * comfortably in frame, so hopping between neighbours stays steady. `fit`
-	 * zooms to the span and centres its row, for jumps from search or errors.
+	 * `pan` (default) keeps the zoom level and pans only as much as needed to
+	 * bring the span into view, so arrow keys and the step viewer never zoom.
+	 * `fit` zooms to the span and centres its row, for jumps from search or
+	 * errors.
 	 */
-	zoom?: "frame" | "fit";
+	view?: "pan" | "fit";
 }
 
 /** A request for the panel holding a bar to scroll its row into view. */
@@ -53,8 +58,8 @@ export interface SpanFocus {
 	/** The locked span, or null while hovering */
 	focusedSpanId: Accessor<string | null>;
 	/**
-	 * Selects a span: frames it in the timeline, locks time on it and scrolls
-	 * its bar into view. Every way of going to a span should come through
+	 * Selects a span: brings it into view in the timeline, locks time on it
+	 * and scrolls its bar into view. Every way of going to a span should come through
 	 * here. Returns false when the span is not in a shown panel.
 	 */
 	focusSpan: (spanId: string, options?: FocusSpanOptions) => boolean;
@@ -87,28 +92,27 @@ export function useSpanFocus(options: SpanFocusOptions): SpanFocus {
 	};
 
 	const focusSpan = (spanId: string, focusOptions: FocusSpanOptions = {}) => {
-		const { at = "center", source = "timeline", zoom = "frame" } = focusOptions;
+		const { at = "center", source = "timeline", view = "pan" } = focusOptions;
 		const found = untrack(() => findBar(spanId));
 		if (!found) return false;
 		const { span } = found.bar;
-		const toViewport = zoom === "fit" ? fitTimeRange : frameTimeRange;
 		const timeMs =
 			typeof at === "number" ? at : getSpanSelectionTimeMs(span, at);
-		const endMs = span.startOffsetMs + span.durationMs;
+		// The locked time can fall outside the span (a step viewer stop sits
+		// after its step), so bring both into view.
+		const startMs = Math.min(span.startOffsetMs, timeMs);
+		const endMs = Math.max(span.startOffsetMs + span.durationMs, timeMs);
+		const current = untrack(viewport);
 		batch(() => {
-			// The locked time can fall outside the span (a step viewer stop sits
-			// after its step), so frame both.
 			animateTo(
-				toViewport(
-					untrack(viewport),
-					Math.min(span.startOffsetMs, timeMs),
-					Math.max(endMs, timeMs),
-				),
+				view === "fit"
+					? fitTimeRange(current, startMs, endMs)
+					: panTimeRangeIntoView(current, startMs, endMs, timeMs),
 			);
 			lock(timeMs, { type: found.panel.elementType, id: spanId }, source);
 			setRevealRequest({
 				spanId,
-				align: zoom === "fit" ? "center" : "nearest",
+				align: view === "fit" ? "center" : "nearest",
 			});
 		});
 		return true;

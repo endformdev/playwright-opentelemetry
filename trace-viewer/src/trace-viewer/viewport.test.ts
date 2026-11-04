@@ -5,7 +5,6 @@ import {
 	clampViewport,
 	createViewport,
 	fitTimeRange,
-	frameTimeRange,
 	getMinVisibleDuration,
 	getViewportTransform,
 	getVisibleDuration,
@@ -13,6 +12,7 @@ import {
 	isFullyZoomedOut,
 	interpolateViewportMapping,
 	isTimeRangeVisible,
+	panTimeRangeIntoView,
 	panViewport,
 	resetViewport,
 	type TimelineViewport,
@@ -518,88 +518,61 @@ describe("fitTimeRange", () => {
 	});
 });
 
-describe("frameTimeRange", () => {
+describe("panTimeRangeIntoView", () => {
 	const view = (visibleStartMs: number, visibleEndMs: number) => ({
 		visibleStartMs,
 		visibleEndMs,
 		totalDurationMs: 10000,
 	});
 
-	it("leaves the viewport alone when the range is already in frame", () => {
+	it("leaves the viewport alone when the range is already in view", () => {
 		const viewport = view(0, 2000);
-		expect(frameTimeRange(viewport, 500, 1000)).toBe(viewport);
+		expect(panTimeRangeIntoView(viewport, 500, 1000, 750)).toBe(viewport);
 	});
 
-	it("zooms in and centers when the range is too narrow", () => {
-		const framed = frameTimeRange(view(0, 10000), 4000, 4300);
-
-		expect(getVisibleDuration(framed)).toBeCloseTo(2000);
-		expect(framed.visibleStartMs).toBeCloseTo(3150);
-		expect(framed.visibleEndMs).toBeCloseTo(5150);
+	it("never zooms in on a narrow range", () => {
+		const viewport = view(0, 10000);
+		expect(panTimeRangeIntoView(viewport, 4000, 4001, 4000)).toBe(viewport);
 	});
 
-	it("zooms out and centers when the range is too wide", () => {
-		const framed = frameTimeRange(view(2000, 3000), 2000, 3000);
+	it("pans just far enough to bring a range past the right edge into view", () => {
+		const panned = panTimeRangeIntoView(view(0, 2000), 6000, 6500, 6250);
 
-		expect(getVisibleDuration(framed)).toBeCloseTo(1000 / 0.6);
-		expect((framed.visibleStartMs + framed.visibleEndMs) / 2).toBeCloseTo(2500);
+		expect(getVisibleDuration(panned)).toBe(2000);
+		// The range ends a 5% margin (100ms) before the window does.
+		expect(panned.visibleEndMs).toBe(6600);
 	});
 
-	it("pans without zooming when an in-tolerance range is off screen", () => {
-		const framed = frameTimeRange(view(0, 2000), 6000, 6500);
+	it("pans just far enough to bring a range past the left edge into view", () => {
+		const panned = panTimeRangeIntoView(view(6000, 8000), 2000, 2500, 2250);
 
-		expect(getVisibleDuration(framed)).toBe(2000);
-		expect(framed.visibleStartMs).toBe(5250);
-		expect(framed.visibleEndMs).toBe(7250);
+		expect(getVisibleDuration(panned)).toBe(2000);
+		expect(panned.visibleStartMs).toBe(1900);
 	});
 
 	it("pans when a range touches the window edge", () => {
-		const framed = frameTimeRange(view(0, 2000), 1700, 2000);
+		const panned = panTimeRangeIntoView(view(0, 2000), 1700, 2000, 1850);
 
-		expect(getVisibleDuration(framed)).toBe(2000);
-		expect(framed.visibleStartMs).toBe(850);
+		expect(getVisibleDuration(panned)).toBe(2000);
+		expect(panned.visibleStartMs).toBe(100);
 	});
 
-	it("stops zooming in at the wheel zoom limit", () => {
-		const framed = frameTimeRange(view(0, 10000), 5000, 5001);
+	it("brings the focus time into view when the range is wider than the window", () => {
+		const viewport = view(0, 1000);
+		expect(panTimeRangeIntoView(viewport, 0, 8000, 500)).toBe(viewport);
 
-		expect(getVisibleDuration(framed)).toBeCloseTo(100);
-		expect((framed.visibleStartMs + framed.visibleEndMs) / 2).toBeCloseTo(
-			5000.5,
-		);
+		const panned = panTimeRangeIntoView(viewport, 0, 8000, 6000);
+		expect(getVisibleDuration(panned)).toBe(1000);
+		expect(panned.visibleEndMs).toBe(6050);
 	});
 
-	it("keeps a tiny range in place once zoomed in as far as allowed", () => {
-		const viewport = view(4950, 5050);
-		expect(frameTimeRange(viewport, 5000, 5001)).toBe(viewport);
-	});
+	it("clamps to the ends of the timeline", () => {
+		const viewport = view(0, 2000);
+		expect(panTimeRangeIntoView(viewport, 0, 50, 0)).toBe(viewport);
 
-	it("never zooms out for a tiny range when already past the zoom limit", () => {
-		const framed = frameTimeRange(view(4990, 5010), 6000, 6001);
-
-		expect(getVisibleDuration(framed)).toBeCloseTo(20);
-		expect((framed.visibleStartMs + framed.visibleEndMs) / 2).toBeCloseTo(
-			6000.5,
-		);
-	});
-
-	it("frames zero-duration ranges", () => {
-		const framed = frameTimeRange(view(0, 10000), 3000, 3000);
-
-		expect(getVisibleDuration(framed)).toBeCloseTo(100);
-		expect(framed.visibleStartMs).toBeCloseTo(2950);
-	});
-
-	it("clamps to the start of the timeline", () => {
-		const framed = frameTimeRange(view(0, 10000), 0, 300);
-
-		expect(framed.visibleStartMs).toBe(0);
-		expect(getVisibleDuration(framed)).toBeCloseTo(2000);
-	});
-
-	it("caps zooming out at the full timeline", () => {
-		const viewport = view(0, 10000);
-		expect(frameTimeRange(viewport, 0, 10000)).toBe(viewport);
+		const panned = panTimeRangeIntoView(viewport, 9950, 10000, 10000);
+		expect(panned.visibleStartMs).toBe(8000);
+		expect(panned.visibleEndMs).toBe(10000);
 	});
 });
 

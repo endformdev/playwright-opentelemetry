@@ -617,7 +617,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		spanId: string,
 		placement: SpanSelectionPlacement,
 	) => {
-		spanFocus.focusSpan(spanId, { at: placement, zoom: "fit" });
+		spanFocus.focusSpan(spanId, { at: placement, view: "fit" });
 	};
 
 	/** The details panel's span links focus a span and hand arrow keys back. */

@@ -167,22 +167,6 @@ export function clampViewport(viewport: TimelineViewport): TimelineViewport {
 	};
 }
 
-/** How much of the visible window a focused time range should occupy. */
-export interface FrameTolerance {
-	/** Zoom in when the range is narrower than this fraction of the window */
-	minFraction: number;
-	/** Zoom out when the range is wider than this fraction of the window */
-	maxFraction: number;
-	/** Fraction of the window kept clear at each edge of a range in frame */
-	edgeMargin: number;
-}
-
-export const DEFAULT_FRAME_TOLERANCE: FrameTolerance = {
-	minFraction: 0.15,
-	maxFraction: 0.6,
-	edgeMargin: 0.05,
-};
-
 /** Narrowest window the wheel zoom limits allow for a timeline. */
 export function getMinVisibleDuration(totalDurationMs: number): number {
 	return Math.min(
@@ -218,56 +202,38 @@ export function fitTimeRange(
 	});
 }
 
+/** Fraction of the window kept clear at each edge of a range panned into view */
+const PAN_EDGE_MARGIN = 0.05;
+
 /**
- * Brings a time range into frame so it occupies a proportion of the window
- * within the tolerance. Ranges already in frame leave the viewport untouched,
- * so hopping between similar ranges does not move the timeline. Otherwise the
- * window is rescaled to the nearest tolerance edge, without passing the zoom
- * limits, and centered on the range.
+ * Pans, without zooming, just far enough to bring a time range into view, so
+ * stepping between spans keeps the zoom level the user chose. Ranges already
+ * in view leave the viewport untouched. A range wider than the window cannot
+ * fit, so `focusMs` (the time being locked) is brought into view instead.
  */
-export function frameTimeRange(
+export function panTimeRangeIntoView(
 	viewport: TimelineViewport,
 	startMs: number,
 	endMs: number,
-	tolerance: FrameTolerance = DEFAULT_FRAME_TOLERANCE,
+	focusMs: number,
 ): TimelineViewport {
-	const visibleDuration = getVisibleDuration(viewport);
-	const rangeDuration = Math.max(0, endMs - startMs);
+	const margin = getVisibleDuration(viewport) * PAN_EDGE_MARGIN;
+	const minMs = viewport.visibleStartMs + margin;
+	const maxMs = viewport.visibleEndMs - margin;
+	const fits = endMs - startMs <= maxMs - minMs;
+	const fromMs = fits ? startMs : focusMs;
+	const toMs = fits ? endMs : focusMs;
 
-	let targetDuration = visibleDuration;
-	if (rangeDuration < visibleDuration * tolerance.minFraction) {
-		// Zoom in, but never out: the user may already be past the wheel limit.
-		targetDuration = Math.min(
-			visibleDuration,
-			Math.max(
-				getMinVisibleDuration(viewport.totalDurationMs),
-				rangeDuration / tolerance.minFraction,
-			),
-		);
-	} else if (rangeDuration > visibleDuration * tolerance.maxFraction) {
-		targetDuration = Math.max(
-			visibleDuration,
-			Math.min(viewport.totalDurationMs, rangeDuration / tolerance.maxFraction),
-		);
-	}
+	let deltaMs = 0;
+	if (fromMs < minMs) deltaMs = fromMs - minMs;
+	else if (toMs > maxMs) deltaMs = toMs - maxMs;
+	if (deltaMs === 0) return viewport;
 
-	const margin = visibleDuration * tolerance.edgeMargin;
-	const isInFrame =
-		targetDuration === visibleDuration &&
-		startMs >= viewport.visibleStartMs + margin &&
-		endMs <= viewport.visibleEndMs - margin;
-	if (isInFrame) return viewport;
-
-	const centerMs = startMs + rangeDuration / 2;
-	const framed = clampViewport({
-		visibleStartMs: centerMs - targetDuration / 2,
-		visibleEndMs: centerMs + targetDuration / 2,
-		totalDurationMs: viewport.totalDurationMs,
-	});
-	return framed.visibleStartMs === viewport.visibleStartMs &&
-		framed.visibleEndMs === viewport.visibleEndMs
+	const panned = panViewport(viewport, deltaMs);
+	return panned.visibleStartMs === viewport.visibleStartMs &&
+		panned.visibleEndMs === viewport.visibleEndMs
 		? viewport
-		: framed;
+		: panned;
 }
 
 /**
