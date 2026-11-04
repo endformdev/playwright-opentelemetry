@@ -33,9 +33,13 @@ test("steps through each test body step, showing it once it has finished", async
 		startOffsetMs: 600,
 		parentSpanId: login,
 	});
-	const click = builder.addStepSpanAndGetId("Click login", 500, {
+	const click = builder.addStepSpanAndGetId("Click", 500, {
 		startOffsetMs: 1000,
 		parentSpanId: login,
+		attributes: {
+			"test.step.category": "pw:api",
+			"test.step.subtitle": "getByRole('button', { name: 'Log in' })",
+		},
 	});
 	const check = builder.addStepSpanAndGetId("Check dashboard", 500, {
 		startOffsetMs: 2000,
@@ -81,11 +85,25 @@ test("steps through each test body step, showing it once it has finished", async
 		);
 		// The counter marks the stop; the focus ring is for span navigation.
 		await expect(focusRing).toHaveCount(0);
+		await expect(stepViewer.step).toHaveAttribute("data-span-id", stepId);
+	};
+	/** The step named in the viewer's top right corner. */
+	const expectStepCaption = async (
+		title: string,
+		subtitle: string | null,
+		parents: string | null,
+	) => {
+		await expect(stepViewer.stepTitle).toHaveText(title);
+		if (subtitle === null) await expect(stepViewer.stepSubtitle).toBeHidden();
+		else await expect(stepViewer.stepSubtitle).toHaveText(subtitle);
+		if (parents === null) await expect(stepViewer.stepParents).toBeHidden();
+		else await expect(stepViewer.stepParents).toHaveText(parents);
 	};
 	const expectNotOnStop = async () => {
 		await expect(stepViewer.position).toHaveText("–/3");
 		await expect(stepViewer.position).not.toHaveAttribute("data-active");
 		await expect(viewer.details.badges).toHaveCount(0);
+		await expect(stepViewer.step).toBeHidden();
 	};
 
 	/** The first step's bar width as a share of the timeline plot. */
@@ -116,6 +134,7 @@ test("steps through each test body step, showing it once it has finished", async
 		await page.keyboard.press("ArrowRight");
 		// Shown just before the next step starts, once the page has settled.
 		await expectStop("1/3", "Step 1/3", fill, 950);
+		await expectStepCaption("Fill username", null, "Login");
 		// Stepping keeps the zoom: the whole test stays in view, where the step
 		// is 300 of 4000ms, with the step and the moment after it both shown.
 		await expect.poll(focusedStepShare).toBeGreaterThan(0.06);
@@ -130,9 +149,16 @@ test("steps through each test body step, showing it once it has finished", async
 	await test.step("Arrow keys move from step to step", async () => {
 		await page.keyboard.press("ArrowRight");
 		await expectStop("2/3", "Step 2/3", click, 1600);
+		// The locator the step acted on is shown in full below its title.
+		await expectStepCaption(
+			"Click",
+			"getByRole('button', { name: 'Log in' })",
+			"Login",
+		);
 		// The last step settles until the after hooks start.
 		await page.keyboard.press("ArrowRight");
 		await expectStop("3/3", "Step 3/3", check, 2600);
+		await expectStepCaption("Check dashboard", null, null);
 		await expect(stepViewer.nextButton).toBeDisabled();
 		await page.keyboard.press("ArrowRight");
 		await expect(stepViewer.position).toHaveText("3/3");

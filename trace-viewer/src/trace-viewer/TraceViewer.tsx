@@ -43,7 +43,7 @@ import type { SpanSelectionPlacement } from "./spanSelection";
 import { StepViewer } from "./StepViewer";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
-import { buildTestStructure } from "./testStructure";
+import { buildTestStructure, getStepAncestry } from "./testStructure";
 import { layoutTimelineSpans } from "./timelineLayout";
 import { usePlayback } from "./usePlayback";
 import { useSpanFocus } from "./useSpanFocus";
@@ -528,6 +528,13 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enabled: () => showStepViewer() && !props.traceData.isLoading(),
 	});
 
+	/** The shown step (the stop, or the step playing) and its ancestors */
+	const stepViewerStepAncestry = createMemo(() => {
+		const index = stepViewer.shownIndex();
+		const stop = index === null ? null : stepViewer.stops()[index];
+		return stop ? getStepAncestry(stop.stepId, spanById()) : [];
+	});
+
 	/** Names the viewer's stop on the focused step's details card. */
 	const stepViewerBadge = () => {
 		const index = stepViewer.currentIndex();
@@ -937,6 +944,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 										screenshotsLoading={props.traceInfo.screenshots.loading}
 										stopCount={stepViewer.stops().length}
 										stopIndex={stepViewer.shownIndex()}
+										stepAncestry={stepViewerStepAncestry()}
 										pages={stepViewer.pages()}
 										pinnedPageId={stepViewer.pinnedPageId()}
 										onPinPage={stepViewer.pinPage}
