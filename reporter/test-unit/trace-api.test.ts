@@ -1,12 +1,32 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { BlobWriter, ZipWriter } from "@zip.js/zip.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
 import {
 	PLAYWRIGHT_TRACE_API_SOURCE_HEADER,
 	PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 } from "../src/shared/otel";
-import { runReporterTest } from "./reporter-harness";
+import {
+	readScreenshotsZip,
+	SCREENSHOTS_ATTACHMENT_NAME,
+} from "../src/shared/screenshots-zip";
+import {
+	retainedTraceAttachment,
+	runReporterTest,
+	screenshotsAttachment,
+} from "./reporter-harness";
 
 const mockFetch = vi.fn();
+
+function screenshotsRequests(url = "https://traces.example.com") {
+	return mockFetch.mock.calls.filter(
+		(call) =>
+			call[0] === `${url}/playwright-otel-reporter/v1/screenshots.zip` &&
+			call[1]?.method === "PUT",
+	);
+}
 
 describe("Trace API Integration", () => {
 	beforeEach(() => {
@@ -21,7 +41,6 @@ describe("Trace API Integration", () => {
 		 * should send all data to the trace API:
 		 * 1. OTLP spans to POST {endpoint}/v1/traces
 		 * 2. Test metadata as root playwright.test span attributes
-		 * 3. Screenshots to PUT {endpoint}/playwright-otel-reporter/v1/screenshots.zip
 		 *
 		 * All requests should include:
 		 * - X-Trace-Id header with the test's traceId
@@ -207,26 +226,133 @@ describe("Trace API Integration", () => {
 			}),
 		);
 
-		const screenshotsCall = mockFetch.mock.calls.find(
-			(call) =>
-				call[0] ===
-					"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip" &&
-				call[1]?.method === "PUT",
-		);
-		if (!screenshotsCall) {
-			throw new Error("Expected trace API screenshots request");
-		}
-		expect(screenshotsCall[1].headers).toMatchObject({
-			"x-trace-id": testSpan.traceId,
-			[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
-				PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
-			Authorization: "Bearer test-token",
-		});
+		// Without the fixture there are no screenshots to upload.
+		expect(screenshotsRequests()).toEqual([]);
 
 		expect(testResult.annotations).toContainEqual({
 			type: "playwrightOpentelemetryTraceId",
 			description: testSpan.traceId,
 		});
+	});
+
+	it("uploads the screenshots ZIP the fixture attached", async () => {
+		await runReporterTest({
+			playwrightOpentelemetry: {
+				playwrightTraceApiEndpoint: {
+					url: "https://traces.example.com",
+					headers: { Authorization: "Bearer test-token" },
+				},
+			},
+			test: { title: "screenshots test" },
+			result: {
+				attachments: [
+					retainedTraceAttachment(),
+					await screenshotsAttachment([{ pageId: "page-0", timestamp: 1000 }]),
+				],
+			},
+		});
+
+		const otlpCall = mockFetch.mock.calls.find(
+			(call) => call[0] === "https://traces.example.com/v1/traces",
+		);
+		const traceId = JSON.parse(otlpCall?.[1].body).resourceSpans[0]
+			.scopeSpans[0].spans[0].traceId;
+		const [screenshotsCall, ...otherCalls] = screenshotsRequests();
+		expect(otherCalls).toEqual([]);
+		expect(screenshotsCall[1].headers).toMatchObject({
+			"content-type": "application/zip",
+			"x-trace-id": traceId,
+			[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:
+				PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
+			Authorization: "Bearer test-token",
+		});
+		expect(await readScreenshotsZip(screenshotsCall[1].body)).toEqual([
+			expect.objectContaining({
+				pageId: "page-0",
+				timestamp: 1000,
+				file: "page-0-1000.jpeg",
+			}),
+		]);
+	});
+
+	it("doesn't read screenshots from Playwright's trace", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "trace-api-test-"));
+		const traceZipPath = path.join(dir, "trace.zip");
+		const zipWriter = new ZipWriter(new BlobWriter("application/zip"));
+		await zipWriter.add(
+			"resources/page@abc123-1000.jpeg",
+			new Blob(["frame"]).stream(),
+		);
+		await fs.writeFile(
+			traceZipPath,
+			Buffer.from(await (await zipWriter.close()).arrayBuffer()),
+		);
+
+		try {
+			await runReporterTest({
+				playwrightOpentelemetry: {
+					playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+				},
+				test: { title: "test without the fixture" },
+				result: {
+					attachments: [
+						{
+							name: "trace",
+							contentType: "application/zip",
+							path: traceZipPath,
+						},
+					],
+				},
+			});
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+
+		expect(screenshotsRequests()).toEqual([]);
+	});
+
+	it("still sends spans when the fixture's screenshots can't be read", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await runReporterTest({
+				playwrightOpentelemetry: {
+					playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+				},
+				test: { title: "unreadable screenshots test" },
+				result: {
+					attachments: [
+						retainedTraceAttachment(),
+						{
+							name: SCREENSHOTS_ATTACHMENT_NAME,
+							contentType: "application/zip",
+							path: path.join(os.tmpdir(), "missing-screenshots.zip"),
+						},
+					],
+				},
+			});
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining("Failed to read the test's screenshots"),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+
+		const urls = mockFetch.mock.calls.map((call) => call[0]);
+		expect(urls).toContain("https://traces.example.com/v1/traces");
+		expect(screenshotsRequests()).toEqual([]);
+	});
+
+	it("doesn't upload screenshots when the test has none", async () => {
+		await runReporterTest({
+			playwrightOpentelemetry: {
+				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+			},
+			test: { title: "no screenshots test" },
+		});
+
+		const urls = mockFetch.mock.calls.map((call) => call[0]);
+		expect(urls).toContain("https://traces.example.com/v1/traces");
+		expect(screenshotsRequests()).toEqual([]);
 	});
 
 	it("sends data to both OTLP endpoint and trace API endpoint when both configured", async () => {
@@ -340,6 +466,9 @@ describe("Trace API Integration", () => {
 			test: {
 				title: "should fan out trace API uploads",
 			},
+			result: {
+				attachments: [retainedTraceAttachment(), await screenshotsAttachment()],
+			},
 		});
 
 		for (const [url, authorization] of [
@@ -356,11 +485,7 @@ describe("Trace API Integration", () => {
 				Authorization: authorization,
 			});
 
-			const screenshotsCall = mockFetch.mock.calls.find(
-				(call) =>
-					call[0] === `${url}/playwright-otel-reporter/v1/screenshots.zip` &&
-					call[1]?.method === "PUT",
-			);
+			const [screenshotsCall] = screenshotsRequests(url);
 			expect(screenshotsCall?.[1].headers).toMatchObject({
 				"content-type": "application/zip",
 				[PLAYWRIGHT_TRACE_API_SOURCE_HEADER]:

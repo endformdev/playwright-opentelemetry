@@ -1,9 +1,15 @@
+import { test as base, type TestInfo } from "@playwright/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPlaywrightOtelTest } from "../src/fixture/playwright-opentelemetry-fixture";
 import {
 	registerExpectedTrace,
 	type TestTraceContext,
 } from "../src/fixture/trace-context";
-import { resolvePlaywrightOpentelemetryConfig } from "../src/shared/config";
+import {
+	type PlaywrightOpentelemetryConfig,
+	resolvePlaywrightOpentelemetryConfig,
+} from "../src/shared/config";
+import type { PlaywrightTraceOption } from "../src/shared/playwright-trace";
 import {
 	PLAYWRIGHT_TRACE_API_SOURCE_HEADER,
 	PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
@@ -31,6 +37,54 @@ describe("expected trace registration", () => {
 		);
 
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("skips Trace API marker registration when trace header propagation is disabled", async () => {
+		await registerExpectedTrace(
+			traceContext(),
+			resolvePlaywrightOpentelemetryConfig({
+				playwrightTraceApiEndpoint: { url: "https://trace-api.example.com" },
+				propagateTraceHeaders: false,
+			}),
+			{ trace: "on" },
+		);
+
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("runs the test without waiting for the marker and waits for it before finishing", async () => {
+		let respond = () => {};
+		fetchMock.mockReturnValue(
+			new Promise((resolve) => {
+				respond = () => resolve({ ok: true, status: 200, statusText: "OK" });
+			}),
+		);
+		const fixture = testTraceContextFixture();
+		const use = vi.fn(async () => {
+			expect(expectedTraceUrls()).toEqual([
+				"https://trace-api.example.com/playwright-otel-reporter/v1/expected-trace",
+			]);
+		});
+
+		let finished = false;
+		const running = fixture(
+			{
+				playwrightOpentelemetry: {
+					playwrightTraceApiEndpoint: { url: "https://trace-api.example.com" },
+				},
+				trace: "on",
+			},
+			use,
+			{ attach: vi.fn(), retry: 0 } as unknown as TestInfo,
+		).then(() => {
+			finished = true;
+		});
+		await vi.waitFor(() => expect(use).toHaveBeenCalledOnce());
+		await Promise.resolve();
+		expect(finished).toBe(false);
+
+		respond();
+		await running;
 	});
 
 	it("registers markers only for destinations whose resolved trace mode could retain", async () => {
@@ -72,6 +126,27 @@ describe("expected trace registration", () => {
 		});
 	});
 });
+
+type TestTraceContextFixture = (
+	options: {
+		playwrightOpentelemetry: PlaywrightOpentelemetryConfig;
+		trace: PlaywrightTraceOption;
+	},
+	use: (traceContext: TestTraceContext) => Promise<void>,
+	testInfo: TestInfo,
+) => Promise<void>;
+
+function testTraceContextFixture(): TestTraceContextFixture {
+	const extend = vi.spyOn(base, "extend").mockReturnValue(base);
+	try {
+		createPlaywrightOtelTest(base);
+		const fixtures = extend.mock.calls[0][0] as Record<string, unknown>;
+		const [fixture] = fixtures.testTraceContext as [TestTraceContextFixture];
+		return fixture;
+	} finally {
+		extend.mockRestore();
+	}
+}
 
 function expectedTraceUrls(): string[] {
 	return fetchMock.mock.calls.map(([url]) => String(url));

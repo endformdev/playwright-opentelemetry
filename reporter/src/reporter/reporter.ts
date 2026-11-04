@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import type {
 	FullConfig,
@@ -33,6 +34,13 @@ import {
 	shouldRetainPlaywrightTrace,
 } from "../shared/playwright-trace";
 import { filterRetainedDestinations } from "../shared/destinations";
+import { supportsScreencastScreenshots } from "../shared/screencast-screenshots";
+import {
+	createScreenshotsZip,
+	readScreenshotsZip,
+	SCREENSHOTS_ATTACHMENT_NAME,
+	type ScreenshotResource,
+} from "../shared/screenshots-zip";
 import {
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
@@ -44,18 +52,15 @@ import {
 	ATTR_TEST_PHASE,
 	ATTR_TEST_STEP_CATEGORY,
 	ATTR_TEST_STEP_NAME,
+	ATTR_TEST_STEP_PARAM_PREFIX,
+	ATTR_TEST_STEP_SUBTITLE,
 	ATTR_TEST_STEP_TITLE,
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "./reporter-attributes";
+import { extractScreenshotsFromPlaywrightTrace } from "./legacy/trace-zip-screenshots";
 import { sendSpans } from "./sender";
-import {
-	createScreenshotsZip,
-	createTraceZipBlob,
-	extractScreenshotsFromPlaywrightTrace,
-	type ScreenshotResource,
-	writeTraceZip,
-} from "./trace-zip-builder";
+import { createTraceZipBlob, writeTraceZip } from "./trace-zip-builder";
 
 export type { Span } from "../shared/otel";
 
@@ -74,6 +79,7 @@ type PrepareTraceArtifactOptions = {
 	test: TestCase;
 	spans: Span[];
 	fixtureSpans: Span[];
+	screenshotsAttachmentPath?: string;
 	traceAttachmentPath?: string;
 	traceId: string;
 	config: ResolvedPlaywrightOpentelemetryConfig;
@@ -260,6 +266,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				test,
 				spans: testSpans,
 				fixtureSpans,
+				screenshotsAttachmentPath: result.attachments.find(
+					(attachment) =>
+						attachment.name === SCREENSHOTS_ATTACHMENT_NAME && attachment.path,
+				)?.path,
 				traceAttachmentPath: traceAttachment?.path,
 				traceId,
 				config: retainedConfig,
@@ -331,12 +341,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private async prepareTraceArtifact(
 		options: PrepareTraceArtifactOptions,
 	): Promise<PreparedTraceArtifact> {
-		const screenshots: Map<string, ScreenshotResource> =
-			options.traceAttachmentPath
-				? await extractScreenshotsFromPlaywrightTrace(
-						options.traceAttachmentPath,
-					)
-				: new Map();
+		const screenshots = await readTestScreenshots(options);
 
 		const traceZipBlobPromise = options.config.storeTraceZip
 			? createTraceZipBlob({
@@ -348,15 +353,21 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				})
 			: undefined;
 
-		const uploadPromises = options.config.playwrightTraceApiDestinations
-			.filter((destination) => destination.url)
-			.map((destination) =>
-				this.sendScreenshotsZipToTraceApi({
-					traceId: options.traceId,
-					screenshots,
-					destination,
-				}),
-			);
+		// Without screenshots there is nothing to upload: the Trace API answers
+		// a missing screenshots ZIP with 404, which the viewer shows as none.
+		const screenshotsZip =
+			screenshots.length > 0 ? await createScreenshotsZip(screenshots) : null;
+		const uploadPromises = screenshotsZip
+			? options.config.playwrightTraceApiDestinations
+					.filter((destination) => destination.url)
+					.map((destination) =>
+						this.sendScreenshotsZipToTraceApi({
+							traceId: options.traceId,
+							screenshotsZip,
+							destination,
+						}),
+					)
+			: [];
 
 		const [traceZipBlob] = await Promise.all([
 			traceZipBlobPromise,
@@ -476,8 +487,17 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Add step name (full path from test case to this step)
 		attributes[ATTR_TEST_STEP_NAME] = currentTitlePath.join(" > ");
 
-		// Add step title (just this step's title)
+		// From 1.63, Playwright splits what a step did from what it acted on:
+		// title `Click`, subtitle `getByRole('button')`, and reports the call's
+		// arguments as params. Before that the locator is part of the title.
 		attributes[ATTR_TEST_STEP_TITLE] = step.title;
+		if (step.subtitle) attributes[ATTR_TEST_STEP_SUBTITLE] = step.subtitle;
+		for (const [key, value] of Object.entries(step.params ?? {})) {
+			const attributeValue = toStepParamAttribute(value);
+			if (attributeValue !== undefined) {
+				attributes[`${ATTR_TEST_STEP_PARAM_PREFIX}${key}`] = attributeValue;
+			}
+		}
 
 		// Add step category
 		attributes[ATTR_TEST_STEP_CATEGORY] = step.category;
@@ -545,11 +565,10 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 	private async sendScreenshotsZipToTraceApi(params: {
 		traceId: string;
-		screenshots: Map<string, ScreenshotResource>;
+		screenshotsZip: Blob;
 		destination: ResolvedPlaywrightOpentelemetryDestination;
 	}): Promise<void> {
-		const { traceId, screenshots, destination } = params;
-		const screenshotsZip = await createScreenshotsZip(screenshots);
+		const { traceId, screenshotsZip, destination } = params;
 
 		const screenshotUrl = `${destination.url}/playwright-otel-reporter/v1/screenshots.zip`;
 		const response = await fetch(screenshotUrl, {
@@ -571,6 +590,51 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			);
 		}
 	}
+}
+
+/**
+ * A test's screenshots. Playwright versions with a usable screencast only use
+ * the frames the fixture captured and attached; older versions only use
+ * Playwright's trace. Never rejects: a test's spans are still sent without
+ * its screenshots.
+ */
+async function readTestScreenshots(options: {
+	config: ResolvedPlaywrightOpentelemetryConfig;
+	playwrightVersion: string;
+	screenshotsAttachmentPath?: string;
+	traceAttachmentPath?: string;
+}): Promise<ScreenshotResource[]> {
+	if (!options.config.screenshots) {
+		return [];
+	}
+
+	if (supportsScreencastScreenshots(options.playwrightVersion)) {
+		if (!options.screenshotsAttachmentPath) {
+			return [];
+		}
+		try {
+			return await readScreenshotsZip(
+				new Blob([await fs.readFile(options.screenshotsAttachmentPath)]),
+			);
+		} catch (error) {
+			console.warn(
+				`Failed to read the test's screenshots: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return [];
+		}
+	}
+
+	// LEGACY: before SCREENCAST_SCREENSHOTS_MIN_PLAYWRIGHT_VERSION, screenshots
+	// come from Playwright's trace. Remove with ./legacy once the peer
+	// dependency requires that version.
+	if (!options.traceAttachmentPath) {
+		return [];
+	}
+	return Array.from(
+		(
+			await extractScreenshotsFromPlaywrightTrace(options.traceAttachmentPath)
+		).values(),
+	);
 }
 
 function getProjectPlaywrightOpentelemetryConfig(
@@ -625,10 +689,10 @@ function hasPlaywrightOpentelemetryDestination(
 ): boolean {
 	return Boolean(
 		config.storeTraceZip ||
-			config.otlpDestinations.some((destination) => destination.url) ||
-			config.playwrightTraceApiDestinations.some(
-				(destination) => destination.url,
-			),
+		config.otlpDestinations.some((destination) => destination.url) ||
+		config.playwrightTraceApiDestinations.some(
+			(destination) => destination.url,
+		),
 	);
 }
 
@@ -787,14 +851,44 @@ function isInternalApiRequestStep(step: TestStep): boolean {
 		return false;
 	}
 
-	return (
-		isApiRequestStepTitle(step.title) &&
-		isInternalFixtureFile(step.location.file)
-	);
+	return isApiRequestStep(step) && isInternalFixtureFile(step.location.file);
 }
 
-function isApiRequestStepTitle(title: string): boolean {
-	return /^(?:DELETE|FETCH|GET|HEAD|PATCH|POST|PUT)\s+"/.test(title);
+/**
+ * `APIRequestContext` calls. From Playwright 1.63 they report a url and a
+ * method; before that they show up only in the title, e.g. `GET "/api"`.
+ */
+function isApiRequestStep(step: TestStep): boolean {
+	if (step.params) {
+		return (
+			typeof step.params.url === "string" &&
+			typeof step.params.method === "string"
+		);
+	}
+	return /^(?:DELETE|FETCH|GET|HEAD|PATCH|POST|PUT)\s+"/.test(step.title);
+}
+
+/**
+ * Span attributes hold primitives and string arrays, so other param values
+ * (options objects, mixed arrays) are stored as JSON.
+ */
+function toStepParamAttribute(
+	value: unknown,
+): string | number | boolean | string[] | undefined {
+	if (value === undefined || value === null) return undefined;
+	if (
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	) {
+		return value;
+	}
+	if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+		return value;
+	}
+	const json = JSON.stringify(value);
+	// Values JSON can't describe, like a RegExp, come through as `{}`.
+	return json === undefined || json === "{}" ? undefined : json;
 }
 
 function isInternalFixtureFile(filePath: string): boolean {

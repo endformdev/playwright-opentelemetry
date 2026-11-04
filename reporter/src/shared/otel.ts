@@ -28,6 +28,8 @@ export interface SendSpansOptions {
 	headers?: Record<string, string>;
 	playwrightVersion: string;
 	debug?: boolean;
+	retryDelaysMs?: number[];
+	requestTimeoutMs?: number;
 }
 
 export const PLAYWRIGHT_TESTS_SERVICE_NAME = "playwright-tests";
@@ -209,19 +211,57 @@ export async function sendSpans(
 		console.log("Sending spans to", options.tracesEndpoint);
 	}
 
-	const response = await fetch(options.tracesEndpoint, {
-		method: "POST",
-		body,
-		headers: {
-			"content-type": "application/json",
-			...(options.headers || {}),
-		},
-	});
+	for (const retryDelayMs of [...(options.retryDelaysMs ?? []), null]) {
+		const failure = await postSpans(body, options);
+		if (!failure) {
+			return;
+		}
 
-	if (!response.ok) {
+		const isLastAttempt = retryDelayMs === null;
+		if (isLastAttempt || !failure.retryable) {
+			throw failure.error;
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+	}
+}
+
+interface SendSpansFailure {
+	error: unknown;
+	retryable: boolean;
+}
+
+async function postSpans(
+	body: string,
+	options: SendSpansOptions,
+): Promise<SendSpansFailure | null> {
+	try {
+		const response = await fetch(options.tracesEndpoint, {
+			method: "POST",
+			body,
+			headers: {
+				"content-type": "application/json",
+				...(options.headers || {}),
+			},
+			...(options.requestTimeoutMs && {
+				signal: AbortSignal.timeout(options.requestTimeoutMs),
+			}),
+		});
+
+		if (response.ok) {
+			return null;
+		}
+
 		const error = await response.text();
-		throw new Error(
-			`Failed to send spans: ${response.status} ${response.statusText}, ${error}`,
-		);
+		const isThrottled = response.status === 429;
+		const isServerError = response.status >= 500;
+		return {
+			error: new Error(
+				`Failed to send spans: ${response.status} ${response.statusText}, ${error}`,
+			),
+			retryable: isThrottled || isServerError,
+		};
+	} catch (error) {
+		return { error, retryable: true };
 	}
 }

@@ -1,5 +1,11 @@
 import path from "node:path";
-import type { Request, Response, test as base } from "@playwright/test";
+import type {
+	BrowserContext,
+	Request,
+	Response,
+	test as base,
+} from "@playwright/test";
+import { supportsScreencastScreenshots } from "../shared/screencast-screenshots";
 import {
 	resolvePlaywrightOpentelemetryConfig,
 	type PlaywrightOpentelemetryUseOptions,
@@ -15,6 +21,8 @@ import {
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
 } from "./reporter-config";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
+import { ScreencastCapture } from "./screencast-capture";
+import { attachScreenshots, shouldCaptureScreenshots } from "./screenshots";
 import { runWithTestFetchCapture } from "./test-fetch-capture";
 import {
 	createTestTraceContext,
@@ -32,10 +40,13 @@ type PlaywrightOpentelemetryFixtures = {
 	testTraceInfo: TestTraceInfo;
 	testTraceContext: TestTraceContext;
 	browserPageTracker: BrowserPageTracker;
+	screencastCapture: ScreencastCapture | undefined;
 };
 
 type PlaywrightOpentelemetryWorkerFixtures = {
 	_playwrightOpentelemetryReporterCheck: void;
+	/** Listeners for contexts created from the worker's `browser` fixture. */
+	_playwrightOpentelemetryNewContexts: Set<(context: BrowserContext) => void>;
 };
 
 export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
@@ -53,6 +64,29 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				await use();
 			},
 			{ scope: "worker", auto: true },
+		],
+		_playwrightOpentelemetryNewContexts: [
+			// oxlint-disable-next-line no-empty-pattern -- Playwright requires an object pattern for fixture dependencies
+			async ({}, use) => {
+				await use(new Set());
+			},
+			{ scope: "worker" },
+		],
+		// Tests can create contexts with `browser.newContext()` instead of using
+		// the `context` fixture. Browser's "context" event (public since
+		// Playwright 1.60) reports them to the screenshot capture.
+		browser: [
+			async ({ browser, _playwrightOpentelemetryNewContexts }, use) => {
+				const onContext = (context: BrowserContext) => {
+					for (const listener of _playwrightOpentelemetryNewContexts) {
+						listener(context);
+					}
+				};
+				browser.on("context", onContext);
+				await use(browser);
+				browser.off("context", onContext);
+			},
+			{ scope: "worker" },
 		],
 		testTraceInfo: [
 			// oxlint-disable-next-line no-unused-vars -- Playwright fails if the fixture dependency is omitted
@@ -72,11 +106,14 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 					playwrightOpentelemetry,
 				);
 				const traceContext = await createTestTraceContext(testInfo);
-				await registerExpectedTrace(traceContext, config, {
+				// Downstream services batch their exports, so their spans reach the
+				// Trace API well after this marker. Don't make the test wait for it.
+				const registration = registerExpectedTrace(traceContext, config, {
 					trace,
 					testInfo,
 				});
 				await runWithTestFetchCapture(traceContext, () => use(traceContext));
+				await registration;
 				await flushFixtureSpans(traceContext, config, {
 					trace,
 					testInfo,
@@ -92,6 +129,54 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ auto: true },
 		],
+		screencastCapture: [
+			async (
+				{
+					playwright,
+					playwrightOpentelemetry,
+					trace,
+					browserPageTracker,
+					_playwrightOpentelemetryNewContexts: newContexts,
+				},
+				use,
+				testInfo,
+			) => {
+				const config = resolvePlaywrightOpentelemetryConfig(
+					playwrightOpentelemetry,
+				);
+				// On older Playwright versions the reporter reads screenshots from
+				// Playwright's trace.zip instead.
+				if (
+					!supportsScreencastScreenshots(testInfo.config.version) ||
+					!shouldCaptureScreenshots(config, { trace, testInfo })
+				) {
+					await use(undefined);
+					return;
+				}
+
+				let capture: ScreencastCapture;
+				try {
+					capture = await ScreencastCapture.start({
+						playwright,
+						pageIdFor: (page) => browserPageTracker.pageIdFor(page),
+					});
+				} catch (error) {
+					console.warn(`Failed to start screenshot capture: ${error}`);
+					await use(undefined);
+					return;
+				}
+				const addContext = (context: BrowserContext) =>
+					capture.addContext(context);
+				newContexts.add(addContext);
+				try {
+					await use(capture);
+				} finally {
+					newContexts.delete(addContext);
+				}
+				await attachScreenshots(capture, config, { trace, testInfo });
+			},
+			{ auto: true },
+		],
 		request: async ({ request, testTraceContext }, use) => {
 			await use(createCapturedApiRequestContext(request, testTraceContext));
 		},
@@ -101,35 +186,50 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				playwrightOpentelemetry,
 				testTraceContext,
 				browserPageTracker,
+				screencastCapture,
 			},
 			use,
 		) => {
 			const config = resolvePlaywrightOpentelemetryConfig(
 				playwrightOpentelemetry,
 			);
-			context.route("**", async (route, request) => {
+			screencastCapture?.addContext(context);
+			const captureRequest = (request: Request) => {
 				browserPageTracker.startDocumentNavigation(request);
 				const networkParent = browserPageTracker.getNetworkParent(request);
-				const spanId = storeRequestTraceContext({
+				storeRequestTraceContext({
 					request,
 					traceContext: testTraceContext,
 					parentSpanId: networkParent.spanId,
 					routeAssociation: networkParent.routeAssociation,
 				});
+			};
 
-				if (config.propagateTraceHeaders) {
-					await propagateRouteTraceHeaders({
-						route,
-						request,
-						traceId: testTraceContext.traceId,
-						spanId,
-					});
-					return;
-				}
+			context.on("request", captureRequest);
+			// Installing any route can disable the browser's HTTP cache.
+			if (config.propagateTraceHeaders) {
+				await context.route("**", async (route, request) => {
+					const requestContext = testTraceContext.requestContexts.get(request);
 
-				await route.fallback();
-			});
-			await use(context);
+					if (requestContext) {
+						await propagateRouteTraceHeaders({
+							route,
+							request,
+							traceId: testTraceContext.traceId,
+							spanId: requestContext.spanId,
+						});
+						return;
+					}
+
+					await route.fallback();
+				});
+			}
+
+			try {
+				await use(context);
+			} finally {
+				context.off("request", captureRequest);
+			}
 		},
 		page: async ({ page, testTraceContext, browserPageTracker }, use) => {
 			browserPageTracker.registerPage(page);
@@ -146,39 +246,31 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				}
 			});
 
-			// Two-phase capture approach:
-			// 1. On 'response': Store the Response object (available synchronously)
-			// 2. On 'requestfinished': Use stored response + accurate timing
-			//
-			// This solves two problems:
-			// - 'response' event has timing.responseEnd = -1 (body not downloaded yet)
-			// - 'requestfinished' requires async request.response() which may fail if page closes
+			// Keep the response until the request ends so capture has its final timing.
 			const pendingRequests = new Map<Request, Response>();
 
 			page.on("response", (response) => {
-				// Store response synchronously - no await needed
 				pendingRequests.set(response.request(), response);
 			});
 
-			page.on("requestfinished", async (request) => {
-				// Get the stored response - no async request.response() call needed
+			const captureCompletedRequest = async (request: Request) => {
 				const response = pendingRequests.get(request);
 				pendingRequests.delete(request);
 
 				if (!response) {
-					// No response stored - request may have failed or been handled differently
 					return;
 				}
 
-				// Now we have both:
-				// - The Response object (captured at 'response' event)
-				// - Accurate timing with responseEnd (available at 'requestfinished')
 				await fixtureCaptureRequestResponse({
 					request,
 					response,
 					traceContext: testTraceContext,
 				});
-			});
+			};
+
+			page.on("requestfinished", captureCompletedRequest);
+			// Browsers can reject a script after receiving an HTTP error response.
+			page.on("requestfailed", captureCompletedRequest);
 
 			await use(page);
 		},

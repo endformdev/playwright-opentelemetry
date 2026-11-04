@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	changesScale,
 	clampViewport,
 	createViewport,
+	fitTimeRange,
+	getMinVisibleDuration,
+	getViewportTransform,
 	getVisibleDuration,
 	getZoomLevel,
 	isFullyZoomedOut,
+	interpolateViewportMapping,
 	isTimeRangeVisible,
+	panTimeRangeIntoView,
 	panViewport,
 	resetViewport,
 	type TimelineViewport,
@@ -467,5 +473,186 @@ describe("zoomToRange", () => {
 		// Visible duration preserved: 3000ms (2000 + 2*500)
 		expect(zoomed.visibleStartMs).toBe(0); // Clamped at 0
 		expect(zoomed.visibleEndMs).toBe(3000); // Preserves the 3000ms visible duration
+	});
+});
+
+describe("getMinVisibleDuration", () => {
+	it("uses the maximum wheel zoom for long timelines", () => {
+		expect(getMinVisibleDuration(10000)).toBe(100);
+	});
+
+	it("never goes below the minimum visible duration", () => {
+		expect(getMinVisibleDuration(500)).toBe(10);
+	});
+
+	it("never exceeds the timeline itself", () => {
+		expect(getMinVisibleDuration(4)).toBe(4);
+	});
+});
+
+describe("fitTimeRange", () => {
+	const view = (visibleStartMs: number, visibleEndMs: number) => ({
+		visibleStartMs,
+		visibleEndMs,
+		totalDurationMs: 10000,
+	});
+
+	it("zooms in on a range that already fits the window", () => {
+		expect(fitTimeRange(view(0, 10000), 2000, 5000)).toEqual(view(1000, 6000));
+	});
+
+	it("zooms out to a range wider than the window", () => {
+		expect(fitTimeRange(view(4000, 4500), 2000, 5000)).toEqual(
+			view(1000, 6000),
+		);
+	});
+
+	it("stays within the trace", () => {
+		expect(fitTimeRange(view(4000, 6000), 0, 3000)).toEqual(view(0, 5000));
+	});
+
+	it("does not zoom past the zoom limit for an instant", () => {
+		const fitted = fitTimeRange(view(0, 10000), 5000, 5000);
+		expect(fitted.visibleEndMs - fitted.visibleStartMs).toBeGreaterThan(0);
+		expect((fitted.visibleStartMs + fitted.visibleEndMs) / 2).toBe(5000);
+	});
+});
+
+describe("panTimeRangeIntoView", () => {
+	const view = (visibleStartMs: number, visibleEndMs: number) => ({
+		visibleStartMs,
+		visibleEndMs,
+		totalDurationMs: 10000,
+	});
+
+	it("leaves the viewport alone when the range is already in view", () => {
+		const viewport = view(0, 2000);
+		expect(panTimeRangeIntoView(viewport, 500, 1000, 750)).toBe(viewport);
+	});
+
+	it("never zooms in on a narrow range", () => {
+		const viewport = view(0, 10000);
+		expect(panTimeRangeIntoView(viewport, 4000, 4001, 4000)).toBe(viewport);
+	});
+
+	it("pans just far enough to bring a range past the right edge into view", () => {
+		const panned = panTimeRangeIntoView(view(0, 2000), 6000, 6500, 6250);
+
+		expect(getVisibleDuration(panned)).toBe(2000);
+		// The range ends a 5% margin (100ms) before the window does.
+		expect(panned.visibleEndMs).toBe(6600);
+	});
+
+	it("pans just far enough to bring a range past the left edge into view", () => {
+		const panned = panTimeRangeIntoView(view(6000, 8000), 2000, 2500, 2250);
+
+		expect(getVisibleDuration(panned)).toBe(2000);
+		expect(panned.visibleStartMs).toBe(1900);
+	});
+
+	it("pans when a range touches the window edge", () => {
+		const panned = panTimeRangeIntoView(view(0, 2000), 1700, 2000, 1850);
+
+		expect(getVisibleDuration(panned)).toBe(2000);
+		expect(panned.visibleStartMs).toBe(100);
+	});
+
+	it("brings the focus time into view when the range is wider than the window", () => {
+		const viewport = view(0, 1000);
+		expect(panTimeRangeIntoView(viewport, 0, 8000, 500)).toBe(viewport);
+
+		const panned = panTimeRangeIntoView(viewport, 0, 8000, 6000);
+		expect(getVisibleDuration(panned)).toBe(1000);
+		expect(panned.visibleEndMs).toBe(6050);
+	});
+
+	it("clamps to the ends of the timeline", () => {
+		const viewport = view(0, 2000);
+		expect(panTimeRangeIntoView(viewport, 0, 50, 0)).toBe(viewport);
+
+		const panned = panTimeRangeIntoView(viewport, 9950, 10000, 10000);
+		expect(panned.visibleStartMs).toBe(8000);
+		expect(panned.visibleEndMs).toBe(10000);
+	});
+});
+
+describe("getViewportTransform", () => {
+	const view = (visibleStartMs: number, visibleEndMs: number) => ({
+		visibleStartMs,
+		visibleEndMs,
+		totalDurationMs: 10000,
+	});
+
+	it("draws each time where the old viewport placed it", () => {
+		const from = view(1000, 3000);
+		const to = view(1500, 2000);
+		const { scale, translate } = getViewportTransform(from, to);
+		for (const timeMs of [1500, 1750, 2000, 2600]) {
+			const laidOut = timeToViewportPosition(timeMs, to);
+			expect(scale * laidOut + translate).toBeCloseTo(
+				timeToViewportPosition(timeMs, from),
+			);
+		}
+	});
+
+	it("is the identity for an unchanged viewport", () => {
+		expect(getViewportTransform(view(0, 500), view(0, 500))).toEqual({
+			scale: 1,
+			translate: 0,
+		});
+	});
+});
+
+describe("interpolateViewportMapping", () => {
+	const from = {
+		visibleStartMs: 0,
+		visibleEndMs: 4000,
+		totalDurationMs: 10000,
+	};
+	const to = {
+		visibleStartMs: 6000,
+		visibleEndMs: 7000,
+		totalDurationMs: 10000,
+	};
+
+	it("starts at from and ends at to", () => {
+		expect(interpolateViewportMapping(from, to, 0)).toEqual(from);
+		const end = interpolateViewportMapping(from, to, 1);
+		expect(end.visibleStartMs).toBeCloseTo(6000);
+		expect(end.visibleEndMs).toBeCloseTo(7000);
+	});
+
+	it("matches the transform part way through", () => {
+		const progress = 0.3;
+		const { scale, translate } = getViewportTransform(from, to);
+		const shown = interpolateViewportMapping(from, to, progress);
+		for (const timeMs of [6000, 6500, 7000]) {
+			const laidOut = timeToViewportPosition(timeMs, to);
+			const eased =
+				(1 - progress) * (scale * laidOut + translate) + progress * laidOut;
+			expect(timeToViewportPosition(timeMs, shown)).toBeCloseTo(eased);
+		}
+	});
+});
+
+describe("changesScale", () => {
+	const view = (visibleStartMs: number, visibleEndMs: number) => ({
+		visibleStartMs,
+		visibleEndMs,
+		totalDurationMs: 10000,
+	});
+
+	it("ignores pans", () => {
+		expect(changesScale(view(0, 1000), view(4000, 5000))).toBe(false);
+	});
+
+	it("ignores small zooms", () => {
+		expect(changesScale(view(0, 1000), view(0, 1100))).toBe(false);
+		expect(changesScale(view(0, 1000), view(0, 900))).toBe(false);
+	});
+
+	it("detects zooming in and out", () => {
+		expect(changesScale(view(0, 1000), view(0, 1200))).toBe(true);
+		expect(changesScale(view(0, 1000), view(0, 800))).toBe(true);
 	});
 });

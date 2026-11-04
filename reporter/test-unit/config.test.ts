@@ -124,15 +124,16 @@ describe("resolvePlaywrightOpentelemetryConfig", () => {
 		);
 	});
 
-	it.each(
-		DESTINATION_CONFIGS,
-	)("accepts %s when a destination is required", (_name, config) => {
-		expect(() =>
-			resolvePlaywrightOpentelemetryConfig(config, {
-				requireDestination: true,
-			}),
-		).not.toThrow();
-	});
+	it.each(DESTINATION_CONFIGS)(
+		"accepts %s when a destination is required",
+		(_name, config) => {
+			expect(() =>
+				resolvePlaywrightOpentelemetryConfig(config, {
+					requireDestination: true,
+				}),
+			).not.toThrow();
+		},
+	);
 
 	it("accepts environment destinations when a destination is required", () => {
 		process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317/v1/traces";

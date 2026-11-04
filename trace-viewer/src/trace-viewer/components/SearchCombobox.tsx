@@ -3,7 +3,7 @@ import {
 	type ComboboxHighlightChangeDetails,
 	type ComboboxInputValueChangeDetails,
 	type ComboboxOpenChangeDetails,
-	type ComboboxValueChangeDetails,
+	type ComboboxSelectionDetails,
 	useListCollection,
 } from "@ark-ui/solid/combobox";
 import Search from "lucide-solid/icons/search";
@@ -121,23 +121,32 @@ export function SearchCombobox(props: SearchComboboxProps) {
 	};
 
 	const handleOpenChange = (details: ComboboxOpenChangeDetails) => {
-		// Allow closing (escape key, click outside, etc.)
-		if (!details.open) {
-			setIsOpen(false);
-			// Clear hover when closing
-			props.onResultHover?.(null);
+		// Clicking back into a search that has text shows its results again.
+		if (details.open) {
+			if (localValue().length > 0) setIsOpen(true);
+			return;
 		}
+		// Allow closing (escape key, click outside, etc.) and clear hover.
+		setIsOpen(false);
+		props.onResultHover?.(null);
 	};
 
-	const handleValueChange = (
-		details: ComboboxValueChangeDetails<SearchMatch>,
-	) => {
-		const selectedItem = details.items[0];
+	// onSelect fires for every pick, including the same result again after
+	// the selection moved elsewhere; onValueChange would skip that.
+	const handleSelect = (details: ComboboxSelectionDetails) => {
+		const selectedItem = details.itemValue
+			? collection().find(details.itemValue)
+			: null;
 		if (selectedItem) {
 			props.onResultSelect(selectedItem.spanId);
 			// Close dropdown and clear hover on selection
 			setIsOpen(false);
 			props.onResultHover?.(null);
+			// Hand the keyboard back so arrow keys move on from the result. The
+			// combobox refocuses the input a frame after closing, so blur after.
+			requestAnimationFrame(() =>
+				requestAnimationFrame(() => inputRef?.blur()),
+			);
 		}
 	};
 
@@ -184,7 +193,8 @@ export function SearchCombobox(props: SearchComboboxProps) {
 			inputValue={localValue()}
 			onInputValueChange={handleInputChange}
 			onOpenChange={handleOpenChange}
-			onValueChange={handleValueChange}
+			onSelect={handleSelect}
+			openOnClick={true}
 			onHighlightChange={handleHighlightChange}
 			open={isOpen()}
 			allowCustomValue={true}

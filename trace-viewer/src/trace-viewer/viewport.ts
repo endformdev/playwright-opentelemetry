@@ -166,3 +166,122 @@ export function clampViewport(viewport: TimelineViewport): TimelineViewport {
 		totalDurationMs: viewport.totalDurationMs,
 	};
 }
+
+/** Narrowest window the wheel zoom limits allow for a timeline. */
+export function getMinVisibleDuration(totalDurationMs: number): number {
+	return Math.min(
+		totalDurationMs,
+		Math.max(MIN_VISIBLE_DURATION_MS, totalDurationMs / MAX_ZOOM),
+	);
+}
+
+/**
+ * Zooms and pans so a time range fills `fraction` of the window, centred,
+ * whatever the current zoom. Used when jumping to something found elsewhere
+ * (search, errors), where the user expects the view to go to it.
+ */
+export function fitTimeRange(
+	viewport: TimelineViewport,
+	startMs: number,
+	endMs: number,
+	fraction = 0.6,
+): TimelineViewport {
+	const rangeDuration = Math.max(0, endMs - startMs);
+	const targetDuration = Math.min(
+		viewport.totalDurationMs,
+		Math.max(
+			getMinVisibleDuration(viewport.totalDurationMs),
+			rangeDuration / fraction,
+		),
+	);
+	const centerMs = startMs + rangeDuration / 2;
+	return clampViewport({
+		visibleStartMs: centerMs - targetDuration / 2,
+		visibleEndMs: centerMs + targetDuration / 2,
+		totalDurationMs: viewport.totalDurationMs,
+	});
+}
+
+/** Fraction of the window kept clear at each edge of a range panned into view */
+const PAN_EDGE_MARGIN = 0.05;
+
+/**
+ * Pans, without zooming, just far enough to bring a time range into view, so
+ * stepping between spans keeps the zoom level the user chose. Ranges already
+ * in view leave the viewport untouched. A range wider than the window cannot
+ * fit, so `focusMs` (the time being locked) is brought into view instead.
+ */
+export function panTimeRangeIntoView(
+	viewport: TimelineViewport,
+	startMs: number,
+	endMs: number,
+	focusMs: number,
+): TimelineViewport {
+	const margin = getVisibleDuration(viewport) * PAN_EDGE_MARGIN;
+	const minMs = viewport.visibleStartMs + margin;
+	const maxMs = viewport.visibleEndMs - margin;
+	const fits = endMs - startMs <= maxMs - minMs;
+	const fromMs = fits ? startMs : focusMs;
+	const toMs = fits ? endMs : focusMs;
+
+	let deltaMs = 0;
+	if (fromMs < minMs) deltaMs = fromMs - minMs;
+	else if (toMs > maxMs) deltaMs = toMs - maxMs;
+	if (deltaMs === 0) return viewport;
+
+	const panned = panViewport(viewport, deltaMs);
+	return panned.visibleStartMs === viewport.visibleStartMs &&
+		panned.visibleEndMs === viewport.visibleEndMs
+		? viewport
+		: panned;
+}
+
+/**
+ * The horizontal transform that draws content laid out for `to` where `from`
+ * would draw it: x ↦ scale · x + translate, with x and translate as fractions
+ * of the plot width and the origin at the plot's left edge.
+ */
+export function getViewportTransform(
+	from: TimelineViewport,
+	to: TimelineViewport,
+): { scale: number; translate: number } {
+	const fromDuration = getVisibleDuration(from);
+	return {
+		scale: getVisibleDuration(to) / fromDuration,
+		translate: (to.visibleStartMs - from.visibleStartMs) / fromDuration,
+	};
+}
+
+/**
+ * The viewport shown `progress` of the way through a transform easing from
+ * `from` to `to`. Every point moves linearly between its two positions, so
+ * the shown mapping blends the two viewports' inverse durations.
+ */
+export function interpolateViewportMapping(
+	from: TimelineViewport,
+	to: TimelineViewport,
+	progress: number,
+): TimelineViewport {
+	const fromDuration = getVisibleDuration(from);
+	const toDuration = getVisibleDuration(to);
+	const duration = 1 / ((1 - progress) / fromDuration + progress / toDuration);
+	const start =
+		duration *
+		((1 - progress) * (from.visibleStartMs / fromDuration) +
+			progress * (to.visibleStartMs / toDuration));
+	return {
+		visibleStartMs: start,
+		visibleEndMs: start + duration,
+		totalDurationMs: to.totalDurationMs,
+	};
+}
+
+/** Whether moving between viewports zooms by more than `tolerance`. */
+export function changesScale(
+	from: TimelineViewport,
+	to: TimelineViewport,
+	tolerance = 0.15,
+): boolean {
+	const { scale } = getViewportTransform(from, to);
+	return scale > 1 + tolerance || scale < 1 / (1 + tolerance);
+}

@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, type Locator, test } from "@playwright/test";
-import { BlobWriter, ZipWriter } from "@zip.js/zip.js";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
 import { MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE } from "./setup/global-setup";
+import {
+	createScreenshotsZip,
+	createScreenshotsZipFromOffsets,
+} from "./screenshot-zip";
 import { TraceDataBuilder } from "./test-data-builder";
 
 test("renders separate screenshot rows for multiple browser contexts", async ({
@@ -59,16 +62,8 @@ test("renders separate screenshot rows for multiple browser contexts", async ({
 
 	// Real traces can contain frames omitted from the sampled filmstrip. The
 	// details panel selects the latest frame at the cursor time on the same page.
-	await expectScreenshotViewerToMatchHoveredScreenshot(
-		viewer,
-		rows.nth(0),
-		true,
-	);
-	await expectScreenshotViewerToMatchHoveredScreenshot(
-		viewer,
-		rows.nth(1),
-		true,
-	);
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(0), true);
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(1), true);
 });
 
 test("anchors screenshot previews to the steps timeline while following the cursor horizontally", async ({
@@ -95,6 +90,8 @@ test("anchors screenshot previews to the steps timeline while following the curs
 	);
 	expect(upload.ok()).toBeTruthy();
 	const viewer = new TraceViewerPage(page);
+	// Measures the filmstrip at the top of the main panel.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	const thumbnails = viewer.screenshots.rows().first().getByRole("img");
 	const thumbnail = thumbnails.nth(2);
@@ -111,10 +108,7 @@ test("anchors screenshot previews to the steps timeline while following the curs
 		await expect(preview).toBeVisible();
 		await expect(image).toHaveAttribute(
 			"src",
-			(await viewer.screenshotViewer
-				.screenshot()
-				.locator("img")
-				.getAttribute("src"))!,
+			(await viewer.details.screenshot().locator("img").getAttribute("src"))!,
 		);
 		await expect
 			.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth))
@@ -168,10 +162,7 @@ test("anchors screenshot previews to the steps timeline while following the curs
 		await next.hover();
 		await expect(image).toHaveAttribute(
 			"src",
-			(await viewer.screenshotViewer
-				.screenshot()
-				.locator("img")
-				.getAttribute("src"))!,
+			(await viewer.details.screenshot().locator("img").getAttribute("src"))!,
 		);
 	});
 
@@ -202,6 +193,45 @@ test("anchors screenshot previews to the steps timeline while following the curs
 		await expect(preview).toBeHidden();
 		await page.mouse.up();
 	});
+});
+
+test("does not enlarge filmstrip screenshots while the step viewer is shown", async ({
+	page,
+	request,
+}) => {
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const screenshotsZip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [0, 1000, 2000, 3000],
+	});
+	await new TraceDataBuilder(traceId, testStartTime)
+		.addTestSpan("Step viewer replaces hover preview", 4000)
+		.addStepSpan("Inspect page", 3000, { startOffsetMs: 500 })
+		.send(request);
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await screenshotsZip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
+	);
+	expect(upload.ok()).toBeTruthy();
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	await expect(viewer.stepViewer.root).toBeVisible();
+	const thumbnail = viewer.screenshots.rows().first().getByRole("img").nth(1);
+	await expect(thumbnail).toBeVisible();
+	const preview = page.getByTestId("screenshot-hover-preview");
+
+	await thumbnail.hover();
+	await expect(viewer.details.screenshot()).toBeVisible();
+	await expect(preview).toBeHidden();
+
+	await viewer.settings.toggle("Step viewer");
+	await expect(viewer.stepViewer.root).toBeHidden();
+	await thumbnail.hover();
+	await expect(preview).toBeVisible();
 });
 
 test("shows separate page rows with two and a half rows by default", async ({
@@ -236,6 +266,8 @@ test("shows separate page rows with two and a half rows by default", async ({
 	);
 
 	const viewer = new TraceViewerPage(page);
+	// Measures the filmstrip at the top of the main panel.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Scrollable screenshot contexts",
@@ -269,11 +301,11 @@ test("shows separate page rows with two and a half rows by default", async ({
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(0)))
 		.toBeGreaterThan(0.95);
-	await expectScreenshotViewerToMatchHoveredScreenshot(viewer, rows.nth(0));
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(0));
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(1)))
 		.toBeGreaterThan(0.95);
-	await expectScreenshotViewerToMatchHoveredScreenshot(viewer, rows.nth(1));
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(1));
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(2)))
 		.toBeGreaterThan(0.35);
@@ -291,7 +323,7 @@ test("shows separate page rows with two and a half rows by default", async ({
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(7)))
 		.toBeGreaterThan(0.95);
-	await expectScreenshotViewerToMatchHoveredScreenshot(viewer, rows.nth(7));
+	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(7));
 });
 
 test("shows the most recent screenshot at the hovered timestamp when filmstrip frames are sampled", async ({
@@ -334,6 +366,8 @@ test("shows the most recent screenshot at the hovered timestamp when filmstrip f
 	);
 
 	const viewer = new TraceViewerPage(page);
+	// The hover preview only appears without the step viewer.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Dense screenshots are sampled in the filmstrip",
@@ -360,7 +394,7 @@ test("shows the most recent screenshot at the hovered timestamp when filmstrip f
 	expect(target.displayedTimestamp).not.toBe(target.expectedTimestamp);
 
 	await page.mouse.move(target.x, target.y);
-	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
+	await expect(viewer.details.screenshot()).toHaveAttribute(
 		"data-screenshot-timestamp",
 		String(target.expectedTimestamp),
 	);
@@ -425,6 +459,8 @@ test("focuses the active screenshot when moving from a span into a filmstrip gap
 	);
 
 	const viewer = new TraceViewerPage(page);
+	// The hover preview only appears without the step viewer.
+	await viewer.useViewerSettings({ stepViewer: false });
 	await viewer.loadTraceFromApi(traceId);
 	await expect(viewer.header.testName).toHaveText(
 		"Screenshot focus from span hover",
@@ -458,134 +494,74 @@ test("focuses the active screenshot when moving from a span into a filmstrip gap
 		.toBeGreaterThan(0);
 
 	await page.mouse.move(gapTarget.x, gapTarget.y, { steps: 8 });
-	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
+	await expect(viewer.details.screenshot()).toHaveAttribute(
 		"data-screenshot-timestamp",
 		/\d+/,
 	);
-	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
-		"data-focused",
-		"true",
-	);
+	await expect
+		.poll(() => viewer.details.root.evaluate((element) => element.scrollTop))
+		.toBeLessThanOrEqual(2);
 	const preview = page.getByTestId("screenshot-hover-preview");
 	await expect(preview).toBeVisible();
 	await expect(preview).toHaveAttribute(
 		"data-screenshot-timestamp",
-		(await viewer.screenshotViewer
+		(await viewer.details
 			.screenshot()
 			.getAttribute("data-screenshot-timestamp"))!,
 	);
 });
 
-interface CreateScreenshotsZipOptions {
-	testStartTime: number;
-	contextCount: number;
-	pagesPerContext: number;
-}
-
-interface CreateScreenshotsZipFromOffsetsOptions {
-	testStartTime: number;
-	screenshotOffsetsMs: number[];
-	pageId?: string;
-}
-
-interface ScreenshotManifestEntry {
-	timestamp: number;
-	file: string;
-	path: string;
-	contentType: string;
-	pageId: string;
-}
-
-async function createScreenshotsZip({
-	testStartTime,
-	contextCount,
-	pagesPerContext,
-}: CreateScreenshotsZipOptions): Promise<Blob> {
-	const blobWriter = new BlobWriter("application/zip");
-	const zipWriter = new ZipWriter(blobWriter);
-	const screenshots: ScreenshotManifestEntry[] = [];
-
-	for (let contextIndex = 1; contextIndex <= contextCount; contextIndex++) {
-		const contextLabel = `context-${contextIndex}`;
-		for (let pageIndex = 1; pageIndex <= pagesPerContext; pageIndex++) {
-			const pageId = `${contextLabel}-page-${pageIndex}`;
-			const timestamp = testStartTime + contextIndex * 100 + pageIndex * 10;
-			const file = `${pageId}-${timestamp}.svg`;
-			const path = `screenshots/${file}`;
-
-			screenshots.push({
-				timestamp,
-				file,
-				path,
-				contentType: "image/svg+xml",
-				pageId,
-			});
-			await zipWriter.add(
-				path,
-				new Blob([screenshotSvg(contextLabel, pageId)], {
-					type: "image/svg+xml",
-				}).stream(),
-			);
-		}
-	}
-
-	await zipWriter.add(
-		"manifest.json",
-		new Blob([
-			JSON.stringify({
-				version: 3,
-				screenshots,
-			}),
-		]).stream(),
+test("unlocking over a screenshot drops the previously locked span", async ({
+	page,
+	request,
+}) => {
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const screenshotsZip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [0, 500, 1000, 1500, 2000, 2500, 3000, 3500],
+	});
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Unlock over screenshot",
+		4000,
 	);
-
-	return zipWriter.close();
-}
-
-async function createScreenshotsZipFromOffsets({
-	testStartTime,
-	screenshotOffsetsMs,
-	pageId = "context-1-page-1",
-}: CreateScreenshotsZipFromOffsetsOptions): Promise<Blob> {
-	const blobWriter = new BlobWriter("application/zip");
-	const zipWriter = new ZipWriter(blobWriter);
-	const screenshots: ScreenshotManifestEntry[] = [];
-
-	for (const offsetMs of screenshotOffsetsMs) {
-		const timestamp = testStartTime + offsetMs;
-		const file = `${pageId}-${timestamp}.svg`;
-		const path = `screenshots/${file}`;
-		screenshots.push({
-			timestamp,
-			file,
-			path,
-			contentType: "image/svg+xml",
-			pageId,
-		});
-		await zipWriter.add(
-			path,
-			new Blob([screenshotSvg("context-1", `${pageId} @ ${offsetMs}ms`)], {
-				type: "image/svg+xml",
-			}).stream(),
-		);
-	}
-
-	await zipWriter.add(
-		"manifest.json",
-		new Blob([
-			JSON.stringify({
-				version: 3,
-				screenshots,
-			}),
-		]).stream(),
+	const lateStepId = builder.addStepSpanAndGetId("Late step", 100, {
+		startOffsetMs: 3700,
+	});
+	await builder.send(request);
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await screenshotsZip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
 	);
+	expect(upload.ok()).toBeTruthy();
 
-	return zipWriter.close();
-}
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const firstScreenshot = viewer.screenshots.images().first();
+	await expect(firstScreenshot).toBeVisible({ timeout: 10000 });
+	const lateStepBar = viewer.steps.root.locator(
+		`[data-span-id="${lateStepId}"]`,
+	);
+	const lateStepDetails = viewer.details.spanDetailsById(lateStepId);
 
-function screenshotSvg(label: string, pageId: string): string {
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#dbeafe"/><text x="320" y="165" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#1e3a8a">${label}</text><text x="320" y="215" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#1e40af">${pageId}</text></svg>`;
-}
+	await test.step("Escape over a screenshot", async () => {
+		await lateStepBar.click();
+		await expect(lateStepDetails).toBeVisible();
+		await firstScreenshot.hover();
+		await page.keyboard.press("Escape");
+		await expect(lateStepDetails).toHaveCount(0);
+	});
+
+	await test.step("Click on a screenshot", async () => {
+		await lateStepBar.click();
+		await expect(lateStepDetails).toBeVisible();
+		await firstScreenshot.click();
+		await expect(lateStepDetails).toHaveCount(0);
+	});
+});
 
 async function visibleRatioInScreenshotRegion(row: Locator): Promise<number> {
 	return row.evaluate((element) => {
@@ -620,11 +596,11 @@ async function findHiddenScreenshotHoverTarget(
 }> {
 	return row.evaluate(
 		(element, { testStartTime, testDurationMs, screenshotOffsetsMs }) => {
-			const timeline = element.closest(
-				'[role="region"][aria-label="Trace timeline"]',
-			) as HTMLElement | null;
+			const timeline = element
+				.closest('[role="region"][aria-label="Trace timeline"]')
+				?.querySelector<HTMLElement>("[data-timeline-plot]");
 			if (!timeline) {
-				throw new Error("Could not find trace timeline region");
+				throw new Error("Could not find trace timeline plot");
 			}
 
 			const timelineRect = timeline.getBoundingClientRect();
@@ -712,7 +688,7 @@ async function findFilmstripGapHoverTarget(
 	});
 }
 
-async function expectScreenshotViewerToMatchHoveredScreenshot(
+async function expectDetailsToMatchHoveredScreenshot(
 	viewer: TraceViewerPage,
 	row: Locator,
 	sampled = false,
@@ -734,11 +710,11 @@ async function expectScreenshotViewerToMatchHoveredScreenshot(
 	await screenshot.hover({
 		position: { x: Math.max(0, box.width - 2), y: box.height / 2 },
 	});
-	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
+	await expect(viewer.details.screenshot()).toHaveAttribute(
 		"data-screenshot-timestamp",
 		sampled ? /\d+/ : timestamp,
 	);
-	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
+	await expect(viewer.details.screenshot()).toHaveAttribute(
 		"data-screenshot-page-id",
 		pageId,
 	);

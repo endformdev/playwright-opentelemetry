@@ -1,4 +1,4 @@
-import type { Span } from "../trace-data-loader/exportToSpans";
+import type { TestStructure } from "./testStructure";
 
 export type TestPhaseType = "before-hooks" | "test-body" | "after-hooks";
 
@@ -11,38 +11,17 @@ export interface TestPhase {
 }
 
 /**
- * Detects test phases (before hooks, test body, after hooks) from step spans.
+ * Detects test phases (before hooks, test body, after hooks) from the test's
+ * structure.
  *
  * Returns null if no hooks are detected (indicating the phase bar shouldn't be shown).
  * Returns an array of phases if at least one hook phase exists.
- *
- * The detection is case-insensitive for "before hooks" and "after hooks" titles.
  */
-export function detectTestPhases(steps: Span[]): TestPhase[] | null {
-	if (steps.length === 0) {
-		return null;
-	}
-
-	// Find the root test span (playwright.test with no parent in steps)
-	const rootTest = steps.find(
-		(s) =>
-			s.name === "playwright.test" && !steps.some((p) => p.id === s.parentId),
-	);
-
+export function detectTestPhases(structure: TestStructure): TestPhase[] | null {
+	const { root: rootTest, beforeHooks, afterHooks } = structure;
 	if (!rootTest) {
 		return null;
 	}
-
-	// Find top-level steps (direct children of the root test)
-	const topLevelSteps = steps.filter((s) => s.parentId === rootTest.id);
-
-	// Find before hooks and after hooks (case-insensitive)
-	const beforeHooks = topLevelSteps.find(
-		(s) => s.title.toLowerCase() === "before hooks",
-	);
-	const afterHooks = topLevelSteps.find(
-		(s) => s.title.toLowerCase() === "after hooks",
-	);
 
 	// If no hooks at all, don't show the phase bar
 	if (!beforeHooks && !afterHooks) {

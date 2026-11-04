@@ -1,20 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
-	ALL_VIEWER_PANELS,
 	parseViewerPanels,
 	type ViewerPanelId,
+	VIEWER_PANEL_IDS,
+	viewerSettingsFromPanels,
 } from "./viewerPanels";
 
-function shownPanels(query: string): ViewerPanelId[] {
+/** The shown panel ids, or null when the URL leaves it to the saved settings */
+function shownPanels(query: string): ViewerPanelId[] | null {
 	const panels = parseViewerPanels(new URLSearchParams(query));
-	return (Object.keys(panels) as ViewerPanelId[]).filter((id) => panels[id]);
+	if (!panels) return null;
+	return VIEWER_PANEL_IDS.filter((id) => panels[id]);
 }
 
 describe("parseViewerPanels", () => {
-	it("shows every panel when no parameter is given", () => {
-		expect(parseViewerPanels(new URLSearchParams(""))).toEqual(
-			ALL_VIEWER_PANELS,
-		);
+	it("leaves the choice to the saved settings when no parameter is given", () => {
+		expect(shownPanels("")).toBeNull();
 	});
 
 	it("shows only the listed panels", () => {
@@ -32,7 +33,7 @@ describe("parseViewerPanels", () => {
 	});
 
 	it("resolves view presets", () => {
-		expect(shownPanels("view=full")).toEqual(shownPanels(""));
+		expect(shownPanels("view=full")).toEqual([...VIEWER_PANEL_IDS]);
 		expect(shownPanels("view=player")).toEqual([
 			"ruler",
 			"filmstrip",
@@ -60,10 +61,23 @@ describe("parseViewerPanels", () => {
 		);
 	});
 
-	it("falls back to every panel for unrecognised values", () => {
-		expect(shownPanels("panels=")).toEqual(shownPanels(""));
-		expect(shownPanels("panels=nope,also-nope")).toEqual(shownPanels(""));
-		expect(shownPanels("view=nope")).toEqual(shownPanels(""));
-		expect(shownPanels("view=toString")).toEqual(shownPanels(""));
+	it("leaves the choice to the saved settings for unrecognised values", () => {
+		expect(shownPanels("panels=")).toBeNull();
+		expect(shownPanels("panels=nope,also-nope")).toBeNull();
+		expect(shownPanels("view=nope")).toBeNull();
+		expect(shownPanels("view=toString")).toBeNull();
+	});
+});
+
+describe("viewerSettingsFromPanels", () => {
+	it("maps the panels the settings menu covers", () => {
+		const panels = parseViewerPanels(new URLSearchParams("view=player"))!;
+		expect(viewerSettingsFromPanels(panels)).toEqual({
+			stepViewer: true,
+			filmstrip: true,
+			steps: false,
+			browser: false,
+			external: false,
+		});
 	});
 });

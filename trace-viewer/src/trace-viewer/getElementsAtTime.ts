@@ -32,7 +32,8 @@ export interface HoveredElements {
  * @param spans - All spans from the trace
  * @param screenshots - All screenshots from the trace
  * @param testStartTimeMs - Test start time as Unix timestamp in ms
- * @returns Elements active at the given time
+ * @param focusedSpanId - Directly hit or locked span to include even outside its interval
+ * @returns Elements active at the given time, plus the explicit selection
  */
 export function getElementsAtTime(
 	timeMs: number,
@@ -40,23 +41,28 @@ export function getElementsAtTime(
 	spans: Span[],
 	screenshots: ScreenshotInfo[],
 	testStartTimeMs: number,
+	focusedSpanId?: string,
 ): HoveredElements {
 	return {
 		screenshot: findScreenshotAtTime(screenshots, testStartTimeMs + timeMs),
-		steps: findSpansAtTime(timeMs, steps),
-		spans: findSpansAtTime(timeMs, spans),
+		steps: findSpansAtTime(timeMs, steps, focusedSpanId),
+		spans: findSpansAtTime(timeMs, spans, focusedSpanId),
 	};
 }
 
 /**
  * Finds all spans that contain the given time and builds a hierarchical tree.
  */
-function findSpansAtTime(timeMs: number, allSpans: Span[]): HoveredSpan[] {
+function findSpansAtTime(
+	timeMs: number,
+	allSpans: Span[],
+	focusedSpanId?: string,
+): HoveredSpan[] {
 	// Find spans that contain this time
 	const activeSpans = allSpans.filter((span) => {
 		const startMs = span.startOffsetMs;
 		const endMs = span.startOffsetMs + span.durationMs;
-		return timeMs >= startMs && timeMs <= endMs;
+		return span.id === focusedSpanId || (timeMs >= startMs && timeMs <= endMs);
 	});
 
 	if (activeSpans.length === 0) return [];

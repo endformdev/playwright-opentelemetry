@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 export const TRACE_API_URL = "http://localhost:9295";
 
@@ -124,6 +124,11 @@ export class DetailsPanel {
 		return this.root.locator(`[data-span-id="${id}"]`);
 	}
 
+	/** The focused card, marked like any other focused span */
+	get focusedCards(): Locator {
+		return this.root.locator('[data-focused="true"]');
+	}
+
 	parentButtonForSpan(spanId: string, parentName: string): Locator {
 		return this.spanDetailsById(spanId).getByRole("button", {
 			name: parentName,
@@ -135,14 +140,6 @@ export class DetailsPanel {
 		return this.spanDetailsById(spanId).locator(
 			`button[data-parent-span-id="${parentSpanId}"]`,
 		);
-	}
-}
-
-export class ScreenshotViewer {
-	readonly root: Locator;
-
-	constructor(page: Page) {
-		this.root = page.getByTestId("screenshot-viewer");
 	}
 
 	screenshot(): Locator {
@@ -204,6 +201,105 @@ export class ErrorSpansComponent {
 	}
 }
 
+export class StepViewerComponent {
+	readonly root: Locator;
+	/** Step counter; reads "3/12" on a stop and "–/12" otherwise */
+	readonly position: Locator;
+	readonly screenshot: Locator;
+	/** The step the viewer is on, named in the top right corner */
+	readonly step: Locator;
+	readonly stepTitle: Locator;
+	readonly stepSubtitle: Locator;
+	readonly stepParents: Locator;
+	readonly pagePicker: Locator;
+	readonly previousButton: Locator;
+	readonly nextButton: Locator;
+	readonly playButton: Locator;
+	readonly pauseButton: Locator;
+	/** Reads the playback speed, as in "2×"; clicking moves to the next one */
+	readonly speedButton: Locator;
+
+	constructor(page: Page) {
+		this.root = page.getByRole("region", { name: "Step viewer" });
+		this.position = this.root.getByTestId("step-viewer-position");
+		this.step = this.root.getByTestId("step-viewer-step");
+		this.stepTitle = this.step.getByTestId("step-viewer-step-title");
+		this.stepSubtitle = this.step.getByTestId("step-viewer-step-subtitle");
+		this.stepParents = this.step.getByTestId("step-viewer-step-parents");
+		this.pagePicker = this.root.getByRole("group", { name: "Pages" });
+		this.screenshot = this.root.getByRole("img", {
+			name: /Step viewer screenshot/,
+		});
+		this.previousButton = this.root.getByRole("button", {
+			name: "Previous step",
+		});
+		this.nextButton = this.root.getByRole("button", { name: "Next step" });
+		const playback = this.root.getByRole("group", { name: "Playback" });
+		this.playButton = playback.getByRole("button", {
+			name: "Play",
+			exact: true,
+		});
+		this.pauseButton = playback.getByRole("button", {
+			name: "Pause",
+			exact: true,
+		});
+		this.speedButton = playback.getByRole("button", { name: "Playback speed" });
+	}
+
+	page(number: number): Locator {
+		return this.pagePicker.getByRole("button", {
+			name: `Page ${number}`,
+			exact: true,
+		});
+	}
+}
+
+export type ViewerSectionLabel =
+	| "Step viewer"
+	| "Screenshot filmstrip"
+	| "Steps timeline"
+	| "Browser spans"
+	| "External spans";
+
+export class ViewerSettingsMenu {
+	readonly page: Page;
+	readonly button: Locator;
+	readonly menu: Locator;
+
+	constructor(page: Page) {
+		this.page = page;
+		this.button = page
+			.getByTestId("trace-viewer-header")
+			.getByRole("button", { name: "Viewer settings" });
+		this.menu = page.getByRole("menu");
+	}
+
+	item(label: ViewerSectionLabel): Locator {
+		return this.page.getByRole("menuitemcheckbox", { name: label });
+	}
+
+	async open(): Promise<void> {
+		if (await this.menu.isVisible()) return;
+		await this.button.click();
+		// The menu ignores Escape until it has moved focus into itself.
+		await expect(this.menu).toBeFocused();
+	}
+
+	async close(): Promise<void> {
+		await this.page.keyboard.press("Escape");
+		await this.menu.waitFor({ state: "hidden" });
+		// The trigger keeps focus and would take arrow keys meant for the timeline.
+		await this.button.blur();
+	}
+
+	/** Flips sections in one visit to the menu, then closes it. */
+	async toggle(...labels: ViewerSectionLabel[]): Promise<void> {
+		await this.open();
+		for (const label of labels) await this.item(label).click();
+		await this.close();
+	}
+}
+
 export class TraceViewerPage {
 	readonly page: Page;
 	readonly root: Locator;
@@ -215,9 +311,11 @@ export class TraceViewerPage {
 	readonly browserSpans: SpanSection;
 	readonly externalSpans: SpanSection;
 	readonly details: DetailsPanel;
-	readonly screenshotViewer: ScreenshotViewer;
 	readonly search: SearchComponent;
 	readonly errors: ErrorSpansComponent;
+	readonly stepViewer: StepViewerComponent;
+	readonly settingsButton: Locator;
+	readonly settings: ViewerSettingsMenu;
 
 	constructor(page: Page) {
 		this.page = page;
@@ -230,9 +328,25 @@ export class TraceViewerPage {
 		this.browserSpans = new SpanSection(page, "Browser Spans");
 		this.externalSpans = new SpanSection(page, "External Spans");
 		this.details = new DetailsPanel(page);
-		this.screenshotViewer = new ScreenshotViewer(page);
 		this.search = new SearchComponent(page);
 		this.errors = new ErrorSpansComponent(page);
+		this.stepViewer = new StepViewerComponent(page);
+		this.settingsButton = page
+			.getByTestId("trace-viewer-header")
+			.getByRole("button", { name: "Viewer settings" });
+		this.settings = new ViewerSettingsMenu(page);
+	}
+
+	/** Footer entry for a section with no data in this trace. */
+	emptySection(tooltip: string): Locator {
+		return this.root.getByTitle(tooltip, { exact: true });
+	}
+
+	/** Stores viewer settings before the app loads. */
+	async useViewerSettings(settings: Record<string, boolean>): Promise<void> {
+		await this.page.addInitScript((stored) => {
+			localStorage.setItem("trace-viewer-settings", stored);
+		}, JSON.stringify(settings));
 	}
 
 	async goto(): Promise<void> {

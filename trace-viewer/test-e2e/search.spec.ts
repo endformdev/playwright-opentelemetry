@@ -111,7 +111,7 @@ test.describe("Search Functionality", () => {
 		await expect(viewer.search.resultItems).toHaveCount(0);
 	});
 
-	test("zooms out when selecting an off-screen search result", async ({
+	test("brings an off-screen search result into view when selected", async ({
 		page,
 	}) => {
 		const viewer = new TraceViewerPage(page);

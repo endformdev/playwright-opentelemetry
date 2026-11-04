@@ -19,11 +19,12 @@ describe("Playwright trace retention helpers", () => {
 		["retain-on-first-failure", 1, false],
 		["retain-on-failure-and-retries", 0, true],
 		["retain-on-failure-and-retries", 1, true],
-	] satisfies Array<
-		[PlaywrightTraceOption, number, boolean]
-	>)("returns whether %s could retain before test completion on retry %s", (trace, retry, expected) => {
-		expect(couldRetainPlaywrightTrace(trace, { retry })).toBe(expected);
-	});
+	] satisfies Array<[PlaywrightTraceOption, number, boolean]>)(
+		"returns whether %s could retain before test completion on retry %s",
+		(trace, retry, expected) => {
+			expect(couldRetainPlaywrightTrace(trace, { retry })).toBe(expected);
+		},
+	);
 
 	it("treats an expected-failing test as possibly failing unexpectedly", () => {
 		expect(

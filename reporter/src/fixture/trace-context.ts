@@ -22,6 +22,9 @@ export const FIXTURE_SPANS_ATTACHMENT_NAME =
 	"playwright-opentelemetry-fixture-spans";
 export const BROWSER_SERVICE_NAME = "playwright-browser";
 
+const FIXTURE_EXPORT_RETRY_DELAYS_MS = [250, 750];
+const FIXTURE_EXPORT_REQUEST_TIMEOUT_MS = 3000;
+
 export interface PlaywrightOtelTraceContextAttachment {
 	traceId: string;
 	rootSpanId: string;
@@ -88,11 +91,22 @@ export async function createTestTraceContext(
 	return traceContext;
 }
 
+/**
+ * Writes the expected-trace marker that lets the Trace API admit spans from the
+ * app under test. Only browser requests carry the test's traceparent, so the
+ * marker is skipped when propagation is off; the fixture's own spans are
+ * trusted and stored without it. Never rejects, so callers can start it
+ * without awaiting.
+ */
 export async function registerExpectedTrace(
 	traceContext: TestTraceContext,
 	config: ResolvedPlaywrightOpentelemetryConfig,
 	options: RegisterExpectedTraceOptions,
 ): Promise<void> {
+	if (!config.propagateTraceHeaders) {
+		return;
+	}
+
 	const couldRetainTrace = (trace: PlaywrightTraceOption | null) =>
 		couldRetainPlaywrightTrace(trace ?? options.trace, options.testInfo);
 	const destinations = filterRetainedDestinations(
@@ -168,16 +182,30 @@ export async function flushFixtureSpans(
 		return;
 	}
 
-	await Promise.all(
-		destinations.map((destination) =>
-			sendSpans(traceContext.spans, {
-				tracesEndpoint: destination.tracesEndpoint,
-				headers: destination.headers,
-				playwrightVersion: "unknown",
-				debug: config.debug,
-			}),
-		),
+	const failures = await Promise.all(
+		destinations.map(async (destination) => {
+			try {
+				await sendSpans(traceContext.spans, {
+					tracesEndpoint: destination.tracesEndpoint,
+					headers: destination.headers,
+					playwrightVersion: "unknown",
+					debug: config.debug,
+					retryDelaysMs: FIXTURE_EXPORT_RETRY_DELAYS_MS,
+					requestTimeoutMs: FIXTURE_EXPORT_REQUEST_TIMEOUT_MS,
+				});
+			} catch (error) {
+				return `${destination.tracesEndpoint}: ${error instanceof Error ? error.message : String(error)}`;
+			}
+		}),
 	);
+
+	for (const failure of failures) {
+		if (failure) {
+			console.warn(
+				`Failed to export fixture spans for trace ${traceContext.traceId}: ${failure}`,
+			);
+		}
+	}
 }
 
 function serializeSpanForAttachment(

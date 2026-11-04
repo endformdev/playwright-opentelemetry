@@ -1,5 +1,6 @@
-import { ArrowUpFromDot } from "lucide-solid";
+import { ArrowUpFromDot, ChevronRight } from "lucide-solid";
 import { For, type JSX, Show } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import {
 	isErrorSpan,
 	type Span,
@@ -8,12 +9,20 @@ import {
 import { formatAttributeValue, formatDuration } from "../formatters";
 import type { HoveredSpan } from "../getElementsAtTime";
 import { getSpanEventSeverity } from "./spanEventStyles";
+import { StepTitleText } from "./StepTitleText";
 
 export interface SpanDetailsProps {
 	hoveredSpan: HoveredSpan;
 	testStartTimeMs: number;
 	colorFn: (depth: number, span: Span) => string;
 	isFocused: boolean;
+	/**
+	 * Whether an unfocused card shows its details. The focused card always
+	 * does; the others start as a header line so the panel reads as an
+	 * overview of everything happening at this moment.
+	 */
+	isExpanded: boolean;
+	onToggleExpanded: () => void;
 	/** Optional icon to display in header */
 	icon?: JSX.Element;
 	/** Optional override for display title */
@@ -42,6 +51,10 @@ export function SpanDetails(props: SpanDetailsProps) {
 		return `${timeStr}.${msStr}`;
 	};
 
+	const expanded = () => props.isFocused || props.isExpanded;
+	// The focused card can't be collapsed, so its header stays plain text.
+	const collapsible = () => !props.isFocused;
+
 	const endOffsetMs = () => span.startOffsetMs + span.durationMs;
 
 	const timeRangeDisplay = () =>
@@ -52,7 +65,7 @@ export function SpanDetails(props: SpanDetailsProps) {
 
 	const attributeEntries = () => {
 		return Object.entries(span.attributes).filter(
-			([key]) => key !== "test.step.title" && key !== "test.case.title",
+			([key]) => !HEADER_ATTRIBUTES.has(key),
 		);
 	};
 
@@ -69,196 +82,267 @@ export function SpanDetails(props: SpanDetailsProps) {
 	return (
 		<div
 			data-span-id={span.id}
-			class="rounded-md border-2 overflow-hidden transition-all duration-150"
+			data-expanded={expanded() ? "true" : "false"}
+			data-focused={props.isFocused ? "true" : undefined}
+			class="overflow-hidden rounded-md border bg-white transition-all duration-150"
 			classList={{
-				"ring-2 ring-blue-200": props.isFocused,
-			}}
-			style={{
-				"border-color": props.isFocused ? "#3b82f6" : color(),
+				"border-gray-200": !props.isFocused,
+				"border-blue-500 ring-2 ring-blue-200": props.isFocused,
 			}}
 		>
-			{/* Header with span name and color indicator */}
-			<div
-				class="px-3 py-2 text-white text-sm font-medium flex items-center gap-2"
-				style={{ "background-color": color() }}
+			{/* Header: a tint of the span's colour, with the colour itself as a stripe */}
+			<Dynamic
+				component={collapsible() ? "button" : "div"}
+				type={collapsible() ? "button" : undefined}
+				aria-expanded={collapsible() ? expanded() : undefined}
+				onClick={collapsible() ? props.onToggleExpanded : undefined}
+				class="flex w-full items-start gap-2 border-l-4 px-3 py-2 text-left text-gray-900"
+				classList={{
+					"cursor-pointer transition-[filter] hover:brightness-95":
+						collapsible(),
+				}}
+				style={{
+					"border-left-color": color(),
+					"background-color": `color-mix(in srgb, ${color()} 12%, white)`,
+				}}
+				data-testid="span-details-header"
 			>
-				{props.icon}
-				<span class="truncate">{props.displayTitle ?? span.title}</span>
-			</div>
+				<Show when={props.icon}>
+					<span class="mt-0.5 flex-shrink-0">{props.icon}</span>
+				</Show>
+				<span class="block min-w-0 flex-1">
+					<span
+						class="block text-[13px] font-semibold leading-snug"
+						classList={{
+							truncate: !expanded(),
+							"break-words": expanded(),
+						}}
+						data-testid="span-details-title"
+					>
+						<StepTitleText
+							title={props.displayTitle ?? span.title}
+							emphasisColor={`color-mix(in srgb, ${color()} 65%, black)`}
+						/>
+					</span>
+					<Show when={!props.displayTitle && span.subtitle}>
+						{(subtitle) => (
+							<span
+								class="mt-0.5 block font-mono text-xs leading-snug text-gray-700"
+								classList={{
+									truncate: !expanded(),
+									"wrap-anywhere": expanded(),
+								}}
+								title={subtitle()}
+								data-testid="span-details-subtitle"
+							>
+								{subtitle()}
+							</span>
+						)}
+					</Show>
+				</span>
+				<Show when={collapsible()}>
+					<span class="flex flex-shrink-0 items-center gap-1 pt-px font-mono text-[11px] tabular-nums text-gray-500">
+						{formatDuration(span.durationMs)}
+						<ChevronRight
+							size={14}
+							aria-hidden="true"
+							class="transition-transform duration-150"
+							classList={{ "rotate-90": expanded() }}
+						/>
+					</span>
+				</Show>
+			</Dynamic>
 
 			{/* Details */}
-			<div class="bg-gray-50 px-3 py-2 space-y-2 text-xs">
-				<Show when={isErrorSpan(span)}>
-					<div class="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-red-800">
-						<div class="font-semibold">Error</div>
-						<Show when={span.status?.message}>
-							{(message) => (
-								<div
-									class="mt-0.5 whitespace-pre-wrap break-words font-mono"
-									data-testid="span-error-message"
+			<Show when={expanded()}>
+				<div
+					class="bg-gray-50 px-3 py-2 space-y-2 text-xs"
+					data-testid="span-details-body"
+				>
+					<Show when={isErrorSpan(span)}>
+						<div class="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-red-800">
+							<div class="font-semibold">Error</div>
+							<Show when={span.status?.message}>
+								{(message) => (
+									<div
+										class="mt-0.5 whitespace-pre-wrap break-words font-mono"
+										data-testid="span-error-message"
+									>
+										{message()}
+									</div>
+								)}
+							</Show>
+						</div>
+					</Show>
+
+					{/* Timing info - responsive single row that wraps on small widths */}
+					<div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+						<span>
+							<span class="text-gray-500">Duration: </span>
+							<span class="font-mono text-gray-900">
+								{formatDuration(span.durationMs)}
+							</span>
+						</span>
+						<span class="cursor-help" title={absoluteTimeTooltip()}>
+							<span class="text-gray-500">Time: </span>
+							<span class="font-mono text-gray-500">{timeRangeDisplay()}</span>
+						</span>
+					</div>
+
+					{/* Other span info */}
+					<div class="flex flex-wrap items-start gap-x-4 gap-y-2">
+						{/* Kind field */}
+						<div class="flex gap-x-3 items-baseline">
+							<span class="text-gray-500">Kind:</span>
+							<span class="text-gray-900 capitalize">{span.kind}</span>
+						</div>
+
+						<div class="flex gap-x-3 items-baseline">
+							<span class="text-gray-500">Status:</span>
+							<span
+								class="capitalize"
+								classList={{
+									"text-red-700 font-semibold": isErrorSpan(span),
+									"text-gray-900": !isErrorSpan(span),
+								}}
+							>
+								{statusLabel()}
+							</span>
+						</div>
+
+						{/* Parent navigation chip - shows on right side when space allows, wraps below otherwise */}
+						<Show when={parent}>
+							<div class="flex items-center gap-1.5 ml-auto">
+								<span class="text-gray-500">Parent:</span>
+								<button
+									type="button"
+									data-parent-span-id={parent!.span.id}
+									onClick={handleParentClick}
+									class="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-opacity hover:opacity-80"
+									style={{ "background-color": parentColor(), color: "white" }}
+									title={`Go to parent: ${parent!.span.title}`}
 								>
-									{message()}
-								</div>
-							)}
+									<ArrowUpFromDot size={12} />
+									<span class="truncate max-w-[150px]">
+										{parent!.span.title}
+									</span>
+								</button>
+							</div>
 						</Show>
 					</div>
-				</Show>
 
-				{/* Timing info - responsive single row that wraps on small widths */}
-				<div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-					<span>
-						<span class="text-gray-500">Duration: </span>
-						<span class="font-mono text-gray-900">
-							{formatDuration(span.durationMs)}
-						</span>
-					</span>
-					<span class="cursor-help" title={absoluteTimeTooltip()}>
-						<span class="text-gray-500">Time: </span>
-						<span class="font-mono text-gray-500">{timeRangeDisplay()}</span>
-					</span>
-				</div>
+					{/* Span Name - separate section if different from title */}
+					<Show when={span.name !== span.title}>
+						<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+							<span class="text-gray-500">Span Name:</span>
+							<span class="font-mono text-gray-900">{span.name}</span>
+						</div>
+					</Show>
 
-				{/* Other span info */}
-				<div class="flex flex-wrap items-start gap-x-4 gap-y-2">
-					{/* Kind field */}
-					<div class="flex gap-x-3 items-baseline">
-						<span class="text-gray-500">Kind:</span>
-						<span class="text-gray-900 capitalize">{span.kind}</span>
-					</div>
+					{/* Attributes */}
+					<Show when={(span.events ?? []).length > 0}>
+						<div class="border-t border-gray-200 pt-2 mt-2">
+							<div class="text-gray-500 mb-1">Events:</div>
+							<div class="space-y-2 pl-2">
+								<For each={span.events ?? []}>
+									{(event, index) => (
+										<div
+											data-testid="span-event-card"
+											data-span-event-name={event.name}
+											data-span-event-index={index()}
+											data-span-event-error={
+												getSpanEventSeverity(event) === "error"
+													? "true"
+													: undefined
+											}
+											class="rounded border px-2 py-1.5"
+											classList={{
+												"border-red-200 bg-red-50":
+													getSpanEventSeverity(event) === "error",
+												"border-amber-200 bg-amber-50":
+													getSpanEventSeverity(event) === "warning",
+												"border-gray-200 bg-white":
+													getSpanEventSeverity(event) === "default",
+											}}
+										>
+											<div class="flex items-baseline justify-between gap-2">
+												<div class="font-semibold text-gray-800">
+													{event.name}
+												</div>
+												<div class="font-mono text-gray-500">
+													{formatDuration(eventAbsoluteOffsetMs(event))}
+												</div>
+											</div>
+											<Show when={eventMessage(event)}>
+												{(message) => (
+													<div class="mt-1 whitespace-pre-wrap break-words font-mono text-gray-900">
+														{message()}
+													</div>
+												)}
+											</Show>
+											<Show when={eventAttributeEntries(event).length > 0}>
+												<div class="mt-1 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+													<For each={eventAttributeEntries(event)}>
+														{([key, value]) => (
+															<>
+																<span
+																	class="text-gray-500 truncate"
+																	title={key}
+																>
+																	{key}:
+																</span>
+																<span
+																	class="font-mono text-gray-900 break-all"
+																	title={String(value)}
+																>
+																	{formatAttributeValue(value)}
+																</span>
+															</>
+														)}
+													</For>
+												</div>
+											</Show>
+										</div>
+									)}
+								</For>
+							</div>
+						</div>
+					</Show>
 
-					<div class="flex gap-x-3 items-baseline">
-						<span class="text-gray-500">Status:</span>
-						<span
-							class="capitalize"
-							classList={{
-								"text-red-700 font-semibold": isErrorSpan(span),
-								"text-gray-900": !isErrorSpan(span),
-							}}
-						>
-							{statusLabel()}
-						</span>
-					</div>
-
-					{/* Parent navigation chip - shows on right side when space allows, wraps below otherwise */}
-					<Show when={parent}>
-						<div class="flex items-center gap-1.5 ml-auto">
-							<span class="text-gray-500">Parent:</span>
-							<button
-								type="button"
-								data-parent-span-id={parent!.span.id}
-								onClick={handleParentClick}
-								class="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-opacity hover:opacity-80"
-								style={{ "background-color": parentColor(), color: "white" }}
-								title={`Go to parent: ${parent!.span.title}`}
-							>
-								<ArrowUpFromDot size={12} />
-								<span class="truncate max-w-[150px]">{parent!.span.title}</span>
-							</button>
+					<Show when={attributeEntries().length > 0}>
+						<div class="border-t border-gray-200 pt-2 mt-2">
+							<div class="text-gray-500 mb-1">Attributes:</div>
+							<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 pl-2">
+								<For each={attributeEntries()}>
+									{([key, value]) => (
+										<>
+											<span class="text-gray-500 truncate" title={key}>
+												{key}:
+											</span>
+											<span
+												class="font-mono text-gray-900 break-all"
+												title={String(value)}
+											>
+												{formatAttributeValue(value)}
+											</span>
+										</>
+									)}
+								</For>
+							</div>
 						</div>
 					</Show>
 				</div>
-
-				{/* Span Name - separate section if different from title */}
-				<Show when={span.name !== span.title}>
-					<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
-						<span class="text-gray-500">Span Name:</span>
-						<span class="font-mono text-gray-900">{span.name}</span>
-					</div>
-				</Show>
-
-				{/* Attributes */}
-				<Show when={(span.events ?? []).length > 0}>
-					<div class="border-t border-gray-200 pt-2 mt-2">
-						<div class="text-gray-500 mb-1">Events:</div>
-						<div class="space-y-2 pl-2">
-							<For each={span.events ?? []}>
-								{(event, index) => (
-									<div
-										data-testid="span-event-card"
-										data-span-event-name={event.name}
-										data-span-event-index={index()}
-										data-span-event-error={
-											getSpanEventSeverity(event) === "error"
-												? "true"
-												: undefined
-										}
-										class="rounded border px-2 py-1.5"
-										classList={{
-											"border-red-200 bg-red-50":
-												getSpanEventSeverity(event) === "error",
-											"border-amber-200 bg-amber-50":
-												getSpanEventSeverity(event) === "warning",
-											"border-gray-200 bg-white":
-												getSpanEventSeverity(event) === "default",
-										}}
-									>
-										<div class="flex items-baseline justify-between gap-2">
-											<div class="font-semibold text-gray-800">
-												{event.name}
-											</div>
-											<div class="font-mono text-gray-500">
-												{formatDuration(eventAbsoluteOffsetMs(event))}
-											</div>
-										</div>
-										<Show when={eventMessage(event)}>
-											{(message) => (
-												<div class="mt-1 whitespace-pre-wrap break-words font-mono text-gray-900">
-													{message()}
-												</div>
-											)}
-										</Show>
-										<Show when={eventAttributeEntries(event).length > 0}>
-											<div class="mt-1 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
-												<For each={eventAttributeEntries(event)}>
-													{([key, value]) => (
-														<>
-															<span class="text-gray-500 truncate" title={key}>
-																{key}:
-															</span>
-															<span
-																class="font-mono text-gray-900 break-all"
-																title={String(value)}
-															>
-																{formatAttributeValue(value)}
-															</span>
-														</>
-													)}
-												</For>
-											</div>
-										</Show>
-									</div>
-								)}
-							</For>
-						</div>
-					</div>
-				</Show>
-
-				<Show when={attributeEntries().length > 0}>
-					<div class="border-t border-gray-200 pt-2 mt-2">
-						<div class="text-gray-500 mb-1">Attributes:</div>
-						<div class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 pl-2">
-							<For each={attributeEntries()}>
-								{([key, value]) => (
-									<>
-										<span class="text-gray-500 truncate" title={key}>
-											{key}:
-										</span>
-										<span
-											class="font-mono text-gray-900 break-all"
-											title={String(value)}
-										>
-											{formatAttributeValue(value)}
-										</span>
-									</>
-								)}
-							</For>
-						</div>
-					</div>
-				</Show>
-			</div>
+			</Show>
 		</div>
 	);
 }
+
+/** Shown in the card header, so left out of the attribute list */
+const HEADER_ATTRIBUTES = new Set([
+	"test.step.title",
+	"test.step.subtitle",
+	"test.case.title",
+]);
 
 function eventMessage(event: SpanEvent): string | undefined {
 	const message =

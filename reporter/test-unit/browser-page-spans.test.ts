@@ -292,6 +292,48 @@ describe("fixture browser span hierarchy", () => {
 		);
 	});
 
+	it("warns instead of failing the test when exporting fixture spans keeps failing", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: false,
+			status: 503,
+			statusText: "Service Unavailable",
+			text: async () => "storage busy",
+		});
+		global.fetch = fetchMock;
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const traceContext = createTraceContext();
+		traceContext.addSpan({
+			traceId: traceContext.traceId,
+			spanId: generateSpanId(),
+			parentSpanId: traceContext.rootSpanId,
+			name: "browser.page",
+			startTime: new Date("2025-11-06T10:00:00.000Z"),
+			endTime: new Date("2025-11-06T10:00:01.000Z"),
+			attributes: { "browser.resource.type": "page" },
+			events: [],
+			status: { code: 0 },
+			serviceName: "playwright-browser",
+		});
+
+		await flushFixtureSpans(
+			traceContext,
+			resolvePlaywrightOpentelemetryConfig({
+				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+			}),
+			{
+				trace: "on",
+				testInfo: createFlushTestInfo({ attach: vi.fn(async () => {}) }),
+			},
+		);
+
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining("Failed to send spans: 503 Service Unavailable"),
+		);
+
+		warn.mockRestore();
+	});
+
 	it("attaches fixture spans when trace ZIP storage is enabled", async () => {
 		const traceContext = createTraceContext();
 		const spanStartTime = new Date("2025-11-06T10:00:00.000Z");
