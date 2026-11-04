@@ -44,6 +44,39 @@ The remote API contract is:
 
 The service worker exposes internal per-screenshot URLs to the viewer after loading the ZIP.
 
+## Choose which panels to show
+
+To show only some regions of the viewer, for example when embedding it in an iframe, add a `view` query parameter with a preset:
+
+```text
+https://trace.endform.dev/?traceSource=...&view=player
+```
+
+| View | Panels |
+| --- | --- |
+| `full` | Every panel |
+| `player` | `viewer`, `ruler`, `filmstrip` |
+| `spans` | Every panel except `viewer` |
+
+For full control, list the panels yourself with a comma-separated `panels` query parameter. It overrides `view`:
+
+```text
+https://trace.endform.dev/?traceSource=...&panels=viewer,ruler,filmstrip,steps
+```
+
+| Panel | Region |
+| --- | --- |
+| `header` | Top bar with the test name, status, error spans, search, viewer settings, and time readout |
+| `ruler` | Timeline ruler and test phase bar |
+| `filmstrip` | Screenshot filmstrip |
+| `viewer` | Step viewer: the large screenshot with step and playback controls |
+| `steps` | Test steps timeline |
+| `browser` | Browser spans timeline |
+| `external` | External spans timeline |
+| `details` | Span details sidebar |
+
+Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it.
+
 ## Deploy Your Own
 
 ### Cloudflare

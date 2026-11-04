@@ -70,15 +70,20 @@ test("steps through each test body step, showing it once it has finished", async
 
 	const expectStop = async (
 		position: string,
-		badge: string,
 		stepId: string,
 		screenshotOffsetMs: number,
 	) => {
 		await expect(stepViewer.position).toHaveText(position);
 		await expect(stepViewer.position).toHaveAttribute("data-active", "true");
-		// The step's details card says it is the viewer's stop.
-		await expect(viewer.details.badges).toHaveText(badge);
-		await expect(viewer.details.badge(stepId)).toBeVisible();
+		// The step's details card is focused like any selected span, with no
+		// step counter of its own.
+		await expect(viewer.details.focusedCards).toHaveAttribute(
+			"data-span-id",
+			stepId,
+		);
+		await expect(
+			viewer.details.root.getByText(/^Step \d+\/\d+$/),
+		).toHaveCount(0);
 		await expect(stepViewer.screenshot).toHaveAttribute(
 			"data-screenshot-timestamp",
 			String(testStartTime + screenshotOffsetMs),
@@ -102,7 +107,6 @@ test("steps through each test body step, showing it once it has finished", async
 	const expectNotOnStop = async () => {
 		await expect(stepViewer.position).toHaveText("–/3");
 		await expect(stepViewer.position).not.toHaveAttribute("data-active");
-		await expect(viewer.details.badges).toHaveCount(0);
 		await expect(stepViewer.step).toBeHidden();
 	};
 
@@ -133,7 +137,7 @@ test("steps through each test body step, showing it once it has finished", async
 	await test.step("The first arrow press goes to the first step", async () => {
 		await page.keyboard.press("ArrowRight");
 		// Shown just before the next step starts, once the page has settled.
-		await expectStop("1/3", "Step 1/3", fill, 950);
+		await expectStop("1/3", fill, 950);
 		await expectStepCaption("Fill username", null, "Login");
 		// Stepping keeps the zoom: the whole test stays in view, where the step
 		// is 300 of 4000ms, with the step and the moment after it both shown.
@@ -148,7 +152,7 @@ test("steps through each test body step, showing it once it has finished", async
 
 	await test.step("Arrow keys move from step to step", async () => {
 		await page.keyboard.press("ArrowRight");
-		await expectStop("2/3", "Step 2/3", click, 1600);
+		await expectStop("2/3", click, 1600);
 		// The locator the step acted on is shown in full below its title.
 		await expectStepCaption(
 			"Click",
@@ -157,22 +161,22 @@ test("steps through each test body step, showing it once it has finished", async
 		);
 		// The last step settles until the after hooks start.
 		await page.keyboard.press("ArrowRight");
-		await expectStop("3/3", "Step 3/3", check, 2600);
+		await expectStop("3/3", check, 2600);
 		await expectStepCaption("Check dashboard", null, null);
 		await expect(stepViewer.nextButton).toBeDisabled();
 		await page.keyboard.press("ArrowRight");
 		await expect(stepViewer.position).toHaveText("3/3");
 		await page.keyboard.press("ArrowLeft");
-		await expectStop("2/3", "Step 2/3", click, 1600);
+		await expectStop("2/3", click, 1600);
 		await page.keyboard.press("Home");
-		await expectStop("1/3", "Step 1/3", fill, 950);
+		await expectStop("1/3", fill, 950);
 		await page.keyboard.press("End");
-		await expectStop("3/3", "Step 3/3", check, 2600);
+		await expectStop("3/3", check, 2600);
 	});
 
 	await test.step("The arrow buttons step too", async () => {
 		await stepViewer.previousButton.click();
-		await expectStop("2/3", "Step 2/3", click, 1600);
+		await expectStop("2/3", click, 1600);
 	});
 
 	await test.step("Leaving the stops for span navigation shows the focus ring", async () => {
@@ -187,16 +191,16 @@ test("steps through each test body step, showing it once it has finished", async
 		await expectNotOnStop();
 		await expect(focusRing).toHaveCount(0);
 		await page.keyboard.press("ArrowLeft");
-		await expectStop("1/3", "Step 1/3", fill, 950);
+		await expectStop("1/3", fill, 950);
 	});
 
 	await test.step("Clicking the counter or the viewer selects the first stop", async () => {
 		await page.keyboard.press("Escape");
 		await stepViewer.position.click();
-		await expectStop("1/3", "Step 1/3", fill, 950);
+		await expectStop("1/3", fill, 950);
 		await page.keyboard.press("Escape");
 		await stepViewer.root.click();
-		await expectStop("1/3", "Step 1/3", fill, 950);
+		await expectStop("1/3", fill, 950);
 	});
 
 	await test.step("The step viewer can be hidden from settings", async () => {

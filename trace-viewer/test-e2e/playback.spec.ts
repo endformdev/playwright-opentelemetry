@@ -182,9 +182,12 @@ test("plays the test back in real time at the chosen speed", async ({
 	await test.step("Arrow keys step on from the step playback is on", async () => {
 		await expect(stepViewer.position).toHaveText("1/2");
 		await page.keyboard.press("ArrowRight");
-		// Now on the second step's stop, which the details panel marks.
+		// Now on the second step's stop, focused in the details panel.
 		await expect(stepViewer.position).toHaveText("2/2");
-		await expect(viewer.details.badges).toHaveText("Step 2/2");
+		await expect(viewer.details.focusedCards).toHaveAttribute(
+			"data-span-id",
+			(await stepViewer.step.getAttribute("data-span-id"))!,
+		);
 		await expect(stepViewer.playButton).toBeVisible();
 	});
 

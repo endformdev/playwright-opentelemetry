@@ -124,13 +124,9 @@ export class DetailsPanel {
 		return this.root.locator(`[data-span-id="${id}"]`);
 	}
 
-	/** The badge naming what put the selection on this card, e.g. "Step 2/5" */
-	badge(id: string): Locator {
-		return this.spanDetailsById(id).getByTestId("span-details-badge");
-	}
-
-	get badges(): Locator {
-		return this.root.getByTestId("span-details-badge");
+	/** The focused card, marked like any other focused span */
+	get focusedCards(): Locator {
+		return this.root.locator('[data-focused="true"]');
 	}
 
 	parentButtonForSpan(spanId: string, parentName: string): Locator {
@@ -309,6 +305,7 @@ export class TraceViewerPage {
 	readonly root: Locator;
 	readonly header: TraceViewerHeader;
 	readonly timelineContent: Locator;
+	readonly timelineRuler: Locator;
 	readonly screenshots: ScreenshotSection;
 	readonly steps: SpanSection;
 	readonly browserSpans: SpanSection;
@@ -325,6 +322,7 @@ export class TraceViewerPage {
 		this.root = page.getByRole("main", { name: "Trace viewer" });
 		this.header = new TraceViewerHeader(page);
 		this.timelineContent = page.getByRole("region", { name: "Trace timeline" });
+		this.timelineRuler = page.getByTestId("timeline-ruler");
 		this.screenshots = new ScreenshotSection(page);
 		this.steps = new SpanSection(page, "Steps Timeline");
 		this.browserSpans = new SpanSection(page, "Browser Spans");
@@ -372,9 +370,13 @@ export class TraceViewerPage {
 		await this.page.locator('input[type="file"]').setInputFiles(zipPath);
 	}
 
-	async loadTraceFromUrlParam(traceIdHex: string): Promise<void> {
+	async loadTraceFromUrlParam(
+		traceIdHex: string,
+		extraParams: Record<string, string> = {},
+	): Promise<void> {
 		const apiUrl = `${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceIdHex}`;
-		await this.page.goto(`/?traceSource=${encodeURIComponent(apiUrl)}`);
+		const params = new URLSearchParams({ traceSource: apiUrl, ...extraParams });
+		await this.page.goto(`/?${params.toString()}`);
 	}
 
 	async zoomTimelineToRange(

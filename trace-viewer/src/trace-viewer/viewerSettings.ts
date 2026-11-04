@@ -47,17 +47,23 @@ export function parseViewerSettings(stored: string | null): ViewerSettings {
 	}
 }
 
-export function createViewerSettings(): {
+/**
+ * @param initial Settings chosen for this page load (e.g. by the URL). They
+ * are used instead of the saved settings, and later changes are kept in
+ * memory only, so they never overwrite the settings saved in the browser.
+ */
+export function createViewerSettings(initial?: ViewerSettings): {
 	settings: Accessor<ViewerSettings>;
 	setSetting: (key: ViewerSettingKey, value: boolean) => void;
 } {
 	const [settings, setSettings] = createSignal(
-		parseViewerSettings(readStoredSettings()),
+		initial ?? parseViewerSettings(readStoredSettings()),
 	);
 
 	const setSetting = (key: ViewerSettingKey, value: boolean) => {
 		const next = { ...settings(), [key]: value };
 		setSettings(next);
+		if (initial) return;
 		try {
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 		} catch {

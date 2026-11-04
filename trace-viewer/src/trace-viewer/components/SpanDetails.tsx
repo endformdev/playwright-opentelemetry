@@ -23,8 +23,6 @@ export interface SpanDetailsProps {
 	 */
 	isExpanded: boolean;
 	onToggleExpanded: () => void;
-	/** Marks the card as what a navigator is on, e.g. "Step 3/12" */
-	badge?: string;
 	/** Optional icon to display in header */
 	icon?: JSX.Element;
 	/** Optional override for display title */
@@ -85,6 +83,7 @@ export function SpanDetails(props: SpanDetailsProps) {
 		<div
 			data-span-id={span.id}
 			data-expanded={expanded() ? "true" : "false"}
+			data-focused={props.isFocused ? "true" : undefined}
 			class="overflow-hidden rounded-md border bg-white transition-all duration-150"
 			classList={{
 				"border-gray-200": !props.isFocused,
@@ -141,16 +140,6 @@ export function SpanDetails(props: SpanDetailsProps) {
 						)}
 					</Show>
 				</span>
-				<Show when={props.badge}>
-					{(badge) => (
-						<span
-							class="flex-shrink-0 rounded-full bg-blue-600 px-2 py-0.5 font-mono text-[10px] font-semibold tabular-nums text-white shadow-sm"
-							data-testid="span-details-badge"
-						>
-							{badge()}
-						</span>
-					)}
-				</Show>
 				<Show when={collapsible()}>
 					<span class="flex flex-shrink-0 items-center gap-1 pt-px font-mono text-[11px] tabular-nums text-gray-500">
 						{formatDuration(span.durationMs)}

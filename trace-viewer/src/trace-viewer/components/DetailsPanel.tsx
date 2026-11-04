@@ -30,8 +30,6 @@ export interface DetailsPanelProps {
 	hoveredElements: HoveredElements | null;
 	testStartTimeMs: number;
 	focusedElement: FocusedElement | null;
-	/** Badge for the focused card, naming what is driving the selection */
-	focusedBadge?: string | null;
 	onNavigateToSpan?: (spanId: string) => void;
 }
 
@@ -266,11 +264,6 @@ export function DetailsPanel(props: DetailsPanelProps) {
 												onToggleExpanded={() =>
 													toggleSpanExpanded(hoveredSpan.span.id)
 												}
-												badge={
-													isSpanFocused(hoveredSpan.span.id)
-														? (props.focusedBadge ?? undefined)
-														: undefined
-												}
 												onNavigateToSpan={props.onNavigateToSpan}
 											/>
 										)}
@@ -300,11 +293,6 @@ export function DetailsPanel(props: DetailsPanelProps) {
 													isExpanded={isSpanExpanded(hoveredSpan.span.id)}
 													onToggleExpanded={() =>
 														toggleSpanExpanded(hoveredSpan.span.id)
-													}
-													badge={
-														isSpanFocused(hoveredSpan.span.id)
-															? (props.focusedBadge ?? undefined)
-															: undefined
 													}
 													icon={getResourceIcon(resourceType, 16)}
 													displayTitle={getResourceDisplayName(
@@ -336,11 +324,6 @@ export function DetailsPanel(props: DetailsPanelProps) {
 												isExpanded={isSpanExpanded(hoveredSpan.span.id)}
 												onToggleExpanded={() =>
 													toggleSpanExpanded(hoveredSpan.span.id)
-												}
-												badge={
-													isSpanFocused(hoveredSpan.span.id)
-														? (props.focusedBadge ?? undefined)
-														: undefined
 												}
 												onNavigateToSpan={props.onNavigateToSpan}
 											/>

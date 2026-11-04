@@ -6,9 +6,11 @@ import {
 import { useTraceInfoLoader } from "./trace-info-loader";
 import { createTraceLoadRequestSignal, type TraceSource } from "./trace-source";
 import { TraceViewer } from "./trace-viewer";
+import { readViewerPanelsFromQueryParams } from "./trace-viewer/viewerPanels";
 
 export default function App() {
 	const [loadRequest, setLoadRequest] = createTraceLoadRequestSignal();
+	const viewerPanels = readViewerPanelsFromQueryParams();
 	const { traceInfoData, traceInfo } = useTraceInfoLoader(
 		() => loadRequest()?.source ?? null,
 	);
@@ -62,7 +64,7 @@ export default function App() {
 					}
 				>
 					<Match when={loadedTraceInfo()}>
-						{(info) => <TraceViewer traceInfo={info()} />}
+						{(info) => <TraceViewer traceInfo={info()} panels={viewerPanels} />}
 					</Match>
 					<Match when={urlLoadingSource()}>
 						{(source) => <TraceLoading source={source()} />}

@@ -261,7 +261,11 @@ export function TimelineRuler(props: TimelineRulerProps) {
 	};
 
 	return (
-		<div class="flex-shrink-0 select-none" onDblClick={handleDoubleClick}>
+		<div
+			class="flex-shrink-0 select-none"
+			data-testid="timeline-ruler"
+			onDblClick={handleDoubleClick}
+		>
 			{/* Main ruler area */}
 			<div
 				class="relative h-6 bg-gray-50"
