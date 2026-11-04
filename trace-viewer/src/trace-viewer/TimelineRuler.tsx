@@ -35,6 +35,12 @@ export interface TimelineRulerProps {
 	onPhaseClick?: (phase: TestPhase) => void;
 	/** Callback when ruler is double-clicked (for zoom reset) */
 	onDoubleClick?: () => void;
+	/**
+	 * Times of the step viewer's stops (relative to test start), marked with
+	 * small ticks along the ruler's bottom edge so playback and stepping show
+	 * where the current time sits among the steps.
+	 */
+	stepStopTimesMs?: number[];
 }
 
 /** Aligns ruler content with the shared timeline plot box. */
@@ -42,6 +48,11 @@ const PLOT_STYLE = {
 	left: "var(--timeline-plot-inset)",
 	width: "var(--timeline-plot-width)",
 };
+
+/** Height of the test phase bar under the ruler (h-1.5) */
+const PHASE_BAR_HEIGHT_PX = 6;
+/** How far step ticks rise into the time ruler */
+const STEP_TICK_RISE_PX = 4;
 
 /** Minimum viewport width as percentage of total duration */
 const MIN_VIEWPORT_WIDTH_PERCENT = 0.01;
@@ -360,6 +371,25 @@ export function TimelineRuler(props: TimelineRulerProps) {
 										{tick.label}
 									</span>
 								</div>
+							);
+						}}
+					</For>
+
+					{/* Step ticks rise a little into the time ruler and run down
+					    through the phase bar below it */}
+					<For each={props.stepStopTimesMs ?? []}>
+						{(timeMs) => {
+							const belowPx = () => (hasPhases() ? PHASE_BAR_HEIGHT_PX : 0);
+							return (
+								<div
+									class="absolute z-10 w-px bg-gray-500 pointer-events-none"
+									style={{
+										left: `${timeToTotalPosition(timeMs, props.viewport) * 100}%`,
+										bottom: `${-belowPx()}px`,
+										height: `${belowPx() + STEP_TICK_RISE_PX}px`,
+									}}
+									data-testid="ruler-step-tick"
+								/>
 							);
 						}}
 					</For>

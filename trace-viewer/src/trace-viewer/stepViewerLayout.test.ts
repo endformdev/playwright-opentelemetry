@@ -19,4 +19,23 @@ describe("getCaptionWidthPx", () => {
 	it("assumes the screenshot fills the width before it has loaded", () => {
 		expect(getCaptionWidthPx(1160, 600, null)).toBe(192);
 	});
+
+	it("widens over the screenshot when there is little room to grow down", () => {
+		// 82px between the caption's top and the next arrow: nearly cramped.
+		expect(getCaptionWidthPx(1160, 240, 5)).toBe(317);
+		expect(getCaptionWidthPx(1160, 200, 5)).toBe(320);
+	});
+
+	it("widens gradually as the viewer gets shorter", () => {
+		const tall = getCaptionWidthPx(1160, 600, 5);
+		const medium = getCaptionWidthPx(1160, 400, 5);
+		const short = getCaptionWidthPx(1160, 250, 5);
+		expect(tall).toBe(192);
+		expect(medium).toBeGreaterThan(tall);
+		expect(short).toBeGreaterThan(medium);
+	});
+
+	it("takes at most half of a narrow, short viewer for the wider caption", () => {
+		expect(getCaptionWidthPx(500, 200, 5)).toBe(250);
+	});
 });
