@@ -9,6 +9,7 @@ import {
 import { formatAttributeValue, formatDuration } from "../formatters";
 import type { HoveredSpan } from "../getElementsAtTime";
 import { getSpanEventSeverity } from "./spanEventStyles";
+import { StepTitleText } from "./StepTitleText";
 
 export interface SpanDetailsProps {
 	hoveredSpan: HoveredSpan;
@@ -353,25 +354,6 @@ const HEADER_ATTRIBUTES = new Set([
 	"test.step.subtitle",
 	"test.case.title",
 ]);
-
-/**
- * Playwright quotes the values it fills into a title (`Expect "toBeVisible"`,
- * `Fill "a@b.c"`); they are set off from the words around them.
- */
-function StepTitleText(props: { title: string; emphasisColor: string }) {
-	const parts = () => props.title.split(/("[^"]*")/).filter(Boolean);
-	return (
-		<For each={parts()}>
-			{(part) =>
-				part.length > 1 && part.startsWith('"') && part.endsWith('"') ? (
-					<span style={{ color: props.emphasisColor }}>{part}</span>
-				) : (
-					part
-				)
-			}
-		</For>
-	);
-}
 
 function eventMessage(event: SpanEvent): string | undefined {
 	const message =

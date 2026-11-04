@@ -210,6 +210,11 @@ export class StepViewerComponent {
 	/** Step counter; reads "3/12" on a stop and "–/12" otherwise */
 	readonly position: Locator;
 	readonly screenshot: Locator;
+	/** The step the viewer is on, named in the top right corner */
+	readonly step: Locator;
+	readonly stepTitle: Locator;
+	readonly stepSubtitle: Locator;
+	readonly stepParents: Locator;
 	readonly pagePicker: Locator;
 	readonly previousButton: Locator;
 	readonly nextButton: Locator;
@@ -221,6 +226,10 @@ export class StepViewerComponent {
 	constructor(page: Page) {
 		this.root = page.getByRole("region", { name: "Step viewer" });
 		this.position = this.root.getByTestId("step-viewer-position");
+		this.step = this.root.getByTestId("step-viewer-step");
+		this.stepTitle = this.step.getByTestId("step-viewer-step-title");
+		this.stepSubtitle = this.step.getByTestId("step-viewer-step-subtitle");
+		this.stepParents = this.step.getByTestId("step-viewer-step-parents");
 		this.pagePicker = this.root.getByRole("group", { name: "Pages" });
 		this.screenshot = this.root.getByRole("img", {
 			name: /Step viewer screenshot/,

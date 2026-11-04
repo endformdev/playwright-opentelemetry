@@ -76,3 +76,24 @@ export function buildTestStructure(steps: Span[]): TestStructure {
 		bodyLeafSteps,
 	};
 }
+
+/**
+ * A step and the spans it is nested in, outermost first, ending with the step.
+ * Stops at the first ancestor missing from `spansById`.
+ */
+export function getStepAncestry(
+	stepId: string,
+	spansById: ReadonlyMap<string, Span>,
+): Span[] {
+	const ancestry: Span[] = [];
+	const seen = new Set<string>();
+	for (
+		let current = spansById.get(stepId);
+		current && !seen.has(current.id);
+		current = current.parentId ? spansById.get(current.parentId) : undefined
+	) {
+		seen.add(current.id);
+		ancestry.unshift(current);
+	}
+	return ancestry;
+}

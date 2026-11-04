@@ -66,6 +66,12 @@ test("plays the test back in real time at the chosen speed", async ({
 		await expect(stepViewer.position).toHaveText(playingPosition(timeMs));
 		if (timeMs >= 600) {
 			await expect(stepViewer.position).toHaveAttribute("data-active", "true");
+			// The caption names the step playing, as it does on a stop.
+			await expect(stepViewer.stepTitle).toHaveText(
+				timeMs < 2000 ? "Login" : "Check dashboard",
+			);
+		} else {
+			await expect(stepViewer.step).toBeHidden();
 		}
 	};
 

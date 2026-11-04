@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Span } from "../trace-data-loader/exportToSpans";
-import { buildTestStructure } from "./testStructure";
+import { buildTestStructure, getStepAncestry } from "./testStructure";
 
 function createStep(overrides: Partial<Span>): Span {
 	return {
@@ -100,5 +100,32 @@ describe("buildTestStructure", () => {
 		]);
 
 		expect(ids(structure.bodyLeafSteps)).toEqual(["group"]);
+	});
+});
+
+describe("getStepAncestry", () => {
+	const group = createStep({ id: "group", title: "Login" });
+	const click = createStep({ id: "click", parentId: "group", title: "Click" });
+	const spansById = new Map(
+		[root, group, click].map((span) => [span.id, span]),
+	);
+
+	it("lists the step's ancestors outermost first, ending with the step", () => {
+		expect(ids(getStepAncestry("click", spansById))).toEqual([
+			"root",
+			"group",
+			"click",
+		]);
+	});
+
+	it("is empty for an unknown step", () => {
+		expect(getStepAncestry("missing", spansById)).toEqual([]);
+	});
+
+	it("stops at a parent that is not in the trace", () => {
+		const orphan = createStep({ id: "orphan", parentId: "gone" });
+		expect(
+			ids(getStepAncestry("orphan", new Map([["orphan", orphan]]))),
+		).toEqual(["orphan"]);
 	});
 });
