@@ -5,6 +5,7 @@ import { findScreenshotAtTime } from "./screenshots";
 import {
 	computeStepStops,
 	getAdjacentStopIndex,
+	getPlayingStopIndex,
 	getStopIndexAtTime,
 	type StepStop,
 	type StopPosition,
@@ -39,6 +40,11 @@ export interface StepViewer {
 	/** Index of the stop the timeline is locked on, or null */
 	currentIndex: Accessor<number | null>;
 	currentStop: Accessor<StepStop | null>;
+	/**
+	 * Index of the step the counter shows: the stop locked on, or while
+	 * playback holds the timeline (playing or paused) the step playing.
+	 */
+	shownIndex: Accessor<number | null>;
 	/** Screenshot to show: the pinned page's, else the latest of any page */
 	screenshot: Accessor<ScreenshotInfo | null>;
 	/** Pages that took screenshots; the picker shows when there are several */
@@ -80,6 +86,20 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 			? selectedIndex()
 			: null,
 	);
+	// Playback is a way of stepping through too: it shows the step it is on.
+	const firstStepStartMs = createMemo(() =>
+		Math.min(
+			...options.structure().bodyLeafSteps.map((step) => step.startOffsetMs),
+		),
+	);
+	const playingIndex = createMemo(() => {
+		const timeMs = lockedTimeMs();
+		if (mode() === "hover" || lockSource() !== "playback" || timeMs === null) {
+			return null;
+		}
+		return getPlayingStopIndex(stops(), timeMs, firstStepStartMs());
+	});
+	const shownIndex = () => currentIndex() ?? playingIndex();
 	const currentStop = () => {
 		const index = currentIndex();
 		return index === null ? null : (stops()[index] ?? null);
@@ -145,8 +165,9 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		});
 	};
 
+	// From playback, stepping moves on from the step the counter shows.
 	const position = (): StopPosition => {
-		const index = currentIndex();
+		const index = shownIndex();
 		if (index !== null) return { stopIndex: index };
 		const timeMs = mode() === "hover" ? null : lockedTimeMs();
 		return timeMs === null ? null : { timeMs };
@@ -160,17 +181,21 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 	const activate = () => {
 		if (currentIndex() !== null) return;
 		const timeMs = mode() === "hover" ? null : lockedTimeMs();
-		const index = timeMs === null ? 0 : getStopIndexAtTime(stops(), timeMs);
+		// From playback, go to the stop of the step the counter shows.
+		const index =
+			playingIndex() ??
+			(timeMs === null ? 0 : getStopIndexAtTime(stops(), timeMs));
 		if (index !== null) goToStop(index);
 	};
 
 	const handleKeyDown = (event: KeyboardEvent) => {
 		if (!options.enabled()) return false;
-		// Stepping applies on a stop, with the viewer focused, or with nothing
-		// selected yet, where the first press goes to the first stop.
+		// Stepping applies on a stop or a step playing, with the viewer focused,
+		// or with nothing selected yet, where the first press goes to the first
+		// stop.
 		const focused =
 			event.target instanceof Node && !!rootElement?.contains(event.target);
-		if (currentIndex() === null && !focused && mode() !== "hover") {
+		if (shownIndex() === null && !focused && mode() !== "hover") {
 			return false;
 		}
 		switch (event.key) {
@@ -197,6 +222,7 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		stops,
 		currentIndex,
 		currentStop,
+		shownIndex,
 		screenshot,
 		pages,
 		pinnedPageId,

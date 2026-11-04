@@ -1,13 +1,17 @@
-import { ChevronLeft, ChevronRight, Pin } from "lucide-solid";
+import { ChevronLeft, ChevronRight, Pause, Pin, Play } from "lucide-solid";
 import { For, Show } from "solid-js";
 import type { ScreenshotInfo } from "../trace-info-loader";
+import { formatPlaybackSpeed, type PlaybackSpeed } from "./playback";
 import type { StepViewerPage } from "./useStepViewer";
 
 export interface StepViewerProps {
 	screenshot: ScreenshotInfo | null;
 	screenshotsLoading: boolean;
 	stopCount: number;
-	/** Index of the stop the timeline is locked on, or null when not on one */
+	/**
+	 * Index of the stop the timeline is locked on, or of the step playing
+	 * while playback holds the timeline; null otherwise
+	 */
 	stopIndex: number | null;
 	pages: StepViewerPage[];
 	pinnedPageId: string | null;
@@ -15,6 +19,10 @@ export interface StepViewerProps {
 	ref: (element: HTMLElement) => void;
 	onActivate: () => void;
 	onNavigate: (direction: -1 | 1) => void;
+	playing: boolean;
+	playbackSpeed: PlaybackSpeed;
+	onTogglePlayback: () => void;
+	onCycleSpeed: () => void;
 }
 
 /**
@@ -23,9 +31,10 @@ export interface StepViewerProps {
  * the first and last step (see useStepViewer for when the keys apply).
  *
  * Controls live in gutters either side of the screenshot so they never cover
- * it: the step counter and back arrow on the left, the page picker and next
- * arrow on the right. The counter lights up while the viewer drives the
- * selection; the step itself is marked on its card in the details panel.
+ * it: the step counter, back arrow and playback controls on the left, the
+ * page picker and next arrow on the right. The counter lights up while the
+ * viewer drives the selection; the step itself is marked on its card in the
+ * details panel.
  */
 export function StepViewer(props: StepViewerProps) {
 	const active = () => props.stopIndex !== null;
@@ -100,9 +109,11 @@ export function StepViewer(props: StepViewerProps) {
 					data-testid="step-viewer-position"
 					data-active={active() ? "true" : undefined}
 					title={
-						active()
-							? "Stepping through the test with ← →"
-							: "Step through the test with ← →"
+						props.playing
+							? "Playing through the test"
+							: active()
+								? "Stepping through the test with ← →"
+								: "Step through the test with ← →"
 					}
 					onClick={(event) => {
 						event.stopPropagation();
@@ -166,6 +177,66 @@ export function StepViewer(props: StepViewerProps) {
 
 			{navigationButton(-1)}
 			{navigationButton(1)}
+
+			<PlaybackControls
+				playing={props.playing}
+				speed={props.playbackSpeed}
+				onToggle={props.onTogglePlayback}
+				onCycleSpeed={props.onCycleSpeed}
+			/>
 		</section>
+	);
+}
+
+/**
+ * Play/pause and playback speed, pinned to the bottom left corner. Playing
+ * runs through the test as fast as it ran, or at the chosen speed.
+ */
+function PlaybackControls(props: {
+	playing: boolean;
+	speed: PlaybackSpeed;
+	onToggle: () => void;
+	onCycleSpeed: () => void;
+}) {
+	return (
+		<div
+			class="absolute bottom-3 left-3 z-10 inline-flex h-7 items-center rounded-full bg-white shadow-sm ring-1 ring-gray-200"
+			role="group"
+			aria-label="Playback"
+			onClick={(event) => event.stopPropagation()}
+		>
+			<button
+				type="button"
+				class="inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors"
+				classList={{
+					"bg-blue-600 text-white": props.playing,
+					"text-gray-600 hover:text-gray-900": !props.playing,
+				}}
+				aria-label={props.playing ? "Pause" : "Play"}
+				title={props.playing ? "Pause (Space)" : "Play (Space)"}
+				onClick={props.onToggle}
+			>
+				{props.playing ? (
+					<Pause size={13} fill="currentColor" aria-hidden="true" />
+				) : (
+					<Play
+						size={13}
+						fill="currentColor"
+						class="translate-x-px"
+						aria-hidden="true"
+					/>
+				)}
+			</button>
+			<button
+				type="button"
+				class="inline-flex h-7 min-w-8 items-center justify-center pr-2 pl-1 font-mono text-[10px] tabular-nums text-gray-500 hover:text-gray-900"
+				aria-label="Playback speed"
+				title="Playback speed: click to change"
+				data-testid="playback-speed"
+				onClick={props.onCycleSpeed}
+			>
+				{formatPlaybackSpeed(props.speed)}
+			</button>
+		</div>
 	);
 }

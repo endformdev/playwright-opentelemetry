@@ -3,6 +3,7 @@ import type { Span } from "../trace-data-loader/exportToSpans";
 import {
 	computeStepStops,
 	getAdjacentStopIndex,
+	getPlayingStopIndex,
 	getStopIndexAtTime,
 	type StepStop,
 } from "./stepStops";
@@ -140,5 +141,34 @@ describe("getStopIndexAtTime", () => {
 		expect(getStopIndexAtTime(stops, 250)).toBe(0);
 		expect(getStopIndexAtTime(stops, 300)).toBe(1);
 		expect(getStopIndexAtTime([], 300)).toBeNull();
+	});
+});
+
+describe("getPlayingStopIndex", () => {
+	// Step a runs 50-100 and stops at 199, just before b runs 200-300.
+	const stops: StepStop[] = [
+		{ timeMs: 199, stepId: "a" },
+		{ timeMs: 300, stepId: "b" },
+	];
+
+	it("is nothing before the first step starts", () => {
+		expect(getPlayingStopIndex(stops, 0, 50)).toBeNull();
+		expect(getPlayingStopIndex(stops, 49, 50)).toBeNull();
+	});
+
+	it("is the step running, or the one whose result is on screen", () => {
+		expect(getPlayingStopIndex(stops, 50, 50)).toBe(0);
+		expect(getPlayingStopIndex(stops, 150, 50)).toBe(0);
+		expect(getPlayingStopIndex(stops, 199, 50)).toBe(0);
+		expect(getPlayingStopIndex(stops, 200, 50)).toBe(1);
+		expect(getPlayingStopIndex(stops, 300, 50)).toBe(1);
+	});
+
+	it("stays on the last step after its stop", () => {
+		expect(getPlayingStopIndex(stops, 400, 50)).toBe(1);
+	});
+
+	it("is nothing without stops", () => {
+		expect(getPlayingStopIndex([], 100, 0)).toBeNull();
 	});
 });
