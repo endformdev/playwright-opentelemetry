@@ -136,6 +136,14 @@ export class DetailsPanel {
 			`button[data-parent-span-id="${parentSpanId}"]`,
 		);
 	}
+}
+
+export class ScreenshotViewer {
+	readonly root: Locator;
+
+	constructor(page: Page) {
+		this.root = page.getByTestId("screenshot-viewer");
+	}
 
 	screenshot(): Locator {
 		return this.root.locator("[data-screenshot]");
@@ -201,11 +209,13 @@ export class TraceViewerPage {
 	readonly root: Locator;
 	readonly header: TraceViewerHeader;
 	readonly timelineContent: Locator;
+	readonly timelineRuler: Locator;
 	readonly screenshots: ScreenshotSection;
 	readonly steps: SpanSection;
 	readonly browserSpans: SpanSection;
 	readonly externalSpans: SpanSection;
 	readonly details: DetailsPanel;
+	readonly screenshotViewer: ScreenshotViewer;
 	readonly search: SearchComponent;
 	readonly errors: ErrorSpansComponent;
 
@@ -214,11 +224,13 @@ export class TraceViewerPage {
 		this.root = page.getByRole("main", { name: "Trace viewer" });
 		this.header = new TraceViewerHeader(page);
 		this.timelineContent = page.getByRole("region", { name: "Trace timeline" });
+		this.timelineRuler = page.getByTestId("timeline-ruler");
 		this.screenshots = new ScreenshotSection(page);
 		this.steps = new SpanSection(page, "Steps Timeline");
 		this.browserSpans = new SpanSection(page, "Browser Spans");
 		this.externalSpans = new SpanSection(page, "External Spans");
 		this.details = new DetailsPanel(page);
+		this.screenshotViewer = new ScreenshotViewer(page);
 		this.search = new SearchComponent(page);
 		this.errors = new ErrorSpansComponent(page);
 	}
@@ -244,9 +256,13 @@ export class TraceViewerPage {
 		await this.page.locator('input[type="file"]').setInputFiles(zipPath);
 	}
 
-	async loadTraceFromUrlParam(traceIdHex: string): Promise<void> {
+	async loadTraceFromUrlParam(
+		traceIdHex: string,
+		extraParams: Record<string, string> = {},
+	): Promise<void> {
 		const apiUrl = `${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceIdHex}`;
-		await this.page.goto(`/?traceSource=${encodeURIComponent(apiUrl)}`);
+		const params = new URLSearchParams({ traceSource: apiUrl, ...extraParams });
+		await this.page.goto(`/?${params.toString()}`);
 	}
 
 	async zoomTimelineToRange(

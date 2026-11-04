@@ -59,8 +59,16 @@ test("renders separate screenshot rows for multiple browser contexts", async ({
 
 	// Real traces can contain frames omitted from the sampled filmstrip. The
 	// details panel selects the latest frame at the cursor time on the same page.
-	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(0), true);
-	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(1), true);
+	await expectScreenshotViewerToMatchHoveredScreenshot(
+		viewer,
+		rows.nth(0),
+		true,
+	);
+	await expectScreenshotViewerToMatchHoveredScreenshot(
+		viewer,
+		rows.nth(1),
+		true,
+	);
 });
 
 test("anchors screenshot previews to the steps timeline while following the cursor horizontally", async ({
@@ -103,7 +111,10 @@ test("anchors screenshot previews to the steps timeline while following the curs
 		await expect(preview).toBeVisible();
 		await expect(image).toHaveAttribute(
 			"src",
-			(await viewer.details.screenshot().locator("img").getAttribute("src"))!,
+			(await viewer.screenshotViewer
+				.screenshot()
+				.locator("img")
+				.getAttribute("src"))!,
 		);
 		await expect
 			.poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth))
@@ -157,7 +168,10 @@ test("anchors screenshot previews to the steps timeline while following the curs
 		await next.hover();
 		await expect(image).toHaveAttribute(
 			"src",
-			(await viewer.details.screenshot().locator("img").getAttribute("src"))!,
+			(await viewer.screenshotViewer
+				.screenshot()
+				.locator("img")
+				.getAttribute("src"))!,
 		);
 	});
 
@@ -255,11 +269,11 @@ test("shows separate page rows with two and a half rows by default", async ({
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(0)))
 		.toBeGreaterThan(0.95);
-	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(0));
+	await expectScreenshotViewerToMatchHoveredScreenshot(viewer, rows.nth(0));
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(1)))
 		.toBeGreaterThan(0.95);
-	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(1));
+	await expectScreenshotViewerToMatchHoveredScreenshot(viewer, rows.nth(1));
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(2)))
 		.toBeGreaterThan(0.35);
@@ -277,7 +291,7 @@ test("shows separate page rows with two and a half rows by default", async ({
 	await expect
 		.poll(() => visibleRatioInScreenshotRegion(rows.nth(7)))
 		.toBeGreaterThan(0.95);
-	await expectDetailsToMatchHoveredScreenshot(viewer, rows.nth(7));
+	await expectScreenshotViewerToMatchHoveredScreenshot(viewer, rows.nth(7));
 });
 
 test("shows the most recent screenshot at the hovered timestamp when filmstrip frames are sampled", async ({
@@ -346,7 +360,7 @@ test("shows the most recent screenshot at the hovered timestamp when filmstrip f
 	expect(target.displayedTimestamp).not.toBe(target.expectedTimestamp);
 
 	await page.mouse.move(target.x, target.y);
-	await expect(viewer.details.screenshot()).toHaveAttribute(
+	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
 		"data-screenshot-timestamp",
 		String(target.expectedTimestamp),
 	);
@@ -444,18 +458,19 @@ test("focuses the active screenshot when moving from a span into a filmstrip gap
 		.toBeGreaterThan(0);
 
 	await page.mouse.move(gapTarget.x, gapTarget.y, { steps: 8 });
-	await expect(viewer.details.screenshot()).toHaveAttribute(
+	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
 		"data-screenshot-timestamp",
 		/\d+/,
 	);
-	await expect
-		.poll(() => viewer.details.root.evaluate((element) => element.scrollTop))
-		.toBeLessThanOrEqual(2);
+	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
+		"data-focused",
+		"true",
+	);
 	const preview = page.getByTestId("screenshot-hover-preview");
 	await expect(preview).toBeVisible();
 	await expect(preview).toHaveAttribute(
 		"data-screenshot-timestamp",
-		(await viewer.details
+		(await viewer.screenshotViewer
 			.screenshot()
 			.getAttribute("data-screenshot-timestamp"))!,
 	);
@@ -697,7 +712,7 @@ async function findFilmstripGapHoverTarget(
 	});
 }
 
-async function expectDetailsToMatchHoveredScreenshot(
+async function expectScreenshotViewerToMatchHoveredScreenshot(
 	viewer: TraceViewerPage,
 	row: Locator,
 	sampled = false,
@@ -719,11 +734,11 @@ async function expectDetailsToMatchHoveredScreenshot(
 	await screenshot.hover({
 		position: { x: Math.max(0, box.width - 2), y: box.height / 2 },
 	});
-	await expect(viewer.details.screenshot()).toHaveAttribute(
+	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
 		"data-screenshot-timestamp",
 		sampled ? /\d+/ : timestamp,
 	);
-	await expect(viewer.details.screenshot()).toHaveAttribute(
+	await expect(viewer.screenshotViewer.screenshot()).toHaveAttribute(
 		"data-screenshot-page-id",
 		pageId,
 	);

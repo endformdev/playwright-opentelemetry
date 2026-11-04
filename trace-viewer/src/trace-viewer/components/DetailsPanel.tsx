@@ -75,24 +75,17 @@ export function DetailsPanel(props: DetailsPanelProps) {
 		allSpans().filter((hs) => hs.span.serviceName !== "playwright-browser"),
 	);
 
-	const isSpanFocused = (spanId: string): boolean => {
+	// Screenshots are shown in the separate screenshot viewer, so only step
+	// and span focus is relevant to this panel.
+	const focusedSpanElement = (): FocusedElement | null => {
 		const focused = props.focusedElement;
-		return !!(
-			focused &&
-			(focused.type === "step" || focused.type === "span") &&
-			focused.id === spanId
-		);
+		return focused?.type === "step" || focused?.type === "span"
+			? focused
+			: null;
 	};
 
-	const isScreenshotFocused = () => {
-		const focused = props.focusedElement;
-		return focused?.type === "screenshot";
-	};
-
-	const focusedElementSelector = (focused: FocusedElement) =>
-		focused.type === "screenshot"
-			? "[data-screenshot]"
-			: `[data-span-id="${focused.id}"]`;
+	const isSpanFocused = (spanId: string): boolean =>
+		focusedSpanElement()?.id === spanId;
 
 	// Memoized so downstream subscribers (the anchoring effect) only re-run
 	// when the rendered content actually changes, not on every hover move.
@@ -101,7 +94,6 @@ export function DetailsPanel(props: DetailsPanelProps) {
 		if (!elements) return "";
 
 		return [
-			elements.screenshot?.url ?? "",
 			...flatSteps().map((hoveredSpan) => hoveredSpan.span.id),
 			...flatBrowserSpans().map((hoveredSpan) => hoveredSpan.span.id),
 			...flatExternalSpans().map((hoveredSpan) => hoveredSpan.span.id),
@@ -126,15 +118,16 @@ export function DetailsPanel(props: DetailsPanelProps) {
 
 			// Reads here are intentionally non-reactive: rAF callbacks run
 			// outside Solid's tracking scope.
-			const focused = props.focusedElement;
+			const focused = focusedSpanElement();
 			if (!focused || !containerRef) {
 				// Keep the current spacer: removing it would shrink the
 				// scroll area and jump the scroll position.
 				return;
 			}
 
-			const selector = focusedElementSelector(focused);
-			const element = containerRef.querySelector<HTMLElement>(selector);
+			const element = containerRef.querySelector<HTMLElement>(
+				`[data-span-id="${focused.id}"]`,
+			);
 			if (!element) {
 				spacerLayoutKey = undefined;
 				setBottomSpacerHeight(0);
@@ -169,26 +162,23 @@ export function DetailsPanel(props: DetailsPanelProps) {
 	};
 
 	createEffect(
-		on(
-			[() => props.focusedElement, detailsLayoutKey],
-			([focused, layoutKey]) => {
-				if (!focused) {
-					cancelAnchorFrame();
+		on([focusedSpanElement, detailsLayoutKey], ([focused, layoutKey]) => {
+			if (!focused) {
+				cancelAnchorFrame();
 
-					// Keep the spacer from the last anchored layout so a brief
-					// hover-out doesn't shrink the scroll area and jump the
-					// scroll position. Only clear it once the panel content
-					// actually changes and the measurement is stale.
-					if (spacerLayoutKey !== undefined && spacerLayoutKey !== layoutKey) {
-						spacerLayoutKey = undefined;
-						setBottomSpacerHeight(0);
-					}
-					return;
+				// Keep the spacer from the last anchored layout so a brief
+				// hover-out doesn't shrink the scroll area and jump the
+				// scroll position. Only clear it once the panel content
+				// actually changes and the measurement is stale.
+				if (spacerLayoutKey !== undefined && spacerLayoutKey !== layoutKey) {
+					spacerLayoutKey = undefined;
+					setBottomSpacerHeight(0);
 				}
+				return;
+			}
 
-				anchorFocusedElement();
-			},
-		),
+			anchorFocusedElement();
+		}),
 	);
 
 	return (
@@ -205,130 +195,102 @@ export function DetailsPanel(props: DetailsPanelProps) {
 					</div>
 				}
 			>
-				{(elements) => (
-					<div class="p-4 space-y-6">
-						{/* Screenshot at the top */}
-						<Show when={elements().screenshot}>
-							{(screenshot) => (
-								<div
-									data-screenshot
-									data-screenshot-timestamp={screenshot().timestamp}
-									data-screenshot-page-id={screenshot().pageId}
-									class="bg-gray-100 rounded-md overflow-hidden border-2 transition-colors duration-150"
-									classList={{
-										"border-blue-500 ring-2 ring-blue-200":
-											isScreenshotFocused(),
-										"border-gray-200": !isScreenshotFocused(),
-									}}
-								>
-									<img
-										src={screenshot().url}
-										alt="Screenshot at hover time"
-										class="w-full h-auto"
-										onLoad={anchorFocusedElement}
-									/>
-								</div>
-							)}
-						</Show>
+				<div class="p-4 space-y-6">
+					{/* Steps section */}
+					<Show when={flatSteps().length > 0}>
+						<div>
+							<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+								Steps ({flatSteps().length})
+							</div>
+							<div class="space-y-2">
+								<For each={flatSteps()}>
+									{(hoveredSpan) => (
+										<SpanDetails
+											hoveredSpan={hoveredSpan}
+											testStartTimeMs={props.testStartTimeMs}
+											colorFn={(depth, span) =>
+												getStepTimelineColor(span, depth)
+											}
+											isFocused={isSpanFocused(hoveredSpan.span.id)}
+											onNavigateToSpan={props.onNavigateToSpan}
+										/>
+									)}
+								</For>
+							</div>
+						</div>
+					</Show>
 
-						{/* Steps section */}
-						<Show when={flatSteps().length > 0}>
-							<div>
-								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-									Steps ({flatSteps().length})
-								</div>
-								<div class="space-y-2">
-									<For each={flatSteps()}>
-										{(hoveredSpan) => (
+					{/* Browser Spans section */}
+					<Show when={flatBrowserSpans().length > 0}>
+						<div>
+							<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+								Browser Spans ({flatBrowserSpans().length})
+							</div>
+							<div class="space-y-2">
+								<For each={flatBrowserSpans()}>
+									{(hoveredSpan) => {
+										const resourceType = getResourceType(hoveredSpan.span);
+										return (
 											<SpanDetails
 												hoveredSpan={hoveredSpan}
 												testStartTimeMs={props.testStartTimeMs}
-												colorFn={(depth, span) =>
-													getStepTimelineColor(span, depth)
+												colorFn={(_, span) =>
+													getResourceColor(getResourceType(span))
 												}
 												isFocused={isSpanFocused(hoveredSpan.span.id)}
+												icon={getResourceIcon(resourceType, 16)}
+												displayTitle={getResourceDisplayName(hoveredSpan.span)}
 												onNavigateToSpan={props.onNavigateToSpan}
 											/>
-										)}
-									</For>
-								</div>
+										);
+									}}
+								</For>
 							</div>
-						</Show>
+						</div>
+					</Show>
 
-						{/* Browser Spans section */}
-						<Show when={flatBrowserSpans().length > 0}>
-							<div>
-								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-									Browser Spans ({flatBrowserSpans().length})
-								</div>
-								<div class="space-y-2">
-									<For each={flatBrowserSpans()}>
-										{(hoveredSpan) => {
-											const resourceType = getResourceType(hoveredSpan.span);
-											return (
-												<SpanDetails
-													hoveredSpan={hoveredSpan}
-													testStartTimeMs={props.testStartTimeMs}
-													colorFn={(_, span) =>
-														getResourceColor(getResourceType(span))
-													}
-													isFocused={isSpanFocused(hoveredSpan.span.id)}
-													icon={getResourceIcon(resourceType, 16)}
-													displayTitle={getResourceDisplayName(
-														hoveredSpan.span,
-													)}
-													onNavigateToSpan={props.onNavigateToSpan}
-												/>
-											);
-										}}
-									</For>
-								</div>
+					{/* External Spans section */}
+					<Show when={flatExternalSpans().length > 0}>
+						<div>
+							<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+								External Spans ({flatExternalSpans().length})
 							</div>
-						</Show>
-
-						{/* External Spans section */}
-						<Show when={flatExternalSpans().length > 0}>
-							<div>
-								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-									External Spans ({flatExternalSpans().length})
-								</div>
-								<div class="space-y-2">
-									<For each={flatExternalSpans()}>
-										{(hoveredSpan) => (
-											<SpanDetails
-												hoveredSpan={hoveredSpan}
-												testStartTimeMs={props.testStartTimeMs}
-												colorFn={(_, span) => getSpanColor(span.kind)}
-												isFocused={isSpanFocused(hoveredSpan.span.id)}
-												onNavigateToSpan={props.onNavigateToSpan}
-											/>
-										)}
-									</For>
-								</div>
+							<div class="space-y-2">
+								<For each={flatExternalSpans()}>
+									{(hoveredSpan) => (
+										<SpanDetails
+											hoveredSpan={hoveredSpan}
+											testStartTimeMs={props.testStartTimeMs}
+											colorFn={(_, span) => getSpanColor(span.kind)}
+											isFocused={isSpanFocused(hoveredSpan.span.id)}
+											onNavigateToSpan={props.onNavigateToSpan}
+										/>
+									)}
+								</For>
 							</div>
-						</Show>
+						</div>
+					</Show>
 
-						{/* Empty state when no steps or spans */}
-						<Show
-							when={
-								flatSteps().length === 0 &&
-								flatBrowserSpans().length === 0 &&
-								flatExternalSpans().length === 0
-							}
-						>
-							<div class="text-gray-400 text-sm text-center py-4">
-								No active steps or spans at this time
-							</div>
-						</Show>
+					{/* Empty state when no steps or spans */}
+					<Show
+						when={
+							flatSteps().length === 0 &&
+							flatBrowserSpans().length === 0 &&
+							flatExternalSpans().length === 0
+						}
+					>
+						<div class="text-gray-400 text-sm text-center py-4">
+							No active steps or spans at this time
+						</div>
+					</Show>
 
-						<Show when={bottomSpacerHeight() > 0}>
-							<div
-								aria-hidden="true"
-								style={{ height: `${bottomSpacerHeight()}px` }}
-							/>
-						</Show>
-					</div>
-				)}
+					<Show when={bottomSpacerHeight() > 0}>
+						<div
+							aria-hidden="true"
+							style={{ height: `${bottomSpacerHeight()}px` }}
+						/>
+					</Show>
+				</div>
 			</Show>
 		</div>
 	);

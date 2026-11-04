@@ -15,6 +15,7 @@ import { DetailsPanel } from "./components/DetailsPanel";
 import { ExternalSpansPanel } from "./components/ExternalSpansPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { PanelHeader } from "./components/PanelHeader";
+import { ScreenshotViewer } from "./components/ScreenshotViewer";
 import { StepsTimeline } from "./components/StepsTimeline";
 import { HoverProvider, useHoverContext } from "./contexts/HoverContext";
 import { SearchProvider, useSearch } from "./contexts/SearchContext";
@@ -37,6 +38,7 @@ import {
 } from "./spanSelection";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
+import { ALL_VIEWER_PANELS, type ViewerPanels } from "./viewerPanels";
 import {
 	isTimeRangeVisible,
 	type TimelineViewport,
@@ -46,6 +48,8 @@ import {
 
 export interface TraceViewerProps {
 	traceInfo: TraceInfo;
+	/** Which regions to show. Defaults to every region. */
+	panels?: ViewerPanels;
 }
 
 /** Section identifiers for the main timeline panels */
@@ -82,6 +86,12 @@ const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
 const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
+/** Initial height of the screenshot viewer when stacked above the details sidebar */
+const SIDEBAR_VIEWER_INITIAL_SIZE_PERCENT = 40;
+/** Initial height of the screenshot viewer when stacked above timeline span panels */
+const MAIN_VIEWER_WITH_SPANS_INITIAL_SIZE_PERCENT = 50;
+/** Initial height of the screenshot viewer when the timeline has no span panels (player layout) */
+const MAIN_VIEWER_INITIAL_SIZE_PERCENT = 75;
 
 function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
 	if (screenshots.length === 0) return 1;
@@ -129,6 +139,7 @@ export function TraceViewer(props: TraceViewerProps) {
 						traceInfo={props.traceInfo}
 						traceData={traceData}
 						testStartTimeMs={testStartTimeMs}
+						panels={props.panels ?? ALL_VIEWER_PANELS}
 					/>
 				</HoverProvider>
 			</SearchProvider>
@@ -140,6 +151,7 @@ interface TraceViewerInnerProps {
 	traceInfo: TraceInfo;
 	traceData: ReturnType<typeof useTraceDataLoader>;
 	testStartTimeMs: () => number;
+	panels: ViewerPanels;
 }
 
 function TraceViewerInner(props: TraceViewerInnerProps) {
@@ -183,11 +195,14 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	);
 
 	let contentAreaRef: HTMLDivElement | undefined;
-	// Determine which sections are active/disabled
+	// Determine which sections are active/disabled. A section is shown when it
+	// is enabled by the `panels` config AND the trace has data for it.
 	const hasLoadedScreenshots = () =>
 		(props.traceInfo.screenshots() ?? []).length > 0;
-	const hasScreenshots = () =>
+	const hasScreenshotData = () =>
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
+	const hasScreenshots = () => props.panels.filmstrip && hasScreenshotData();
+	const showScreenshotViewer = () => props.panels.viewer && hasScreenshotData();
 	const screenshotPageCount = createMemo(() =>
 		countScreenshotPages(props.traceInfo.screenshots() ?? []),
 	);
@@ -196,35 +211,42 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			SCREENSHOT_PANEL_ROW_SIZE_PERCENT *
 			getDefaultVisibleScreenshotRows(screenshotPageCount()),
 	);
-	const hasSteps = () => props.traceData.steps().length > 0;
-	const hasBrowserSpans = () => props.traceData.browserSpans().length > 0;
-	const hasExternalSpans = () => props.traceData.externalSpans().length > 0;
+	const hasStepData = () => props.traceData.steps().length > 0;
+	const hasBrowserSpanData = () => props.traceData.browserSpans().length > 0;
+	const hasExternalSpanData = () => props.traceData.externalSpans().length > 0;
+	const hasSteps = () => props.panels.steps && hasStepData();
+	const hasBrowserSpans = () => props.panels.browser && hasBrowserSpanData();
+	const hasExternalSpans = () => props.panels.external && hasExternalSpanData();
 
-	// Get list of disabled sections for the footer
+	// Sections that are enabled by config but have no data, shown in the footer
 	const disabledSections = createMemo((): DisabledSection[] => {
 		const sections: DisabledSection[] = [];
-		if (!props.traceInfo.screenshots.loading && !hasLoadedScreenshots()) {
+		if (
+			props.panels.filmstrip &&
+			!props.traceInfo.screenshots.loading &&
+			!hasLoadedScreenshots()
+		) {
 			sections.push({
 				id: "screenshots",
 				title: SECTION_TITLES.screenshots,
 				tooltip: SECTION_TOOLTIPS.screenshots,
 			});
 		}
-		if (!hasSteps()) {
+		if (props.panels.steps && !hasStepData()) {
 			sections.push({
 				id: "steps",
 				title: SECTION_TITLES.steps,
 				tooltip: SECTION_TOOLTIPS.steps,
 			});
 		}
-		if (!hasBrowserSpans()) {
+		if (props.panels.browser && !hasBrowserSpanData()) {
 			sections.push({
 				id: "browser",
 				title: SECTION_TITLES.browser,
 				tooltip: SECTION_TOOLTIPS.browser,
 			});
 		}
-		if (!hasExternalSpans()) {
+		if (props.panels.external && !hasExternalSpanData()) {
 			sections.push({
 				id: "external",
 				title: SECTION_TITLES.external,
@@ -304,6 +326,18 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	// Check if we have any active span panels
 	const hasAnySpanPanels = () => spanPanelSizeConfigs().length > 0;
+
+	const showTimelineColumn = () =>
+		props.panels.ruler ||
+		hasScreenshots() ||
+		hasAnySpanPanels() ||
+		disabledSections().length > 0;
+	const showDetails = () => props.panels.details;
+	// The screenshot viewer docks above the details sidebar when it is shown,
+	// otherwise above the timeline column.
+	const showViewerInSidebar = () => showScreenshotViewer() && showDetails();
+	const showViewerInMain = () => showScreenshotViewer() && !showDetails();
+	const showMainColumn = () => showTimelineColumn() || showViewerInMain();
 
 	const handleMouseDown = (e: MouseEvent) => {
 		// Only start selection on primary button
@@ -684,19 +718,17 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	const MainPanelContent = () => (
 		<div class="flex flex-col h-full relative">
-			<Show when={props.traceData.isLoading()}>
-				<LoadingOverlay />
+			<Show when={props.panels.ruler}>
+				<TimelineRuler
+					durationMs={props.traceData.totalDurationMs()}
+					viewport={viewport()}
+					hoverPosition={hoverPosition()}
+					onViewportChange={handleViewportChange}
+					testPhases={testPhases()}
+					onPhaseClick={handlePhaseClick}
+					onDoubleClick={handleDoubleClick}
+				/>
 			</Show>
-
-			<TimelineRuler
-				durationMs={props.traceData.totalDurationMs()}
-				viewport={viewport()}
-				hoverPosition={hoverPosition()}
-				onViewportChange={handleViewportChange}
-				testPhases={testPhases()}
-				onPhaseClick={handlePhaseClick}
-				onDoubleClick={handleDoubleClick}
-			/>
 
 			<div
 				ref={contentAreaRef}
@@ -829,36 +861,101 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		</div>
 	);
 
+	const ScreenshotViewerContent = () => (
+		<ScreenshotViewer
+			screenshot={
+				displayElements() ? (displayElements()?.screenshot ?? null) : undefined
+			}
+			focused={displayFocusedElement()?.type === "screenshot"}
+		/>
+	);
+
+	const DetailsPanelContent = () => (
+		<DetailsPanel
+			traceInfo={props.traceInfo}
+			hoveredElements={displayElements()}
+			testStartTimeMs={props.testStartTimeMs()}
+			focusedElement={displayFocusedElement()}
+			onNavigateToSpan={handleSpanNavigate}
+		/>
+	);
+
+	const MainColumnContent = () => (
+		<Show when={showViewerInMain()} fallback={<MainPanelContent />}>
+			<Show when={showTimelineColumn()} fallback={<ScreenshotViewerContent />}>
+				<ResizablePanel
+					direction="vertical"
+					initialFirstPanelSize={
+						hasAnySpanPanels()
+							? MAIN_VIEWER_WITH_SPANS_INITIAL_SIZE_PERCENT
+							: MAIN_VIEWER_INITIAL_SIZE_PERCENT
+					}
+					minFirstPanelSize={10}
+					maxFirstPanelSize={90}
+					firstPanel={<ScreenshotViewerContent />}
+					secondPanel={<MainPanelContent />}
+				/>
+			</Show>
+		</Show>
+	);
+
+	const SidebarContent = () => (
+		<Show when={showViewerInSidebar()} fallback={<DetailsPanelContent />}>
+			<ResizablePanel
+				direction="vertical"
+				initialFirstPanelSize={SIDEBAR_VIEWER_INITIAL_SIZE_PERCENT}
+				minFirstPanelSize={10}
+				maxFirstPanelSize={90}
+				firstPanel={<ScreenshotViewerContent />}
+				secondPanel={<DetailsPanelContent />}
+			/>
+		</Show>
+	);
+
 	return (
 		<main
 			class="flex flex-col h-full w-full bg-white text-gray-900"
 			aria-label="Trace viewer"
 		>
-			<TraceViewerHeader
-				testInfo={props.traceInfo.testInfo}
-				errorSpans={errorSpans()}
-				hoverTimeMs={displayTimeMs}
-				onSpanSelect={handleSpanSelect}
-				onSpanHover={handleSearchResultHover}
-			/>
-
-			<div class="flex-1 min-h-0">
-				<ResizablePanel
-					direction="horizontal"
-					initialFirstPanelSize={75}
-					minFirstPanelSize={50}
-					maxFirstPanelSize={90}
-					firstPanel={<MainPanelContent />}
-					secondPanel={
-						<DetailsPanel
-							traceInfo={props.traceInfo}
-							hoveredElements={displayElements()}
-							testStartTimeMs={props.testStartTimeMs()}
-							focusedElement={displayFocusedElement()}
-							onNavigateToSpan={handleSpanNavigate}
-						/>
-					}
+			<Show when={props.panels.header}>
+				<TraceViewerHeader
+					testInfo={props.traceInfo.testInfo}
+					errorSpans={errorSpans()}
+					hoverTimeMs={displayTimeMs}
+					onSpanSelect={handleSpanSelect}
+					onSpanHover={handleSearchResultHover}
 				/>
+			</Show>
+
+			<div class="flex-1 min-h-0 relative">
+				<Show when={props.traceData.isLoading()}>
+					<LoadingOverlay />
+				</Show>
+
+				<Show
+					when={showMainColumn() && showDetails()}
+					fallback={
+						<Show
+							when={showMainColumn()}
+							fallback={
+								<Show when={showDetails()}>
+									<SidebarContent />
+								</Show>
+							}
+						>
+							<MainColumnContent />
+						</Show>
+					}
+				>
+					<ResizablePanel
+						direction="horizontal"
+						initialFirstPanelSize={75}
+						minFirstPanelSize={50}
+						maxFirstPanelSize={90}
+						firstPanel={<MainColumnContent />}
+						secondPanel={<SidebarContent />}
+					/>
+				</Show>
 			</div>
 		</main>
 	);
