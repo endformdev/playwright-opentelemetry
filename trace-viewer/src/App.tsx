@@ -6,11 +6,11 @@ import {
 import { useTraceInfoLoader } from "./trace-info-loader";
 import { createTraceLoadRequestSignal, type TraceSource } from "./trace-source";
 import { TraceViewer } from "./trace-viewer";
-import { readViewerPanelsFromQueryParam } from "./trace-viewer/viewerPanels";
+import { readViewerPanelsFromQueryParams } from "./trace-viewer/viewerPanels";
 
 export default function App() {
 	const [loadRequest, setLoadRequest] = createTraceLoadRequestSignal();
-	const viewerPanels = readViewerPanelsFromQueryParam();
+	const viewerPanels = readViewerPanelsFromQueryParams();
 	const { traceInfoData, traceInfo } = useTraceInfoLoader(
 		() => loadRequest()?.source ?? null,
 	);

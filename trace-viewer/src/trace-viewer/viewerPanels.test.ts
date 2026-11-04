@@ -1,41 +1,69 @@
 import { describe, expect, it } from "vitest";
-import { ALL_VIEWER_PANELS, parseViewerPanels } from "./viewerPanels";
+import {
+	ALL_VIEWER_PANELS,
+	parseViewerPanels,
+	type ViewerPanelId,
+} from "./viewerPanels";
+
+function shownPanels(query: string): ViewerPanelId[] {
+	const panels = parseViewerPanels(new URLSearchParams(query));
+	return (Object.keys(panels) as ViewerPanelId[]).filter((id) => panels[id]);
+}
 
 describe("parseViewerPanels", () => {
-	it("shows every panel when the parameter is missing", () => {
-		expect(parseViewerPanels(null)).toEqual(ALL_VIEWER_PANELS);
+	it("shows every panel when no parameter is given", () => {
+		expect(parseViewerPanels(new URLSearchParams(""))).toEqual(
+			ALL_VIEWER_PANELS,
+		);
 	});
 
 	it("shows only the listed panels", () => {
-		expect(parseViewerPanels("viewer,details")).toEqual({
-			header: false,
-			ruler: false,
-			filmstrip: false,
-			viewer: true,
-			steps: false,
-			browser: false,
-			external: false,
-			details: true,
-		});
+		expect(shownPanels("panels=viewer,filmstrip")).toEqual([
+			"filmstrip",
+			"viewer",
+		]);
 	});
 
-	it("shows the ruler alongside any timeline panel", () => {
-		for (const timelinePanel of ["filmstrip", "steps", "browser", "external"]) {
-			expect(parseViewerPanels(`viewer,${timelinePanel}`).ruler).toBe(true);
-		}
-		expect(parseViewerPanels("header,viewer,details").ruler).toBe(false);
-		expect(parseViewerPanels("viewer,ruler").ruler).toBe(true);
+	it("ignores whitespace, case, duplicates and unknown names in panels", () => {
+		expect(shownPanels("panels= Header , viewer,viewer,unknown,")).toEqual([
+			"header",
+			"viewer",
+		]);
 	});
 
-	it("ignores whitespace, case, duplicates and unknown names", () => {
-		const panels = parseViewerPanels(" Header , viewer,viewer,unknown,");
-		expect(panels.header).toBe(true);
-		expect(panels.viewer).toBe(true);
-		expect(Object.values(panels).filter(Boolean)).toHaveLength(2);
+	it("resolves view presets", () => {
+		expect(shownPanels("view=full")).toEqual(shownPanels(""));
+		expect(shownPanels("view=player")).toEqual([
+			"ruler",
+			"filmstrip",
+			"viewer",
+		]);
+		expect(shownPanels("view=spans")).toEqual([
+			"header",
+			"ruler",
+			"filmstrip",
+			"steps",
+			"browser",
+			"external",
+			"details",
+		]);
+		expect(shownPanels("view= Player ")).toEqual(shownPanels("view=player"));
 	});
 
-	it("falls back to every panel when no listed name is recognised", () => {
-		expect(parseViewerPanels("")).toEqual(ALL_VIEWER_PANELS);
-		expect(parseViewerPanels("nope,also-nope")).toEqual(ALL_VIEWER_PANELS);
+	it("lets an explicit panels list override the view", () => {
+		expect(shownPanels("view=player&panels=viewer")).toEqual(["viewer"]);
+	});
+
+	it("falls back to the view when panels has no recognised names", () => {
+		expect(shownPanels("view=player&panels=nope")).toEqual(
+			shownPanels("view=player"),
+		);
+	});
+
+	it("falls back to every panel for unrecognised values", () => {
+		expect(shownPanels("panels=")).toEqual(shownPanels(""));
+		expect(shownPanels("panels=nope,also-nope")).toEqual(shownPanels(""));
+		expect(shownPanels("view=nope")).toEqual(shownPanels(""));
+		expect(shownPanels("view=toString")).toEqual(shownPanels(""));
 	});
 });

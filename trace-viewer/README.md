@@ -46,16 +46,28 @@ The service worker exposes internal per-screenshot URLs to the viewer after load
 
 ## Choose which panels to show
 
-Add a `panels` query parameter with a comma-separated list to show only some regions of the viewer, for example when embedding it in an iframe:
+To show only some regions of the viewer, for example when embedding it in an iframe, add a `view` query parameter with a preset:
 
 ```text
-https://trace.endform.dev/?traceSource=...&panels=viewer,filmstrip
+https://trace.endform.dev/?traceSource=...&view=player
+```
+
+| View | Panels |
+| --- | --- |
+| `full` | Every panel (the default) |
+| `player` | `viewer`, `ruler`, `filmstrip` |
+| `spans` | Every panel except `viewer` |
+
+For full control, list the panels yourself with a comma-separated `panels` query parameter. It overrides `view`:
+
+```text
+https://trace.endform.dev/?traceSource=...&panels=viewer,ruler,filmstrip,steps
 ```
 
 | Panel | Region |
 | --- | --- |
 | `header` | Top bar with the test name, status, error spans, search, and time readout |
-| `ruler` | Timeline ruler and test phase bar (shown automatically with any timeline panel) |
+| `ruler` | Timeline ruler and test phase bar |
 | `filmstrip` | Screenshot filmstrip |
 | `viewer` | Large screenshot for the hovered or selected time |
 | `steps` | Test steps timeline |
@@ -63,7 +75,7 @@ https://trace.endform.dev/?traceSource=...&panels=viewer,filmstrip
 | `external` | External spans timeline |
 | `details` | Span details sidebar |
 
-Without `panels`, every panel is shown. Listing any timeline panel (`filmstrip`, `steps`, `browser`, or `external`) also shows the ruler, so `panels=viewer,filmstrip` gives a player with a screenshot, time ruler, and filmstrip. Unknown names are ignored, and a list with no known names shows every panel. A listed panel is still hidden when the trace has no data for it. The screenshot viewer sits above the details sidebar when `details` is shown, and above the timeline otherwise.
+Without `view` or `panels`, every panel is shown. Unknown panel names are ignored. A `panels` list with no known names falls back to `view`, and an unknown `view` shows every panel. A listed panel is still hidden when the trace has no data for it. The screenshot viewer sits above the details sidebar when `details` is shown, and above the timeline otherwise.
 
 ## Deploy Your Own
 

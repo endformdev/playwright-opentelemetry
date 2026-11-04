@@ -30,12 +30,12 @@ test("docks the screenshot viewer above the details sidebar by default", async (
 	expect(viewerBox.y + viewerBox.height).toBeLessThanOrEqual(detailsBox.y);
 });
 
-test("shows only the screenshot viewer and filmstrip as a player", async ({
+test("shows the screenshot viewer, ruler and filmstrip in the player view", async ({
 	page,
 }) => {
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromUrlParam(multiContextScreenshotsTraceId(), {
-		panels: "viewer,filmstrip",
+		view: "player",
 	});
 
 	await expect(viewer.screenshots.images().first()).toBeVisible({
@@ -72,6 +72,46 @@ test("shows only the screenshot viewer and filmstrip as a player", async ({
 	).toBeVisible();
 });
 
+test("shows everything except the screenshot viewer in the spans view", async ({
+	page,
+}) => {
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromUrlParam(multiContextScreenshotsTraceId(), {
+		view: "spans",
+	});
+
+	await expect(viewer.screenshots.images().first()).toBeVisible({
+		timeout: 10000,
+	});
+	await expect(viewer.header.root).toBeVisible();
+	await expect(viewer.timelineRuler).toBeVisible();
+	await expect(viewer.steps.root).toBeVisible();
+	await expect(viewer.details.root).toBeVisible();
+	await expect(viewer.screenshotViewer.root).toHaveCount(0);
+
+	// The details panel fills the whole sidebar without the screenshot viewer
+	const timelineBox = (await viewer.timelineContent.boundingBox())!;
+	const detailsBox = (await viewer.details.root.boundingBox())!;
+	expect(detailsBox.x).toBeGreaterThanOrEqual(
+		timelineBox.x + timelineBox.width,
+	);
+	expect(detailsBox.y).toBeLessThanOrEqual(timelineBox.y);
+});
+
+test("lets an explicit panels list override the view", async ({ page }) => {
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromUrlParam(multiContextScreenshotsTraceId(), {
+		view: "player",
+		panels: "viewer,filmstrip",
+	});
+
+	await expect(viewer.screenshots.images().first()).toBeVisible({
+		timeout: 10000,
+	});
+	await expect(viewer.screenshotViewer.root).toBeVisible();
+	await expect(viewer.timelineRuler).toHaveCount(0);
+});
+
 test("only shows listed panels that have data", async ({ page, request }) => {
 	const traceId = randomUUID().replaceAll("-", "");
 	await new TraceDataBuilder(traceId, Date.now())
@@ -92,8 +132,7 @@ test("only shows listed panels that have data", async ({ page, request }) => {
 	});
 	await expect(viewer.details.root).toBeVisible();
 	await expect(viewer.header.root).toHaveCount(0);
-	// Not listed, but shown because a timeline panel is
-	await expect(viewer.timelineRuler).toBeVisible();
+	await expect(viewer.timelineRuler).toHaveCount(0);
 	// Listed, but the trace has no screenshots
 	await expect(viewer.screenshotViewer.root).toHaveCount(0);
 	// Not listed, so not even shown as a disabled section
