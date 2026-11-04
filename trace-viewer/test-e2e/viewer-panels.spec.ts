@@ -4,13 +4,19 @@ import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
-import { createScreenshotsZipFromOffsets } from "./screenshot-zip";
+import {
+	createScreenshotsZip,
+	createScreenshotsZipFromOffsets,
+} from "./screenshot-zip";
 import { SpanKind, TraceDataBuilder } from "./test-data-builder";
 
-/** A trace with a step and a browser span, and optionally screenshots. */
+/**
+ * A trace with a step and a browser span, and optionally screenshots: from
+ * one page, or one frame from each of several pages.
+ */
 async function createTrace(
 	request: APIRequestContext,
-	options: { screenshots?: boolean } = {},
+	options: { screenshots?: boolean; pages?: number } = {},
 ): Promise<string> {
 	const traceId = randomUUID().replaceAll("-", "");
 	const testStartTime = Date.now();
@@ -29,10 +35,18 @@ async function createTrace(
 		.send(request);
 
 	if (options.screenshots ?? true) {
-		const screenshotsZip = await createScreenshotsZipFromOffsets({
-			testStartTime,
-			screenshotOffsetsMs: [0, 500, 1000, 1500, 2000, 2500],
-		});
+		const pages = options.pages ?? 1;
+		const screenshotsZip =
+			pages > 1
+				? await createScreenshotsZip({
+						testStartTime,
+						contextCount: 1,
+						pagesPerContext: pages,
+					})
+				: await createScreenshotsZipFromOffsets({
+						testStartTime,
+						screenshotOffsetsMs: [0, 500, 1000, 1500, 2000, 2500],
+					});
 		const upload = await request.put(
 			`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
 			{
@@ -82,6 +96,37 @@ test("shows the step viewer, ruler and filmstrip in the player view", async ({
 	expect(rulerBox.y + rulerBox.height).toBeLessThanOrEqual(filmstripBox.y);
 	expect(stepViewerBox.width).toBeCloseTo(filmstripBox.width, 0);
 	expect(stepViewerBox.height).toBeGreaterThan(filmstripBox.height);
+});
+
+test("the player view's filmstrip gets more room for several pages", async ({
+	page,
+	request,
+}) => {
+	const viewer = new TraceViewerPage(page);
+	const heights = async (traceId: string) => {
+		await viewer.loadTraceFromUrlParam(traceId, { view: "player" });
+		await expect(viewer.screenshots.images().first()).toBeVisible({
+			timeout: 10000,
+		});
+		return {
+			stepViewer: (await viewer.stepViewer.root.boundingBox())!.height,
+			filmstrip: (await viewer.screenshots.root.boundingBox())!.height,
+		};
+	};
+
+	const onePage = await test.step("One page", async () =>
+		heights(await createTrace(request)));
+	const threePages = await test.step("Three pages", async () => {
+		const traceId = await createTrace(request, { pages: 3 });
+		await viewer.loadTraceFromUrlParam(traceId, { view: "player" });
+		await expect(viewer.screenshots.rows()).toHaveCount(3, { timeout: 10000 });
+		return heights(traceId);
+	});
+
+	expect(threePages.filmstrip).toBeGreaterThan(onePage.filmstrip * 1.4);
+	expect(threePages.stepViewer).toBeLessThan(onePage.stepViewer);
+	// The screenshot still gets most of the room.
+	expect(threePages.stepViewer).toBeGreaterThan(threePages.filmstrip);
 });
 
 test("shows everything except the step viewer in the spans view", async ({

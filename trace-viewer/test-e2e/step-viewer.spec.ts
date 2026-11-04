@@ -81,9 +81,9 @@ test("steps through each test body step, showing it once it has finished", async
 			"data-span-id",
 			stepId,
 		);
-		await expect(
-			viewer.details.root.getByText(/^Step \d+\/\d+$/),
-		).toHaveCount(0);
+		await expect(viewer.details.root.getByText(/^Step \d+\/\d+$/)).toHaveCount(
+			0,
+		);
 		await expect(stepViewer.screenshot).toHaveAttribute(
 			"data-screenshot-timestamp",
 			String(testStartTime + screenshotOffsetMs),
@@ -172,6 +172,21 @@ test("steps through each test body step, showing it once it has finished", async
 		await expectStop("1/3", fill, 950);
 		await page.keyboard.press("End");
 		await expectStop("3/3", check, 2600);
+	});
+
+	await test.step("The ruler marks each step", async () => {
+		const ticks = viewer.timelineRuler.getByTestId("ruler-step-tick");
+		await expect(ticks).toHaveCount(3);
+		const plot = (await page.locator("[data-timeline-plot]").boundingBox())!;
+		const shareOf = async (index: number) => {
+			const box = (await ticks.nth(index).boundingBox())!;
+			return (box.x + box.width / 2 - plot.x) / plot.width;
+		};
+		// Stops sit just before the next step: 1000, 2000 and, for the last
+		// step, the after hooks at 3500, of 4000ms.
+		expect(await shareOf(0)).toBeCloseTo(0.25, 1);
+		expect(await shareOf(1)).toBeCloseTo(0.5, 1);
+		expect(await shareOf(2)).toBeCloseTo(0.875, 1);
 	});
 
 	await test.step("The arrow buttons step too", async () => {

@@ -35,7 +35,10 @@ import {
 	type TestPhase,
 } from "./detectTestPhases";
 import { MultiResizablePanel } from "./MultiResizablePanel";
-import { calculateInitialPanelSizes } from "./panelSizing";
+import {
+	calculateInitialPanelSizes,
+	getStepViewerAboveFilmstripInitialSize,
+} from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import type { NavigationDirection } from "./spanNavigation";
@@ -87,12 +90,10 @@ const SCREENSHOTS_DISABLED_SECTION: DisabledSection = {
 const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
-const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 12;
+const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 10;
 const TIMELINE_PLOT_INSET_PX = 12;
 /** Step viewer height above timeline span panels */
 const STEP_VIEWER_INITIAL_SIZE_PERCENT = 45;
-/** Step viewer height when the timeline has no span panels (player layout) */
-const STEP_VIEWER_ABOVE_FILMSTRIP_INITIAL_SIZE_PERCENT = 75;
 
 const ARROW_KEY_DIRECTIONS: Record<string, NavigationDirection> = {
 	ArrowLeft: "left",
@@ -562,6 +563,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enabled: () => showStepViewer() && !props.traceData.isLoading(),
 	});
 
+	const stepStopTimesMs = createMemo(() =>
+		stepViewer.stops().map((stop) => stop.timeMs),
+	);
+
 	/** The shown step (the stop, or the step playing) and its ancestors */
 	const stepViewerStepAncestry = createMemo(() => {
 		const index = stepViewer.shownIndex();
@@ -784,6 +789,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					testPhases={testPhases()}
 					onPhaseClick={handlePhaseClick}
 					onDoubleClick={handleDoubleClick}
+					stepStopTimesMs={stepStopTimesMs()}
 				/>
 			</Show>
 
@@ -979,7 +985,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					initialFirstPanelSize={
 						hasAnySpanPanels()
 							? STEP_VIEWER_INITIAL_SIZE_PERCENT
-							: STEP_VIEWER_ABOVE_FILMSTRIP_INITIAL_SIZE_PERCENT
+							: getStepViewerAboveFilmstripInitialSize(
+									showFilmstrip()
+										? getDefaultVisibleScreenshotRows(screenshotPageCount())
+										: 1,
+								)
 					}
 					minFirstPanelSize={20}
 					maxFirstPanelSize={85}

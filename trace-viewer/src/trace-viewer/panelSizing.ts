@@ -37,3 +37,23 @@ export function calculateInitialPanelSizes(
 
 	return { [activePanels[0]]: 50, [activePanels[1]]: 50 };
 }
+
+/** Step viewer height above a filmstrip of one row (the player layout) */
+const STEP_VIEWER_ABOVE_ONE_ROW_PERCENT = 80;
+/** Height handed from the step viewer to each further filmstrip row */
+const FILMSTRIP_EXTRA_ROW_PERCENT = 8;
+
+/**
+ * The step viewer's initial height, in percent, when the timeline below it
+ * has no span panels and is just the ruler and filmstrip. The filmstrip
+ * stays small for one page but gets a little more room for each further
+ * page's row it shows by default, so several screen streams stay readable.
+ */
+export function getStepViewerAboveFilmstripInitialSize(
+	visibleFilmstripRows: number,
+): number {
+	const extraRows = Math.max(0, visibleFilmstripRows - 1);
+	return (
+		STEP_VIEWER_ABOVE_ONE_ROW_PERCENT - FILMSTRIP_EXTRA_ROW_PERCENT * extraRows
+	);
+}

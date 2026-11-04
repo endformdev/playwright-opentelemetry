@@ -494,9 +494,15 @@ function calculateDefaultRowHeight(
 ): number {
 	const visibleRows = getDefaultVisibleRowCount(rowCount);
 	const visibleGaps = Math.max(0, Math.ceil(visibleRows) - 1);
+	// When rows overflow, the bottom padding scrolls out of view, so the
+	// partly shown row gets that space too: count it so the row is cut where
+	// visibleRows says.
+	const cutRowExtraPx = Number.isInteger(visibleRows)
+		? 0
+		: PANEL_PADDING_Y_PX / 2;
 	return Math.max(
 		0,
-		(availableHeight - visibleGaps * ROW_GAP_PX) / visibleRows,
+		(availableHeight + cutRowExtraPx - visibleGaps * ROW_GAP_PX) / visibleRows,
 	);
 }
 
