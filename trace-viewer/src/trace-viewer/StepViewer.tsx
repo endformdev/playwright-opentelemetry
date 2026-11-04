@@ -1,10 +1,11 @@
 import { ChevronLeft, ChevronRight, Pause, Pin, Play } from "lucide-solid";
-import { For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
 import type { ScreenshotInfo } from "../trace-info-loader";
 import { getStepTimelineColor } from "./components/stepSpanStyles";
 import { StepTitleText } from "./components/StepTitleText";
 import { formatPlaybackSpeed, type PlaybackSpeed } from "./playback";
+import { getCaptionWidthPx } from "./stepViewerLayout";
 import type { StepViewerPage } from "./useStepViewer";
 
 export interface StepViewerProps {
@@ -50,6 +51,25 @@ export function StepViewer(props: StepViewerProps) {
 	const atLast = () => props.stopIndex === props.stopCount - 1;
 	const shownPageId = () => props.screenshot?.pageId ?? null;
 
+	// The caption sits in the space right of the screenshot, so it needs the
+	// screenshot's rendered width: the viewer's size and the image's aspect.
+	const [viewerSize, setViewerSize] = createSignal({ width: 0, height: 0 });
+	const [screenshotAspect, setScreenshotAspect] = createSignal<number | null>(
+		null,
+	);
+	const resizeObserver = new ResizeObserver(([entry]) => {
+		if (!entry) return;
+		const { width, height } = entry.contentRect;
+		setViewerSize({ width, height });
+	});
+	onCleanup(() => resizeObserver.disconnect());
+	const captionWidthPx = () =>
+		getCaptionWidthPx(
+			viewerSize().width,
+			viewerSize().height,
+			screenshotAspect(),
+		);
+
 	const navigationButton = (direction: -1 | 1) => (
 		<button
 			type="button"
@@ -75,7 +95,10 @@ export function StepViewer(props: StepViewerProps) {
 
 	return (
 		<section
-			ref={props.ref}
+			ref={(element) => {
+				props.ref(element);
+				resizeObserver.observe(element);
+			}}
 			class="relative h-full bg-gray-100 outline-none"
 			aria-label="Step viewer"
 			tabIndex={0}
@@ -100,6 +123,12 @@ export function StepViewer(props: StepViewerProps) {
 							data-page-id={screenshot().pageId}
 							class="h-full w-full select-none object-contain drop-shadow-md"
 							draggable={false}
+							onLoad={(event) => {
+								const image = event.currentTarget;
+								if (image.naturalHeight > 0) {
+									setScreenshotAspect(image.naturalWidth / image.naturalHeight);
+								}
+							}}
 						/>
 					)}
 				</Show>
@@ -134,7 +163,7 @@ export function StepViewer(props: StepViewerProps) {
 
 			<Show when={props.pages.length > 1}>
 				<div
-					class="absolute top-3 right-3 z-10 flex max-h-[calc(50%-1.5rem)] w-16 flex-col items-stretch gap-1.5 overflow-y-auto"
+					class="absolute right-3 bottom-3 z-10 flex max-h-[calc(50%-2.5rem)] w-16 flex-col items-stretch gap-1.5 overflow-y-auto"
 					role="group"
 					aria-label="Pages"
 					data-testid="step-viewer-pages"
@@ -191,7 +220,7 @@ export function StepViewer(props: StepViewerProps) {
 						parents={props.stepAncestry
 							.slice(0, -1)
 							.filter((span) => span.name === "playwright.test.step")}
-						besidePagePicker={props.pages.length > 1}
+						widthPx={captionWidthPx()}
 					/>
 				)}
 			</Show>
@@ -211,14 +240,15 @@ export function StepViewer(props: StepViewerProps) {
 
 /**
  * The step the viewer is on, in full: the steps it is nested in, its title
- * and the locator it acted on. Pinned to the top right corner, beside the page
- * picker when there is one.
+ * and the locator it acted on. Pinned to the top right corner, as wide as the
+ * space right of the screenshot allows, so it grows down towards the next
+ * arrow rather than across the screenshot.
  */
 function StepCaption(props: {
 	step: Span;
 	depth: number;
 	parents: Span[];
-	besidePagePicker: boolean;
+	widthPx: number;
 }) {
 	const color = () =>
 		isErrorSpan(props.step)
@@ -227,12 +257,12 @@ function StepCaption(props: {
 
 	return (
 		<div
-			class="pointer-events-none absolute top-3 z-10 w-max max-w-[min(28rem,calc(100%-11rem))] rounded-md border-l-4 bg-white/95 px-3 py-2 shadow-md ring-1 ring-gray-200 backdrop-blur-sm"
-			classList={{
-				"right-20": props.besidePagePicker,
-				"right-3": !props.besidePagePicker,
+			class="pointer-events-none absolute top-3 right-3 z-10 rounded-md border-l-4 bg-white/95 px-3 py-2 shadow-md ring-1 ring-gray-200 backdrop-blur-sm"
+			style={{
+				"border-left-color": color(),
+				"max-width": `${props.widthPx}px`,
+				width: "max-content",
 			}}
-			style={{ "border-left-color": color() }}
 			data-testid="step-viewer-step"
 			data-span-id={props.step.id}
 		>
