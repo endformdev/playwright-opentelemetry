@@ -74,6 +74,27 @@ https://trace.endform.dev/?traceSource=...&panels=viewer,ruler,steps
 | `external` | External spans timeline                                                                    |
 | `details`  | Span details sidebar                                                                       |
 
+## Add an action to an embedded player
+
+When embedding the viewer in an iframe, add an `action` query parameter to put a button at the end of the player's control bar. For now the only action is `expand`:
+
+```text
+https://trace.endform.dev/?traceSource=...&view=player&action=expand
+```
+
+The viewer doesn't run the action itself. Clicking the button posts `{ type: "trace-viewer:action", action: "expand" }` to the embedding page, which decides what to do, for example open a modal holding the same trace in the `full` view. The button doesn't show when the viewer isn't in an iframe.
+
+The message can be sent to any origin, so check who sent it:
+
+```ts
+window.addEventListener("message", (event) => {
+	if (event.source !== iframe.contentWindow) return;
+	if (event.origin !== "https://trace.endform.dev") return;
+	if (event.data?.type !== "trace-viewer:action") return;
+	if (event.data.action === "expand") openExpandedTrace();
+});
+```
+
 Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it. Sections with no data are disabled in the settings menu.
 
 ## Deploy Your Own

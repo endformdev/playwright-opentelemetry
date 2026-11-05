@@ -1,10 +1,18 @@
-import { ChevronLeft, ChevronRight, Pause, Pin, Play } from "lucide-solid";
+import {
+	ChevronLeft,
+	ChevronRight,
+	Maximize2,
+	Pause,
+	Pin,
+	Play,
+} from "lucide-solid";
 import { For, Show } from "solid-js";
 import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
 import { getStepTimelineColor } from "./components/stepSpanStyles";
 import { StepTitleText } from "./components/StepTitleText";
 import { formatPlaybackSpeed, type PlaybackSpeed } from "./playback";
 import type { StepViewerPage } from "./useStepViewer";
+import type { ViewerAction, ViewerActionId } from "./viewerAction";
 
 export interface PlayerControlBarProps {
 	stopCount: number;
@@ -26,7 +34,16 @@ export interface PlayerControlBarProps {
 	/** The page of the screenshot on screen */
 	shownPageId: string | null;
 	onPinPage: (pageId: string | null) => void;
+	/** The embedding page's action, a button at the end of the bar */
+	action: ViewerAction | null;
 }
+
+const ACTION_BUTTONS: Record<
+	ViewerActionId,
+	{ label: string; icon: typeof Maximize2 }
+> = {
+	expand: { label: "Expand trace", icon: Maximize2 },
+};
 
 const BUTTON_CLASS =
 	"inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-gray-600 transition-colors enabled:hover:bg-gray-100 enabled:hover:text-gray-900 disabled:cursor-default disabled:opacity-40";
@@ -34,7 +51,8 @@ const BUTTON_CLASS =
 /**
  * The player's one row of controls, under the screenshot: the transport
  * (previous step, play/pause, next step, speed), the step the viewer is on,
- * and with several pages a picker to pin one of them.
+ * with several pages a picker to pin one of them, and when the embedding page
+ * asks for one, a button for its action.
  */
 export function PlayerControlBar(props: PlayerControlBarProps) {
 	const active = () => props.stopIndex !== null;
@@ -192,6 +210,23 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 						}}
 					</For>
 				</div>
+			</Show>
+
+			<Show when={props.action}>
+				{(action) => {
+					const button = ACTION_BUTTONS[action().id];
+					return (
+						<button
+							type="button"
+							class={BUTTON_CLASS}
+							aria-label={button.label}
+							title={button.label}
+							onClick={() => action().run()}
+						>
+							<button.icon size={16} aria-hidden="true" />
+						</button>
+					);
+				}}
 			</Show>
 		</div>
 	);

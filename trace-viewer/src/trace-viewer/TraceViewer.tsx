@@ -45,6 +45,7 @@ import { usePlayback } from "./usePlayback";
 import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
 import { useTimelinePointer } from "./useTimelinePointer";
+import type { ViewerAction } from "./viewerAction";
 import { type ViewerPanels, viewerSettingsFromPanels } from "./viewerPanels";
 import { createViewerSettings, type ViewerSectionKey } from "./viewerSettings";
 import {
@@ -62,6 +63,8 @@ export interface TraceViewerProps {
 	 * the header, ruler and details sidebar are shown.
 	 */
 	panels?: ViewerPanels | null;
+	/** Adds a button for this action to the player's control bar */
+	action?: ViewerAction | null;
 }
 
 /** Panel size configuration (without content - content rendered separately) */
@@ -132,6 +135,7 @@ export function TraceViewer(props: TraceViewerProps) {
 						traceData={traceData}
 						testStartTimeMs={testStartTimeMs}
 						panels={props.panels ?? null}
+						action={props.action ?? null}
 					/>
 				</HoverProvider>
 			</SearchProvider>
@@ -144,6 +148,7 @@ interface TraceViewerInnerProps {
 	traceData: ReturnType<typeof useTraceDataLoader>;
 	testStartTimeMs: () => number;
 	panels: ViewerPanels | null;
+	action: ViewerAction | null;
 }
 
 function TraceViewerInner(props: TraceViewerInnerProps) {
@@ -689,6 +694,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			playbackSpeed={playback.speed()}
 			onTogglePlayback={playback.toggle}
 			onCycleSpeed={playback.cycleSpeed}
+			action={props.action}
 			ruler={
 				<Show when={showRuler()}>
 					<Ruler />
