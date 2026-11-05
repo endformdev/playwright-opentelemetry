@@ -1,9 +1,11 @@
 import {
 	type Accessor,
 	batch,
+	createEffect,
 	createMemo,
 	createResource,
 	createSignal,
+	untrack,
 } from "solid-js";
 import type { ScreenshotInfo } from "../trace-info-loader";
 import { useHoverContext } from "./contexts/HoverContext";
@@ -29,6 +31,8 @@ export interface StepViewerOptions {
 	structure: Accessor<TestStructure>;
 	screenshots: Accessor<ScreenshotInfo[]>;
 	testStartTimeMs: Accessor<number>;
+	/** Whether the steps and screenshots have finished loading */
+	loaded: Accessor<boolean>;
 	/** Whether the step viewer is on screen and takes its keys */
 	enabled: Accessor<boolean>;
 	/** Whether stops can frame their step in the steps timeline */
@@ -79,6 +83,7 @@ export interface StepViewer {
  * to show what it did (see stepStops.ts). It locks the timeline there like
  * arrow-key span navigation does. The lock's source tells whether the viewer is
  * on a stop: any other lock or unlock hands the selection back to the timeline.
+ * It opens paused on the first frame with something on it, on that frame's step.
  */
 export function useStepViewer(options: StepViewerOptions): StepViewer {
 	const {
@@ -153,22 +158,41 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		firstContentfulScreenshot() ??
 		null;
 
-	const goToStop = (index: number) => {
+	/** Goes to a step, by default at its stop, the moment after it finished. */
+	const goToStop = (index: number, atTimeMs?: number) => {
 		const stop = stops()[index];
 		if (!stop) return;
+		const timeMs = atTimeMs ?? stop.timeMs;
 		batch(() => {
 			setSelectedIndex(index);
 			const framed =
 				options.canFrame() &&
 				options.spanFocus.focusSpan(stop.stepId, {
-					at: stop.timeMs,
+					at: timeMs,
 					source: "step-viewer",
 				});
 			if (!framed) {
-				lock(stop.timeMs, { type: "step", id: stop.stepId }, "step-viewer");
+				lock(timeMs, { type: "step", id: stop.stepId }, "step-viewer");
 			}
 		});
 	};
+
+	// Once, and unless a click or key has already chosen where to be.
+	let opened = false;
+	createEffect(() => {
+		if (opened || !options.loaded() || firstContentfulScreenshot.loading) {
+			return;
+		}
+		opened = true;
+		untrack(() => {
+			const frame = firstContentfulScreenshot();
+			if (!frame || !options.enabled() || mode() !== "hover") return;
+			const timeMs = Math.max(0, frame.timestamp - options.testStartTimeMs());
+			const step = getStepSegmentAtTime(segments().steps, timeMs);
+			if (step) goToStop(step.stopIndex, timeMs);
+			else lock(timeMs, null, "ruler");
+		});
+	});
 
 	// Stepping moves on from the step the counter shows.
 	const navigate = (direction: -1 | 1) => {

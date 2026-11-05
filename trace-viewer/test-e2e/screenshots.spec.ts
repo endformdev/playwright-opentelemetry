@@ -103,6 +103,7 @@ test("the filmstrip lines up in time with the ruler and names the step under the
 	const { ruler, stepViewer } = viewer;
 	const { filmstrip } = ruler;
 	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+	await viewer.leaveOpeningStep();
 
 	await test.step("Hidden until the pointer is on the ruler", async () => {
 		await expect(filmstrip.root).toBeHidden();
@@ -210,6 +211,7 @@ test("the frame under the pointer shows the latest screenshot even when the film
 	await viewer.loadTraceFromApi(traceId);
 	const { ruler } = viewer;
 	await expect(viewer.stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+	await viewer.leaveOpeningStep();
 
 	await ruler.hoverAt(0.437);
 	await expect(ruler.filmstrip.root).toBeVisible();
@@ -246,6 +248,7 @@ test("Escape over the ruler drops the previously locked span", async ({
 
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
+	await viewer.leaveOpeningStep();
 	const lateStepBar = viewer.steps.spanById(lateStepId);
 	const lateStepDetails = viewer.details.spanDetailsById(lateStepId);
 
