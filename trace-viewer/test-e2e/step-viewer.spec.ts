@@ -125,6 +125,56 @@ test("names the step at the moment shown, however it got there", async ({
 	});
 });
 
+test("opens on the first screenshot with something on it", async ({
+	page,
+	request,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Opens blank",
+		2000,
+	);
+	builder.addStepSpanAndGetId("Go to the shop", 1000, { startOffsetMs: 0 });
+	await builder.send(request);
+	const zip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [100, 200, 300, 1000],
+		blankOffsetsMs: [100, 200],
+	});
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await zip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
+	);
+	expect(upload.ok()).toBeTruthy();
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const { stepViewer } = viewer;
+	await page.mouse.move(0, 0);
+
+	await test.step("The blank frames are skipped, without selecting a time", async () => {
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 300),
+		);
+		await expect(stepViewer.position).toHaveText("–/1");
+		await expect(viewer.ruler.playhead).toBeHidden();
+	});
+
+	await test.step("The blank frames can still be reached on the timeline", async () => {
+		await viewer.ruler.hoverAt(0.075);
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 100),
+		);
+	});
+});
+
 test("the step ruler takes keyboard focus from the controls", async ({
 	page,
 	request,

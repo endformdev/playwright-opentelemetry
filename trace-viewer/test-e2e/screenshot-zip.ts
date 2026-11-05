@@ -11,6 +11,8 @@ interface CreateScreenshotsZipFromOffsetsOptions {
 	/** Offsets on `pageId`, or offsets each with their own page */
 	screenshotOffsetsMs: Array<number | { offsetMs: number; pageId: string }>;
 	pageId?: string;
+	/** Offsets whose frames are plain white, like a page yet to paint */
+	blankOffsetsMs?: number[];
 }
 
 interface ScreenshotManifestEntry {
@@ -71,6 +73,7 @@ export async function createScreenshotsZipFromOffsets({
 	testStartTime,
 	screenshotOffsetsMs,
 	pageId: defaultPageId = "context-1-page-1",
+	blankOffsetsMs = [],
 }: CreateScreenshotsZipFromOffsetsOptions): Promise<Blob> {
 	const blobWriter = new BlobWriter("application/zip");
 	const zipWriter = new ZipWriter(blobWriter);
@@ -93,9 +96,14 @@ export async function createScreenshotsZipFromOffsets({
 		});
 		await zipWriter.add(
 			path,
-			new Blob([screenshotSvg("context-1", `${pageId} @ ${offsetMs}ms`)], {
-				type: "image/svg+xml",
-			}).stream(),
+			new Blob(
+				[
+					blankOffsetsMs.includes(offsetMs)
+						? BLANK_SCREENSHOT_SVG
+						: screenshotSvg("context-1", `${pageId} @ ${offsetMs}ms`),
+				],
+				{ type: "image/svg+xml" },
+			).stream(),
 		);
 	}
 
@@ -111,6 +119,8 @@ export async function createScreenshotsZipFromOffsets({
 
 	return zipWriter.close();
 }
+
+const BLANK_SCREENSHOT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#ffffff"/></svg>`;
 
 function screenshotSvg(label: string, pageId: string): string {
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#dbeafe"/><text x="320" y="165" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#1e3a8a">${label}</text><text x="320" y="215" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#1e40af">${pageId}</text></svg>`;

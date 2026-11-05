@@ -680,7 +680,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		<StepViewer
 			ref={stepViewer.ref}
 			screenshot={stepViewer.screenshot()}
-			screenshotsLoading={props.traceInfo.screenshots.loading}
+			screenshotsLoading={
+				props.traceInfo.screenshots.loading || stepViewer.screenshotPending()
+			}
 			stopCount={stepViewer.stops().length}
 			stopIndex={stepViewer.shownIndex()}
 			stepAncestry={stepViewerStepAncestry()}
