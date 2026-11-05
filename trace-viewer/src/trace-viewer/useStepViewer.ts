@@ -1,7 +1,17 @@
-import { type Accessor, batch, createMemo, createSignal } from "solid-js";
+import {
+	type Accessor,
+	batch,
+	createMemo,
+	createResource,
+	createSignal,
+} from "solid-js";
 import type { ScreenshotInfo } from "../trace-info-loader";
 import { useHoverContext } from "./contexts/HoverContext";
-import { findScreenshotAtTime, groupScreenshotsByPage } from "./screenshots";
+import {
+	findFirstContentfulScreenshot,
+	findScreenshotAtTime,
+	groupScreenshotsByPage,
+} from "./screenshots";
 import {
 	computeStepRulerSegments,
 	getStepSegmentAtTime,
@@ -49,6 +59,8 @@ export interface StepViewer {
 	shownIndex: Accessor<number | null>;
 	/** Screenshot to show: the pinned page's, else the latest of any page */
 	screenshot: Accessor<ScreenshotInfo | null>;
+	/** Whether the frame to show with no time on display is still being found */
+	screenshotPending: Accessor<boolean>;
 	/** Pages that took screenshots; the picker shows when there are several */
 	pages: Accessor<StepViewerPage[]>;
 	pinnedPageId: Accessor<string | null>;
@@ -110,7 +122,10 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 	const screenshotPages = createMemo(() =>
 		groupScreenshotsByPage(options.screenshots()),
 	);
-	const firstScreenshot = () => screenshotPages()[0]?.screenshots[0] ?? null;
+	const [firstContentfulScreenshot] = createResource(
+		options.screenshots,
+		(screenshots) => findFirstContentfulScreenshot(screenshots),
+	);
 
 	const pages = createMemo((): StepViewerPage[] => {
 		const timeMs = displayTimeMs();
@@ -130,11 +145,13 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		const pageId = pinnedPageId();
 		return pageId ? pages().find((page) => page.pageId === pageId) : undefined;
 	};
-	// Before the first frame there is nothing on screen yet; show the first one.
+	// With no time on display, or before the first frame, there is nothing on
+	// screen yet; show the first frame with something on it.
 	const screenshot = () =>
 		pinnedPage()?.screenshot ??
 		displayElements()?.screenshot ??
-		firstScreenshot();
+		firstContentfulScreenshot() ??
+		null;
 
 	const goToStop = (index: number) => {
 		const stop = stops()[index];
@@ -199,6 +216,7 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		currentIndex,
 		shownIndex,
 		screenshot,
+		screenshotPending: () => firstContentfulScreenshot.loading,
 		pages,
 		pinnedPageId,
 		pinPage: setPinnedPageId,
