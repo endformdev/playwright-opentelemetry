@@ -34,6 +34,7 @@
 	},
 	"devDependencies": {
 		"@ark-ui/solid": "^5.37.0",
+		"@fontsource-variable/inter": "^5.3.0",
 		"@leeoniya/ufuzzy": "^1.0.19",
 		"@playwright-opentelemetry/trace-api": "workspace:*",
 		"@playwright/test": "catalog:",

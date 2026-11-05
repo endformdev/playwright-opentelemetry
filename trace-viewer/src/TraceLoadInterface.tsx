@@ -99,19 +99,19 @@ export function TraceLoadInterface(props: TraceLoadInterfaceProps) {
 	return (
 		<div class="flex-1 flex items-center justify-center px-4">
 			<div class="w-full max-w-2xl text-center space-y-6">
-				<div class="text-2xl font-light text-gray-500">
+				<div class="text-xl font-semibold tracking-tight text-gray-900">
 					Load a Playwright OpenTelemetry trace
 				</div>
 
 				<Show when={props.status.kind === "loading"}>
-					<div class="mx-auto max-w-xl rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+					<div class="mx-auto max-w-xl rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
 						<div class="font-medium">Loading trace</div>
 						<div class="mt-1">{loadingMessage(props.status)}</div>
 					</div>
 				</Show>
 
 				<Show when={props.status.kind === "error"}>
-					<div class="mx-auto max-w-xl rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+					<div class="mx-auto max-w-xl rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
 						<div class="font-medium">Failed to load trace</div>
 						<div class="mt-1 break-words">{errorMessage(props.status)}</div>
 					</div>
@@ -123,7 +123,7 @@ export function TraceLoadInterface(props: TraceLoadInterfaceProps) {
 						<Field.Input
 							type="text"
 							placeholder="Enter API URL..."
-							class="min-w-0 flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 data-[invalid]:border-red-500"
+							class="h-9 min-w-0 flex-1 px-3 text-sm border border-gray-300 rounded-md focus:ring-4 focus:ring-gray-950/10 focus:outline-1 focus:-outline-offset-1 focus:outline-gray-950/50 text-gray-900 data-[invalid]:border-red-500"
 							value={apiUrl()}
 							onInput={(event) => {
 								setApiUrl(event.currentTarget.value);
@@ -133,7 +133,7 @@ export function TraceLoadInterface(props: TraceLoadInterfaceProps) {
 						/>
 						<button
 							type="button"
-							class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed"
+							class="h-9 px-4 bg-gray-900 hover:bg-gray-900/90 rounded-md shadow-sm text-sm font-medium transition-colors text-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
 							onClick={handleApiLoad}
 							disabled={!apiUrl().trim() || props.status.kind === "loading"}
 						>
@@ -166,12 +166,14 @@ export function TraceLoadInterface(props: TraceLoadInterfaceProps) {
 						<FileUpload.Label class="sr-only">Trace ZIP file</FileUpload.Label>
 						<FileUpload.Dropzone
 							disableClick
-							class="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-gray-600 transition-colors data-[dragging]:border-blue-400 data-[dragging]:bg-blue-50 data-[invalid]:border-red-500 data-[invalid]:bg-red-50"
+							class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-gray-600 transition-colors data-[dragging]:border-blue-400 data-[dragging]:bg-blue-50 data-[invalid]:border-red-500 data-[invalid]:bg-red-50"
 						>
 							<div class="space-y-3">
-								<div class="text-lg font-light">Drop trace ZIP file here</div>
+								<div class="font-medium text-gray-900">
+									Drop trace ZIP file here
+								</div>
 								<div class="text-sm text-gray-500">or</div>
-								<FileUpload.Trigger class="inline-flex px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded cursor-pointer transition-colors text-white">
+								<FileUpload.Trigger class="inline-flex h-9 items-center px-4 bg-gray-900 hover:bg-gray-900/90 rounded-md shadow-sm text-sm font-medium cursor-pointer transition-colors text-gray-50">
 									Select file
 								</FileUpload.Trigger>
 							</div>

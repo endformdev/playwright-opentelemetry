@@ -153,9 +153,9 @@ export function MultiResizablePanel(props: MultiResizablePanelProps) {
 								aria-valuenow={Math.round(panelSizes()[panel.id])}
 								tabIndex={0}
 								class={`
-									${isHorizontal() ? "w-1 cursor-col-resize hover:bg-blue-400/50" : "h-1 cursor-row-resize hover:bg-blue-400/50"}
-									${draggingIndex() === index() ? "bg-blue-500" : "bg-gray-300"}
-									flex-shrink-0 transition-colors
+									${isHorizontal() ? "w-1 cursor-col-resize px-[1.5px]" : "h-1 cursor-row-resize py-[1.5px]"}
+									${draggingIndex() === index() ? "bg-gray-900" : "bg-gray-200 hover:bg-gray-400"}
+									flex-shrink-0 bg-clip-content transition-colors
 								`}
 								onMouseDown={handleMouseDown(index())}
 							/>

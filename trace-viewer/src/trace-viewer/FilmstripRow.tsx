@@ -92,7 +92,7 @@ export function FilmstripRow(props: FilmstripRowProps) {
 							classList={{
 								"bg-white": !!screenshot(),
 								"ring-1 ring-gray-200": !!screenshot() && !underPointer(),
-								"z-10 ring-2 ring-blue-600": !!screenshot() && underPointer(),
+								"z-10 ring-2 ring-gray-900": !!screenshot() && underPointer(),
 							}}
 							style={{
 								left: `${(index / props.slotCount) * 100}%`,

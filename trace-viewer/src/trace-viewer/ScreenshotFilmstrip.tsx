@@ -262,13 +262,13 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 
 					<Show when={lockedLine() !== null}>
 						<div
-							class="pointer-events-none absolute -inset-y-1 z-30 -ml-px w-[3px] bg-blue-600"
+							class="pointer-events-none absolute -inset-y-1 z-30 -ml-px w-[3px] bg-fill-playhead"
 							style={{ left: `${lockedLine()}%` }}
 						/>
 					</Show>
 					<Show when={pointerLine() !== null}>
 						<div
-							class="pointer-events-none absolute -inset-y-1 z-30 w-px bg-blue-500"
+							class="pointer-events-none absolute -inset-y-1 z-30 w-px bg-gray-900"
 							style={{ left: `${pointerLine()}%` }}
 						/>
 					</Show>

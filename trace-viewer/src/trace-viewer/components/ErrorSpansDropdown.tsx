@@ -66,11 +66,11 @@ export function ErrorSpansDropdown(props: ErrorSpansDropdownProps) {
 			<Portal>
 				<Menu.Positioner>
 					<Menu.Content
-						class="mt-1 max-h-96 w-[min(24rem,calc(100vw-1rem))] overflow-y-auto rounded-md border border-red-200 bg-white shadow-lg z-50"
+						class="mt-1 max-h-96 w-[min(24rem,calc(100vw-1rem))] overflow-y-auto rounded-lg border border-red-200 bg-white shadow-lg z-50"
 						data-testid="error-spans-dropdown"
 					>
 						<Menu.ItemGroup id="error-spans">
-							<Menu.ItemGroupLabel class="border-b border-red-100 bg-red-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-red-700">
+							<Menu.ItemGroupLabel class="border-b border-red-100 bg-red-50 eyebrow px-4 py-2 text-red-700">
 								Error Spans ({errorCount()})
 							</Menu.ItemGroupLabel>
 							<For each={props.spans}>

@@ -542,7 +542,7 @@ test("with several pages, a page can be pinned in the step viewer", async ({
 		expect(picker.y).toBeGreaterThanOrEqual(bar.y);
 		expect(picker.y + picker.height).toBeLessThanOrEqual(bar.y + bar.height);
 		expect(picker.x + picker.width).toBeGreaterThan(bar.x + bar.width * 0.8);
-		await expect(stepViewer.page(1)).toHaveClass(/ring-blue-600/);
+		await expect(stepViewer.page(1)).toHaveClass(/ring-fill-playhead/);
 		await expect(stepViewer.page(1)).toHaveCSS("opacity", "1");
 		await expect(stepViewer.page(2)).toHaveCSS("opacity", "0.5");
 	});
@@ -551,7 +551,7 @@ test("with several pages, a page can be pinned in the step viewer", async ({
 		await page.keyboard.press("ArrowRight");
 		await expect(stepViewer.position).toHaveText("2/3");
 		await expectShown("help", 650);
-		await expect(stepViewer.page(2)).toHaveClass(/ring-blue-600/);
+		await expect(stepViewer.page(2)).toHaveClass(/ring-fill-playhead/);
 		await expect(stepViewer.page(1)).toHaveCSS("opacity", "0.5");
 	});
 

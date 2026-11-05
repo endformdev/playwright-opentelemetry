@@ -29,7 +29,7 @@ export interface PlayerControlBarProps {
 }
 
 const BUTTON_CLASS =
-	"inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-600 transition-colors enabled:hover:bg-gray-100 enabled:hover:text-gray-900 disabled:cursor-default disabled:opacity-40";
+	"inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-gray-600 transition-colors enabled:hover:bg-gray-100 enabled:hover:text-gray-900 disabled:cursor-default disabled:opacity-40";
 
 /**
  * The player's one row of controls, under the screenshot: the transport
@@ -75,10 +75,11 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 				{navigationButton(-1)}
 				<button
 					type="button"
-					class="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-colors"
+					class="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md transition-colors"
 					classList={{
-						"bg-blue-600 text-white hover:bg-blue-700": props.playing,
-						"bg-gray-900 text-white hover:bg-gray-700": !props.playing,
+						"bg-fill-playhead text-gray-950 hover:bg-fill-playhead/90":
+							props.playing,
+						"bg-gray-900 text-white hover:bg-gray-900/90": !props.playing,
 					}}
 					aria-label={props.playing ? "Pause" : "Play"}
 					title={props.playing ? "Pause (Space)" : "Play (Space)"}
@@ -98,7 +99,7 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 				{navigationButton(1)}
 				<button
 					type="button"
-					class="ml-0.5 inline-flex h-7 min-w-9 flex-shrink-0 items-center justify-center rounded-full px-1.5 font-mono text-[11px] tabular-nums text-gray-500 ring-1 ring-gray-200 transition-colors hover:text-gray-900 hover:ring-gray-300"
+					class="ml-0.5 inline-flex h-7 min-w-9 flex-shrink-0 items-center justify-center rounded-md px-1.5 font-mono text-[11px] tabular-nums text-gray-500 ring-1 ring-gray-200 transition-colors hover:text-gray-900 hover:ring-gray-300"
 					aria-label="Playback speed"
 					title="Playback speed: click to change"
 					data-testid="playback-speed"
@@ -113,7 +114,7 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 					type="button"
 					class="inline-flex h-6 min-w-14 flex-shrink-0 items-center justify-center rounded-full px-2 font-mono text-[11px] tabular-nums transition-colors"
 					classList={{
-						"bg-blue-600 text-white": active(),
+						"bg-fill-playhead text-gray-950": active(),
 						"bg-gray-100 text-gray-500 hover:text-gray-800": !active(),
 					}}
 					data-testid="step-viewer-position"
@@ -159,7 +160,7 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 									type="button"
 									class="relative h-8 flex-shrink-0 overflow-hidden rounded bg-white transition"
 									classList={{
-										"ring-2 ring-blue-600": shown(),
+										"ring-2 ring-fill-playhead": shown(),
 										"opacity-50 ring-1 ring-gray-300 hover:opacity-100":
 											!shown(),
 									}}
@@ -182,7 +183,7 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 										{page.number}
 									</span>
 									<Show when={pinned()}>
-										<span class="absolute top-0.5 right-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-white">
+										<span class="absolute top-0.5 right-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-fill-playhead text-gray-950">
 											<Pin size={8} aria-hidden="true" />
 										</span>
 									</Show>

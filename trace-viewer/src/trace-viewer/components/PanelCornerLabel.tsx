@@ -9,7 +9,7 @@ export function PanelCornerLabel(props: { title: string }): JSX.Element {
 	return (
 		<div
 			aria-hidden="true"
-			class="absolute bottom-0 left-0 z-10 pointer-events-none select-none pl-3 pr-16 pt-8 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400"
+			class="absolute bottom-0 left-0 z-10 pointer-events-none select-none pl-3 pr-16 pt-8 pb-1.5 eyebrow text-gray-500"
 		>
 			<div
 				class="absolute inset-0 bg-gray-50/90 backdrop-blur-[2px]"
