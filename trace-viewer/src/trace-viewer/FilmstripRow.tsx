@@ -1,35 +1,9 @@
 import { Index, Show } from "solid-js";
-import type { ScreenshotInfo } from "../trace-info-loader";
-import { findScreenshotAtTime } from "./screenshots";
+import { findScreenshotAtTime, type ScreenshotPage } from "./screenshots";
 import { selectScreenshots, type TimeRange } from "./selectScreenshots";
-
-/** A page (tab or window) and the screenshots it took, in time order. */
-export interface FilmstripPage {
-	pageId: string;
-	/** 1-based, in the order pages first took a screenshot */
-	number: number;
-	screenshots: ScreenshotInfo[];
-}
 
 export const FILMSTRIP_SLOT_GAP_PX = 4;
 export const SCREENSHOT_ASPECT_RATIO = 16 / 9;
-
-export function groupScreenshotsByPage(
-	screenshots: ScreenshotInfo[],
-): FilmstripPage[] {
-	const byPage = new Map<string, ScreenshotInfo[]>();
-	const sorted = [...screenshots].sort((a, b) => a.timestamp - b.timestamp);
-	for (const screenshot of sorted) {
-		const page = byPage.get(screenshot.pageId);
-		if (page) page.push(screenshot);
-		else byPage.set(screenshot.pageId, [screenshot]);
-	}
-	return [...byPage.entries()].map(([pageId, pageScreenshots], index) => ({
-		pageId,
-		number: index + 1,
-		screenshots: pageScreenshots,
-	}));
-}
 
 /** How many frames of a row's height fit across a width. */
 export function countFilmstripSlots(
@@ -59,7 +33,7 @@ export function getFilmstripSlotAt(
 }
 
 export interface FilmstripRowProps {
-	page: FilmstripPage;
+	page: ScreenshotPage;
 	/** Badges each row with its page number when there are several */
 	numbered: boolean;
 	heightPx: number;
@@ -83,15 +57,11 @@ export function FilmstripRow(props: FilmstripRowProps) {
 			? null
 			: getFilmstripSlotAt(props.pointerTimeMs, props.range, props.slotCount);
 
-	const slots = () => {
-		const relative = props.page.screenshots.map((screenshot) => ({
-			timestamp: screenshot.timestamp - props.testStartTimeMs,
-			screenshot,
-		}));
-		return selectScreenshots(relative, props.slotCount, props.range).map(
-			(slot) => slot?.screenshot ?? null,
-		);
-	};
+	const slots = () =>
+		selectScreenshots(props.page.screenshots, props.slotCount, {
+			startMs: props.testStartTimeMs + props.range.startMs,
+			endMs: props.testStartTimeMs + props.range.endMs,
+		});
 
 	return (
 		<div

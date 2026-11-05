@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Span } from "../trace-data-loader/exportToSpans";
 import {
 	computeStepRulerSegments,
-	formatStepRulerItem,
+	describeStepRulerTime,
 	getStepRulerItemAtTime,
-	getStepRulerSegmentState,
 	getStepSegmentAtTime,
 } from "./stepRulerSegments";
 import { computeStepStops } from "./stepStops";
@@ -115,24 +114,6 @@ describe("computeStepRulerSegments", () => {
 	});
 });
 
-describe("getStepRulerSegmentState", () => {
-	const [goto, click] = hookedTest.segments.steps;
-
-	it("marks steps finished by the playhead as done, the rest as upcoming", () => {
-		expect(getStepRulerSegmentState(goto, 1000, null)).toBe("done");
-		expect(getStepRulerSegmentState(click, 1000, null)).toBe("upcoming");
-	});
-
-	it("marks the step the viewer is on as current", () => {
-		expect(getStepRulerSegmentState(goto, 1499, 0)).toBe("current");
-		expect(getStepRulerSegmentState(click, 1499, 0)).toBe("upcoming");
-	});
-
-	it("leaves every step upcoming without a playhead", () => {
-		expect(getStepRulerSegmentState(goto, null, null)).toBe("upcoming");
-	});
-});
-
 describe("getStepRulerItemAtTime", () => {
 	const { segments } = hookedTest;
 	const itemAt = (timeMs: number) => {
@@ -187,16 +168,16 @@ describe("getStepSegmentAtTime", () => {
 	});
 });
 
-describe("formatStepRulerItem", () => {
+describe("describeStepRulerTime", () => {
 	it("numbers steps as the step counter does, followed by their locator", () => {
-		const [goto, click] = hookedTest.segments.steps;
-		expect(formatStepRulerItem(goto)).toBe("1. Navigate playwright.dev");
-		expect(formatStepRulerItem(click)).toBe("2. Click");
+		expect(describeStepRulerTime(hookedTest.segments, 1000)).toBe(
+			"1. Navigate playwright.dev · 1s",
+		);
 	});
 
 	it("names the hooks", () => {
-		expect(formatStepRulerItem(hookedTest.segments.hooks[0])).toBe(
-			"Before hooks",
+		expect(describeStepRulerTime(hookedTest.segments, 0)).toBe(
+			"Before hooks · 0s",
 		);
 	});
 });

@@ -68,13 +68,13 @@ https://trace.endform.dev/?traceSource=...&panels=viewer,ruler,steps
 | ---------- | ------------------------------------------------------------------------------------------ |
 | `header`   | Top bar with the test name, status, error spans, search, viewer settings, and time readout |
 | `ruler`    | Step ruler: the whole test with its steps and hooks, with a screenshot filmstrip on hover  |
-| `viewer`   | Step viewer: the large screenshot with a bar of step, playback and page controls           |
+| `viewer`   | Step viewer: the big screen or filmstrip, with a bar of step, playback and page controls   |
 | `steps`    | Test steps timeline                                                                        |
 | `browser`  | Browser spans timeline                                                                     |
 | `external` | External spans timeline                                                                    |
 | `details`  | Span details sidebar                                                                       |
 
-Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored, including `filmstrip`, which was folded into the ruler. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it. Sections with no data are disabled in the settings menu.
+Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it. Sections with no data are disabled in the settings menu.
 
 ## Deploy Your Own
 

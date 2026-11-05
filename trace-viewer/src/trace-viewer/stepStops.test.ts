@@ -3,7 +3,6 @@ import type { Span } from "../trace-data-loader/exportToSpans";
 import {
 	computeStepStops,
 	getAdjacentStopIndex,
-	getStopIndexAtTime,
 	type StepStop,
 } from "./stepStops";
 import { buildTestStructure } from "./testStructure";
@@ -123,37 +122,16 @@ describe("getAdjacentStopIndex", () => {
 	});
 
 	it("moves to the neighbouring stop, even at the same time", () => {
-		expect(getAdjacentStopIndex(stops, { stopIndex: 1 }, 1)).toBe(2);
-		expect(getAdjacentStopIndex(stops, { stopIndex: 2 }, -1)).toBe(1);
+		expect(getAdjacentStopIndex(stops, 1, 1)).toBe(2);
+		expect(getAdjacentStopIndex(stops, 2, -1)).toBe(1);
 	});
 
 	it("clamps at both ends", () => {
-		expect(getAdjacentStopIndex(stops, { stopIndex: 0 }, -1)).toBe(0);
-		expect(getAdjacentStopIndex(stops, { stopIndex: 3 }, 1)).toBe(3);
-	});
-
-	it("moves to the nearest stop from a time that is not a stop", () => {
-		expect(getAdjacentStopIndex(stops, { timeMs: 300 }, 1)).toBe(3);
-		expect(getAdjacentStopIndex(stops, { timeMs: 300 }, -1)).toBe(2);
-		expect(getAdjacentStopIndex(stops, { timeMs: 50 }, -1)).toBe(0);
-		expect(getAdjacentStopIndex(stops, { timeMs: 500 }, 1)).toBe(3);
+		expect(getAdjacentStopIndex(stops, 0, -1)).toBe(0);
+		expect(getAdjacentStopIndex(stops, 3, 1)).toBe(3);
 	});
 
 	it("has nowhere to go without stops", () => {
 		expect(getAdjacentStopIndex([], null, 1)).toBeNull();
-	});
-});
-
-describe("getStopIndexAtTime", () => {
-	it("returns the last stop at or before the time", () => {
-		const stops: StepStop[] = [
-			{ timeMs: 100, stepId: "a" },
-			{ timeMs: 300, stepId: "b" },
-		];
-
-		expect(getStopIndexAtTime(stops, 50)).toBe(0);
-		expect(getStopIndexAtTime(stops, 250)).toBe(0);
-		expect(getStopIndexAtTime(stops, 300)).toBe(1);
-		expect(getStopIndexAtTime([], 300)).toBeNull();
 	});
 });

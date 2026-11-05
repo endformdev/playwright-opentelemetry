@@ -99,11 +99,8 @@ test("names the step at the moment shown, however it got there", async ({
 		await ruler.hoverAt(0.625);
 		// Second is drawn either side of Third.
 		await expect(ruler.steps).toHaveCount(4);
-		const highlighted = ruler.root.locator(
-			'[data-testid="step-ruler-step"].bg-gray-900\\/25',
-		);
-		await expect(highlighted).toHaveCount(1);
-		await expect(highlighted).toHaveAttribute("data-span-id", third);
+		await expect(ruler.highlightedSteps).toHaveCount(1);
+		await expect(ruler.highlightedSteps).toHaveAttribute("data-span-id", third);
 	});
 
 	await test.step("Stepping moves on from the step shown", async () => {
@@ -350,11 +347,10 @@ test("steps through each test body step, showing it once it has finished", async
 		expect(await ruler.ratioOf(ruler.steps.nth(2))).toBeCloseTo(0.5625, 2);
 		// The hooks are hatched at either end.
 		await expect(ruler.hooks).toHaveCount(2);
-		// On the last stop, the steps before it are done and it is current.
-		await expect(ruler.steps.nth(0)).toHaveAttribute("data-state", "done");
-		await expect(ruler.steps.nth(1)).toHaveAttribute("data-state", "done");
-		await expect(ruler.steps.nth(2)).toHaveAttribute("data-state", "current");
+		// On the last stop it stands out, and the bar is filled up to there.
+		await expect(ruler.highlightedSteps).toHaveAttribute("data-span-id", check);
 		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "3499");
+		await expect.poll(() => ruler.filledRatio()).toBeCloseTo(3499 / 4000, 2);
 		// The playhead carries on down as the locked line, in the same place
 		// once the line has moved there.
 		await expect
@@ -378,14 +374,11 @@ test("steps through each test body step, showing it once it has finished", async
 			"data-screenshot-timestamp",
 			String(testStartTime + 700),
 		);
-		await expect(viewer.ruler.steps.nth(0)).toHaveAttribute(
-			"data-state",
-			"current",
+		await expect(viewer.ruler.highlightedSteps).toHaveAttribute(
+			"data-span-id",
+			fill,
 		);
-		await expect(viewer.ruler.steps.nth(1)).toHaveAttribute(
-			"data-state",
-			"upcoming",
-		);
+		await expect.poll(() => viewer.ruler.filledRatio()).toBeCloseTo(0.1875, 2);
 	});
 
 	await test.step("Clicking the time ticks locks the time too", async () => {
@@ -416,10 +409,7 @@ test("steps through each test body step, showing it once it has finished", async
 			"data-screenshot-timestamp",
 			String(testStartTime + 100),
 		);
-		await expect(viewer.ruler.steps.nth(0)).toHaveAttribute(
-			"data-state",
-			"upcoming",
-		);
+		await expect(viewer.ruler.highlightedSteps).toHaveCount(0);
 	});
 
 	await test.step("Dragging along the ruler scrubs, naming the step there", async () => {
@@ -436,9 +426,9 @@ test("steps through each test body step, showing it once it has finished", async
 			"data-screenshot-timestamp",
 			String(testStartTime + 1600),
 		);
-		await expect(viewer.ruler.steps.nth(1)).toHaveAttribute(
-			"data-state",
-			"current",
+		await expect(viewer.ruler.highlightedSteps).toHaveAttribute(
+			"data-span-id",
+			click,
 		);
 		// Stepping moves on from the step the counter shows.
 		await page.keyboard.press("ArrowRight");

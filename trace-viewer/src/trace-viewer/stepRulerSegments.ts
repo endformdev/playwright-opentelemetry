@@ -32,8 +32,6 @@ export interface StepRulerSegments {
 	hooks: StepRulerHooks[];
 }
 
-export type StepRulerSegmentState = "done" | "current" | "upcoming";
-
 /**
  * Lays out the step ruler, which decides which step a moment belongs to.
  * Steps only have the time they ran for. When several ran at once the one
@@ -95,21 +93,6 @@ export function computeStepRulerSegments(
 }
 
 /**
- * How a step is drawn against the playhead: the step the viewer is on is
- * current, steps that have finished by the playhead are done, the rest are
- * still to come. With nothing locked there is no playhead.
- */
-export function getStepRulerSegmentState(
-	segment: StepRulerStep,
-	playheadMs: number | null,
-	currentStopIndex: number | null,
-): StepRulerSegmentState {
-	if (segment.stopIndex === currentStopIndex) return "current";
-	if (playheadMs !== null && segment.endMs <= playheadMs) return "done";
-	return "upcoming";
-}
-
-/**
  * The step at a time: the segment there, or between steps the last one
  * before it, whose result is on screen. Null before the first step. A time
  * two segments meet at belongs to the one ending, as a stop at a step's end
@@ -145,7 +128,7 @@ const HOOK_LABELS: Record<StepRulerHooks["kind"], string> = {
 };
 
 /** Names a step ruler item: `7. Click getByRole('button')`, `Before hooks`. */
-export function formatStepRulerItem(item: StepRulerItem): string {
+function formatStepRulerItem(item: StepRulerItem): string {
 	if (item.kind !== "step") return HOOK_LABELS[item.kind];
 	const subtitle = item.step.subtitle ? ` ${item.step.subtitle}` : "";
 	return `${item.stopIndex + 1}. ${item.step.title}${subtitle}`;

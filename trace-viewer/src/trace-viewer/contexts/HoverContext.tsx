@@ -37,7 +37,9 @@ export interface HoverContextValue {
 	hoverPosition: Accessor<number | null>;
 	setHoverPosition: (position: number | null) => void;
 	lockedPosition: Accessor<number | null>;
+	/** The locked time, also through a search override; null when unlocked */
 	lockedTimeMs: Accessor<number | null>;
+	/** Who holds the lock; null when unlocked */
 	lockSource: Accessor<LockSource | null>;
 
 	// Actions
@@ -51,7 +53,6 @@ export interface HoverContextValue {
 	exitSearchOverride: () => void;
 
 	// Element tracking
-	hoveredElement: Accessor<FocusedElement | null>;
 	setHoveredElement: (element: FocusedElement | null) => void;
 	lockedElement: Accessor<FocusedElement | null>;
 
@@ -203,7 +204,6 @@ export function HoverProvider(props: HoverProviderProps) {
 		unlock,
 		enterSearchOverride,
 		exitSearchOverride,
-		hoveredElement,
 		setHoveredElement,
 		lockedElement,
 		displayTimeMs,

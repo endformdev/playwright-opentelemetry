@@ -7,11 +7,8 @@ import {
 	Show,
 } from "solid-js";
 import type { ScreenshotInfo } from "../trace-info-loader";
-import {
-	countFilmstripSlots,
-	FilmstripRow,
-	groupScreenshotsByPage,
-} from "./FilmstripRow";
+import { countFilmstripSlots, FilmstripRow } from "./FilmstripRow";
+import { groupScreenshotsByPage } from "./screenshots";
 
 export interface RulerFilmstripProps {
 	/** Whether the pointer is on the ruler, so the filmstrip is shown */

@@ -167,10 +167,9 @@ test("lets an explicit panels list override the view", async ({
 	request,
 }) => {
 	const viewer = new TraceViewerPage(page);
-	// The filmstrip is no longer a panel of its own; naming it is ignored.
 	await viewer.loadTraceFromUrlParam(await createTrace(request), {
 		view: "player",
-		panels: "viewer,filmstrip",
+		panels: "viewer",
 	});
 
 	await expect(viewer.stepViewer.screenshot).toBeVisible({ timeout: 10000 });

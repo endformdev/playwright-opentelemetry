@@ -11,10 +11,9 @@ import type { ScreenshotInfo } from "../trace-info-loader";
 import {
 	countFilmstripSlots,
 	FilmstripRow,
-	groupScreenshotsByPage,
 	SCREENSHOT_ASPECT_RATIO,
 } from "./FilmstripRow";
-import { findScreenshotAtTime } from "./screenshots";
+import { findScreenshotAtTime, groupScreenshotsByPage } from "./screenshots";
 import {
 	FILMSTRIP_SCREEN_PADDING_Y_PX,
 	FILMSTRIP_SCREEN_ROW_GAP_PX,

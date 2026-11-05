@@ -10,8 +10,8 @@ describe("parseViewerSettings", () => {
 		expect(parseViewerSettings("{")).toEqual(DEFAULT_VIEWER_SETTINGS);
 	});
 
-	it("ignores settings since removed, such as the filmstrip", () => {
-		expect(parseViewerSettings(JSON.stringify({ filmstrip: false }))).toEqual(
+	it("ignores unknown settings", () => {
+		expect(parseViewerSettings(JSON.stringify({ unknown: false }))).toEqual(
 			DEFAULT_VIEWER_SETTINGS,
 		);
 	});

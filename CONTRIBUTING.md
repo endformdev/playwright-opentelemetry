@@ -29,7 +29,8 @@ This is a pnpm workspace with three published packages:
 
 - `pnpm test` runs the unit tests (vitest)
 - `pnpm tsc` typechecks all packages
-- `pnpm format` formats files with Biome
+- `pnpm format` formats files with oxfmt
+- `pnpm lint` lints files with oxlint
 - `pnpm build` builds all packages
 
 ## Package-level commands
@@ -62,7 +63,7 @@ pnpm tsc
 pnpm test
 ```
 
-CI runs formatting checks, typechecking, unit tests, builds, and both e2e suites on every pull request.
+There is no CI on pull requests yet, so please also run the e2e tests for what you changed. `pnpm test:e2e` in `trace-viewer/` runs the reporter's e2e tests too, as it uses their traces, and needs network access for the ones that visit playwright.dev.
 
 ## Releasing
 

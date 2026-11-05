@@ -19,7 +19,7 @@ export const VIEWER_PANEL_IDS = [
 	 * a screenshot filmstrip on hover
 	 */
 	"ruler",
-	/** Step viewer: the large screenshot with step and playback controls */
+	/** Step viewer: the big screen or filmstrip, with step and playback controls */
 	"viewer",
 	/** Test steps timeline */
 	"steps",
@@ -75,8 +75,7 @@ function parsePanelList(value: string | null): ViewerPanelId[] {
  * Resolves the shown panels from the query parameters:
  *
  * 1. `panels`, a comma-separated list of panel names, wins when it contains
- *    any recognised name. Unknown names are ignored, so links naming panels
- *    since removed (such as `filmstrip`) still work.
+ *    any recognised name. Unknown names are ignored.
  * 2. Otherwise `view` selects a preset (`full`, `player`, `spans`).
  * 3. Otherwise `null`: the URL doesn't choose, so the saved viewer settings
  *    apply. A typo therefore never results in an empty viewer.

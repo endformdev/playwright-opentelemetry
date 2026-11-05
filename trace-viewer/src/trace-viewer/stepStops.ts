@@ -11,9 +11,6 @@ export interface StepStop {
 	stepId: string;
 }
 
-/** Where the step viewer stands: on a stop, at another time, or nowhere. */
-export type StopPosition = { stopIndex: number } | { timeMs: number } | null;
-
 /** Stops sit this far before the next step, so they show the one that ended */
 const BEFORE_NEXT_STEP_MS = 1;
 
@@ -53,46 +50,15 @@ export function computeStepStops(structure: TestStructure): StepStop[] {
 }
 
 /**
- * The stop to move to. From a stop this is its neighbour; from any other time
- * it is the nearest stop in that direction; from nowhere it is the first stop.
+ * The stop to move to: the neighbour of the stop the step viewer is on, staying
+ * put at the ends, or the first stop from before any of them.
  */
 export function getAdjacentStopIndex(
 	stops: StepStop[],
-	from: StopPosition,
+	fromIndex: number | null,
 	direction: -1 | 1,
 ): number | null {
 	if (stops.length === 0) return null;
-	if (!from) return 0;
-
-	if ("stopIndex" in from) {
-		return Math.max(0, Math.min(stops.length - 1, from.stopIndex + direction));
-	}
-
-	if (direction === 1) {
-		const next = stops.findIndex((stop) => stop.timeMs > from.timeMs);
-		return next === -1 ? stops.length - 1 : next;
-	}
-	return findLastStopIndex(stops, (stop) => stop.timeMs < from.timeMs) ?? 0;
-}
-
-/**
- * The stop that best represents a time: the last stop at or before it,
- * falling back to the first stop.
- */
-export function getStopIndexAtTime(
-	stops: StepStop[],
-	timeMs: number,
-): number | null {
-	if (stops.length === 0) return null;
-	return findLastStopIndex(stops, (stop) => stop.timeMs <= timeMs) ?? 0;
-}
-
-function findLastStopIndex(
-	stops: StepStop[],
-	predicate: (stop: StepStop) => boolean,
-): number | null {
-	for (let index = stops.length - 1; index >= 0; index--) {
-		if (predicate(stops[index])) return index;
-	}
-	return null;
+	if (fromIndex === null) return 0;
+	return Math.max(0, Math.min(stops.length - 1, fromIndex + direction));
 }

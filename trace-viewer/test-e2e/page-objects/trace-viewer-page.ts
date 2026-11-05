@@ -1,4 +1,9 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import {
+	expect,
+	type FrameLocator,
+	type Locator,
+	type Page,
+} from "@playwright/test";
 
 export const TRACE_API_URL = "http://localhost:9295";
 
@@ -157,8 +162,8 @@ export class RulerFilmstrip {
 	/** The frame under the pointer, one per row */
 	readonly framesUnderPointer: Locator;
 
-	constructor(page: Page) {
-		this.root = page.getByTestId("ruler-filmstrip");
+	constructor(scope: Page | FrameLocator) {
+		this.root = scope.getByTestId("ruler-filmstrip");
 		this.label = this.root.getByTestId("ruler-filmstrip-label");
 		this.range = this.root.getByTestId("ruler-filmstrip-range");
 		this.framesUnderPointer = this.root.locator("[data-under-pointer]");
@@ -178,25 +183,34 @@ export class RulerFilmstrip {
 export class TimelineRulerComponent {
 	readonly page: Page;
 	readonly root: Locator;
-	/** The step bar, which seeks and goes to steps */
+	/** The step bar, which seeks and scrubs */
 	readonly bar: Locator;
-	/** One per step viewer stop, in order */
+	/** One per stretch of time a step has, in time order */
 	readonly steps: Locator;
+	/** The steps that stand out: the one on display and the one hovered */
+	readonly highlightedSteps: Locator;
 	readonly hooks: Locator;
+	/** The bar's fill, up to the playhead */
+	readonly fill: Locator;
 	/** The playhead knob, carrying the locked time */
 	readonly playhead: Locator;
 	readonly zoomWindow: Locator;
 	readonly filmstrip: RulerFilmstrip;
 
-	constructor(page: Page) {
+	/** @param scope Where the viewer is, when that is in a frame of `page` */
+	constructor(page: Page, scope: Page | FrameLocator = page) {
 		this.page = page;
-		this.root = page.getByTestId("timeline-ruler");
+		this.root = scope.getByTestId("timeline-ruler");
 		this.bar = this.root.getByTestId("step-ruler-bar");
 		this.steps = this.root.getByTestId("step-ruler-step");
+		this.highlightedSteps = this.steps.and(
+			this.root.locator(".bg-gray-900\\/25"),
+		);
 		this.hooks = this.root.getByTestId("step-ruler-hooks");
+		this.fill = this.root.getByTestId("step-ruler-fill");
 		this.playhead = this.root.getByTestId("step-ruler-playhead");
 		this.zoomWindow = this.root.getByTestId("ruler-zoom-window");
-		this.filmstrip = new RulerFilmstrip(page);
+		this.filmstrip = new RulerFilmstrip(scope);
 	}
 
 	/** Where on screen a share of the whole test is, on the step bar */
@@ -214,6 +228,29 @@ export class TimelineRulerComponent {
 	async clickAt(ratio: number): Promise<void> {
 		const { x, y } = await this.pointAt(ratio);
 		await this.page.mouse.click(x, y);
+	}
+
+	/** The shares of the whole test the zoom window runs between */
+	async zoomRange(): Promise<{ start: number; end: number }> {
+		const [box, plot] = await Promise.all([
+			this.zoomWindow.boundingBox(),
+			this.bar.boundingBox(),
+		]);
+		if (!box || !plot) throw new Error("Zoom window is not visible");
+		return {
+			start: (box.x - plot.x) / plot.width,
+			end: (box.x + box.width - plot.x) / plot.width,
+		};
+	}
+
+	/** Share of the whole test the bar is filled up to */
+	async filledRatio(): Promise<number> {
+		const [box, plot] = await Promise.all([
+			this.fill.boundingBox(),
+			this.bar.boundingBox(),
+		]);
+		if (!box || !plot) throw new Error("The step bar has no fill");
+		return box.width / plot.width;
 	}
 
 	/** Share of the whole test an element's centre sits at */
@@ -269,9 +306,9 @@ export class PlayerFilmstrip {
 	/** Names the step at the hovered moment, as in "2. Click · 1.2s" */
 	readonly zoomCaption: Locator;
 
-	constructor(page: Page) {
-		this.root = page.getByTestId("step-viewer-filmstrip");
-		this.zoom = page.getByTestId("screenshot-zoom");
+	constructor(scope: Page | FrameLocator) {
+		this.root = scope.getByTestId("step-viewer-filmstrip");
+		this.zoom = scope.getByTestId("screenshot-zoom");
 		this.zoomCaption = this.zoom.getByTestId("screenshot-zoom-caption");
 	}
 
@@ -311,9 +348,9 @@ export class StepViewerComponent {
 	/** Reads the playback speed, as in "2×"; clicking moves to the next one */
 	readonly speedButton: Locator;
 
-	constructor(page: Page) {
-		this.root = page.getByRole("region", { name: "Step viewer" });
-		this.filmstrip = new PlayerFilmstrip(page);
+	constructor(scope: Page | FrameLocator) {
+		this.root = scope.getByRole("region", { name: "Step viewer" });
+		this.filmstrip = new PlayerFilmstrip(scope);
 		this.screen = this.root.getByTestId("step-viewer-screen");
 		this.controlBar = this.root.getByTestId("player-control-bar");
 		this.position = this.root.getByTestId("step-viewer-position");

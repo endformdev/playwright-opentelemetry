@@ -22,10 +22,6 @@ describe("parseViewerPanels", () => {
 		expect(shownPanels("panels=viewer,ruler")).toEqual(["ruler", "viewer"]);
 	});
 
-	it("ignores panels since removed, such as the filmstrip", () => {
-		expect(shownPanels("panels=viewer,filmstrip")).toEqual(["viewer"]);
-	});
-
 	it("ignores whitespace, case, duplicates and unknown names in panels", () => {
 		expect(shownPanels("panels= Header , viewer,viewer,unknown,")).toEqual([
 			"header",

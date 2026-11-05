@@ -2,7 +2,6 @@ import {
 	batch,
 	createMemo,
 	createSignal,
-	For,
 	onCleanup,
 	onMount,
 	Show,
@@ -14,10 +13,7 @@ import type { TraceInfo } from "../trace-info-loader";
 import { DetailsPanel } from "./components/DetailsPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { SpanTimelinePanel } from "./components/SpanTimelinePanel";
-import {
-	TIMELINE_PANELS,
-	type TimelinePanelDefinition,
-} from "./components/timelinePanels";
+import { TIMELINE_PANELS } from "./components/timelinePanels";
 import {
 	type FocusedElement,
 	HoverProvider,
@@ -48,12 +44,12 @@ import { layoutTimelineSpans } from "./timelineLayout";
 import { usePlayback } from "./usePlayback";
 import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
+import { useTimelinePointer } from "./useTimelinePointer";
 import { type ViewerPanels, viewerSettingsFromPanels } from "./viewerPanels";
 import { createViewerSettings, type ViewerSectionKey } from "./viewerSettings";
 import {
 	isTimeRangeVisible,
 	panTimeRangeIntoView,
-	type TimelineViewport,
 	timeToViewportPosition,
 	viewportPositionToTime,
 } from "./viewport";
@@ -157,7 +153,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		motionTransition,
 		setViewport,
 		animateTo,
-		zoomToRange,
 		pan,
 		zoom,
 		reset,
@@ -179,13 +174,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		displayFocusedElement,
 	} = useHoverContext();
 
-	const [selectionState, setSelectionState] = createSignal<{
-		startPosition: number;
-		/** The time under the pointer when pressed, mid-animation included */
-		startTimeMs: number;
-		currentPosition: number;
-		element: FocusedElement | null;
-	} | null>(null);
 	const [hoveredSearchSpanId, setHoveredSearchSpanId] = createSignal<
 		string | null
 	>(null);
@@ -250,13 +238,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			null,
 		plotWidthPx: () => plotRef?.getBoundingClientRect().width ?? 0,
 	});
-	// Live pointer state, tracked independently of locked/search display state.
-	let pointerElement: FocusedElement | null = null;
-	let pointerPosition: number | null = null;
-	const setPointerElement = (element: FocusedElement | null) => {
-		pointerElement = element;
-		if (mode() === "hover") setHoveredElement(element);
-	};
+	const pointer = useTimelinePointer({ plot: () => plotRef });
 	const [scrollbarWidth, setScrollbarWidth] = createSignal(0);
 	onMount(() => {
 		const probe = document.createElement("div");
@@ -320,131 +302,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const showMainColumn = () =>
 		showStepViewer() || showRuler() || hasAnySpanPanels();
 
-	const handleMouseDown = (e: MouseEvent) => {
-		// Only start selection on primary button
-		if (e.button !== 0) return;
-		if (!plotRef) return;
-
-		// Don't start selection if clicking on resize handles
-		const target = e.target as HTMLElement;
-		const computedStyle = window.getComputedStyle(target);
-		if (
-			computedStyle.cursor === "col-resize" ||
-			computedStyle.cursor === "row-resize"
-		) {
-			return;
-		}
-
-		const rect = plotRef.getBoundingClientRect();
-		const position = (e.clientX - rect.left) / rect.width;
-
-		if (position >= 0 && position <= 1) {
-			setSelectionState({
-				startPosition: position,
-				startTimeMs: viewportPositionToTime(position, displayedViewport()),
-				currentPosition: position,
-				element: pointerElement,
-			});
-		}
-	};
-
-	const handleMouseMove = (e: MouseEvent) => {
-		if (!plotRef) return;
-
-		const rect = plotRef.getBoundingClientRect();
-		const position = (e.clientX - rect.left) / rect.width;
-
-		// Update selection if dragging
-		const selection = selectionState();
-		if (selection) {
-			const clampedPosition = Math.max(0, Math.min(1, position));
-			setSelectionState({
-				...selection,
-				currentPosition: clampedPosition,
-			});
-		}
-
-		// Resize handles (cursor-*-resize) have no time position
-		const computedStyle = window.getComputedStyle(e.target as HTMLElement);
-		const isOnResizeHandle =
-			computedStyle.cursor === "col-resize" ||
-			computedStyle.cursor === "row-resize";
-		pointerPosition =
-			!isOnResizeHandle && position >= 0 && position <= 1 ? position : null;
-
-		// Only update hover position in hover mode
-		if (mode() === "hover") {
-			setHoverPosition(pointerPosition);
-		}
-	};
-
-	const handleMouseUp = () => {
-		const selection = selectionState();
-		if (selection) {
-			// Positions are on screen, which differs from the target mid-animation.
-			const shown = displayedViewport();
-			const startMs = viewportPositionToTime(
-				Math.min(selection.startPosition, selection.currentPosition),
-				shown,
-			);
-			const endMs = viewportPositionToTime(
-				Math.max(selection.startPosition, selection.currentPosition),
-				shown,
-			);
-
-			// Only zoom if selection is meaningful (not just a click)
-			// Minimum 2% of current visible duration
-			const visibleDuration = shown.visibleEndMs - shown.visibleStartMs;
-			const minSelectionMs = visibleDuration * 0.02;
-
-			if (endMs - startMs > minSelectionMs) {
-				// This was a drag - zoom to selection (works in any mode, doesn't change mode)
-				zoomToRange(startMs, endMs);
-			} else {
-				// This was a click (not a meaningful drag)
-				const currentMode = mode();
-				switch (currentMode) {
-					case "hover":
-						// Lock to the selected time so zooming does not move the lock.
-						lock(selection.startTimeMs, selection.element);
-						break;
-					case "locked":
-					case "search-override":
-						// Any click unlocks - set hover position to click location
-						// so the hover line appears immediately
-						setHoverPosition(selection.startPosition);
-						unlock();
-						setHoveredElement(pointerElement);
-						break;
-				}
-			}
-
-			setSelectionState(null);
-		}
-	};
-
-	const handleMouseLeave = () => {
-		pointerPosition = null;
-		setPointerElement(null);
-		if (mode() === "hover") {
-			setHoverPosition(null);
-		}
-		// Don't clear selection on mouse leave - user might drag outside temporarily
-	};
-
 	let arrowKeysScrollDetails = false;
 
-	// Set up global mouseup listener to handle drag end outside component
 	onMount(() => {
-		const onGlobalMouseUp = () => handleMouseUp();
-		document.addEventListener("mouseup", onGlobalMouseUp);
-
 		const onKeyDown = (e: KeyboardEvent) => {
-			const currentMode = mode();
-			if (e.key === "Escape" && currentMode !== "hover") {
-				unlock();
-				setHoverPosition(pointerPosition);
-				setHoveredElement(pointerElement);
+			if (e.key === "Escape" && mode() !== "hover") {
+				pointer.unlockToPointer();
 				return;
 			}
 
@@ -479,7 +342,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		document.addEventListener("pointerdown", onPointerDown, true);
 
 		onCleanup(() => {
-			document.removeEventListener("mouseup", onGlobalMouseUp);
 			document.removeEventListener("keydown", onKeyDown);
 			document.removeEventListener("pointerdown", onPointerDown, true);
 		});
@@ -499,8 +361,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enabled: () => showStepViewer() && !props.traceData.isLoading(),
 	});
 
-	/** The locked time the ruler's playhead marks */
-	const playheadMs = () => (mode() === "hover" ? null : lockedTimeMs());
 	/** Time hovered in the span panels, which the ruler marks too */
 	const spanHoverTimeMs = () => {
 		const position = hoverPosition();
@@ -520,10 +380,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const timelineFocusedSpanId = () =>
 		stepViewer.currentIndex() === null ? spanFocus.focusedSpanId() : null;
 
-	const handleViewportChange = (newViewport: TimelineViewport) => {
-		setViewport(newViewport);
-	};
-
 	/** Wheel zooms and pans the timeline; `plot` is the plot box under it. */
 	const handleWheel = (
 		e: WheelEvent,
@@ -537,12 +393,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (isZoomModifier && e.deltaY !== 0) {
 			e.preventDefault();
 
-			const rect = plot;
 			const pointerPosition = Math.max(
 				0,
-				Math.min(1, (e.clientX - rect.left) / rect.width),
+				Math.min(1, (e.clientX - plot.left) / plot.width),
 			);
-			const lockTimeMs = mode() === "hover" ? null : lockedTimeMs();
+			const lockTimeMs = lockedTimeMs();
 			const lockPosition =
 				lockTimeMs === null
 					? null
@@ -581,29 +436,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			lock(timeMs, null, "ruler");
 			animateTo(panTimeRangeIntoView(viewport(), timeMs, timeMs, timeMs));
 		});
-	};
-
-	/** The filmstrip hovers like the span panels: the time under it. */
-	const handleFilmstripPointerTime = (timeMs: number | null) => {
-		handleRulerPointerTime(timeMs, null);
-	};
-
-	/** The ruler hovers like the span panels: the step under it, at its time. */
-	const handleRulerPointerTime = (
-		timeMs: number | null,
-		stepId: string | null,
-	) => {
-		pointerPosition =
-			timeMs === null ? null : timeToViewportPosition(timeMs, viewport());
-		setPointerElement(stepId ? { type: "step", id: stepId } : null);
-		if (mode() === "hover") setHoverPosition(pointerPosition);
-	};
-
-	const handleBarHover = (
-		definition: TimelinePanelDefinition,
-		id: string | null,
-	) => {
-		setPointerElement(id ? { type: definition.elementType, id } : null);
 	};
 
 	/**
@@ -665,18 +497,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 	};
 
-	const selectionLeft = () => {
-		const selection = selectionState();
-		if (!selection) return 0;
-		return Math.min(selection.startPosition, selection.currentPosition) * 100;
-	};
-
-	const selectionWidth = () => {
-		const selection = selectionState();
-		if (!selection) return 0;
-		return Math.abs(selection.currentPosition - selection.startPosition) * 100;
-	};
-
 	const SpanPanelsContent = () => {
 		const search = useSearch();
 
@@ -692,7 +512,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					layout={panel.layout()}
 					focusedSpanId={timelineFocusedSpanId()}
 					revealRequest={spanFocus.revealRequest()}
-					onBarHover={(id) => handleBarHover(definition, id)}
+					onBarHover={(id) =>
+						pointer.hoverElement(
+							id ? { type: definition.elementType, id } : null,
+						)
+					}
 					matchedSpanIds={search.matchedSpanIds()}
 					hoveredSearchSpanId={hoveredSearchSpanId()}
 				/>
@@ -743,14 +567,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		<TimelineRuler
 			durationMs={props.traceData.totalDurationMs()}
 			viewport={viewport()}
-			onViewportChange={handleViewportChange}
-			onDoubleClick={reset}
+			onViewportChange={setViewport}
+			onDoubleClick={handleDoubleClick}
 			segments={stepViewer.segments()}
-			playheadMs={playheadMs()}
+			playheadMs={lockedTimeMs()}
 			currentStopIndex={stepViewer.shownIndex()}
 			hoverTimeMs={spanHoverTimeMs()}
 			onSeek={handleRulerSeek}
-			onPointerTime={handleRulerPointerTime}
+			onPointerTime={(timeMs, stepId) =>
+				pointer.hoverTime(timeMs, stepId ? { type: "step", id: stepId } : null)
+			}
 			screenshots={props.traceInfo.screenshots() ?? []}
 			testStartTimeMs={props.testStartTimeMs()}
 			showFilmstrip={!showPlayerFilmstrip()}
@@ -764,10 +590,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			class="flex-1 min-h-0 relative flex flex-col"
 			role="region"
 			aria-label="Trace timeline"
-			style={{ cursor: selectionState() ? "crosshair" : undefined }}
-			onMouseDown={handleMouseDown}
-			onMouseMove={handleMouseMove}
-			onMouseLeave={handleMouseLeave}
+			style={{ cursor: pointer.selection() ? "crosshair" : undefined }}
+			onMouseDown={pointer.handleMouseDown}
+			onMouseMove={pointer.handleMouseMove}
+			onMouseLeave={pointer.handleMouseLeave}
 			onWheel={(event) => handleWheel(event)}
 			onDblClick={handleDoubleClick}
 			ref={spansRegionRef}
@@ -785,25 +611,30 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					width: "var(--timeline-plot-width)",
 				}}
 			>
-				{/* Selection overlay - only show when selection is meaningful */}
+				{/* The range being dragged, once it is more than a click */}
 				<Show
 					when={
-						selectionState() && selectionWidth() > MIN_SELECTION_DISPLAY_PERCENT
+						(pointer.selection()?.widthPercent ?? 0) >
+						MIN_SELECTION_DISPLAY_PERCENT
 					}
 				>
 					<div
 						class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
 						style={{
-							left: `${selectionLeft()}%`,
-							width: `${selectionWidth()}%`,
+							left: `${pointer.selection()?.leftPercent}%`,
+							width: `${pointer.selection()?.widthPercent}%`,
 						}}
 					/>
 				</Show>
 
-				{/* Position indicator - hover mode: thin blue line */}
-				<Show when={mode() === "hover" && isInPlot(hoverPosition())}>
+				{/* The hovered time, or a search result's while locked: a thin line */}
+				<Show when={mode() !== "locked" && isInPlot(hoverPosition())}>
 					<div
-						class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
+						class="absolute top-0 bottom-0 w-px pointer-events-none z-50"
+						classList={{
+							"bg-blue-500": mode() === "hover",
+							"bg-blue-400": mode() === "search-override",
+						}}
 						style={{
 							left: `${hoverPosition()! * 100}%`,
 							transition: motionTransition("left"),
@@ -811,8 +642,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					/>
 				</Show>
 
-				{/* Position indicator - locked mode: thick blue line */}
-				<Show when={mode() === "locked" && lockedPosition() !== null}>
+				{/* The locked time: a thick line */}
+				<Show when={lockedPosition() !== null}>
 					<div
 						data-locked-time-line
 						data-time-ms={lockedTimeMs()}
@@ -824,32 +655,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 							transition: motionTransition("left"),
 						}}
 					/>
-				</Show>
-
-				{/* Position indicator - search-override mode: both lines */}
-				<Show when={mode() === "search-override"}>
-					{/* Locked position - thick blue line */}
-					<Show when={lockedPosition() !== null}>
-						<div
-							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
-							style={{
-								left: `${lockedPosition()! * 100}%`,
-								width: "3px",
-								"margin-left": "-1px",
-								transition: motionTransition("left"),
-							}}
-						/>
-					</Show>
-					{/* Search hover position - thin lighter blue line */}
-					<Show when={isInPlot(hoverPosition())}>
-						<div
-							class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
-							style={{
-								left: `${hoverPosition()! * 100}%`,
-								transition: motionTransition("left"),
-							}}
-						/>
-					</Show>
 				</Show>
 			</div>
 		</div>
@@ -896,13 +701,13 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						screenshotsLoading={props.traceInfo.screenshots.loading}
 						viewport={viewport()}
 						testStartTimeMs={props.testStartTimeMs()}
-						lockedTimeMs={playheadMs()}
+						lockedTimeMs={lockedTimeMs()}
 						hoverTimeMs={spanHoverTimeMs()}
 						describeTime={(timeMs) =>
 							describeStepRulerTime(stepViewer.segments(), timeMs)
 						}
 						zoomArea={() => spansRegionRef?.getBoundingClientRect() ?? null}
-						onPointerTime={handleFilmstripPointerTime}
+						onPointerTime={(timeMs) => pointer.hoverTime(timeMs, null)}
 						onSeek={handleRulerSeek}
 						onWheel={handleWheel}
 					/>

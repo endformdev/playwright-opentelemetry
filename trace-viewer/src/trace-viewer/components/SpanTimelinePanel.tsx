@@ -8,7 +8,7 @@ import {
 import type { TimelineBar, TimelineLayout } from "../timelineLayout";
 import type { RevealRequest } from "../useSpanFocus";
 import { isTimeRangeVisible } from "../viewport";
-import { PanelCornerLabel } from "./PanelHeader";
+import { PanelCornerLabel } from "./PanelCornerLabel";
 import { BAR_HEIGHT, ROW_HEIGHT, SpanBar } from "./SpanBar";
 import type { TimelinePanelDefinition } from "./timelinePanels";
 

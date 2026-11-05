@@ -21,10 +21,9 @@ export interface StepViewerProps extends Omit<
 /**
  * The player: the big screen, one large screenshot of the current moment in
  * the test with nothing over it, or else a filmstrip of every page; then one
- * bar of controls and the step ruler. Left/Right
- * step through the test body's steps, showing each once it has finished;
- * Home/End jump to the first and last step (see useStepViewer for when the
- * keys apply).
+ * bar of controls and the step ruler. Left/Right step through the test body's
+ * steps, showing each once it has finished; Home/End jump to the first and
+ * last step (see useStepViewer for when the keys apply).
  */
 export function StepViewer(props: StepViewerProps) {
 	// Each read of a JSX prop creates it anew, so resolve it just once.

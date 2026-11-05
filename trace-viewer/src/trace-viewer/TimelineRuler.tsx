@@ -14,7 +14,6 @@ import { RulerFilmstrip } from "./RulerFilmstrip";
 import {
 	describeStepRulerTime,
 	getStepRulerItemAtTime,
-	getStepRulerSegmentState,
 	type StepRulerHooks,
 	type StepRulerItem,
 	type StepRulerSegments,
@@ -388,6 +387,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 								<div
 									class="absolute inset-y-0 left-0 bg-blue-500"
 									style={{ width: `${toPercent(props.playheadMs!)}%` }}
+									data-testid="step-ruler-fill"
 								/>
 							</Show>
 							<For each={props.segments.steps}>
@@ -399,11 +399,6 @@ export function TimelineRuler(props: TimelineRulerProps) {
 										data-testid="step-ruler-step"
 										data-stop-index={segment.stopIndex}
 										data-span-id={segment.step.id}
-										data-state={getStepRulerSegmentState(
-											segment,
-											props.playheadMs,
-											props.currentStopIndex,
-										)}
 									/>
 								)}
 							</For>

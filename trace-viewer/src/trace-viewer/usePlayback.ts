@@ -41,7 +41,7 @@ export interface Playback {
  * the timeline, Escape, arrow keys, the step viewer) pauses it where it is.
  */
 export function usePlayback(options: PlaybackOptions): Playback {
-	const { mode, lock, lockedTimeMs, lockSource } = useHoverContext();
+	const { lock, lockedTimeMs, lockSource } = useHoverContext();
 	const { viewport, animateTo } = useViewportContext();
 
 	const [playing, setPlaying] = createSignal(false);
@@ -82,11 +82,7 @@ export function usePlayback(options: PlaybackOptions): Playback {
 	const play = () => {
 		const endMs = options.endMs();
 		if (endMs <= 0) return;
-		timeMs = getPlaybackStartMs(
-			mode() === "hover" ? null : lockedTimeMs(),
-			viewport(),
-			endMs,
-		);
+		timeMs = getPlaybackStartMs(lockedTimeMs(), viewport(), endMs);
 		lastFrameAt = undefined;
 		batch(() => {
 			setPlaying(true);
@@ -103,13 +99,7 @@ export function usePlayback(options: PlaybackOptions): Playback {
 	// Anything else taking or releasing the lock pauses playback.
 	createEffect(() => {
 		if (!playing()) return;
-		if (
-			!options.enabled() ||
-			mode() === "hover" ||
-			lockSource() !== "playback"
-		) {
-			pause();
-		}
+		if (!options.enabled() || lockSource() !== "playback") pause();
 	});
 
 	const handleKeyDown = (event: KeyboardEvent) => {
