@@ -330,6 +330,8 @@ export class StepViewerComponent {
 	/** The area the screenshot fills, above the control bar */
 	readonly screen: Locator;
 	readonly controlBar: Locator;
+	/** The `expand` action's button, for the page embedding the viewer */
+	readonly expandButton: Locator;
 	/** Step counter; reads "3/12" on a stop and "–/12" otherwise */
 	readonly position: Locator;
 	readonly screenshot: Locator;
@@ -353,6 +355,9 @@ export class StepViewerComponent {
 		this.filmstrip = new PlayerFilmstrip(scope);
 		this.screen = this.root.getByTestId("step-viewer-screen");
 		this.controlBar = this.root.getByTestId("player-control-bar");
+		this.expandButton = this.controlBar.getByRole("button", {
+			name: "Expand trace",
+		});
 		this.position = this.root.getByTestId("step-viewer-position");
 		this.step = this.root.getByTestId("step-viewer-step");
 		this.stepTitle = this.step.getByTestId("step-viewer-step-title");

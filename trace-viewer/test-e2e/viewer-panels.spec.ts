@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { type APIRequestContext, expect, test } from "@playwright/test";
+import {
+	type APIRequestContext,
+	expect,
+	type FrameLocator,
+	type Page,
+	test,
+} from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
@@ -192,6 +198,98 @@ test("only shows listed panels that have data", async ({ page, request }) => {
 	await expect(viewer.timelineRuler).toHaveCount(0);
 	// Listed, but the trace has no screenshots
 	await expect(viewer.stepViewer.root).toHaveCount(0);
+});
+
+const VIEWER_URL = "http://localhost:9294";
+
+/**
+ * Opens a page on another origin that embeds the viewer in an iframe and
+ * collects the messages it posts, returning the viewer's frame.
+ */
+async function embedViewer(
+	page: Page,
+	traceId: string,
+	extraParams: Record<string, string>,
+): Promise<FrameLocator> {
+	const params = new URLSearchParams({
+		traceSource: `${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceId}`,
+		view: "player",
+		...extraParams,
+	});
+	// Hosted by the trace API, which is another origin than the viewer's. A
+	// page made up with page.route would be blocked from framing localhost.
+	await page.goto(`${TRACE_API_URL}/health`);
+	await page.setContent(`<!doctype html>
+		<script>
+			window.received = [];
+			addEventListener("message", (event) => {
+				if (event.source !== document.querySelector("iframe").contentWindow) return;
+				window.received.push({ origin: event.origin, data: event.data });
+			});
+		</script>
+		<iframe src="${VIEWER_URL}/?${params}" style="width:1000px;height:500px"></iframe>`);
+	return page.frameLocator("iframe");
+}
+
+test("the action button tells the embedding page to run the action", async ({
+	page,
+	request,
+}) => {
+	// Several pages, so the button has to share the end of the bar with them
+	const traceId = await createTrace(request, { pages: 3 });
+	const frame = await embedViewer(page, traceId, { action: "expand" });
+	const controlBar = frame.getByTestId("player-control-bar");
+	const expandButton = controlBar.getByRole("button", { name: "Expand trace" });
+	await expect(frame.getByTestId("step-viewer-pages")).toBeVisible({
+		timeout: 10000,
+	});
+
+	await test.step("It ends the control bar, after the page picker", async () => {
+		const bar = (await controlBar.boundingBox())!;
+		const pagePicker = (await frame
+			.getByTestId("step-viewer-pages")
+			.boundingBox())!;
+		const button = (await expandButton.boundingBox())!;
+		expect(button.x).toBeGreaterThanOrEqual(pagePicker.x + pagePicker.width);
+		expect(button.x + button.width).toBeLessThanOrEqual(bar.x + bar.width);
+	});
+
+	await expandButton.click();
+	await expect
+		.poll(() => page.evaluate("window.received"))
+		.toEqual([
+			{
+				origin: VIEWER_URL,
+				data: { type: "trace-viewer:action", action: "expand" },
+			},
+		]);
+});
+
+test("shows no action button unless the embedding page asks for one", async ({
+	page,
+	request,
+}) => {
+	const traceId = await createTrace(request);
+	const frame = await embedViewer(page, traceId, {});
+	await expect(frame.getByTestId("player-control-bar")).toBeVisible({
+		timeout: 10000,
+	});
+	await expect(frame.getByRole("button", { name: "Expand trace" })).toHaveCount(
+		0,
+	);
+});
+
+test("shows no action button with no embedding page to hear it", async ({
+	page,
+	request,
+}) => {
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromUrlParam(await createTrace(request), {
+		view: "player",
+		action: "expand",
+	});
+	await expect(viewer.stepViewer.controlBar).toBeVisible({ timeout: 10000 });
+	await expect(viewer.stepViewer.expandButton).toHaveCount(0);
 });
 
 test("panels from the URL neither use nor change the saved viewer settings", async ({
