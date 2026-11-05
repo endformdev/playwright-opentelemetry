@@ -31,6 +31,8 @@ export interface StepViewerOptions {
 	structure: Accessor<TestStructure>;
 	screenshots: Accessor<ScreenshotInfo[]>;
 	testStartTimeMs: Accessor<number>;
+	/** A time to show frames from for now, leaving the lock where it is */
+	peekTimeMs: Accessor<number | null>;
 	/** Whether the steps and screenshots have finished loading */
 	loaded: Accessor<boolean>;
 	/** Whether the step viewer is on screen and takes its keys */
@@ -86,14 +88,8 @@ export interface StepViewer {
  * It opens paused on the first frame with something on it, on that frame's step.
  */
 export function useStepViewer(options: StepViewerOptions): StepViewer {
-	const {
-		mode,
-		lock,
-		lockSource,
-		displayTimeMs,
-		displayElements,
-		displayFocusedElement,
-	} = useHoverContext();
+	const { mode, lock, lockSource, displayTimeMs, displayFocusedElement } =
+		useHoverContext();
 	let rootElement: HTMLElement | undefined;
 
 	const stops = createMemo(() => computeStepStops(options.structure()));
@@ -132,10 +128,14 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		(screenshots) => findFirstContentfulScreenshot(screenshots),
 	);
 
+	/** When to show frames from, in the screenshots' clock; null with no time */
+	const frameTimeMs = () => {
+		const timeMs = options.peekTimeMs() ?? displayTimeMs();
+		return timeMs === null ? null : options.testStartTimeMs() + timeMs;
+	};
+
 	const pages = createMemo((): StepViewerPage[] => {
-		const timeMs = displayTimeMs();
-		const absoluteTimeMs =
-			timeMs === null ? null : options.testStartTimeMs() + timeMs;
+		const absoluteTimeMs = frameTimeMs();
 		return screenshotPages().map(({ pageId, number, screenshots }) => {
 			const atTime =
 				absoluteTimeMs === null
@@ -152,11 +152,16 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 	};
 	// With no time on display, or before the first frame, there is nothing on
 	// screen yet; show the first frame with something on it.
-	const screenshot = () =>
-		pinnedPage()?.screenshot ??
-		displayElements()?.screenshot ??
-		firstContentfulScreenshot() ??
-		null;
+	const screenshot = () => {
+		const pinned = pinnedPage()?.screenshot;
+		if (pinned) return pinned;
+		const timeMs = frameTimeMs();
+		const atTime =
+			timeMs === null
+				? null
+				: findScreenshotAtTime(options.screenshots(), timeMs);
+		return atTime ?? firstContentfulScreenshot() ?? null;
+	};
 
 	/** Goes to a step, by default at its stop, the moment after it finished. */
 	const goToStop = (index: number, atTimeMs?: number) => {

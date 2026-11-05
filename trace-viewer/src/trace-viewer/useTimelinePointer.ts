@@ -1,4 +1,11 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import {
+	type Accessor,
+	createEffect,
+	createSignal,
+	on,
+	onCleanup,
+	onMount,
+} from "solid-js";
 import { type FocusedElement, useHoverContext } from "./contexts/HoverContext";
 import { useViewportContext } from "./contexts/ViewportContext";
 import { timeToViewportPosition, viewportPositionToTime } from "./viewport";
@@ -39,6 +46,8 @@ export interface TimelinePointer {
 	hoverTime: (timeMs: number | null, element: FocusedElement | null) => void;
 	/** Drops the lock and goes back to hovering wherever the pointer is. */
 	unlockToPointer: () => void;
+	/** The time the pointer has moved to while the timeline is locked, or null */
+	peekTimeMs: Accessor<number | null>;
 }
 
 /** Resize handles sit over the panels, but have no time of their own. */
@@ -51,20 +60,37 @@ function isOnResizeHandle(target: EventTarget | null): boolean {
  * The pointer over the timeline: hovering moves the time on display, a click
  * locks or unlocks it, and a drag across the span panels zooms to the range.
  * The pointer is tracked apart from the display, which stays on the lock or a
- * search result while it moves.
+ * search result while it moves. Only the player's screenshot follows it there,
+ * as a peek.
  */
 export function useTimelinePointer(
 	options: TimelinePointerOptions,
 ): TimelinePointer {
 	const { viewport, displayedViewport, zoomToRange } = useViewportContext();
-	const { mode, setHoverPosition, setHoveredElement, lock, unlock } =
-		useHoverContext();
+	const {
+		mode,
+		lockedTimeMs,
+		setHoverPosition,
+		setHoveredElement,
+		lock,
+		unlock,
+	} = useHoverContext();
 
 	const [selection, setSelection] = createSignal<TimelineSelection | null>(
 		null,
 	);
 	let pointerElement: FocusedElement | null = null;
 	let pointerPosition: number | null = null;
+	const [peekPosition, setPeekPosition] = createSignal<number | null>(null);
+
+	// A move of the lock is what's on screen now, under a pointer left at rest.
+	createEffect(on(lockedTimeMs, () => setPeekPosition(null), { defer: true }));
+
+	const movePointer = (position: number | null) => {
+		pointerPosition = position;
+		if (mode() === "hover") setHoverPosition(position);
+		else setPeekPosition(position);
+	};
 
 	const hoverElement = (element: FocusedElement | null) => {
 		pointerElement = element;
@@ -72,10 +98,10 @@ export function useTimelinePointer(
 	};
 
 	const hoverTime = (timeMs: number | null, element: FocusedElement | null) => {
-		pointerPosition =
-			timeMs === null ? null : timeToViewportPosition(timeMs, viewport());
 		hoverElement(element);
-		if (mode() === "hover") setHoverPosition(pointerPosition);
+		movePointer(
+			timeMs === null ? null : timeToViewportPosition(timeMs, viewport()),
+		);
 	};
 
 	const unlockToPointer = () => {
@@ -115,11 +141,11 @@ export function useTimelinePointer(
 			});
 		}
 
-		pointerPosition =
+		movePointer(
 			!isOnResizeHandle(event.target) && position >= 0 && position <= 1
 				? position
-				: null;
-		if (mode() === "hover") setHoverPosition(pointerPosition);
+				: null,
+		);
 	};
 
 	const handleMouseUp = () => {
@@ -153,9 +179,8 @@ export function useTimelinePointer(
 	};
 
 	const handleMouseLeave = () => {
-		pointerPosition = null;
 		hoverElement(null);
-		if (mode() === "hover") setHoverPosition(null);
+		movePointer(null);
 		// A selection carries on: the drag may come back or end outside.
 	};
 
@@ -165,6 +190,12 @@ export function useTimelinePointer(
 	});
 
 	return {
+		peekTimeMs: () => {
+			const position = peekPosition();
+			return mode() === "locked" && position !== null
+				? viewportPositionToTime(position, viewport())
+				: null;
+		},
 		selection: () => {
 			const current = selection();
 			if (!current) return null;

@@ -356,6 +356,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		structure: testStructure,
 		screenshots: () => props.traceInfo.screenshots() ?? [],
 		testStartTimeMs: props.testStartTimeMs,
+		peekTimeMs: pointer.peekTimeMs,
 		loaded: () =>
 			props.traceData.status() === "loaded" &&
 			!props.traceInfo.screenshots.loading,
