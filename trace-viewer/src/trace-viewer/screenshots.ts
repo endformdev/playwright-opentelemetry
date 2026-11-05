@@ -76,17 +76,21 @@ async function isBlankImage(url: string): Promise<boolean> {
 	}
 }
 
+/** Real traces start on a few blank frames; this bounds the ones that don't. */
+export const MAX_BLANK_CHECKS = 50;
+
 /**
  * The earliest screenshot with something on it, or the earliest of all when
- * they're all blank. Tests usually start on a blank page, and traces don't say
- * which frames are blank, so this looks at the frames in turn.
+ * there's none among the first MAX_BLANK_CHECKS. Tests usually start on a blank
+ * page, and traces don't say which frames are blank, so this looks at the
+ * frames in turn.
  */
 export async function findFirstContentfulScreenshot(
 	screenshots: ScreenshotInfo[],
 	isBlank: (url: string) => Promise<boolean> = isBlankImage,
 ): Promise<ScreenshotInfo | null> {
 	const sorted = [...screenshots].sort((a, b) => a.timestamp - b.timestamp);
-	for (const screenshot of sorted) {
+	for (const screenshot of sorted.slice(0, MAX_BLANK_CHECKS)) {
 		if (!(await isBlank(screenshot.url))) return screenshot;
 	}
 	return sorted[0] ?? null;

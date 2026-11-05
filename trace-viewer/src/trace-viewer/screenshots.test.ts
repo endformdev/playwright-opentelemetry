@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ScreenshotInfo } from "../trace-info-loader";
-import { findFirstContentfulScreenshot, isBlankPixels } from "./screenshots";
+import {
+	findFirstContentfulScreenshot,
+	isBlankPixels,
+	MAX_BLANK_CHECKS,
+} from "./screenshots";
 
 function pixels(...colors: [number, number, number][]): Uint8ClampedArray {
 	return Uint8ClampedArray.from(colors.flatMap((color) => [...color, 255]));
@@ -68,6 +72,37 @@ describe("findFirstContentfulScreenshot", () => {
 		expect(
 			await findFirstContentfulScreenshot(screenshots, async () => true),
 		).toBe(screenshots[1]);
+	});
+
+	describe("with a long run of blank frames", () => {
+		const frames = Array.from({ length: MAX_BLANK_CHECKS + 10 }, (_, index) =>
+			screenshot(index),
+		);
+
+		it("finds content on the last frame it checks", async () => {
+			const last = MAX_BLANK_CHECKS - 1;
+			expect(
+				await findFirstContentfulScreenshot(frames, blankUntil(last)),
+			).toBe(frames[last]);
+		});
+
+		it("gives up on the first frame beyond the limit", async () => {
+			expect(
+				await findFirstContentfulScreenshot(
+					frames,
+					blankUntil(MAX_BLANK_CHECKS),
+				),
+			).toBe(frames[0]);
+		});
+
+		it("checks no more frames than the limit", async () => {
+			let checks = 0;
+			await findFirstContentfulScreenshot(frames, async () => {
+				checks++;
+				return true;
+			});
+			expect(checks).toBe(MAX_BLANK_CHECKS);
+		});
 	});
 
 	it("finds nothing without screenshots", async () => {
