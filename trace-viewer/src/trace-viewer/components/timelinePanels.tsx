@@ -36,7 +36,7 @@ export interface TimelinePanelDefinition {
 	/** Shown on the panel's footer header when it has no spans */
 	emptyTooltip: string;
 	/** What hovering or focusing one of the panel's bars points at */
-	elementType: Exclude<FocusedElementType, "screenshot">;
+	elementType: FocusedElementType;
 	spans: (sources: TimelineSpanSources) => Span[];
 	/**
 	 * Creates the panel's bar styling from all its spans. Called once per

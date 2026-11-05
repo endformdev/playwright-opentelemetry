@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	calculateInitialPanelSizes,
-	getStepViewerAboveFilmstripInitialSize,
+	getPlayerFilmstripSizePercent,
+	MIN_PLAYER_SIZE_PERCENT,
+	PLAYER_BIG_SCREEN_SIZE_PERCENT,
 } from "./panelSizing";
 
 describe("calculateInitialPanelSizes", () => {
@@ -68,13 +70,27 @@ describe("calculateInitialPanelSizes", () => {
 	});
 });
 
-describe("getStepViewerAboveFilmstripInitialSize", () => {
-	it("leaves the filmstrip a fifth of the height for one page", () => {
-		expect(getStepViewerAboveFilmstripInitialSize(1)).toBe(80);
+describe("getPlayerFilmstripSizePercent", () => {
+	it("is smaller than the big screen, leaving room for the spans", () => {
+		expect(getPlayerFilmstripSizePercent(1, 800)).toBeCloseTo(33);
+		expect(getPlayerFilmstripSizePercent(2, 800)).toBeCloseTo(41.5);
 	});
 
-	it("gives the filmstrip a little more room for each further row", () => {
-		expect(getStepViewerAboveFilmstripInitialSize(2)).toBe(72);
-		expect(getStepViewerAboveFilmstripInitialSize(2.5)).toBe(68);
+	it("never takes more than the big screen", () => {
+		expect(getPlayerFilmstripSizePercent(8, 800)).toBe(
+			PLAYER_BIG_SCREEN_SIZE_PERCENT,
+		);
+	});
+
+	it("stays above the player's minimum in a tall column", () => {
+		expect(getPlayerFilmstripSizePercent(1, 2000)).toBe(
+			MIN_PLAYER_SIZE_PERCENT,
+		);
+	});
+
+	it("uses the big screen's size until the column is measured", () => {
+		expect(getPlayerFilmstripSizePercent(1, 0)).toBe(
+			PLAYER_BIG_SCREEN_SIZE_PERCENT,
+		);
 	});
 });

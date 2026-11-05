@@ -1,27 +1,47 @@
 import { type Accessor, createSignal } from "solid-js";
 
-/** Which parts of the trace viewer are shown. Persisted per browser. */
+/**
+ * What the step viewer shows above its controls: one big screenshot of the
+ * moment, or a filmstrip with a row of frames per page.
+ */
+export type PlayerScreen = "big-screen" | "filmstrip";
+
+export const PLAYER_SCREENS: readonly PlayerScreen[] = [
+	"big-screen",
+	"filmstrip",
+];
+
+export const PLAYER_SCREEN_LABELS: Record<PlayerScreen, string> = {
+	"big-screen": "Big screen",
+	filmstrip: "Filmstrip",
+};
+
+/** Which parts of the trace viewer are shown, and how. Persisted per browser. */
 export interface ViewerSettings {
 	stepViewer: boolean;
-	filmstrip: boolean;
 	steps: boolean;
 	browser: boolean;
 	external: boolean;
+	playerScreen: PlayerScreen;
 }
 
 export type ViewerSettingKey = keyof ViewerSettings;
 
+/** The settings that show or hide a section of the viewer */
+export type ViewerSectionKey = {
+	[Key in ViewerSettingKey]: ViewerSettings[Key] extends boolean ? Key : never;
+}[ViewerSettingKey];
+
 export const DEFAULT_VIEWER_SETTINGS: ViewerSettings = {
 	stepViewer: true,
-	filmstrip: true,
 	steps: true,
 	browser: true,
 	external: true,
+	playerScreen: "big-screen",
 };
 
-export const VIEWER_SETTING_LABELS: Record<ViewerSettingKey, string> = {
+export const VIEWER_SETTING_LABELS: Record<ViewerSectionKey, string> = {
 	stepViewer: "Step viewer",
-	filmstrip: "Screenshot filmstrip",
 	steps: "Steps timeline",
 	browser: "Browser spans",
 	external: "External spans",
@@ -36,16 +56,26 @@ export function parseViewerSettings(stored: string | null): ViewerSettings {
 		if (typeof parsed !== "object" || parsed === null) {
 			return DEFAULT_VIEWER_SETTINGS;
 		}
+		const values = parsed as Record<string, unknown>;
 		const settings = { ...DEFAULT_VIEWER_SETTINGS };
-		for (const key of Object.keys(settings) as ViewerSettingKey[]) {
-			const value = (parsed as Record<string, unknown>)[key];
+		for (const key of Object.keys(
+			VIEWER_SETTING_LABELS,
+		) as ViewerSectionKey[]) {
+			const value = values[key];
 			if (typeof value === "boolean") settings[key] = value;
 		}
+		const screen = PLAYER_SCREENS.find((name) => name === values.playerScreen);
+		if (screen) settings.playerScreen = screen;
 		return settings;
 	} catch {
 		return DEFAULT_VIEWER_SETTINGS;
 	}
 }
+
+export type SetViewerSetting = <Key extends ViewerSettingKey>(
+	key: Key,
+	value: ViewerSettings[Key],
+) => void;
 
 /**
  * @param initial Settings chosen for this page load (e.g. by the URL). They
@@ -54,13 +84,13 @@ export function parseViewerSettings(stored: string | null): ViewerSettings {
  */
 export function createViewerSettings(initial?: ViewerSettings): {
 	settings: Accessor<ViewerSettings>;
-	setSetting: (key: ViewerSettingKey, value: boolean) => void;
+	setSetting: SetViewerSetting;
 } {
 	const [settings, setSettings] = createSignal(
 		initial ?? parseViewerSettings(readStoredSettings()),
 	);
 
-	const setSetting = (key: ViewerSettingKey, value: boolean) => {
+	const setSetting: SetViewerSetting = (key, value) => {
 		const next = { ...settings(), [key]: value };
 		setSettings(next);
 		if (initial) return;

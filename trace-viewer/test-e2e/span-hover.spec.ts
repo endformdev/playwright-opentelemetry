@@ -20,7 +20,7 @@ test("direct span hits stay focused at edges, after locking, and across plot siz
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
 	await expect(page.getByText("Loading trace data...")).toBeHidden();
-	await expect(page.getByText("Screenshots", { exact: true })).toBeVisible();
+	await expect(viewer.stepViewer.root).toBeHidden();
 	// Unlocking must use both the current hit and its time, not the old lock.
 	await viewer.steps.root.locator(`[data-span-id="${ids[0]}"]`).click();
 	await viewer.steps.root.locator(`[data-span-id="${ids[1]}"]`).hover();

@@ -19,10 +19,7 @@ describe("parseViewerPanels", () => {
 	});
 
 	it("shows only the listed panels", () => {
-		expect(shownPanels("panels=viewer,filmstrip")).toEqual([
-			"filmstrip",
-			"viewer",
-		]);
+		expect(shownPanels("panels=viewer,ruler")).toEqual(["ruler", "viewer"]);
 	});
 
 	it("ignores whitespace, case, duplicates and unknown names in panels", () => {
@@ -34,15 +31,10 @@ describe("parseViewerPanels", () => {
 
 	it("resolves view presets", () => {
 		expect(shownPanels("view=full")).toEqual([...VIEWER_PANEL_IDS]);
-		expect(shownPanels("view=player")).toEqual([
-			"ruler",
-			"filmstrip",
-			"viewer",
-		]);
+		expect(shownPanels("view=player")).toEqual(["ruler", "viewer"]);
 		expect(shownPanels("view=spans")).toEqual([
 			"header",
 			"ruler",
-			"filmstrip",
 			"steps",
 			"browser",
 			"external",
@@ -74,10 +66,10 @@ describe("viewerSettingsFromPanels", () => {
 		const panels = parseViewerPanels(new URLSearchParams("view=player"))!;
 		expect(viewerSettingsFromPanels(panels)).toEqual({
 			stepViewer: true,
-			filmstrip: true,
 			steps: false,
 			browser: false,
 			external: false,
+			playerScreen: "big-screen",
 		});
 	});
 });

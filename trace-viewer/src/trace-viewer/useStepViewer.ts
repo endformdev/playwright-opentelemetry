@@ -1,14 +1,16 @@
 import { type Accessor, batch, createMemo, createSignal } from "solid-js";
 import type { ScreenshotInfo } from "../trace-info-loader";
 import { useHoverContext } from "./contexts/HoverContext";
-import { findScreenshotAtTime } from "./screenshots";
+import { findScreenshotAtTime, groupScreenshotsByPage } from "./screenshots";
+import {
+	computeStepRulerSegments,
+	getStepSegmentAtTime,
+	type StepRulerSegments,
+} from "./stepRulerSegments";
 import {
 	computeStepStops,
 	getAdjacentStopIndex,
-	getPlayingStopIndex,
-	getStopIndexAtTime,
 	type StepStop,
-	type StopPosition,
 } from "./stepStops";
 import type { TestStructure } from "./testStructure";
 import type { SpanFocus } from "./useSpanFocus";
@@ -31,18 +33,18 @@ export interface StepViewerPage {
 	number: number;
 	/** The page's frame at the displayed time, or its first frame */
 	screenshot: ScreenshotInfo;
-	/** False before the page's first frame at the displayed time */
-	hasFrame: boolean;
 }
 
 export interface StepViewer {
 	stops: Accessor<StepStop[]>;
+	/** Which step each moment belongs to, as the step ruler draws it */
+	segments: Accessor<StepRulerSegments>;
 	/** Index of the stop the timeline is locked on, or null */
 	currentIndex: Accessor<number | null>;
-	currentStop: Accessor<StepStop | null>;
 	/**
-	 * Index of the step the counter shows: the stop locked on, or while
-	 * playback holds the timeline (playing or paused) the step playing.
+	 * Index of the step the counter shows: the stop locked on, else the step
+	 * at the time on display, wherever that came from (hovering, a lock,
+	 * playback). Null with no time, or before the first step starts.
 	 */
 	shownIndex: Accessor<number | null>;
 	/** Screenshot to show: the pinned page's, else the latest of any page */
@@ -52,10 +54,9 @@ export interface StepViewer {
 	pinnedPageId: Accessor<string | null>;
 	/** Shows one page's screenshots from now on, or null to follow the latest */
 	pinPage: (pageId: string | null) => void;
-	/** Goes to the stop at the locked time, unless already on a stop */
+	/** Goes to the stop of the step on display, unless already on a stop */
 	activate: () => void;
 	navigate: (direction: -1 | 1) => void;
-	goToStop: (index: number) => void;
 	/** Takes Left/Right/Home/End when stepping applies; true if handled */
 	handleKeyDown: (event: KeyboardEvent) => boolean;
 	ref: (element: HTMLElement) => void;
@@ -63,77 +64,64 @@ export interface StepViewer {
 
 /**
  * The step viewer walks the test body's steps, stopping just after each one
- * to show what it did (see stepStops.ts). It locks the timeline there like arrow-key span navigation does. The lock's
- * source tells whether the viewer is on a stop: any other lock or unlock
- * hands the selection back to the timeline.
+ * to show what it did (see stepStops.ts). It locks the timeline there like
+ * arrow-key span navigation does. The lock's source tells whether the viewer is
+ * on a stop: any other lock or unlock hands the selection back to the timeline.
  */
 export function useStepViewer(options: StepViewerOptions): StepViewer {
 	const {
 		mode,
 		lock,
-		lockedTimeMs,
 		lockSource,
 		displayTimeMs,
 		displayElements,
+		displayFocusedElement,
 	} = useHoverContext();
 	let rootElement: HTMLElement | undefined;
 
 	const stops = createMemo(() => computeStepStops(options.structure()));
+	const segments = createMemo(() =>
+		computeStepRulerSegments(options.structure(), stops()),
+	);
 	const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
 
 	const currentIndex = createMemo(() =>
-		mode() !== "hover" && lockSource() === "step-viewer"
-			? selectedIndex()
-			: null,
+		lockSource() === "step-viewer" ? selectedIndex() : null,
 	);
-	// Playback is a way of stepping through too: it shows the step it is on.
-	const firstStepStartMs = createMemo(() =>
-		Math.min(
-			...options.structure().bodyLeafSteps.map((step) => step.startOffsetMs),
-		),
-	);
-	const playingIndex = createMemo(() => {
-		const timeMs = lockedTimeMs();
-		if (mode() === "hover" || lockSource() !== "playback" || timeMs === null) {
-			return null;
-		}
-		return getPlayingStopIndex(stops(), timeMs, firstStepStartMs());
+	// Playback and the step ruler are ways of stepping through too, so the
+	// keys that step keep working while they hold the timeline.
+	const isStepping = () =>
+		currentIndex() !== null ||
+		lockSource() === "playback" ||
+		lockSource() === "ruler";
+	// A hovered or focused step names itself, which time alone can't do for
+	// steps running at the same time.
+	const indexAtDisplayTime = createMemo(() => {
+		const stepId = displayFocusedElement()?.id;
+		const index = stops().findIndex((stop) => stop.stepId === stepId);
+		if (index !== -1) return index;
+		const timeMs = displayTimeMs();
+		return timeMs === null
+			? null
+			: (getStepSegmentAtTime(segments().steps, timeMs)?.stopIndex ?? null);
 	});
-	const shownIndex = () => currentIndex() ?? playingIndex();
-	const currentStop = () => {
-		const index = currentIndex();
-		return index === null ? null : (stops()[index] ?? null);
-	};
+	const shownIndex = () => currentIndex() ?? indexAtDisplayTime();
 
-	const screenshotsByPage = createMemo(() => {
-		const byPage = new Map<string, ScreenshotInfo[]>();
-		const sorted = [...options.screenshots()].sort(
-			(a, b) => a.timestamp - b.timestamp,
-		);
-		for (const screenshot of sorted) {
-			const page = byPage.get(screenshot.pageId);
-			if (page) page.push(screenshot);
-			else byPage.set(screenshot.pageId, [screenshot]);
-		}
-		return [...byPage.entries()];
-	});
-	const firstScreenshot = () => screenshotsByPage()[0]?.[1][0] ?? null;
+	const screenshotPages = createMemo(() =>
+		groupScreenshotsByPage(options.screenshots()),
+	);
+	const firstScreenshot = () => screenshotPages()[0]?.screenshots[0] ?? null;
 
 	const pages = createMemo((): StepViewerPage[] => {
 		const timeMs = displayTimeMs();
 		const absoluteTimeMs =
 			timeMs === null ? null : options.testStartTimeMs() + timeMs;
-		return screenshotsByPage().map(([pageId, screenshots], index) => {
+		return screenshotPages().map(({ pageId, number, screenshots }) => {
 			const atTime =
 				absoluteTimeMs === null
 					? null
 					: findScreenshotAtTime(screenshots, absoluteTimeMs);
-			return {
-				pageId,
-				number: index + 1,
-				screenshot: atTime ?? screenshots[0],
-				hasFrame: absoluteTimeMs === null || atTime !== null,
-			};
+			return { pageId, number, screenshot: atTime ?? screenshots[0] };
 		});
 	});
 
@@ -165,37 +153,24 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		});
 	};
 
-	// From playback, stepping moves on from the step the counter shows.
-	const position = (): StopPosition => {
-		const index = shownIndex();
-		if (index !== null) return { stopIndex: index };
-		const timeMs = mode() === "hover" ? null : lockedTimeMs();
-		return timeMs === null ? null : { timeMs };
-	};
-
+	// Stepping moves on from the step the counter shows.
 	const navigate = (direction: -1 | 1) => {
-		const index = getAdjacentStopIndex(stops(), position(), direction);
+		const index = getAdjacentStopIndex(stops(), shownIndex(), direction);
 		if (index !== null) goToStop(index);
 	};
 
 	const activate = () => {
-		if (currentIndex() !== null) return;
-		const timeMs = mode() === "hover" ? null : lockedTimeMs();
-		// From playback, go to the stop of the step the counter shows.
-		const index =
-			playingIndex() ??
-			(timeMs === null ? 0 : getStopIndexAtTime(stops(), timeMs));
-		if (index !== null) goToStop(index);
+		if (currentIndex() === null) goToStop(shownIndex() ?? 0);
 	};
 
 	const handleKeyDown = (event: KeyboardEvent) => {
 		if (!options.enabled()) return false;
-		// Stepping applies on a stop or a step playing, with the viewer focused,
-		// or with nothing selected yet, where the first press goes to the first
-		// stop.
+		// Stepping applies while stepping through, with the viewer focused, or
+		// with nothing selected yet. A lock from the timeline keeps the keys for
+		// span navigation.
 		const focused =
 			event.target instanceof Node && !!rootElement?.contains(event.target);
-		if (shownIndex() === null && !focused && mode() !== "hover") {
+		if (!isStepping() && !focused && mode() !== "hover") {
 			return false;
 		}
 		switch (event.key) {
@@ -220,8 +195,8 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 
 	return {
 		stops,
+		segments,
 		currentIndex,
-		currentStop,
 		shownIndex,
 		screenshot,
 		pages,
@@ -229,7 +204,6 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		pinPage: setPinnedPageId,
 		activate,
 		navigate,
-		goToStop,
 		handleKeyDown,
 		ref: (element) => {
 			rootElement = element;

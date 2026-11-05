@@ -23,7 +23,7 @@ const NAVIGATION_SLOP_PX = 24;
 
 /** A span panel as focus sees it, in the order panels are stacked on screen. */
 export interface FocusablePanel {
-	elementType: Exclude<FocusedElementType, "screenshot">;
+	elementType: FocusedElementType;
 	layout: TimelineLayout<TimelineBar>;
 }
 
@@ -87,8 +87,7 @@ export function useSpanFocus(options: SpanFocusOptions): SpanFocus {
 
 	const focusedSpanId = () => {
 		if (mode() === "hover") return null;
-		const element = lockedElement();
-		return element && element.type !== "screenshot" ? element.id : null;
+		return lockedElement()?.id ?? null;
 	};
 
 	const focusSpan = (spanId: string, focusOptions: FocusSpanOptions = {}) => {

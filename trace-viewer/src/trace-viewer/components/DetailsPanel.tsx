@@ -97,15 +97,8 @@ export function DetailsPanel(props: DetailsPanelProps) {
 		);
 	};
 
-	const isScreenshotFocused = () => {
-		const focused = props.focusedElement;
-		return focused?.type === "screenshot";
-	};
-
 	const focusedElementSelector = (focused: FocusedElement) =>
-		focused.type === "screenshot"
-			? "[data-screenshot]"
-			: `[data-span-id="${focused.id}"]`;
+		`[data-span-id="${focused.id}"]`;
 
 	// Memoized so downstream subscribers (the anchoring effect) only re-run
 	// when the rendered content actually changes, not on every hover move.
@@ -227,12 +220,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 									data-screenshot
 									data-screenshot-timestamp={screenshot().timestamp}
 									data-screenshot-page-id={screenshot().pageId}
-									class="bg-gray-100 rounded-md overflow-hidden border-2 transition-colors duration-150"
-									classList={{
-										"border-blue-500 ring-2 ring-blue-200":
-											isScreenshotFocused(),
-										"border-gray-200": !isScreenshotFocused(),
-									}}
+									class="bg-gray-100 rounded-md overflow-hidden border-2 border-gray-200"
 								>
 									<img
 										src={screenshot().url}

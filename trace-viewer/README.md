@@ -9,7 +9,7 @@ A trace viewer designed around tests, part of [Playwright OpenTelemetry](https:/
 
 ## Overview
 
-The viewer reads OpenTelemetry trace data directly rather than a proprietary test-result format. The layout uses a time-aligned flame graph with a screenshot filmstrip above it, separated into three views that match how you investigate a failure:
+The viewer reads OpenTelemetry trace data directly rather than a proprietary test-result format. The layout plays the test back above a time-aligned flame graph: a large screenshot of the page (or, chosen in the settings menu, a filmstrip with a row of frames per page), a control bar to step through the test or play it, and a step ruler that scrubs through the whole test and shows a screenshot filmstrip as you hover it. The flame graph below is separated into three views that match how you investigate a failure:
 
 - **Test steps** for the Playwright test, hooks, fixtures, and actions
 - **Browser spans** for navigation, routes, JavaScript, fonts, images, fetches, and other requests
@@ -52,30 +52,29 @@ To show only some regions of the viewer, for example when embedding it in an ifr
 https://trace.endform.dev/?traceSource=...&view=player
 ```
 
-| View | Panels |
-| --- | --- |
-| `full` | Every panel |
-| `player` | `viewer`, `ruler`, `filmstrip` |
-| `spans` | Every panel except `viewer` |
+| View     | Panels                      |
+| -------- | --------------------------- |
+| `full`   | Every panel                 |
+| `player` | `viewer`, `ruler`           |
+| `spans`  | Every panel except `viewer` |
 
 For full control, list the panels yourself with a comma-separated `panels` query parameter. It overrides `view`:
 
 ```text
-https://trace.endform.dev/?traceSource=...&panels=viewer,ruler,filmstrip,steps
+https://trace.endform.dev/?traceSource=...&panels=viewer,ruler,steps
 ```
 
-| Panel | Region |
-| --- | --- |
-| `header` | Top bar with the test name, status, error spans, search, viewer settings, and time readout |
-| `ruler` | Timeline ruler and test phase bar |
-| `filmstrip` | Screenshot filmstrip |
-| `viewer` | Step viewer: the large screenshot with step and playback controls |
-| `steps` | Test steps timeline |
-| `browser` | Browser spans timeline |
-| `external` | External spans timeline |
-| `details` | Span details sidebar |
+| Panel      | Region                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------ |
+| `header`   | Top bar with the test name, status, error spans, search, viewer settings, and time readout |
+| `ruler`    | Step ruler: the whole test with its steps and hooks, with a screenshot filmstrip on hover  |
+| `viewer`   | Step viewer: the big screen or filmstrip, with a bar of step, playback and page controls   |
+| `steps`    | Test steps timeline                                                                        |
+| `browser`  | Browser spans timeline                                                                     |
+| `external` | External spans timeline                                                                    |
+| `details`  | Span details sidebar                                                                       |
 
-Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it.
+Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it. Sections with no data are disabled in the settings menu.
 
 ## Deploy Your Own
 

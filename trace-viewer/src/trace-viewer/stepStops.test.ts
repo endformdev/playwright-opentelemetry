@@ -3,8 +3,6 @@ import type { Span } from "../trace-data-loader/exportToSpans";
 import {
 	computeStepStops,
 	getAdjacentStopIndex,
-	getPlayingStopIndex,
-	getStopIndexAtTime,
 	type StepStop,
 } from "./stepStops";
 import { buildTestStructure } from "./testStructure";
@@ -84,9 +82,24 @@ describe("computeStepStops", () => {
 		]);
 
 		expect(computeStepStops(structure)).toEqual([
-			{ timeMs: 999, stepId: "short" },
+			{ timeMs: 200, stepId: "short" },
 			{ timeMs: 999, stepId: "long" },
 			{ timeMs: 1100, stepId: "later" },
+		]);
+	});
+
+	it("gives steps finishing apart their own stops while another runs on", () => {
+		const structure = buildTestStructure([
+			root,
+			createStep({ id: "a", startOffsetMs: 0, durationMs: 500 }),
+			createStep({ id: "b", startOffsetMs: 10, durationMs: 900 }),
+			createStep({ id: "next", startOffsetMs: 1300, durationMs: 100 }),
+		]);
+
+		expect(computeStepStops(structure)).toEqual([
+			{ timeMs: 500, stepId: "a" },
+			{ timeMs: 1299, stepId: "b" },
+			{ timeMs: 1400, stepId: "next" },
 		]);
 	});
 
@@ -109,66 +122,16 @@ describe("getAdjacentStopIndex", () => {
 	});
 
 	it("moves to the neighbouring stop, even at the same time", () => {
-		expect(getAdjacentStopIndex(stops, { stopIndex: 1 }, 1)).toBe(2);
-		expect(getAdjacentStopIndex(stops, { stopIndex: 2 }, -1)).toBe(1);
+		expect(getAdjacentStopIndex(stops, 1, 1)).toBe(2);
+		expect(getAdjacentStopIndex(stops, 2, -1)).toBe(1);
 	});
 
 	it("clamps at both ends", () => {
-		expect(getAdjacentStopIndex(stops, { stopIndex: 0 }, -1)).toBe(0);
-		expect(getAdjacentStopIndex(stops, { stopIndex: 3 }, 1)).toBe(3);
-	});
-
-	it("moves to the nearest stop from a time that is not a stop", () => {
-		expect(getAdjacentStopIndex(stops, { timeMs: 300 }, 1)).toBe(3);
-		expect(getAdjacentStopIndex(stops, { timeMs: 300 }, -1)).toBe(2);
-		expect(getAdjacentStopIndex(stops, { timeMs: 50 }, -1)).toBe(0);
-		expect(getAdjacentStopIndex(stops, { timeMs: 500 }, 1)).toBe(3);
+		expect(getAdjacentStopIndex(stops, 0, -1)).toBe(0);
+		expect(getAdjacentStopIndex(stops, 3, 1)).toBe(3);
 	});
 
 	it("has nowhere to go without stops", () => {
 		expect(getAdjacentStopIndex([], null, 1)).toBeNull();
-	});
-});
-
-describe("getStopIndexAtTime", () => {
-	it("returns the last stop at or before the time", () => {
-		const stops: StepStop[] = [
-			{ timeMs: 100, stepId: "a" },
-			{ timeMs: 300, stepId: "b" },
-		];
-
-		expect(getStopIndexAtTime(stops, 50)).toBe(0);
-		expect(getStopIndexAtTime(stops, 250)).toBe(0);
-		expect(getStopIndexAtTime(stops, 300)).toBe(1);
-		expect(getStopIndexAtTime([], 300)).toBeNull();
-	});
-});
-
-describe("getPlayingStopIndex", () => {
-	// Step a runs 50-100 and stops at 199, just before b runs 200-300.
-	const stops: StepStop[] = [
-		{ timeMs: 199, stepId: "a" },
-		{ timeMs: 300, stepId: "b" },
-	];
-
-	it("is nothing before the first step starts", () => {
-		expect(getPlayingStopIndex(stops, 0, 50)).toBeNull();
-		expect(getPlayingStopIndex(stops, 49, 50)).toBeNull();
-	});
-
-	it("is the step running, or the one whose result is on screen", () => {
-		expect(getPlayingStopIndex(stops, 50, 50)).toBe(0);
-		expect(getPlayingStopIndex(stops, 150, 50)).toBe(0);
-		expect(getPlayingStopIndex(stops, 199, 50)).toBe(0);
-		expect(getPlayingStopIndex(stops, 200, 50)).toBe(1);
-		expect(getPlayingStopIndex(stops, 300, 50)).toBe(1);
-	});
-
-	it("stays on the last step after its stop", () => {
-		expect(getPlayingStopIndex(stops, 400, 50)).toBe(1);
-	});
-
-	it("is nothing without stops", () => {
-		expect(getPlayingStopIndex([], 100, 0)).toBeNull();
 	});
 });

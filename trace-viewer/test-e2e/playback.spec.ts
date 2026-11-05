@@ -192,10 +192,25 @@ test("plays the test back in real time at the chosen speed", async ({
 	});
 
 	await test.step("Stepping through steps takes over from playback", async () => {
+		// From the first stop, with half the test still to play.
+		await page.keyboard.press("Home");
 		await stepViewer.playButton.click();
 		await expect(stepViewer.pauseButton).toBeVisible();
 		await stepViewer.previousButton.click();
 		await expect(stepViewer.playButton).toBeVisible();
 		await expect(stepViewer.position).toHaveAttribute("data-active", "true");
+		// Back on that stop, not carried on to the end.
+		await expect(lockedLine).toHaveAttribute("data-time-ms", "1999");
+	});
+
+	await test.step("Seeking on the ruler pauses at the time sought", async () => {
+		await page.keyboard.press("Home");
+		await stepViewer.playButton.click();
+		await expect(stepViewer.pauseButton).toBeVisible();
+		await viewer.ruler.clickAt(0.25);
+		await expect(stepViewer.playButton).toBeVisible();
+		const seekMs = await timeMsOf(lockedLine);
+		expect(seekMs).toBeGreaterThan(900);
+		expect(seekMs).toBeLessThan(1100);
 	});
 });

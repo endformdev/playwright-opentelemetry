@@ -6,6 +6,8 @@ const BEFORE_HOOKS_TITLE = "before hooks";
 const AFTER_HOOKS_TITLE = "after hooks";
 const HOOK_PHASES = new Set(["before", "after"]);
 const NON_BODY_CATEGORIES = new Set(["hook", "fixture"]);
+/** On the requests the test made itself, through `request` or `fetch` */
+const REQUEST_METHOD_ATTRIBUTE = "http.request.method";
 
 /**
  * The shape of a test as told by its step spans: the root test span, the
@@ -17,7 +19,10 @@ export interface TestStructure {
 	root: Span | null;
 	beforeHooks: Span | null;
 	afterHooks: Span | null;
-	/** Steps written in the test body (not hooks or fixtures), in start order */
+	/**
+	 * Steps of the test body (not hooks or fixtures), and the requests the
+	 * test made from it, in start order
+	 */
 	bodySteps: Span[];
 	/** Body steps without body step children, in start order */
 	bodyLeafSteps: Span[];
@@ -55,10 +60,22 @@ export function buildTestStructure(steps: Span[]): TestStructure {
 		return false;
 	};
 
+	// Requests hang off the test rather than the step that made them, so only
+	// their time tells that they belong to the hooks.
+	const startsDuringHooks = (span: Span): boolean =>
+		[beforeHooks, afterHooks].some(
+			(hooks) =>
+				hooks &&
+				span.startOffsetMs >= hooks.startOffsetMs &&
+				span.startOffsetMs <= hooks.startOffsetMs + hooks.durationMs,
+		);
+	const isBodyRequest = (span: Span): boolean =>
+		REQUEST_METHOD_ATTRIBUTE in span.attributes && !startsDuringHooks(span);
+
 	const bodySteps = steps
 		.filter(
 			(step) =>
-				step.name === STEP_SPAN_NAME &&
+				(step.name === STEP_SPAN_NAME || isBodyRequest(step)) &&
 				!NON_BODY_CATEGORIES.has(
 					String(step.attributes["test.step.category"]),
 				) &&

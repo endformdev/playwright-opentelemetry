@@ -1,8 +1,7 @@
 import {
-	createEffect,
+	batch,
 	createMemo,
 	createSignal,
-	For,
 	onCleanup,
 	onMount,
 	Show,
@@ -10,15 +9,11 @@ import {
 } from "solid-js";
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
-import type { ScreenshotInfo, TraceInfo } from "../trace-info-loader";
+import type { TraceInfo } from "../trace-info-loader";
 import { DetailsPanel } from "./components/DetailsPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
-import { PanelHeader } from "./components/PanelHeader";
 import { SpanTimelinePanel } from "./components/SpanTimelinePanel";
-import {
-	TIMELINE_PANELS,
-	type TimelinePanelDefinition,
-} from "./components/timelinePanels";
+import { TIMELINE_PANELS } from "./components/timelinePanels";
 import {
 	type FocusedElement,
 	HoverProvider,
@@ -29,20 +24,18 @@ import {
 	useViewportContext,
 	ViewportProvider,
 } from "./contexts/ViewportContext";
-import {
-	detectTestPhases,
-	getTestBodyPhase,
-	type TestPhase,
-} from "./detectTestPhases";
 import { MultiResizablePanel } from "./MultiResizablePanel";
 import {
 	calculateInitialPanelSizes,
-	getStepViewerAboveFilmstripInitialSize,
+	getPlayerFilmstripSizePercent,
+	MIN_PLAYER_SIZE_PERCENT,
+	PLAYER_BIG_SCREEN_SIZE_PERCENT,
 } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
-import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import type { NavigationDirection } from "./spanNavigation";
 import type { SpanSelectionPlacement } from "./spanSelection";
+import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
+import { describeStepRulerTime } from "./stepRulerSegments";
 import { StepViewer } from "./StepViewer";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
@@ -51,11 +44,12 @@ import { layoutTimelineSpans } from "./timelineLayout";
 import { usePlayback } from "./usePlayback";
 import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
+import { useTimelinePointer } from "./useTimelinePointer";
 import { type ViewerPanels, viewerSettingsFromPanels } from "./viewerPanels";
-import { createViewerSettings } from "./viewerSettings";
+import { createViewerSettings, type ViewerSectionKey } from "./viewerSettings";
 import {
 	isTimeRangeVisible,
-	type TimelineViewport,
+	panTimeRangeIntoView,
 	timeToViewportPosition,
 	viewportPositionToTime,
 } from "./viewport";
@@ -70,11 +64,6 @@ export interface TraceViewerProps {
 	panels?: ViewerPanels | null;
 }
 
-interface DisabledSection {
-	title: string;
-	tooltip: string;
-}
-
 /** Panel size configuration (without content - content rendered separately) */
 interface PanelSizeConfig {
 	id: string;
@@ -82,18 +71,12 @@ interface PanelSizeConfig {
 	minSize: number;
 }
 
-const SCREENSHOTS_DISABLED_SECTION: DisabledSection = {
-	title: "Screenshots",
-	tooltip: "No screenshots were captured during this test",
-};
+const NO_SCREENSHOTS_TOOLTIP = "No screenshots were captured during this test";
 
 const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
-const SCREENSHOT_PANEL_ROW_SIZE_PERCENT = 10;
 const TIMELINE_PLOT_INSET_PX = 12;
-/** Step viewer height above timeline span panels */
-const STEP_VIEWER_INITIAL_SIZE_PERCENT = 45;
 
 const ARROW_KEY_DIRECTIONS: Record<string, NavigationDirection> = {
 	ArrowLeft: "left",
@@ -111,17 +94,6 @@ function isKeyboardControlTarget(target: EventTarget | null): boolean {
 				'input, textarea, select, [role="menu"], [role="listbox"], [role="combobox"]',
 			) !== null)
 	);
-}
-
-function countScreenshotPages(screenshots: ScreenshotInfo[]): number {
-	if (screenshots.length === 0) return 1;
-	return new Set(screenshots.map((screenshot) => screenshot.pageId)).size;
-}
-
-function getDefaultVisibleScreenshotRows(rowCount: number): number {
-	if (rowCount <= 1) return 1;
-	if (rowCount === 2) return 2;
-	return 2.5;
 }
 
 export function TraceViewer(props: TraceViewerProps) {
@@ -180,7 +152,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		displayedViewport,
 		motionTransition,
 		setViewport,
-		zoomToRange,
+		animateTo,
 		pan,
 		zoom,
 		reset,
@@ -202,13 +174,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		displayFocusedElement,
 	} = useHoverContext();
 
-	const [selectionState, setSelectionState] = createSignal<{
-		startPosition: number;
-		/** The time under the pointer when pressed, mid-animation included */
-		startTimeMs: number;
-		currentPosition: number;
-		element: FocusedElement | null;
-	} | null>(null);
 	const [hoveredSearchSpanId, setHoveredSearchSpanId] = createSignal<
 		string | null
 	>(null);
@@ -237,10 +202,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const showHeader = () => props.panels?.header ?? true;
 	const showRuler = () => props.panels?.ruler ?? true;
 	const showDetails = () => props.panels?.details ?? true;
-	/** Whether `panels` leaves a section out entirely, even as a disabled row */
-	const isLeftOutByPanels = (
-		id: "filmstrip" | "steps" | "browser" | "external",
-	) => (props.panels ? !props.panels[id] : false);
 	const shownTimelinePanels = createMemo(() =>
 		activeTimelinePanels().filter((panel) => settings()[panel.definition.id]),
 	);
@@ -263,6 +224,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	let plotRef: HTMLDivElement | undefined;
 	let detailsRef: HTMLDivElement | undefined;
+	/** The span panels' region, below the player, where zoomed frames open */
+	let spansRegionRef: HTMLDivElement | undefined;
 	const spanFocus = useSpanFocus({
 		panels: () =>
 			shownTimelinePanels().map((panel) => ({
@@ -275,13 +238,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			null,
 		plotWidthPx: () => plotRef?.getBoundingClientRect().width ?? 0,
 	});
-	// Live pointer state, tracked independently of locked/search display state.
-	let pointerElement: FocusedElement | null = null;
-	let pointerPosition: number | null = null;
-	const setPointerElement = (element: FocusedElement | null) => {
-		pointerElement = element;
-		if (mode() === "hover") setHoveredElement(element);
-	};
+	const pointer = useTimelinePointer({ plot: () => plotRef });
 	const [scrollbarWidth, setScrollbarWidth] = createSignal(0);
 	onMount(() => {
 		const probe = document.createElement("div");
@@ -297,68 +254,33 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const hasScreenshots = () =>
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
 	const showStepViewer = () => settings().stepViewer && hasScreenshots();
-	const showFilmstrip = () => settings().filmstrip && hasScreenshots();
-	// The step viewer already shows the hovered screenshot large.
-	const filmstripPreviewEnabled = () => mode() === "hover" && !showStepViewer();
-	const screenshotPageCount = createMemo(() =>
-		countScreenshotPages(props.traceInfo.screenshots() ?? []),
-	);
-	const screenshotPanelInitialSize = createMemo(
-		() =>
-			SCREENSHOT_PANEL_ROW_SIZE_PERCENT *
-			getDefaultVisibleScreenshotRows(screenshotPageCount()),
-	);
-	// Get list of disabled sections for the footer
-	const disabledSections = createMemo((): DisabledSection[] => {
-		const sections: DisabledSection[] = [];
-		if (
-			!isLeftOutByPanels("filmstrip") &&
-			!props.traceInfo.screenshots.loading &&
-			!hasLoadedScreenshots()
-		) {
-			sections.push(SCREENSHOTS_DISABLED_SECTION);
-		}
+	/** The step viewer shows a filmstrip rather than the big screen */
+	const showPlayerFilmstrip = () =>
+		showStepViewer() && settings().playerScreen === "filmstrip";
+	const [columnHeightPx, setColumnHeightPx] = createSignal(0);
+	const columnObserver = new ResizeObserver(([entry]) => {
+		if (entry) setColumnHeightPx(entry.contentRect.height);
+	});
+	onCleanup(() => columnObserver.disconnect());
+	/** The big screen wants the room; the filmstrip only needs its rows. */
+	const playerSizePercent = () =>
+		settings().playerScreen === "filmstrip"
+			? getPlayerFilmstripSizePercent(
+					stepViewer.pages().length,
+					columnHeightPx(),
+				)
+			: PLAYER_BIG_SCREEN_SIZE_PERCENT;
+	// Sections with nothing to show are disabled in the settings menu.
+	const emptySections = createMemo(() => {
+		const sections: Partial<Record<ViewerSectionKey, string>> = {};
+		if (!hasScreenshots()) sections.stepViewer = NO_SCREENSHOTS_TOOLTIP;
 		for (const panel of timelinePanels) {
-			if (isLeftOutByPanels(panel.definition.id)) continue;
 			if (panel.layout().bars.length === 0) {
-				sections.push({
-					title: panel.definition.title,
-					tooltip: panel.definition.emptyTooltip,
-				});
+				sections[panel.definition.id] = panel.definition.emptyTooltip;
 			}
 		}
 		return sections;
 	});
-
-	// Detect test phases (before hooks, test body, after hooks) for the phase indicator bar
-	const testPhases = createMemo(() => detectTestPhases(testStructure()));
-
-	// Track whether we've done the initial zoom
-	const [hasInitialZoom, setHasInitialZoom] = createSignal(false);
-
-	// Auto-zoom to test body on initial load when phases are detected
-	createEffect(() => {
-		// Wait for loading to complete
-		if (props.traceData.isLoading()) return;
-
-		// Only do this once
-		if (hasInitialZoom()) return;
-
-		const phases = testPhases();
-		if (!phases) return;
-
-		const testBody = getTestBodyPhase(phases);
-		if (testBody) {
-			// Zoom to test body with some padding
-			zoomToRange(testBody.startMs, testBody.endMs);
-			setHasInitialZoom(true);
-		}
-	});
-
-	// Handle phase click - zoom to the clicked phase
-	const handlePhaseClick = (phase: TestPhase) => {
-		zoomToRange(phase.startMs, phase.endMs);
-	};
 
 	// Calculate initial sizes for span panels (just the sizing data, not content)
 	const spanPanelSizeConfigs = createMemo((): PanelSizeConfig[] => {
@@ -377,138 +299,15 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	// Check if we have any active span panels
 	const hasAnySpanPanels = () => spanPanelSizeConfigs().length > 0;
-	const showTimeline = () =>
-		showRuler() ||
-		showFilmstrip() ||
-		hasAnySpanPanels() ||
-		disabledSections().length > 0;
-	const showMainColumn = () => showStepViewer() || showTimeline();
-
-	const handleMouseDown = (e: MouseEvent) => {
-		// Only start selection on primary button
-		if (e.button !== 0) return;
-		if (!plotRef) return;
-
-		// Don't start selection if clicking on resize handles
-		const target = e.target as HTMLElement;
-		const computedStyle = window.getComputedStyle(target);
-		if (
-			computedStyle.cursor === "col-resize" ||
-			computedStyle.cursor === "row-resize"
-		) {
-			return;
-		}
-
-		const rect = plotRef.getBoundingClientRect();
-		const position = (e.clientX - rect.left) / rect.width;
-
-		if (position >= 0 && position <= 1) {
-			setSelectionState({
-				startPosition: position,
-				startTimeMs: viewportPositionToTime(position, displayedViewport()),
-				currentPosition: position,
-				element: pointerElement,
-			});
-		}
-	};
-
-	const handleMouseMove = (e: MouseEvent) => {
-		if (!plotRef) return;
-
-		const rect = plotRef.getBoundingClientRect();
-		const position = (e.clientX - rect.left) / rect.width;
-
-		// Update selection if dragging
-		const selection = selectionState();
-		if (selection) {
-			const clampedPosition = Math.max(0, Math.min(1, position));
-			setSelectionState({
-				...selection,
-				currentPosition: clampedPosition,
-			});
-		}
-
-		// Resize handles (cursor-*-resize) have no time position
-		const computedStyle = window.getComputedStyle(e.target as HTMLElement);
-		const isOnResizeHandle =
-			computedStyle.cursor === "col-resize" ||
-			computedStyle.cursor === "row-resize";
-		pointerPosition =
-			!isOnResizeHandle && position >= 0 && position <= 1 ? position : null;
-
-		// Only update hover position in hover mode
-		if (mode() === "hover") {
-			setHoverPosition(pointerPosition);
-		}
-	};
-
-	const handleMouseUp = () => {
-		const selection = selectionState();
-		if (selection) {
-			// Positions are on screen, which differs from the target mid-animation.
-			const shown = displayedViewport();
-			const startMs = viewportPositionToTime(
-				Math.min(selection.startPosition, selection.currentPosition),
-				shown,
-			);
-			const endMs = viewportPositionToTime(
-				Math.max(selection.startPosition, selection.currentPosition),
-				shown,
-			);
-
-			// Only zoom if selection is meaningful (not just a click)
-			// Minimum 2% of current visible duration
-			const visibleDuration = shown.visibleEndMs - shown.visibleStartMs;
-			const minSelectionMs = visibleDuration * 0.02;
-
-			if (endMs - startMs > minSelectionMs) {
-				// This was a drag - zoom to selection (works in any mode, doesn't change mode)
-				zoomToRange(startMs, endMs);
-			} else {
-				// This was a click (not a meaningful drag)
-				const currentMode = mode();
-				switch (currentMode) {
-					case "hover":
-						// Lock to the selected time so zooming does not move the lock.
-						lock(selection.startTimeMs, selection.element);
-						break;
-					case "locked":
-					case "search-override":
-						// Any click unlocks - set hover position to click location
-						// so the hover line appears immediately
-						setHoverPosition(selection.startPosition);
-						unlock();
-						setHoveredElement(pointerElement);
-						break;
-				}
-			}
-
-			setSelectionState(null);
-		}
-	};
-
-	const handleMouseLeave = () => {
-		pointerPosition = null;
-		setPointerElement(null);
-		if (mode() === "hover") {
-			setHoverPosition(null);
-		}
-		// Don't clear selection on mouse leave - user might drag outside temporarily
-	};
+	const showMainColumn = () =>
+		showStepViewer() || showRuler() || hasAnySpanPanels();
 
 	let arrowKeysScrollDetails = false;
 
-	// Set up global mouseup listener to handle drag end outside component
 	onMount(() => {
-		const onGlobalMouseUp = () => handleMouseUp();
-		document.addEventListener("mouseup", onGlobalMouseUp);
-
 		const onKeyDown = (e: KeyboardEvent) => {
-			const currentMode = mode();
-			if (e.key === "Escape" && currentMode !== "hover") {
-				unlock();
-				setHoverPosition(pointerPosition);
-				setHoveredElement(pointerElement);
+			if (e.key === "Escape" && mode() !== "hover") {
+				pointer.unlockToPointer();
 				return;
 			}
 
@@ -543,7 +342,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		document.addEventListener("pointerdown", onPointerDown, true);
 
 		onCleanup(() => {
-			document.removeEventListener("mouseup", onGlobalMouseUp);
 			document.removeEventListener("keydown", onKeyDown);
 			document.removeEventListener("pointerdown", onPointerDown, true);
 		});
@@ -563,9 +361,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enabled: () => showStepViewer() && !props.traceData.isLoading(),
 	});
 
-	const stepStopTimesMs = createMemo(() =>
-		stepViewer.stops().map((stop) => stop.timeMs),
-	);
+	/** Time hovered in the span panels, which the ruler marks too */
+	const spanHoverTimeMs = () => {
+		const position = hoverPosition();
+		if (mode() === "locked" || position === null) return null;
+		return viewportPositionToTime(position, viewport());
+	};
 
 	/** The shown step (the stop, or the step playing) and its ancestors */
 	const stepViewerStepAncestry = createMemo(() => {
@@ -579,12 +380,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const timelineFocusedSpanId = () =>
 		stepViewer.currentIndex() === null ? spanFocus.focusedSpanId() : null;
 
-	const handleViewportChange = (newViewport: TimelineViewport) => {
-		setViewport(newViewport);
-	};
-
-	const handleWheel = (e: WheelEvent) => {
-		if (!plotRef) return;
+	/** Wheel zooms and pans the timeline; `plot` is the plot box under it. */
+	const handleWheel = (
+		e: WheelEvent,
+		plot: DOMRect | undefined = plotRef?.getBoundingClientRect(),
+	) => {
+		if (!plot) return;
 
 		// Check for zoom modifier keys (Cmd, Ctrl, or Shift)
 		const isZoomModifier = e.metaKey || e.ctrlKey || e.shiftKey;
@@ -592,12 +393,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (isZoomModifier && e.deltaY !== 0) {
 			e.preventDefault();
 
-			const rect = plotRef.getBoundingClientRect();
 			const pointerPosition = Math.max(
 				0,
-				Math.min(1, (e.clientX - rect.left) / rect.width),
+				Math.min(1, (e.clientX - plot.left) / plot.width),
 			);
-			const lockTimeMs = mode() === "hover" ? null : lockedTimeMs();
+			const lockTimeMs = lockedTimeMs();
 			const lockPosition =
 				lockTimeMs === null
 					? null
@@ -630,15 +430,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		reset();
 	};
 
-	const handleScreenshotHover = (id: string | null) => {
-		setPointerElement(id ? { type: "screenshot", id } : null);
-	};
-
-	const handleBarHover = (
-		definition: TimelinePanelDefinition,
-		id: string | null,
-	) => {
-		setPointerElement(id ? { type: definition.elementType, id } : null);
+	/** Seeking on the step ruler locks there, keeping the time in view. */
+	const handleRulerSeek = (timeMs: number) => {
+		batch(() => {
+			lock(timeMs, null, "ruler");
+			animateTo(panTimeRangeIntoView(viewport(), timeMs, timeMs, timeMs));
+		});
 	};
 
 	/**
@@ -700,18 +497,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		}
 	};
 
-	const selectionLeft = () => {
-		const selection = selectionState();
-		if (!selection) return 0;
-		return Math.min(selection.startPosition, selection.currentPosition) * 100;
-	};
-
-	const selectionWidth = () => {
-		const selection = selectionState();
-		if (!selection) return 0;
-		return Math.abs(selection.currentPosition - selection.startPosition) * 100;
-	};
-
 	const SpanPanelsContent = () => {
 		const search = useSearch();
 
@@ -727,7 +512,11 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					layout={panel.layout()}
 					focusedSpanId={timelineFocusedSpanId()}
 					revealRequest={spanFocus.revealRequest()}
-					onBarHover={(id) => handleBarHover(definition, id)}
+					onBarHover={(id) =>
+						pointer.hoverElement(
+							id ? { type: definition.elementType, id } : null,
+						)
+					}
 					matchedSpanIds={search.matchedSpanIds()}
 					hoveredSearchSpanId={hoveredSearchSpanId()}
 				/>
@@ -764,183 +553,121 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		);
 	};
 
-	const MainPanelContent = () => (
-		// One plot box defines ruler, pointer, screenshots and span coordinates.
-		// Panels stay full width; only their plotted content is inset. Reserve the
-		// native scrollbar width in every plot, even in unscrolled panels.
-		<div
-			class="flex flex-col h-full relative"
-			style={{
-				"container-type": "inline-size",
-				"--timeline-plot-inset": `${TIMELINE_PLOT_INSET_PX}px`,
-				"--timeline-plot-width": `calc(100cqw - ${2 * TIMELINE_PLOT_INSET_PX + scrollbarWidth()}px)`,
-			}}
-		>
-			<Show when={props.traceData.isLoading()}>
-				<LoadingOverlay />
-			</Show>
+	/**
+	 * Whether a hovered position is on the plot. The ruler hovers the whole
+	 * test, out of view when zoomed. Locked lines are still drawn off the
+	 * plot, so they can slide into view with the bars.
+	 */
+	const isInPlot = (position: number | null) =>
+		position !== null && position >= 0 && position <= 1;
 
-			<Show when={showRuler()}>
-				<TimelineRuler
-					durationMs={props.traceData.totalDurationMs()}
-					viewport={viewport()}
-					hoverPosition={hoverPosition()}
-					onViewportChange={handleViewportChange}
-					testPhases={testPhases()}
-					onPhaseClick={handlePhaseClick}
-					onDoubleClick={handleDoubleClick}
-					stepStopTimesMs={stepStopTimesMs()}
-				/>
-			</Show>
+	// The step ruler: at the bottom of the player, right on top of the steps
+	// timeline, or without the player at the top of the span panels.
+	const Ruler = () => (
+		<TimelineRuler
+			durationMs={props.traceData.totalDurationMs()}
+			viewport={viewport()}
+			onViewportChange={setViewport}
+			onDoubleClick={handleDoubleClick}
+			segments={stepViewer.segments()}
+			playheadMs={lockedTimeMs()}
+			currentStopIndex={stepViewer.shownIndex()}
+			hoverTimeMs={spanHoverTimeMs()}
+			onSeek={handleRulerSeek}
+			onPointerTime={(timeMs, stepId) =>
+				pointer.hoverTime(timeMs, stepId ? { type: "step", id: stepId } : null)
+			}
+			screenshots={props.traceInfo.screenshots() ?? []}
+			testStartTimeMs={props.testStartTimeMs()}
+			showFilmstrip={!showPlayerFilmstrip()}
+			filmstripPlacement={showStepViewer() ? "above" : "below"}
+		/>
+	);
+
+	/** The span panels, sharing the plot box and the time lines */
+	const SpansRegion = () => (
+		<div
+			class="flex-1 min-h-0 relative flex flex-col"
+			role="region"
+			aria-label="Trace timeline"
+			style={{ cursor: pointer.selection() ? "crosshair" : undefined }}
+			onMouseDown={pointer.handleMouseDown}
+			onMouseMove={pointer.handleMouseMove}
+			onMouseLeave={pointer.handleMouseLeave}
+			onWheel={(event) => handleWheel(event)}
+			onDblClick={handleDoubleClick}
+			ref={spansRegionRef}
+		>
+			<div class="flex-1 min-h-0 overflow-hidden">
+				<SpanPanelsContent />
+			</div>
 
 			<div
-				class="flex-1 min-h-0 relative flex flex-col"
-				role="region"
-				aria-label="Trace timeline"
-				style={{ cursor: selectionState() ? "crosshair" : undefined }}
-				onMouseDown={handleMouseDown}
-				onMouseMove={handleMouseMove}
-				onMouseLeave={handleMouseLeave}
-				onWheel={handleWheel}
-				onDblClick={handleDoubleClick}
+				ref={plotRef}
+				data-timeline-plot
+				class="absolute inset-y-0 pointer-events-none"
+				style={{
+					left: "var(--timeline-plot-inset)",
+					width: "var(--timeline-plot-width)",
+				}}
 			>
-				{/* Active panels section */}
-				<div class="flex-1 min-h-0 overflow-hidden">
-					<Show
-						when={showFilmstrip() && hasAnySpanPanels()}
-						fallback={
-							<Show
-								when={showFilmstrip()}
-								fallback={
-									<Show when={hasAnySpanPanels()}>
-										<SpanPanelsContent />
-									</Show>
-								}
-							>
-								{/* Only screenshots active */}
-								<ScreenshotFilmstrip
-									screenshots={props.traceInfo.screenshots}
-									viewport={viewport()}
-									testStartTimeMs={props.testStartTimeMs()}
-									onScreenshotHover={handleScreenshotHover}
-									previewEnabled={filmstripPreviewEnabled()}
-								/>
-							</Show>
-						}
-					>
-						{/* Both screenshots and span panels active */}
-						<ResizablePanel
-							direction="vertical"
-							initialFirstPanelSize={screenshotPanelInitialSize()}
-							minFirstPanelSize={7}
-							maxFirstPanelSize={80}
-							firstPanel={
-								<ScreenshotFilmstrip
-									screenshots={props.traceInfo.screenshots}
-									viewport={viewport()}
-									testStartTimeMs={props.testStartTimeMs()}
-									onScreenshotHover={handleScreenshotHover}
-									previewEnabled={filmstripPreviewEnabled()}
-								/>
-							}
-							secondPanel={<SpanPanelsContent />}
-						/>
-					</Show>
-				</div>
-
-				{/* Disabled sections footer */}
-				<Show when={disabledSections().length > 0}>
-					<div class="flex-shrink-0 border-t border-gray-300">
-						<For each={disabledSections()}>
-							{(section) => (
-								<PanelHeader
-									title={section.title}
-									disabled={true}
-									disabledTooltip={section.tooltip}
-								/>
-							)}
-						</For>
-					</div>
+				{/* The range being dragged, once it is more than a click */}
+				<Show
+					when={
+						(pointer.selection()?.widthPercent ?? 0) >
+						MIN_SELECTION_DISPLAY_PERCENT
+					}
+				>
+					<div
+						class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
+						style={{
+							left: `${pointer.selection()?.leftPercent}%`,
+							width: `${pointer.selection()?.widthPercent}%`,
+						}}
+					/>
 				</Show>
 
-				<div
-					ref={plotRef}
-					data-timeline-plot
-					class="absolute inset-y-0 pointer-events-none"
-					style={{
-						left: "var(--timeline-plot-inset)",
-						width: "var(--timeline-plot-width)",
-					}}
-				>
-					{/* Selection overlay - only show when selection is meaningful */}
-					<Show
-						when={
-							selectionState() &&
-							selectionWidth() > MIN_SELECTION_DISPLAY_PERCENT
-						}
-					>
-						<div
-							class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
-							style={{
-								left: `${selectionLeft()}%`,
-								width: `${selectionWidth()}%`,
-							}}
-						/>
-					</Show>
+				{/* The hovered time, or a search result's while locked: a thin line */}
+				<Show when={mode() !== "locked" && isInPlot(hoverPosition())}>
+					<div
+						class="absolute top-0 bottom-0 w-px pointer-events-none z-50"
+						classList={{
+							"bg-blue-500": mode() === "hover",
+							"bg-blue-400": mode() === "search-override",
+						}}
+						style={{
+							left: `${hoverPosition()! * 100}%`,
+							transition: motionTransition("left"),
+						}}
+					/>
+				</Show>
 
-					{/* Position indicator - hover mode: thin blue line */}
-					<Show when={mode() === "hover" && hoverPosition() !== null}>
-						<div
-							class="absolute top-0 bottom-0 w-px bg-blue-500 pointer-events-none z-50"
-							style={{
-								left: `${hoverPosition()! * 100}%`,
-								transition: motionTransition("left"),
-							}}
-						/>
-					</Show>
-
-					{/* Position indicator - locked mode: thick blue line */}
-					<Show when={mode() === "locked" && lockedPosition() !== null}>
-						<div
-							data-locked-time-line
-							data-time-ms={lockedTimeMs()}
-							class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
-							style={{
-								left: `${lockedPosition()! * 100}%`,
-								width: "3px",
-								"margin-left": "-1px",
-								transition: motionTransition("left"),
-							}}
-						/>
-					</Show>
-
-					{/* Position indicator - search-override mode: both lines */}
-					<Show when={mode() === "search-override"}>
-						{/* Locked position - thick blue line */}
-						<Show when={lockedPosition() !== null}>
-							<div
-								class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
-								style={{
-									left: `${lockedPosition()! * 100}%`,
-									width: "3px",
-									"margin-left": "-1px",
-									transition: motionTransition("left"),
-								}}
-							/>
-						</Show>
-						{/* Search hover position - thin lighter blue line */}
-						<Show when={hoverPosition() !== null}>
-							<div
-								class="absolute top-0 bottom-0 w-px bg-blue-400 pointer-events-none z-45"
-								style={{
-									left: `${hoverPosition()! * 100}%`,
-									transition: motionTransition("left"),
-								}}
-							/>
-						</Show>
-					</Show>
-				</div>
+				{/* The locked time: a thick line */}
+				<Show when={lockedPosition() !== null}>
+					<div
+						data-locked-time-line
+						data-time-ms={lockedTimeMs()}
+						class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
+						style={{
+							left: `${lockedPosition()! * 100}%`,
+							width: "3px",
+							"margin-left": "-1px",
+							transition: motionTransition("left"),
+						}}
+					/>
+				</Show>
 			</div>
+		</div>
+	);
+
+	const SpansColumn = () => (
+		<div class="flex flex-col h-full">
+			<Show when={!showStepViewer() && showRuler()}>
+				<Ruler />
+			</Show>
+			<Show when={hasAnySpanPanels()}>
+				<SpansRegion />
+			</Show>
 		</div>
 	);
 
@@ -952,7 +679,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			stopCount={stepViewer.stops().length}
 			stopIndex={stepViewer.shownIndex()}
 			stepAncestry={stepViewerStepAncestry()}
-			pages={stepViewer.pages()}
+			// In the filmstrip, every page has a row; there is no page to pick.
+			pages={showPlayerFilmstrip() ? [] : stepViewer.pages()}
 			pinnedPageId={stepViewer.pinnedPageId()}
 			onPinPage={stepViewer.pinPage}
 			onActivate={stepViewer.activate}
@@ -961,6 +689,30 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			playbackSpeed={playback.speed()}
 			onTogglePlayback={playback.toggle}
 			onCycleSpeed={playback.cycleSpeed}
+			ruler={
+				<Show when={showRuler()}>
+					<Ruler />
+				</Show>
+			}
+			filmstrip={
+				showPlayerFilmstrip() ? (
+					<ScreenshotFilmstrip
+						screenshots={props.traceInfo.screenshots() ?? []}
+						screenshotsLoading={props.traceInfo.screenshots.loading}
+						viewport={viewport()}
+						testStartTimeMs={props.testStartTimeMs()}
+						lockedTimeMs={lockedTimeMs()}
+						hoverTimeMs={spanHoverTimeMs()}
+						describeTime={(timeMs) =>
+							describeStepRulerTime(stepViewer.segments(), timeMs)
+						}
+						zoomArea={() => spansRegionRef?.getBoundingClientRect() ?? null}
+						onPointerTime={(timeMs) => pointer.hoverTime(timeMs, null)}
+						onSeek={handleRulerSeek}
+						onWheel={handleWheel}
+					/>
+				) : undefined
+			}
 		/>
 	);
 
@@ -976,28 +728,38 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		</div>
 	);
 
-	// The step viewer stacks above the timeline; either can be left out.
+	// The player stacks above the span panels, resizable against them; either
+	// can be left out. One plot box, shared by the step ruler and the span
+	// panels, lines up their times. Panels stay full width; only their
+	// plotted content is inset, reserving the native scrollbar width in every
+	// plot, even in unscrolled panels.
 	const MainColumnContent = () => (
-		<Show when={showStepViewer()} fallback={<MainPanelContent />}>
-			<Show when={showTimeline()} fallback={<StepViewerContent />}>
-				<ResizablePanel
-					direction="vertical"
-					initialFirstPanelSize={
-						hasAnySpanPanels()
-							? STEP_VIEWER_INITIAL_SIZE_PERCENT
-							: getStepViewerAboveFilmstripInitialSize(
-									showFilmstrip()
-										? getDefaultVisibleScreenshotRows(screenshotPageCount())
-										: 1,
-								)
-					}
-					minFirstPanelSize={20}
-					maxFirstPanelSize={85}
-					firstPanel={<StepViewerContent />}
-					secondPanel={<MainPanelContent />}
-				/>
+		<div
+			ref={(element) => columnObserver.observe(element)}
+			class="relative flex flex-col h-full"
+			style={{
+				"container-type": "inline-size",
+				"--timeline-plot-inset": `${TIMELINE_PLOT_INSET_PX}px`,
+				"--timeline-plot-width": `calc(100cqw - ${2 * TIMELINE_PLOT_INSET_PX + scrollbarWidth()}px)`,
+			}}
+		>
+			<Show when={props.traceData.isLoading()}>
+				<LoadingOverlay />
 			</Show>
-		</Show>
+			<Show when={showStepViewer()} fallback={<SpansColumn />}>
+				<Show when={hasAnySpanPanels()} fallback={<StepViewerContent />}>
+					<ResizablePanel
+						direction="vertical"
+						initialFirstPanelSize={playerSizePercent()}
+						sizeKey={settings().playerScreen}
+						minFirstPanelSize={MIN_PLAYER_SIZE_PERCENT}
+						maxFirstPanelSize={85}
+						firstPanel={<StepViewerContent />}
+						secondPanel={<SpansColumn />}
+					/>
+				</Show>
+			</Show>
+		</div>
 	);
 
 	return (
@@ -1014,6 +776,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					onSpanHover={handleSearchResultHover}
 					settings={settings()}
 					onSettingChange={setSetting}
+					emptySections={emptySections()}
 				/>
 			</Show>
 

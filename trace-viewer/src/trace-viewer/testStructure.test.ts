@@ -29,6 +29,61 @@ const root = createStep({
 const ids = (spans: Span[]) => spans.map((span) => span.id);
 
 describe("buildTestStructure", () => {
+	it("counts the test's requests as steps of its body", () => {
+		const structure = buildTestStructure([
+			root,
+			createStep({ id: "call", title: "Call the API", durationMs: 300 }),
+			createStep({
+				id: "request",
+				parentId: "call",
+				name: "HTTP GET",
+				attributes: { "http.request.method": "GET" },
+				durationMs: 200,
+			}),
+			createStep({
+				id: "check",
+				parentId: "call",
+				startOffsetMs: 200,
+				durationMs: 100,
+			}),
+			createStep({
+				id: "other",
+				name: "some.span",
+				startOffsetMs: 400,
+			}),
+		]);
+
+		expect(ids(structure.bodySteps)).toEqual(["call", "request", "check"]);
+		expect(ids(structure.bodyLeafSteps)).toEqual(["request", "check"]);
+	});
+
+	it("leaves out requests made in the hooks", () => {
+		const structure = buildTestStructure([
+			root,
+			createStep({ id: "before", title: "Before Hooks", durationMs: 200 }),
+			createStep({
+				id: "request",
+				name: "HTTP GET",
+				attributes: { "http.request.method": "GET" },
+				startOffsetMs: 50,
+			}),
+			createStep({
+				id: "after",
+				title: "After Hooks",
+				startOffsetMs: 4000,
+				durationMs: 200,
+			}),
+			createStep({
+				id: "teardown",
+				name: "HTTP GET",
+				attributes: { "http.request.method": "GET" },
+				startOffsetMs: 4100,
+			}),
+		]);
+
+		expect(ids(structure.bodySteps)).toEqual([]);
+	});
+
 	it("finds the root test and the hook containers", () => {
 		const structure = buildTestStructure([
 			createStep({ id: "before", title: "Before Hooks" }),

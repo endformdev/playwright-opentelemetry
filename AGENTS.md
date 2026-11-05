@@ -1,7 +1,8 @@
 # Agent Guidelines for playwright-opentelemetry
 
-Always run unit tests from workspace root: `pnpm tsc`
-Always typecheck from workspace root: `pnpm test`
+Always run unit tests from workspace root: `pnpm test`
+Always typecheck from workspace root: `pnpm tsc`
+Format from workspace root: `pnpm format` (oxfmt)
 Never make types.ts files.
 
 ## For trace-reporter
@@ -9,8 +10,6 @@ Never make types.ts files.
 ### Build & Test Commands
 
 - `pnpm test:e2e` - Run e2e tests (playwright)
-- `pnpm typecheck` - Type checking with tsc
-- `pnpm format` - Format code with Biome
 
 ### Running Single Tests
 
