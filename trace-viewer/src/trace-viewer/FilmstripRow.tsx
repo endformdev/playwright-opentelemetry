@@ -147,7 +147,7 @@ export function FilmstripRow(props: FilmstripRowProps) {
 				}}
 			</Index>
 			<Show when={props.numbered}>
-				<span class="absolute top-0 left-0 z-20 rounded-br-sm bg-gray-900/75 px-1 font-mono text-[9px] leading-[14px] text-white">
+				<span class="absolute top-1 left-1 z-20 flex h-4 min-w-4 items-center justify-center rounded-full bg-gray-900/80 px-1 font-mono text-[9px] leading-none text-white shadow-sm ring-1 ring-white/80">
 					{props.page.number}
 				</span>
 			</Show>

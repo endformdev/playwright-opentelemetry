@@ -3,6 +3,11 @@ import { createSignal, type JSX } from "solid-js";
 export interface ResizablePanelProps {
 	direction: "horizontal" | "vertical";
 	initialFirstPanelSize?: number;
+	/**
+	 * Names what the panel is sized for. A size dragged to is remembered for
+	 * its key, so changing the key goes back to that key's size.
+	 */
+	sizeKey?: string;
 	minFirstPanelSize?: number;
 	maxFirstPanelSize?: number;
 	firstPanel: JSX.Element;
@@ -15,10 +20,9 @@ export function ResizablePanel(props: ResizablePanelProps) {
 	const minSize = props.minFirstPanelSize ?? 10;
 	const maxSize = props.maxFirstPanelSize ?? 90;
 
-	const [userFirstPanelSize, setUserFirstPanelSize] = createSignal<
-		number | undefined
-	>();
-	const firstPanelSize = () => userFirstPanelSize() ?? initialSize();
+	const [userSizes, setUserSizes] = createSignal<Record<string, number>>({});
+	const sizeKey = () => props.sizeKey ?? "";
+	const firstPanelSize = () => userSizes()[sizeKey()] ?? initialSize();
 	const [isDragging, setIsDragging] = createSignal(false);
 
 	let containerRef: HTMLDivElement | undefined;
@@ -41,7 +45,7 @@ export function ResizablePanel(props: ResizablePanelProps) {
 
 			// Clamp to min/max
 			newSize = Math.max(minSize, Math.min(maxSize, newSize));
-			setUserFirstPanelSize(newSize);
+			setUserSizes((sizes) => ({ ...sizes, [sizeKey()]: newSize }));
 		};
 
 		const handleMouseUp = () => {

@@ -59,11 +59,6 @@ async function createTrace(
 	return traceId;
 }
 
-/** Rows naming panels that are shown but have no data */
-function disabledRows(viewer: TraceViewerPage) {
-	return viewer.root.locator(".cursor-not-allowed");
-}
-
 test("shows the step viewer with its control bar and step ruler in the player view", async ({
 	page,
 	request,
@@ -83,8 +78,6 @@ test("shows the step viewer with its control bar and step ruler in the player vi
 	await expect(viewer.browserSpans.root).toHaveCount(0);
 	await expect(viewer.externalSpans.root).toHaveCount(0);
 	await expect(viewer.details.root).toHaveCount(0);
-	// Panels the view leaves out aren't listed as empty either
-	await expect(disabledRows(viewer)).toHaveCount(0);
 
 	await test.step("Screenshot, control bar and ruler stack down the whole viewer", async () => {
 		const viewport = page.viewportSize()!;
@@ -198,13 +191,8 @@ test("only shows listed panels that have data", async ({ page, request }) => {
 	await expect(viewer.details.root).toBeVisible();
 	await expect(viewer.header.root).toHaveCount(0);
 	await expect(viewer.timelineRuler).toHaveCount(0);
-	// Listed, but the trace has no screenshots: listed as empty instead
+	// Listed, but the trace has no screenshots
 	await expect(viewer.stepViewer.root).toHaveCount(0);
-	await expect(
-		viewer.emptySection("No screenshots were captured during this test"),
-	).toBeVisible();
-	// The rest aren't listed, so not shown as empty sections either
-	await expect(disabledRows(viewer)).toHaveCount(1);
 });
 
 test("panels from the URL neither use nor change the saved viewer settings", async ({

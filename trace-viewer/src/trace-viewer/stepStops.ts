@@ -19,11 +19,12 @@ const BEFORE_NEXT_STEP_MS = 1;
 
 /**
  * Builds the ordered stops for the step viewer, one per leaf step of the test
- * body. Each stop shows the step's result: screenshots are taken in the
- * background and a step's effect often reaches the screen after it ends, so
- * a stop waits until just before the next step (or the after hooks) starts,
- * when the page has settled. The last step without anything after it stops
- * at its end.
+ * body, in the order they finish. Each stop shows the step's result:
+ * screenshots are taken in the background and a step's effect often reaches
+ * the screen after it ends, so a stop waits until just before the next step
+ * (or the after hooks) starts, when the page has settled. With another step
+ * still running there is no such pause, and neither is there after the last
+ * step, so those stop where the step ends.
  */
 export function computeStepStops(structure: TestStructure): StepStop[] {
 	const { bodyLeafSteps, afterHooks } = structure;
@@ -31,13 +32,18 @@ export function computeStepStops(structure: TestStructure): StepStop[] {
 		...bodyLeafSteps.map((step) => step.startOffsetMs),
 		...(afterHooks ? [afterHooks.startOffsetMs] : []),
 	].sort((a, b) => a - b);
+	const endOf = (step: { startOffsetMs: number; durationMs: number }) =>
+		step.startOffsetMs + step.durationMs;
 
 	return bodyLeafSteps
 		.map((step) => {
-			const endMs = step.startOffsetMs + step.durationMs;
+			const endMs = endOf(step);
+			const anotherStillRunning = bodyLeafSteps.some(
+				(other) => other.startOffsetMs <= endMs && endOf(other) > endMs,
+			);
 			const nextStartMs = nextStepStarts.find((startMs) => startMs >= endMs);
 			const timeMs =
-				nextStartMs === undefined
+				anotherStillRunning || nextStartMs === undefined
 					? endMs
 					: Math.max(endMs, nextStartMs - BEFORE_NEXT_STEP_MS);
 			return { timeMs, endMs, stepId: step.id };
@@ -79,22 +85,6 @@ export function getStopIndexAtTime(
 ): number | null {
 	if (stops.length === 0) return null;
 	return findLastStopIndex(stops, (stop) => stop.timeMs <= timeMs) ?? 0;
-}
-
-/**
- * The stop of the step playing at a time, for playback: the step running
- * then, or between steps the one whose result is on screen. That is the first
- * stop at or after the time. Before the first step starts nothing is playing
- * yet; after the last stop the last step stays on.
- */
-export function getPlayingStopIndex(
-	stops: StepStop[],
-	timeMs: number,
-	firstStepStartMs: number,
-): number | null {
-	if (stops.length === 0 || timeMs < firstStepStartMs) return null;
-	const index = stops.findIndex((stop) => stop.timeMs >= timeMs);
-	return index === -1 ? stops.length - 1 : index;
 }
 
 function findLastStopIndex(

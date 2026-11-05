@@ -441,11 +441,6 @@ export class TraceViewerPage {
 		this.settings = new ViewerSettingsMenu(page);
 	}
 
-	/** Footer entry for a section with no data in this trace. */
-	emptySection(tooltip: string): Locator {
-		return this.root.getByTitle(tooltip, { exact: true });
-	}
-
 	/** Stores viewer settings before the app loads. */
 	async useViewerSettings(
 		settings: Record<string, boolean | string>,
@@ -494,7 +489,8 @@ export class TraceViewerPage {
 			throw new Error("Trace timeline is not visible");
 		}
 
-		const y = box.y + box.height / 2;
+		// Off centre: two equal span panels meet in the middle.
+		const y = box.y + box.height * 0.4;
 		await this.page.mouse.move(box.x + box.width * startRatio, y);
 		await this.page.mouse.down();
 		await this.page.mouse.move(box.x + box.width * endRatio, y, { steps: 8 });

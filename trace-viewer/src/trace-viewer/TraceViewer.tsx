@@ -13,7 +13,6 @@ import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
 import type { TraceInfo } from "../trace-info-loader";
 import { DetailsPanel } from "./components/DetailsPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
-import { PanelHeader } from "./components/PanelHeader";
 import { SpanTimelinePanel } from "./components/SpanTimelinePanel";
 import {
 	TIMELINE_PANELS,
@@ -30,15 +29,17 @@ import {
 	ViewportProvider,
 } from "./contexts/ViewportContext";
 import { MultiResizablePanel } from "./MultiResizablePanel";
-import { calculateInitialPanelSizes } from "./panelSizing";
+import {
+	calculateInitialPanelSizes,
+	getPlayerFilmstripSizePercent,
+	MIN_PLAYER_SIZE_PERCENT,
+	PLAYER_BIG_SCREEN_SIZE_PERCENT,
+} from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
 import type { NavigationDirection } from "./spanNavigation";
 import type { SpanSelectionPlacement } from "./spanSelection";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
-import {
-	computeStepRulerSegments,
-	describeStepRulerTime,
-} from "./stepRulerSegments";
+import { describeStepRulerTime } from "./stepRulerSegments";
 import { StepViewer } from "./StepViewer";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
@@ -48,7 +49,7 @@ import { usePlayback } from "./usePlayback";
 import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
 import { type ViewerPanels, viewerSettingsFromPanels } from "./viewerPanels";
-import { createViewerSettings } from "./viewerSettings";
+import { createViewerSettings, type ViewerSectionKey } from "./viewerSettings";
 import {
 	isTimeRangeVisible,
 	panTimeRangeIntoView,
@@ -67,11 +68,6 @@ export interface TraceViewerProps {
 	panels?: ViewerPanels | null;
 }
 
-interface DisabledSection {
-	title: string;
-	tooltip: string;
-}
-
 /** Panel size configuration (without content - content rendered separately) */
 interface PanelSizeConfig {
 	id: string;
@@ -79,17 +75,12 @@ interface PanelSizeConfig {
 	minSize: number;
 }
 
-const SCREENSHOTS_DISABLED_SECTION: DisabledSection = {
-	title: "Screenshots",
-	tooltip: "No screenshots were captured during this test",
-};
+const NO_SCREENSHOTS_TOOLTIP = "No screenshots were captured during this test";
 
 const PAN_SENSITIVITY = 0.2;
 const ZOOM_SENSITIVITY = 0.005;
 const MIN_SELECTION_DISPLAY_PERCENT = 1;
 const TIMELINE_PLOT_INSET_PX = 12;
-/** Step viewer height above timeline span panels */
-const STEP_VIEWER_INITIAL_SIZE_PERCENT = 45;
 
 const ARROW_KEY_DIRECTIONS: Record<string, NavigationDirection> = {
 	ArrowLeft: "left",
@@ -223,10 +214,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const showHeader = () => props.panels?.header ?? true;
 	const showRuler = () => props.panels?.ruler ?? true;
 	const showDetails = () => props.panels?.details ?? true;
-	/** Whether `panels` leaves a section out entirely, even as a disabled row */
-	const isLeftOutByPanels = (
-		id: "viewer" | "steps" | "browser" | "external",
-	) => (props.panels ? !props.panels[id] : false);
 	const shownTimelinePanels = createMemo(() =>
 		activeTimelinePanels().filter((panel) => settings()[panel.definition.id]),
 	);
@@ -288,23 +275,26 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	/** The step viewer shows a filmstrip rather than the big screen */
 	const showPlayerFilmstrip = () =>
 		showStepViewer() && settings().playerScreen === "filmstrip";
-	// Get list of disabled sections for the footer
-	const disabledSections = createMemo((): DisabledSection[] => {
-		const sections: DisabledSection[] = [];
-		if (
-			!isLeftOutByPanels("viewer") &&
-			!props.traceInfo.screenshots.loading &&
-			!hasLoadedScreenshots()
-		) {
-			sections.push(SCREENSHOTS_DISABLED_SECTION);
-		}
+	const [columnHeightPx, setColumnHeightPx] = createSignal(0);
+	const columnObserver = new ResizeObserver(([entry]) => {
+		if (entry) setColumnHeightPx(entry.contentRect.height);
+	});
+	onCleanup(() => columnObserver.disconnect());
+	/** The big screen wants the room; the filmstrip only needs its rows. */
+	const playerSizePercent = () =>
+		settings().playerScreen === "filmstrip"
+			? getPlayerFilmstripSizePercent(
+					stepViewer.pages().length,
+					columnHeightPx(),
+				)
+			: PLAYER_BIG_SCREEN_SIZE_PERCENT;
+	// Sections with nothing to show are disabled in the settings menu.
+	const emptySections = createMemo(() => {
+		const sections: Partial<Record<ViewerSectionKey, string>> = {};
+		if (!hasScreenshots()) sections.stepViewer = NO_SCREENSHOTS_TOOLTIP;
 		for (const panel of timelinePanels) {
-			if (isLeftOutByPanels(panel.definition.id)) continue;
 			if (panel.layout().bars.length === 0) {
-				sections.push({
-					title: panel.definition.title,
-					tooltip: panel.definition.emptyTooltip,
-				});
+				sections[panel.definition.id] = panel.definition.emptyTooltip;
 			}
 		}
 		return sections;
@@ -327,11 +317,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 
 	// Check if we have any active span panels
 	const hasAnySpanPanels = () => spanPanelSizeConfigs().length > 0;
-	/** Span panels, or the footer naming those without data */
-	const showSpansRegion = () =>
-		hasAnySpanPanels() || disabledSections().length > 0;
 	const showMainColumn = () =>
-		showStepViewer() || showRuler() || showSpansRegion();
+		showStepViewer() || showRuler() || hasAnySpanPanels();
 
 	const handleMouseDown = (e: MouseEvent) => {
 		// Only start selection on primary button
@@ -512,9 +499,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		enabled: () => showStepViewer() && !props.traceData.isLoading(),
 	});
 
-	const rulerSegments = createMemo(() =>
-		computeStepRulerSegments(testStructure(), stepViewer.stops()),
-	);
 	/** The locked time the ruler's playhead marks */
 	const playheadMs = () => (mode() === "hover" ? null : lockedTimeMs());
 	/** Time hovered in the span panels, which the ruler marks too */
@@ -753,22 +737,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const isInPlot = (position: number | null) =>
 		position !== null && position >= 0 && position <= 1;
 
-	const DisabledSectionsFooter = () => (
-		<Show when={disabledSections().length > 0}>
-			<div class="flex-shrink-0 border-t border-gray-300">
-				<For each={disabledSections()}>
-					{(section) => (
-						<PanelHeader
-							title={section.title}
-							disabled={true}
-							disabledTooltip={section.tooltip}
-						/>
-					)}
-				</For>
-			</div>
-		</Show>
-	);
-
 	// The step ruler: at the bottom of the player, right on top of the steps
 	// timeline, or without the player at the top of the span panels.
 	const Ruler = () => (
@@ -777,8 +745,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			viewport={viewport()}
 			onViewportChange={handleViewportChange}
 			onDoubleClick={reset}
-			segments={rulerSegments()}
-			stops={stepViewer.stops()}
+			segments={stepViewer.segments()}
 			playheadMs={playheadMs()}
 			currentStopIndex={stepViewer.shownIndex()}
 			hoverTimeMs={spanHoverTimeMs()}
@@ -806,12 +773,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			ref={spansRegionRef}
 		>
 			<div class="flex-1 min-h-0 overflow-hidden">
-				<Show when={hasAnySpanPanels()}>
-					<SpanPanelsContent />
-				</Show>
+				<SpanPanelsContent />
 			</div>
-
-			<DisabledSectionsFooter />
 
 			<div
 				ref={plotRef}
@@ -897,7 +860,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			<Show when={!showStepViewer() && showRuler()}>
 				<Ruler />
 			</Show>
-			<Show when={showSpansRegion()}>
+			<Show when={hasAnySpanPanels()}>
 				<SpansRegion />
 			</Show>
 		</div>
@@ -936,7 +899,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						lockedTimeMs={playheadMs()}
 						hoverTimeMs={spanHoverTimeMs()}
 						describeTime={(timeMs) =>
-							describeStepRulerTime(rulerSegments(), stepViewer.stops(), timeMs)
+							describeStepRulerTime(stepViewer.segments(), timeMs)
 						}
 						zoomArea={() => spansRegionRef?.getBoundingClientRect() ?? null}
 						onPointerTime={handleFilmstripPointerTime}
@@ -967,6 +930,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	// plot, even in unscrolled panels.
 	const MainColumnContent = () => (
 		<div
+			ref={(element) => columnObserver.observe(element)}
 			class="relative flex flex-col h-full"
 			style={{
 				"container-type": "inline-size",
@@ -978,21 +942,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				<LoadingOverlay />
 			</Show>
 			<Show when={showStepViewer()} fallback={<SpansColumn />}>
-				<Show
-					when={hasAnySpanPanels()}
-					fallback={
-						<>
-							<div class="flex-1 min-h-0">
-								<StepViewerContent />
-							</div>
-							<DisabledSectionsFooter />
-						</>
-					}
-				>
+				<Show when={hasAnySpanPanels()} fallback={<StepViewerContent />}>
 					<ResizablePanel
 						direction="vertical"
-						initialFirstPanelSize={STEP_VIEWER_INITIAL_SIZE_PERCENT}
-						minFirstPanelSize={20}
+						initialFirstPanelSize={playerSizePercent()}
+						sizeKey={settings().playerScreen}
+						minFirstPanelSize={MIN_PLAYER_SIZE_PERCENT}
 						maxFirstPanelSize={85}
 						firstPanel={<StepViewerContent />}
 						secondPanel={<SpansColumn />}
@@ -1016,6 +971,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					onSpanHover={handleSearchResultHover}
 					settings={settings()}
 					onSettingChange={setSetting}
+					emptySections={emptySections()}
 				/>
 			</Show>
 

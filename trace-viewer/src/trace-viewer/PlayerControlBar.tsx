@@ -8,11 +8,11 @@ import type { StepViewerPage } from "./useStepViewer";
 
 export interface PlayerControlBarProps {
 	stopCount: number;
-	/** Index of the step shown (see StepViewer.shownIndex), or null */
+	/** Index of the step shown (see the step viewer's shownIndex), or null */
 	stopIndex: number | null;
 	/**
 	 * The shown step and the spans it is nested in, outermost first (see
-	 * getStepAncestry); empty when not on a step.
+	 * getStepAncestry); empty when no step is shown.
 	 */
 	stepAncestry: Span[];
 	onActivate: () => void;
@@ -121,9 +121,7 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 					title={
 						props.playing
 							? "Playing through the test"
-							: active()
-								? "Stepping through the test with ← →"
-								: "Step through the test with ← →"
+							: "Step through the test with ← →"
 					}
 					onClick={props.onActivate}
 				>

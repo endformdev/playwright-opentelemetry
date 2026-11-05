@@ -1,4 +1,4 @@
-import { type JSX, Show, splitProps } from "solid-js";
+import { children, type JSX, Show, splitProps } from "solid-js";
 import type { ScreenshotInfo } from "../trace-info-loader";
 import {
 	PlayerControlBar,
@@ -27,6 +27,8 @@ export interface StepViewerProps extends Omit<
  * keys apply).
  */
 export function StepViewer(props: StepViewerProps) {
+	// Each read of a JSX prop creates it anew, so resolve it just once.
+	const filmstrip = children(() => props.filmstrip);
 	const [, controlBarProps] = splitProps(props, [
 		"screenshot",
 		"screenshotsLoading",
@@ -42,7 +44,7 @@ export function StepViewer(props: StepViewerProps) {
 			tabIndex={0}
 		>
 			<Show
-				when={props.filmstrip}
+				when={filmstrip()}
 				fallback={
 					<div
 						class="relative min-h-0 flex-1 bg-gray-100 p-3"
@@ -73,7 +75,7 @@ export function StepViewer(props: StepViewerProps) {
 					</div>
 				}
 			>
-				<div class="min-h-0 flex-1">{props.filmstrip}</div>
+				<div class="min-h-0 flex-1">{filmstrip()}</div>
 			</Show>
 
 			<PlayerControlBar

@@ -5,6 +5,7 @@ import {
 	formatStepRulerItem,
 	getStepRulerItemAtTime,
 	getStepRulerSegmentState,
+	getStepSegmentAtTime,
 } from "./stepRulerSegments";
 import { computeStepStops } from "./stepStops";
 import { buildTestStructure } from "./testStructure";
@@ -76,7 +77,7 @@ describe("computeStepRulerSegments", () => {
 		]);
 	});
 
-	it("starts a step that overlaps the one before where that one ended", () => {
+	it("gives shared time to the step that finishes first, then back", () => {
 		const { segments } = layout([
 			createStep({ id: "first", startOffsetMs: 0, durationMs: 1000 }),
 			createStep({ id: "second", startOffsetMs: 500, durationMs: 1000 }),
@@ -89,9 +90,23 @@ describe("computeStepRulerSegments", () => {
 				endMs,
 			]),
 		).toEqual([
+			["first", 0, 600],
 			["inside", 600, 700],
 			["first", 700, 1000],
 			["second", 1000, 1500],
+		]);
+	});
+
+	it("leaves the time between steps to no one", () => {
+		const { segments } = layout([
+			createStep({ id: "a", startOffsetMs: 0, durationMs: 100 }),
+			createStep({ id: "b", startOffsetMs: 300, durationMs: 100 }),
+		]);
+		expect(
+			segments.steps.map(({ startMs, endMs }) => [startMs, endMs]),
+		).toEqual([
+			[0, 100],
+			[300, 400],
 		]);
 	});
 
@@ -119,9 +134,9 @@ describe("getStepRulerSegmentState", () => {
 });
 
 describe("getStepRulerItemAtTime", () => {
-	const { segments, stops } = hookedTest;
+	const { segments } = hookedTest;
 	const itemAt = (timeMs: number) => {
-		const item = getStepRulerItemAtTime(segments, stops, timeMs);
+		const item = getStepRulerItemAtTime(segments, timeMs);
 		return item && (item.kind === "step" ? item.step.id : item.kind);
 	};
 
@@ -139,6 +154,36 @@ describe("getStepRulerItemAtTime", () => {
 
 	it("is nothing before the first step outside the hooks", () => {
 		expect(itemAt(450)).toBeNull();
+	});
+});
+
+describe("getStepSegmentAtTime", () => {
+	const { segments } = layout([
+		createStep({ id: "long", startOffsetMs: 100, durationMs: 800 }),
+		createStep({ id: "short", startOffsetMs: 200, durationMs: 100 }),
+		createStep({ id: "later", startOffsetMs: 1200, durationMs: 100 }),
+	]);
+	const stepAt = (timeMs: number) =>
+		getStepSegmentAtTime(segments.steps, timeMs)?.step.id ?? null;
+
+	it("is nothing before the first step", () => {
+		expect(stepAt(99)).toBeNull();
+	});
+
+	it("follows the steps running, back to a longer one after a shorter", () => {
+		expect(stepAt(150)).toBe("long");
+		expect(stepAt(250)).toBe("short");
+		expect(stepAt(350)).toBe("long");
+	});
+
+	it("stays on the last step finished until the next starts", () => {
+		expect(stepAt(1000)).toBe("long");
+		expect(stepAt(1250)).toBe("later");
+		expect(stepAt(4000)).toBe("later");
+	});
+
+	it("gives a time two segments meet at to the one ending", () => {
+		expect(stepAt(300)).toBe("short");
 	});
 });
 

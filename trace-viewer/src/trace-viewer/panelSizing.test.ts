@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { calculateInitialPanelSizes } from "./panelSizing";
+import {
+	calculateInitialPanelSizes,
+	getPlayerFilmstripSizePercent,
+	MIN_PLAYER_SIZE_PERCENT,
+	PLAYER_BIG_SCREEN_SIZE_PERCENT,
+} from "./panelSizing";
 
 describe("calculateInitialPanelSizes", () => {
 	it("returns empty object when no panels are active", () => {
@@ -62,5 +67,30 @@ describe("calculateInitialPanelSizes", () => {
 		expect(result.steps).toBeCloseTo(33.33, 1);
 		expect(result.browser).toBeCloseTo(33.33, 1);
 		expect(result.external).toBeCloseTo(33.33, 1);
+	});
+});
+
+describe("getPlayerFilmstripSizePercent", () => {
+	it("is smaller than the big screen, leaving room for the spans", () => {
+		expect(getPlayerFilmstripSizePercent(1, 800)).toBeCloseTo(33);
+		expect(getPlayerFilmstripSizePercent(2, 800)).toBeCloseTo(41.5);
+	});
+
+	it("never takes more than the big screen", () => {
+		expect(getPlayerFilmstripSizePercent(8, 800)).toBe(
+			PLAYER_BIG_SCREEN_SIZE_PERCENT,
+		);
+	});
+
+	it("stays above the player's minimum in a tall column", () => {
+		expect(getPlayerFilmstripSizePercent(1, 2000)).toBe(
+			MIN_PLAYER_SIZE_PERCENT,
+		);
+	});
+
+	it("uses the big screen's size until the column is measured", () => {
+		expect(getPlayerFilmstripSizePercent(1, 0)).toBe(
+			PLAYER_BIG_SCREEN_SIZE_PERCENT,
+		);
 	});
 });

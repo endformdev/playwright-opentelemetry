@@ -1,9 +1,13 @@
 import type { Span } from "../trace-data-loader/exportToSpans";
-import { getPlayingStopIndex, type StepStop } from "./stepStops";
+import type { StepStop } from "./stepStops";
 import { formatTimeLabel } from "./timelineScale";
 import type { TestStructure } from "./testStructure";
 
-/** A test body step on the step ruler: one per step viewer stop. */
+/**
+ * A stretch of time a test body step has the ruler. Usually a step has one,
+ * from its start to its end; a step sharing time with shorter ones has one
+ * either side of them.
+ */
 export interface StepRulerStep {
 	kind: "step";
 	/** The step viewer stop this step finishes at */
@@ -31,9 +35,11 @@ export interface StepRulerSegments {
 export type StepRulerSegmentState = "done" | "current" | "upcoming";
 
 /**
- * Lays out the step ruler: a segment per stop's step, in stop order, and the
- * hooks at either end. Steps that ran at the same time would sit on top of
- * each other, so each starts no earlier than the one before it ended.
+ * Lays out the step ruler, which decides which step a moment belongs to.
+ * Steps only have the time they ran for. When several ran at once the one
+ * that finishes first has that time, so a short step shows while it runs and
+ * the longer one it ran alongside comes back after it. In time between steps
+ * nothing has the ruler; see getStepSegmentAtTime.
  */
 export function computeStepRulerSegments(
 	structure: TestStructure,
@@ -42,18 +48,33 @@ export function computeStepRulerSegments(
 	const stepsById = new Map(
 		structure.bodyLeafSteps.map((step) => [step.id, step]),
 	);
-	const steps: StepRulerStep[] = [];
-	let previousEndMs = Number.NEGATIVE_INFINITY;
-	stops.forEach((stop, stopIndex) => {
+	// In stop order, which is the order they finish.
+	const ran = stops.flatMap((stop, stopIndex) => {
 		const step = stepsById.get(stop.stepId);
-		if (!step) return;
-		const endMs = step.startOffsetMs + step.durationMs;
-		const startMs = Math.min(
-			endMs,
-			Math.max(step.startOffsetMs, previousEndMs),
+		if (!step) return [];
+		const startMs = step.startOffsetMs;
+		return [{ stopIndex, step, startMs, endMs: startMs + step.durationMs }];
+	});
+	const edgesMs = [...new Set(ran.flatMap((s) => [s.startMs, s.endMs]))].sort(
+		(a, b) => a - b,
+	);
+
+	const steps: StepRulerStep[] = [];
+	edgesMs.slice(0, -1).forEach((startMs, index) => {
+		const endMs = edgesMs[index + 1];
+		const running = ran.find(
+			(candidate) => candidate.startMs <= startMs && candidate.endMs >= endMs,
 		);
-		previousEndMs = Math.max(previousEndMs, endMs);
-		steps.push({ kind: "step", stopIndex, step, startMs, endMs });
+		if (!running) return;
+		const previous = steps.at(-1);
+		if (
+			previous?.stopIndex === running.stopIndex &&
+			previous.endMs === startMs
+		) {
+			previous.endMs = endMs;
+		} else {
+			steps.push({ kind: "step", ...running, startMs, endMs });
+		}
 	});
 
 	const hooks: StepRulerHooks[] = [];
@@ -89,28 +110,33 @@ export function getStepRulerSegmentState(
 }
 
 /**
- * What the step ruler names at a time: the hooks running then, else the step
- * running or, between steps, the one whose result is on screen (as playback
- * shows it). Before the first step, outside any hooks, it is nothing.
+ * The step at a time: the segment there, or between steps the last one
+ * before it, whose result is on screen. Null before the first step. A time
+ * two segments meet at belongs to the one ending, as a stop at a step's end
+ * shows that step.
  */
+export function getStepSegmentAtTime(
+	steps: StepRulerStep[],
+	timeMs: number,
+): StepRulerStep | null {
+	let latest: StepRulerStep | null = null;
+	for (const segment of steps) {
+		if (segment.startMs > timeMs) break;
+		latest = segment;
+		if (timeMs <= segment.endMs) break;
+	}
+	return latest;
+}
+
+/** What the step ruler names at a time: the hooks running, or the step. */
 export function getStepRulerItemAtTime(
 	segments: StepRulerSegments,
-	stops: StepStop[],
 	timeMs: number,
 ): StepRulerItem | null {
 	const hooks = segments.hooks.find(
 		(hook) => timeMs >= hook.startMs && timeMs <= hook.endMs,
 	);
-	if (hooks) return hooks;
-	if (segments.steps.length === 0) return null;
-	const firstStepStartMs = Math.min(
-		...segments.steps.map((segment) => segment.step.startOffsetMs),
-	);
-	const stopIndex = getPlayingStopIndex(stops, timeMs, firstStepStartMs);
-	if (stopIndex === null) return null;
-	return (
-		segments.steps.find((segment) => segment.stopIndex === stopIndex) ?? null
-	);
+	return hooks ?? getStepSegmentAtTime(segments.steps, timeMs);
 }
 
 const HOOK_LABELS: Record<StepRulerHooks["kind"], string> = {
@@ -128,10 +154,9 @@ export function formatStepRulerItem(item: StepRulerItem): string {
 /** Names a moment: what the ruler names there, then the time. */
 export function describeStepRulerTime(
 	segments: StepRulerSegments,
-	stops: StepStop[],
 	timeMs: number,
 ): string {
-	const item = getStepRulerItemAtTime(segments, stops, timeMs);
+	const item = getStepRulerItemAtTime(segments, timeMs);
 	const time = formatTimeLabel(timeMs);
 	return item ? `${formatStepRulerItem(item)} · ${time}` : time;
 }

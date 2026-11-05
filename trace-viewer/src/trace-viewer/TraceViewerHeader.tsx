@@ -3,7 +3,10 @@ import type { Span } from "../trace-data-loader/exportToSpans";
 import type { TestInfo } from "../trace-info-loader";
 import { ErrorSpansDropdown } from "./components/ErrorSpansDropdown";
 import { SearchCombobox } from "./components/SearchCombobox";
-import { SettingsMenu } from "./components/SettingsMenu";
+import {
+	SettingsMenu,
+	type SettingsMenuProps,
+} from "./components/SettingsMenu";
 import { useSearch } from "./contexts/SearchContext";
 import type { SpanSelectionPlacement } from "./spanSelection";
 import type { SetViewerSetting, ViewerSettings } from "./viewerSettings";
@@ -16,6 +19,7 @@ export interface TraceViewerHeaderProps {
 	onSpanHover?: (spanId: string | null) => void;
 	settings: ViewerSettings;
 	onSettingChange: SetViewerSetting;
+	emptySections: SettingsMenuProps["emptySections"];
 }
 
 export function TraceViewerHeader(props: TraceViewerHeaderProps) {
@@ -180,6 +184,7 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 				<SettingsMenu
 					settings={props.settings}
 					onSettingChange={props.onSettingChange}
+					emptySections={props.emptySections}
 				/>
 			</div>
 		</header>

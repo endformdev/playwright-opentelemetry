@@ -15,10 +15,11 @@ import {
 	describeStepRulerTime,
 	getStepRulerItemAtTime,
 	getStepRulerSegmentState,
+	type StepRulerHooks,
 	type StepRulerItem,
 	type StepRulerSegments,
+	type StepRulerStep,
 } from "./stepRulerSegments";
-import type { StepStop } from "./stepStops";
 import { calculateTimelineScale, type TimelineTick } from "./timelineScale";
 import {
 	clampViewport,
@@ -37,7 +38,6 @@ export interface TimelineRulerProps {
 	/** Callback when ruler is double-clicked (for zoom reset) */
 	onDoubleClick?: () => void;
 	segments: StepRulerSegments;
-	stops: StepStop[];
 	/** The locked time, marked with the playhead knob; null when unlocked */
 	playheadMs: number | null;
 	/** The stop of the step the viewer is on, drawn as current */
@@ -145,7 +145,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 	const handlePointerMove = (event: PointerEvent) => {
 		const timeMs = timeAtClientX(event.clientX);
 		if (timeMs === null) return;
-		const item = getStepRulerItemAtTime(props.segments, props.stops, timeMs);
+		const item = getStepRulerItemAtTime(props.segments, timeMs);
 		setPointer({ timeMs, item });
 		props.onPointerTime(timeMs, item?.kind === "step" ? item.step.id : null);
 		if (scrubPointerId() === event.pointerId) props.onSeek(timeMs);
@@ -167,7 +167,6 @@ export function TimelineRuler(props: TimelineRulerProps) {
 		) {
 			return;
 		}
-		event.preventDefault();
 		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
 		setScrubPointerId(event.pointerId);
 		seekAt(event.clientX);
@@ -300,9 +299,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 
 	const filmstripLabel = createMemo(() => {
 		const current = pointer();
-		return current
-			? describeStepRulerTime(props.segments, props.stops, current.timeMs)
-			: "";
+		return current ? describeStepRulerTime(props.segments, current.timeMs) : "";
 	});
 
 	const rangeStyle = (startMs: number, endMs: number) => ({
@@ -310,10 +307,16 @@ export function TimelineRuler(props: TimelineRulerProps) {
 		width: `${toPercent(endMs) - toPercent(startMs)}%`,
 	});
 
-	const currentSegment = () =>
-		props.segments.steps.find(
-			(segment) => segment.stopIndex === props.currentStopIndex,
+	/** The step the viewer is on and the one under the pointer stand out. */
+	const isHighlighted = (segment: StepRulerStep) => {
+		const item = pointer()?.item;
+		return (
+			segment.stopIndex === props.currentStopIndex ||
+			(item?.kind === "step" && item.stopIndex === segment.stopIndex)
 		);
+	};
+	const isHoveredHooks = (hooks: StepRulerHooks) =>
+		pointer()?.item?.kind === hooks.kind;
 
 	/** Where a line marks a step's start or end, once per time */
 	const stepEdgesMs = createMemo(() => [
@@ -381,11 +384,17 @@ export function TimelineRuler(props: TimelineRulerProps) {
 						data-testid="step-ruler-bar"
 					>
 						<div class="absolute inset-x-0 top-2 h-3 overflow-hidden rounded-[3px] bg-gray-200">
-							{/* Steps sit a shade darker than the time between them */}
+							<Show when={props.playheadMs !== null}>
+								<div
+									class="absolute inset-y-0 left-0 bg-blue-500"
+									style={{ width: `${toPercent(props.playheadMs!)}%` }}
+								/>
+							</Show>
 							<For each={props.segments.steps}>
 								{(segment) => (
 									<div
-										class="absolute inset-y-0 bg-gray-300"
+										class="absolute inset-y-0"
+										classList={{ "bg-gray-900/25": isHighlighted(segment) }}
 										style={rangeStyle(segment.startMs, segment.endMs)}
 										data-testid="step-ruler-step"
 										data-stop-index={segment.stopIndex}
@@ -398,35 +407,14 @@ export function TimelineRuler(props: TimelineRulerProps) {
 									/>
 								)}
 							</For>
-							<Show when={props.playheadMs !== null}>
-								<div
-									class="absolute inset-y-0 left-0 bg-blue-500"
-									style={{ width: `${toPercent(props.playheadMs!)}%` }}
-								/>
-							</Show>
-							<Show when={currentSegment()}>
-								{(segment) => (
-									<div
-										class="absolute inset-y-0 bg-gray-900/25"
-										style={rangeStyle(segment().startMs, segment().endMs)}
-									/>
-								)}
-							</Show>
-							<Show when={pointer()?.item}>
-								{(item) => (
-									<div
-										class="absolute inset-y-0 bg-gray-900/15"
-										style={rangeStyle(item().startMs, item().endMs)}
-									/>
-								)}
-							</Show>
 							<For each={props.segments.hooks}>
 								{(hooks) => (
 									<div
 										class="absolute inset-y-0"
+										classList={{ "bg-gray-900/25": isHoveredHooks(hooks) }}
 										style={{
 											...rangeStyle(hooks.startMs, hooks.endMs),
-											background: HOOKS_BACKGROUND,
+											"background-image": HOOKS_BACKGROUND,
 										}}
 										data-testid="step-ruler-hooks"
 										data-hooks={hooks.kind}

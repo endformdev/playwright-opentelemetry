@@ -7,6 +7,167 @@ import {
 import { createScreenshotsZipFromOffsets } from "./screenshot-zip";
 import { TraceDataBuilder } from "./test-data-builder";
 
+/** A 4s test with hooks and two parallel steps, and a frame every 500ms. */
+async function createParallelStepsTrace(request: APIRequestContext) {
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Step display",
+		4000,
+	);
+	builder.addStepSpanAndGetId("Before Hooks", 1000, { startOffsetMs: 0 });
+	const first = builder.addStepSpanAndGetId("First", 500, {
+		startOffsetMs: 1000,
+	});
+	const second = builder.addStepSpanAndGetId("Second", 1000, {
+		startOffsetMs: 2000,
+	});
+	const third = builder.addStepSpanAndGetId("Third", 600, {
+		startOffsetMs: 2200,
+	});
+	await builder.send(request);
+
+	const zip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [0, 500, 1000, 1500, 2000, 2500, 3000, 3500],
+	});
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await zip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
+	);
+	expect(upload.ok()).toBeTruthy();
+	return { traceId, first, second, third };
+}
+
+test("names the step at the moment shown, however it got there", async ({
+	page,
+	request,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const { traceId, first, second, third } =
+		await createParallelStepsTrace(request);
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const { stepViewer, ruler } = viewer;
+	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+	await page.mouse.move(0, 0);
+
+	const expectShown = async (position: string, title: string) => {
+		await expect(stepViewer.position).toHaveText(position);
+		await expect(stepViewer.position).toHaveAttribute("data-active", "true");
+		await expect(stepViewer.stepTitle).toHaveText(title);
+	};
+
+	await test.step("With no time shown, no step is either", async () => {
+		await expect(stepViewer.position).toHaveText("–/3");
+		await expect(stepViewer.step).toBeHidden();
+	});
+
+	await test.step("Hovering a step on the timeline names it", async () => {
+		await viewer.steps.spanById(first).hover();
+		await expectShown("1/3", "First");
+	});
+
+	await test.step("A hovered step names itself among parallel steps", async () => {
+		await viewer.steps.spanById(second).hover({ position: { x: 10, y: 5 } });
+		await expectShown("3/3", "Second");
+		await viewer.steps.spanById(third).hover();
+		await expectShown("2/3", "Third");
+	});
+
+	await test.step("Hovering the ruler names the step there too", async () => {
+		await ruler.hoverAt(0.3);
+		await expectShown("1/3", "First");
+	});
+
+	await test.step("Along the ruler, a longer step comes back after a shorter", async () => {
+		await ruler.hoverAt(0.525);
+		await expectShown("3/3", "Second");
+		await ruler.hoverAt(0.625);
+		await expectShown("2/3", "Third");
+		await ruler.hoverAt(0.725);
+		await expectShown("3/3", "Second");
+		// Between steps, the last one to finish stays on.
+		await ruler.hoverAt(0.45);
+		await expectShown("1/3", "First");
+	});
+
+	await test.step("Only the step under the pointer is picked out on the ruler", async () => {
+		await ruler.hoverAt(0.625);
+		// Second is drawn either side of Third.
+		await expect(ruler.steps).toHaveCount(4);
+		const highlighted = ruler.root.locator(
+			'[data-testid="step-ruler-step"].bg-gray-900\\/25',
+		);
+		await expect(highlighted).toHaveCount(1);
+		await expect(highlighted).toHaveAttribute("data-span-id", third);
+	});
+
+	await test.step("Stepping moves on from the step shown", async () => {
+		await page.keyboard.press("ArrowRight");
+		await expectShown("3/3", "Second");
+	});
+
+	await test.step("Leaving the timeline clears it, with nothing locked", async () => {
+		await page.keyboard.press("Escape");
+		await page.mouse.move(0, 0);
+		await expect(stepViewer.position).toHaveText("–/3");
+		await expect(stepViewer.step).toBeHidden();
+	});
+
+	await test.step("A lock from the timeline stays named, with the keys for spans", async () => {
+		await viewer.steps.spanById(first).click();
+		await page.mouse.move(0, 0);
+		await expectShown("1/3", "First");
+		await expect(viewer.root.locator('[data-span-focused="true"]')).toHaveCount(
+			1,
+		);
+	});
+});
+
+test("the step ruler takes keyboard focus from the controls", async ({
+	page,
+	request,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const { traceId } = await createParallelStepsTrace(request);
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const { stepViewer, ruler } = viewer;
+	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+
+	await test.step("Space plays after a seek, not the button pressed before it", async () => {
+		await stepViewer.nextButton.click();
+		await ruler.clickAt(0.3);
+		await expect(stepViewer.position).toHaveText("1/3");
+		await expect(stepViewer.root).toBeFocused();
+		await page.keyboard.press("Space");
+		await expect(stepViewer.pauseButton).toBeVisible();
+		await expect(stepViewer.position).toHaveText("1/3");
+		await page.keyboard.press("Space");
+		await page.keyboard.press("Escape");
+	});
+
+	await test.step("From before the first step, Right goes to the first step", async () => {
+		await ruler.clickAt(0.1);
+		await expect(stepViewer.position).toHaveText("–/3");
+		await page.keyboard.press("ArrowRight");
+		await expect(stepViewer.position).toHaveText("1/3");
+		await expect(stepViewer.stepTitle).toHaveText("First");
+		await page.keyboard.press("Escape");
+	});
+
+	await test.step("That holds with focus out of the viewer too", async () => {
+		await ruler.clickAt(0.1);
+		await stepViewer.root.blur();
+		await page.keyboard.press("ArrowRight");
+		await expect(stepViewer.position).toHaveText("1/3");
+	});
+});
+
 test("steps through each test body step, showing it once it has finished", async ({
 	page,
 	request,
@@ -109,7 +270,7 @@ test("steps through each test body step, showing it once it has finished", async
 			[parents, title, subtitle].filter(Boolean).join("\n"),
 		);
 	};
-	const expectNotOnStop = async () => {
+	const expectNoStepShown = async () => {
 		await expect(stepViewer.position).toHaveText("–/3");
 		await expect(stepViewer.position).not.toHaveAttribute("data-active");
 		await expect(stepViewer.step).toBeHidden();
@@ -127,7 +288,7 @@ test("steps through each test body step, showing it once it has finished", async
 			"data-screenshot-timestamp",
 			String(testStartTime + 100),
 		);
-		await expectNotOnStop();
+		await expectNoStepShown();
 		await expect(lockedLine).toHaveCount(0);
 		// One page took every screenshot, so there is nothing to pick.
 		await expect(stepViewer.pagePicker).toBeHidden();
@@ -292,13 +453,12 @@ test("steps through each test body step, showing it once it has finished", async
 	await test.step("Leaving the stops for span navigation shows the focus ring", async () => {
 		await page.keyboard.press("Home");
 		await page.keyboard.press("ArrowUp");
-		await expectNotOnStop();
 		await expect(focusRing).toHaveAttribute("data-span-id", login);
 	});
 
 	await test.step("With nothing selected, Left also goes to the first step", async () => {
 		await page.keyboard.press("Escape");
-		await expectNotOnStop();
+		await expectNoStepShown();
 		await expect(focusRing).toHaveCount(0);
 		await page.keyboard.press("ArrowLeft");
 		await expectStop("1/3", fill, 950);
@@ -470,7 +630,6 @@ test("a search result takes over from the step viewer and goes to the span", asy
 			.first()
 			.click();
 		await expect(focusRing).toHaveAttribute("data-span-id", save);
-		await expect(stepViewer.position).toHaveText("–/2");
 		// Zoomed to fit: the span fills about 60% of the plot.
 		await expect.poll(saveShare).toBeGreaterThan(0.5);
 		await expect.poll(saveShare).toBeLessThan(0.7);
@@ -483,6 +642,5 @@ test("a search result takes over from the step viewer and goes to the span", asy
 		await expect(stepViewer.position).toHaveText("1/2");
 		await selectSaveFromSearch();
 		await expect(focusRing).toHaveAttribute("data-span-id", save);
-		await expect(stepViewer.position).toHaveText("–/2");
 	});
 });

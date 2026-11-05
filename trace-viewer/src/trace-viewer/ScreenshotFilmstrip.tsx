@@ -16,6 +16,10 @@ import {
 } from "./FilmstripRow";
 import { findScreenshotAtTime } from "./screenshots";
 import {
+	FILMSTRIP_SCREEN_PADDING_Y_PX,
+	FILMSTRIP_SCREEN_ROW_GAP_PX,
+} from "./panelSizing";
+import {
 	type TimelineViewport,
 	timeToViewportPosition,
 	viewportPositionToTime,
@@ -44,10 +48,7 @@ export interface ScreenshotFilmstripProps {
 	onWheel: (event: WheelEvent, plot: DOMRect) => void;
 }
 
-const PADDING_Y_PX = 12;
-const ROW_GAP_PX = 8;
 const MIN_ROW_HEIGHT_PX = 48;
-const MAX_ROW_HEIGHT_PX = 100;
 /** Room the zoomed frame needs to be worth showing */
 const MIN_ZOOM_HEIGHT_PX = 120;
 const MAX_ZOOM_WIDTH_PX = 480;
@@ -93,15 +94,14 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 		startMs: props.viewport.visibleStartMs,
 		endMs: props.viewport.visibleEndMs,
 	});
-	/** Rows share the height, within bounds; below the minimum they scroll. */
+	/** Rows share all the height; below the minimum they scroll. */
 	const rowHeightPx = () => {
 		const count = Math.max(1, pages().length);
 		const available =
-			size().height - 2 * PADDING_Y_PX - ROW_GAP_PX * (count - 1);
-		return Math.max(
-			MIN_ROW_HEIGHT_PX,
-			Math.min(MAX_ROW_HEIGHT_PX, available / count),
-		);
+			size().height -
+			2 * FILMSTRIP_SCREEN_PADDING_Y_PX -
+			FILMSTRIP_SCREEN_ROW_GAP_PX * (count - 1);
+		return Math.max(MIN_ROW_HEIGHT_PX, available / count);
 	};
 	const slotCount = () => countFilmstripSlots(plotWidthPx(), rowHeightPx());
 
@@ -223,8 +223,8 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 			<div
 				class="flex min-h-full flex-col justify-center"
 				style={{
-					"padding-top": `${PADDING_Y_PX}px`,
-					"padding-bottom": `${PADDING_Y_PX}px`,
+					"padding-top": `${FILMSTRIP_SCREEN_PADDING_Y_PX}px`,
+					"padding-bottom": `${FILMSTRIP_SCREEN_PADDING_Y_PX}px`,
 				}}
 			>
 				<div
@@ -233,7 +233,7 @@ export function ScreenshotFilmstrip(props: ScreenshotFilmstripProps) {
 					style={{
 						"margin-left": "var(--timeline-plot-inset)",
 						width: "var(--timeline-plot-width)",
-						gap: `${ROW_GAP_PX}px`,
+						gap: `${FILMSTRIP_SCREEN_ROW_GAP_PX}px`,
 					}}
 				>
 					<Show

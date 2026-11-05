@@ -56,6 +56,56 @@ test.beforeEach(async ({ page }) => {
 	await page.setViewportSize({ width: 1440, height: 1000 });
 });
 
+test("the player's height follows its screen, keeping sizes dragged to", async ({
+	page,
+	request,
+}) => {
+	const { traceId } = await createTrace(request);
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const { stepViewer } = viewer;
+	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+	const playerHeight = async () =>
+		(await stepViewer.root.boundingBox())?.height ?? 0;
+	const separator = page
+		.getByRole("separator")
+		.and(page.locator('[aria-orientation="horizontal"]'));
+
+	const bigScreenHeight = await playerHeight();
+
+	await test.step("The filmstrip takes less height, and its rows fill it", async () => {
+		await viewer.settings.chooseScreen("Filmstrip");
+		await expect.poll(playerHeight).toBeLessThan(bigScreenHeight - 40);
+		const screen = (await stepViewer.filmstrip.root.boundingBox())!;
+		const rows = await stepViewer.filmstrip.rows().all();
+		const rowHeights = await Promise.all(
+			rows.map(async (row) => (await row.boundingBox())!.height),
+		);
+		const used = rowHeights.reduce((total, height) => total + height, 0);
+		expect(used).toBeGreaterThan(screen.height * 0.8);
+	});
+
+	await test.step("Rows grow with a player dragged taller", async () => {
+		const box = (await separator.first().boundingBox())!;
+		const rowHeight = async () =>
+			(await stepViewer.filmstrip.rows().first().boundingBox())?.height ?? 0;
+		const before = await rowHeight();
+		await page.mouse.move(box.x + box.width / 2, box.y + 1);
+		await page.mouse.down();
+		await page.mouse.move(box.x + box.width / 2, box.y + 200, { steps: 4 });
+		await page.mouse.up();
+		await expect.poll(rowHeight).toBeGreaterThan(before + 60);
+	});
+
+	await test.step("Each screen keeps its own height", async () => {
+		const filmstripHeight = await playerHeight();
+		await viewer.settings.chooseScreen("Big screen");
+		await expect.poll(playerHeight).toBeCloseTo(bigScreenHeight, 0);
+		await viewer.settings.chooseScreen("Filmstrip");
+		await expect.poll(playerHeight).toBeCloseTo(filmstripHeight, 0);
+	});
+});
+
 test("the step viewer can show a filmstrip of every page instead of the big screen", async ({
 	page,
 	request,

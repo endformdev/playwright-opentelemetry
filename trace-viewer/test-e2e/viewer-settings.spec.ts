@@ -268,22 +268,27 @@ test("settings are remembered across reloads and traces", async ({
 	await expectSections(viewer, shown);
 });
 
-test("hidden sections are not reported as empty", async ({ page, request }) => {
+test("sections without data are disabled in the menu rather than shown", async ({
+	page,
+	request,
+}) => {
 	const viewer = new TraceViewerPage(page);
 	await loadTrace(viewer, await createTrace(request, { externalSpans: false }));
-	const noExternalSpans = viewer.emptySection(
+
+	await expect(viewer.root.getByText("External spans")).toBeHidden();
+	await expect(viewer.root.locator(".cursor-not-allowed")).toHaveCount(0);
+
+	await viewer.settings.open();
+	const external = viewer.settings.item("External spans");
+	await expect(external).toHaveAttribute("aria-disabled", "true");
+	await expect(external).toHaveAttribute(
+		"title",
 		"No external spans were captured",
 	);
-	const noBrowserSpans = viewer.emptySection("No browser spans were captured");
-
-	// A section without data is listed as empty whatever the settings say.
-	await expect(noExternalSpans).toBeVisible();
-	await expect(noBrowserSpans).toBeHidden();
-
-	await viewer.settings.toggle("Browser spans", "External spans");
-	await expect(viewer.browserSpans.root).toBeHidden();
-	await expect(noBrowserSpans).toBeHidden();
-	await expect(noExternalSpans).toBeVisible();
+	await expect(viewer.settings.item("Browser spans")).not.toHaveAttribute(
+		"aria-disabled",
+		"true",
+	);
 });
 
 test("arrow keys only move through span panels that are shown", async ({

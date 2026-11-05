@@ -74,7 +74,7 @@ https://trace.endform.dev/?traceSource=...&panels=viewer,ruler,steps
 | `external` | External spans timeline                                                                    |
 | `details`  | Span details sidebar                                                                       |
 
-Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored, including `filmstrip`, which was folded into the ruler. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it.
+Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored, including `filmstrip`, which was folded into the ruler. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it. Sections with no data are disabled in the settings menu.
 
 ## Deploy Your Own
 

@@ -14,12 +14,14 @@ import {
 export interface SettingsMenuProps {
 	settings: ViewerSettings;
 	onSettingChange: SetViewerSetting;
+	/** Why a section can't be shown, for those with no data in this trace */
+	emptySections: Partial<Record<ViewerSectionKey, string>>;
 }
 
 const SETTING_KEYS = Object.keys(VIEWER_SETTING_LABELS) as ViewerSectionKey[];
 
 const ITEM_CLASS =
-	"flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-gray-700 data-[highlighted]:bg-gray-100";
+	"flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-gray-700 data-[highlighted]:bg-gray-100 data-[disabled]:cursor-not-allowed data-[disabled]:text-gray-400";
 const GROUP_LABEL_CLASS =
 	"px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400";
 
@@ -54,6 +56,8 @@ export function SettingsMenu(props: SettingsMenuProps) {
 											props.onSettingChange(key, checked)
 										}
 										closeOnSelect={false}
+										disabled={!!props.emptySections[key]}
+										title={props.emptySections[key]}
 										class={ITEM_CLASS}
 									>
 										<span class="flex h-4 w-4 items-center justify-center">
@@ -85,6 +89,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
 									<Menu.RadioItem
 										value={screen}
 										closeOnSelect={false}
+										disabled={!!props.emptySections.stepViewer}
 										class={ITEM_CLASS}
 									>
 										<span class="flex h-4 w-4 items-center justify-center">
