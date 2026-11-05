@@ -89,6 +89,7 @@ test("shows browser console and exception events on spans", async ({
 	await expect(viewer.header.testName).toHaveText(
 		"browser console and page error span events",
 	);
+	await viewer.leaveOpeningStep();
 
 	const spanBar = viewer.browserSpans.spanById(browserSpan!.spanId).first();
 	await expect(spanBar).toBeVisible();

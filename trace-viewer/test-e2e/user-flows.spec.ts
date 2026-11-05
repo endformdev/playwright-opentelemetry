@@ -94,6 +94,7 @@ test("narrowing in on part of a test with the ruler, then seeing the whole of it
 	const lockedLine = viewer.root.locator("[data-locked-time-line]");
 	const plot = page.locator("[data-timeline-plot]");
 	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+	await viewer.leaveOpeningStep();
 	await expect(ruler.zoomWindow).toHaveCount(0);
 
 	const zoomWindowCenter = async () => {
@@ -201,7 +202,7 @@ test("following a real test across its two pages, by step and by playing it", as
 	await viewer.loadTraceFromApi(traceId);
 	const { ruler, stepViewer } = viewer;
 	await expectImageLoaded(stepViewer.screenshot);
-	await expect(stepViewer.position).toHaveText(/^–\/\d+$/);
+	await expect(stepViewer.position).toHaveText(/^\d+\/\d+$/);
 	const stopCount = Number(
 		(await stepViewer.position.textContent())?.split("/")[1],
 	);

@@ -53,6 +53,7 @@ test("names the step at the moment shown, however it got there", async ({
 	await viewer.loadTraceFromApi(traceId);
 	const { stepViewer, ruler } = viewer;
 	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+	await viewer.leaveOpeningStep();
 	await page.mouse.move(0, 0);
 
 	const expectShown = async (position: string, title: string) => {
@@ -125,7 +126,7 @@ test("names the step at the moment shown, however it got there", async ({
 	});
 });
 
-test("opens on the first screenshot with something on it", async ({
+test("opens paused on the first screenshot with something on it, on its step", async ({
 	page,
 	request,
 }) => {
@@ -136,7 +137,10 @@ test("opens on the first screenshot with something on it", async ({
 		"Opens blank",
 		2000,
 	);
-	builder.addStepSpanAndGetId("Go to the shop", 1000, { startOffsetMs: 0 });
+	const shop = builder.addStepSpanAndGetId("Go to the shop", 1000, {
+		startOffsetMs: 0,
+	});
+	builder.addStepSpanAndGetId("Open the cart", 500, { startOffsetMs: 1000 });
 	await builder.send(request);
 	const zip = await createScreenshotsZipFromOffsets({
 		testStartTime,
@@ -154,25 +158,196 @@ test("opens on the first screenshot with something on it", async ({
 
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
-	const { stepViewer } = viewer;
+	const { stepViewer, ruler } = viewer;
 	await page.mouse.move(0, 0);
 
-	await test.step("The blank frames are skipped, without selecting a time", async () => {
+	await test.step("The blank frames are skipped for that frame's own time and step", async () => {
 		await expect(stepViewer.screenshot).toHaveAttribute(
 			"data-screenshot-timestamp",
 			String(testStartTime + 300),
 		);
-		await expect(stepViewer.position).toHaveText("–/1");
-		await expect(viewer.ruler.playhead).toBeHidden();
+		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "300");
+		await expect(stepViewer.position).toHaveText("1/2");
+		await expect(stepViewer.stepTitle).toHaveText("Go to the shop");
+		await expect(viewer.details.focusedCards).toHaveAttribute(
+			"data-span-id",
+			shop,
+		);
+	});
+
+	await test.step("Hovering peeks at other frames, staying paused on the step", async () => {
+		await expect(stepViewer.playButton).toHaveAccessibleName("Play");
+		await ruler.hoverAt(0.8);
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 1000),
+		);
+		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "300");
+		await expect(stepViewer.position).toHaveText("1/2");
+		await expect(viewer.details.focusedCards).toHaveAttribute(
+			"data-span-id",
+			shop,
+		);
+	});
+
+	await test.step("Moving off goes back to the paused frame", async () => {
+		await page.mouse.move(0, 0);
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 300),
+		);
+	});
+
+	await test.step("The span panels peek too", async () => {
+		await viewer.steps.spanByName("Open the cart").hover();
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 1000),
+		);
+		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "300");
+		await page.mouse.move(0, 0);
+	});
+
+	await test.step("The next step follows on from it", async () => {
+		await page.keyboard.press("ArrowRight");
+		await expect(stepViewer.position).toHaveText("2/2");
+		await page.keyboard.press("ArrowLeft");
+		await expect(stepViewer.position).toHaveText("1/2");
+		await expect(ruler.playhead).not.toHaveAttribute("data-time-ms", "300");
+	});
+
+	await test.step("Escape lets go, back to the same frame", async () => {
+		await page.keyboard.press("Escape");
+		await expect(ruler.playhead).toHaveCount(0);
+		await expect(stepViewer.position).toHaveText("–/2");
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 300),
+		);
 	});
 
 	await test.step("The blank frames can still be reached on the timeline", async () => {
-		await viewer.ruler.hoverAt(0.075);
+		await ruler.hoverAt(0.075);
 		await expect(stepViewer.screenshot).toHaveAttribute(
 			"data-screenshot-timestamp",
 			String(testStartTime + 100),
 		);
 	});
+});
+
+test("playing from the opening screenshot carries on from its time", async ({
+	page,
+	request,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Plays on",
+		4000,
+	);
+	builder.addStepSpanAndGetId("Long step", 3000, { startOffsetMs: 500 });
+	await builder.send(request);
+	await uploadScreenshots(request, traceId, testStartTime, [1000, 3000]);
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const { stepViewer, ruler } = viewer;
+	await expect(ruler.playhead).toHaveAttribute("data-time-ms", "1000");
+
+	await stepViewer.playButton.click();
+	await expect
+		.poll(async () => Number(await ruler.playhead.getAttribute("data-time-ms")))
+		.toBeGreaterThan(1000);
+	await stepViewer.pauseButton.click();
+	await expect(stepViewer.playButton).toBeVisible();
+	const pausedMs = Number(await ruler.playhead.getAttribute("data-time-ms"));
+	expect(pausedMs).toBeGreaterThan(1000);
+	expect(pausedMs).toBeLessThan(4000);
+});
+
+test("with the pointer left on the ruler, stepping and playing still show their frames", async ({
+	page,
+	request,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Pointer at rest",
+		3000,
+	);
+	builder.addStepSpanAndGetId("First", 500, { startOffsetMs: 100 });
+	builder.addStepSpanAndGetId("Second", 500, { startOffsetMs: 1000 });
+	await builder.send(request);
+	await uploadScreenshots(
+		request,
+		traceId,
+		testStartTime,
+		[200, 900, 1400, 2900],
+	);
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const { stepViewer, ruler } = viewer;
+	await expect(ruler.playhead).toHaveAttribute("data-time-ms", "200");
+	const expectFrame = (offsetMs: number) =>
+		expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + offsetMs),
+		);
+
+	await ruler.hoverAt(0.99);
+	await expectFrame(2900);
+
+	await test.step("A step shows its own frame, under the resting pointer", async () => {
+		await page.keyboard.press("ArrowRight");
+		await expect(stepViewer.position).toHaveText("2/2");
+		await expectFrame(1400);
+	});
+
+	await test.step("The peek comes back once the pointer moves", async () => {
+		await ruler.hoverAt(0.98);
+		await expectFrame(2900);
+	});
+
+	await test.step("Playback isn't held up by the resting pointer", async () => {
+		await ruler.hoverAt(0.99);
+		await page.keyboard.press("Home");
+		await expect(stepViewer.position).toHaveText("1/2");
+		await expectFrame(900);
+		await page.keyboard.press(" ");
+		await expectFrame(1400);
+		await expect(stepViewer.pauseButton).toBeVisible();
+	});
+});
+
+test("with the step viewer off, opening a trace selects nothing", async ({
+	page,
+	request,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"No player",
+		2000,
+	);
+	const step = builder.addStepSpanAndGetId("Only step", 1000, {
+		startOffsetMs: 0,
+	});
+	await builder.send(request);
+	await uploadScreenshots(request, traceId, testStartTime, [100, 1000]);
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.useViewerSettings({ stepViewer: false });
+	await viewer.loadTraceFromApi(traceId);
+	await expect(viewer.steps.spanById(step)).toBeVisible({ timeout: 10000 });
+
+	await expect(viewer.root.locator("[data-locked-time-line]")).toHaveCount(0);
+	// With nothing locked, hovering works straight away.
+	await viewer.steps.spanById(step).hover();
+	await expect(viewer.details.spanDetailsById(step)).toBeVisible();
 });
 
 test("the step ruler takes keyboard focus from the controls", async ({
@@ -330,15 +505,17 @@ test("steps through each test body step, showing it once it has finished", async
 		return bar && plot ? bar.width / plot.width : 0;
 	};
 
-	await test.step("Loading selects nothing and shows the first screenshot", async () => {
+	await test.step("Loading goes to the first screenshot, here before any step", async () => {
 		await expect(stepViewer.screenshot).toHaveAttribute(
 			"data-screenshot-timestamp",
 			String(testStartTime + 100),
 		);
+		await expect(lockedLine).toHaveAttribute("data-time-ms", "100");
 		await expectNoStepShown();
-		await expect(lockedLine).toHaveCount(0);
 		// One page took every screenshot, so there is nothing to pick.
 		await expect(stepViewer.pagePicker).toBeHidden();
+		await viewer.leaveOpeningStep();
+		await expect(lockedLine).toHaveCount(0);
 	});
 
 	await test.step("The step arrows show without hovering the viewer", async () => {

@@ -522,6 +522,13 @@ export class TraceViewerPage {
 		await this.page.goto(`/?${params.toString()}`);
 	}
 
+	/** Leaves the step the viewer opens paused on, so hovering shows through. */
+	async leaveOpeningStep(): Promise<void> {
+		await expect(this.ruler.playhead).toBeVisible({ timeout: 10000 });
+		await this.page.keyboard.press("Escape");
+		await expect(this.ruler.playhead).toHaveCount(0);
+	}
+
 	async zoomTimelineToRange(
 		startRatio: number,
 		endRatio: number,

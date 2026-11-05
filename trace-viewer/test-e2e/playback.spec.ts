@@ -44,6 +44,7 @@ test("plays the test back in real time at the chosen speed", async ({
 
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
+	await viewer.leaveOpeningStep();
 	const { stepViewer } = viewer;
 	const lockedLine = viewer.root.locator("[data-locked-time-line]");
 	const plot = page.locator("[data-timeline-plot]");
