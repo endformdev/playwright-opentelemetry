@@ -18,6 +18,12 @@ describe("step timeline span styles", () => {
 		expect(getStepTimelineColor(span, 2)).toBe(getStepDepthColor(2));
 	});
 
+	it("gives every step a different colour from the depth above it", () => {
+		for (let depth = 0; depth < 12; depth++) {
+			expect(getStepDepthColor(depth)).not.toBe(getStepDepthColor(depth + 1));
+		}
+	});
+
 	it("uses browser fetch colour for worker fetch spans regardless of depth", () => {
 		const span = createSpan({
 			name: "HTTP GET",

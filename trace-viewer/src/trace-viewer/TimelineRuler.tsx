@@ -72,9 +72,9 @@ const MIN_VIEWPORT_WIDTH_PERCENT = 0.01;
 /** How far a press on the zoom window moves before it pans instead of seeking */
 const CLICK_SLOP_PX = 3;
 
-/** Light stripes over the bar, so hooks read hatched both before and after the playhead */
+/** Light stripes at the slant of the Endform logo, so hooks read hatched both before and after the playhead */
 const HOOKS_BACKGROUND =
-	"repeating-linear-gradient(135deg, rgb(255 255 255 / 0.7) 0 2px, transparent 2px 5px)";
+	"repeating-linear-gradient(112deg, rgb(255 255 255 / 0.7) 0 2px, transparent 2px 5px)";
 
 type RulerDragMode = "left-handle" | "right-handle" | "pan";
 
@@ -87,7 +87,7 @@ interface RulerDragState {
 
 /**
  * The step ruler: the whole test as a scrubber. A solid bar along the top,
- * filled blue up to the playhead, with a line at each step's edges and the
+ * filled green up to the playhead, with a line at each step's edges and the
  * hooks hatched at either end; the time ticks run below it. When zoomed, the
  * visible window is drawn over the ticks and can be dragged or resized.
  *
@@ -385,7 +385,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 						<div class="absolute inset-x-0 top-2 h-3 overflow-hidden rounded-[3px] bg-gray-200">
 							<Show when={props.playheadMs !== null}>
 								<div
-									class="absolute inset-y-0 left-0 bg-blue-500"
+									class="absolute inset-y-0 left-0 bg-fill-playhead"
 									style={{ width: `${toPercent(props.playheadMs!)}%` }}
 									data-testid="step-ruler-fill"
 								/>
@@ -417,13 +417,13 @@ export function TimelineRuler(props: TimelineRulerProps) {
 								)}
 							</For>
 						</div>
-						{/* Step edges stand a little proud of the bar, blue once played */}
+						{/* Step edges stand a little proud of the bar, green once played */}
 						<For each={stepEdgesMs()}>
 							{(timeMs) => (
 								<div
 									class="pointer-events-none absolute top-[5px] h-[18px] w-px"
 									classList={{
-										"bg-blue-800":
+										"bg-fill-playhead-strong":
 											props.playheadMs !== null && timeMs <= props.playheadMs,
 										"bg-gray-400":
 											props.playheadMs === null || timeMs > props.playheadMs,
@@ -462,7 +462,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 
 						<Show when={!isFullyZoomedOut(props.viewport)}>
 							<div
-								class="absolute inset-y-1 rounded-sm border border-blue-400/60 bg-blue-500/10"
+								class="absolute inset-y-1 rounded-sm border border-gray-400/60 bg-gray-900/5"
 								data-zoom-control
 								style={{
 									left: `${viewportStartPercent()}%`,
@@ -476,7 +476,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 							<For each={["left-handle", "right-handle"] as const}>
 								{(mode) => (
 									<div
-										class="absolute inset-y-1 z-10 w-1.5 cursor-ew-resize rounded-sm bg-blue-500 transition-colors hover:bg-blue-600"
+										class="absolute inset-y-1 z-10 w-1.5 cursor-ew-resize rounded-sm bg-gray-500 transition-colors hover:bg-gray-700"
 										data-zoom-control
 										style={{
 											left: `${mode === "left-handle" ? viewportStartPercent() : viewportEndPercent()}%`,
@@ -485,7 +485,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 										}}
 										onMouseDown={handleMouseDown(mode)}
 									>
-										<div class="absolute inset-y-1 left-0.5 w-px bg-blue-300" />
+										<div class="absolute inset-y-1 left-0.5 w-px bg-gray-300" />
 									</div>
 								)}
 							</For>
@@ -495,7 +495,7 @@ export function TimelineRuler(props: TimelineRulerProps) {
 					{/* Hover line */}
 					<Show when={hoverLineTimeMs() !== null}>
 						<div
-							class="pointer-events-none absolute inset-y-0 z-30 w-px bg-blue-500"
+							class="pointer-events-none absolute inset-y-0 z-30 w-px bg-gray-900"
 							style={{ left: `${toPercent(hoverLineTimeMs()!)}%` }}
 						/>
 					</Show>
@@ -508,11 +508,11 @@ export function TimelineRuler(props: TimelineRulerProps) {
 							style={{ left: `${toPercent(props.playheadMs!)}%` }}
 						>
 							<div
-								class="absolute top-2 bottom-0 -ml-px w-[3px] bg-blue-600"
+								class="absolute top-2 bottom-0 -ml-px w-[3px] bg-fill-playhead"
 								data-testid="step-ruler-playhead"
 								data-time-ms={props.playheadMs}
 							/>
-							<div class="absolute top-[7px] -ml-[7px] h-3.5 w-3.5 rounded-full bg-blue-600 shadow ring-2 ring-white" />
+							<div class="absolute top-[7px] -ml-[7px] h-3.5 w-3.5 rounded-full bg-fill-playhead shadow ring-2 ring-white" />
 						</div>
 					</Show>
 				</div>

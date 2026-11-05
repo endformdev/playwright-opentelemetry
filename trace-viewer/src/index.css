@@ -1,1 +1,51 @@
 @import "tailwindcss";
+
+/*
+ * Endform's look, in the values of its design system. The greys and reds used
+ * across the viewer are the same Tailwind palette, so only what differs is here.
+ */
+@theme {
+	--font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+	--radius-sm: 0.35rem;
+	--radius-md: 0.475rem;
+	--radius-lg: 0.6rem;
+	--radius-xl: 0.85rem;
+
+	/*
+	 * Where you are in the test, and nothing else: the playhead, the played part
+	 * of the ruler, the running play button, the current step and page. Green
+	 * from the Endform logo. Text on it is near-black: white fails contrast.
+	 */
+	--color-fill-playhead: #22aa5b;
+	--color-fill-playhead-strong: color-mix(
+		in oklab,
+		var(--color-fill-playhead) 60%,
+		black
+	);
+
+	/* What search found. */
+	--color-brand-yellow: oklch(0.87 0.17 90);
+}
+
+/* A section label, like the eyebrows on Endform's pages. */
+@utility eyebrow {
+	@apply font-mono text-[10px] tracking-[0.18em] uppercase;
+}
+
+@layer base {
+	:root {
+		font-feature-settings:
+			"liga" 1,
+			"calt" 1;
+	}
+
+	button:not(:disabled),
+	[role="button"]:not(:disabled) {
+		cursor: pointer;
+	}
+
+	button:focus-visible {
+		@apply ring-4 ring-gray-950/10 outline-1 outline-gray-950/50;
+	}
+}

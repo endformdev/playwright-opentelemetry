@@ -156,7 +156,7 @@ export function SpanBar(props: SpanBarProps) {
 			data-span-focused={props.isFocused ? "true" : undefined}
 			class="absolute rounded-xs border-r border-gray-50 text-xs flex items-center gap-1.5 text-white truncate cursor-pointer hover:brightness-110 select-none"
 			classList={{
-				"ring-2 ring-yellow-400 ring-offset-1":
+				"ring-2 ring-brand-yellow ring-offset-1":
 					shouldHighlight() && !props.isFocused,
 				"z-10 ring-2 ring-gray-900 ring-offset-2 ring-offset-white shadow-md":
 					props.isFocused,

@@ -619,7 +619,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					}
 				>
 					<div
-						class="absolute top-0 bottom-0 bg-blue-500/20 border-x-2 border-blue-500 pointer-events-none z-40"
+						class="absolute top-0 bottom-0 bg-gray-900/10 border-x border-gray-500 pointer-events-none z-40"
 						style={{
 							left: `${pointer.selection()?.leftPercent}%`,
 							width: `${pointer.selection()?.widthPercent}%`,
@@ -632,8 +632,8 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					<div
 						class="absolute top-0 bottom-0 w-px pointer-events-none z-50"
 						classList={{
-							"bg-blue-500": mode() === "hover",
-							"bg-blue-400": mode() === "search-override",
+							"bg-gray-900": mode() === "hover",
+							"bg-gray-500": mode() === "search-override",
 						}}
 						style={{
 							left: `${hoverPosition()! * 100}%`,
@@ -647,7 +647,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 					<div
 						data-locked-time-line
 						data-time-ms={lockedTimeMs()}
-						class="absolute top-0 bottom-0 bg-blue-600 pointer-events-none z-50"
+						class="absolute top-0 bottom-0 bg-fill-playhead pointer-events-none z-50"
 						style={{
 							left: `${lockedPosition()! * 100}%`,
 							width: "3px",

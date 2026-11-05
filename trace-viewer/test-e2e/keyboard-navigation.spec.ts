@@ -738,7 +738,7 @@ test.describe("with motion", () => {
 		expect(animating).toBe(true);
 
 		// Click spans 2990-3010ms; its center is 3000ms.
-		const lockedMs = viewer.header.root.locator(".text-blue-600");
+		const lockedMs = viewer.header.root.getByTestId("header-time");
 		await expect(lockedMs).toHaveText(/^\d+ms$/);
 		const ms = Number((await lockedMs.textContent())!.slice(0, -2));
 		expect(ms).toBeGreaterThanOrEqual(2997);

@@ -220,7 +220,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 									data-screenshot
 									data-screenshot-timestamp={screenshot().timestamp}
 									data-screenshot-page-id={screenshot().pageId}
-									class="bg-gray-100 rounded-md overflow-hidden border-2 border-gray-200"
+									class="bg-gray-100 rounded-md overflow-hidden border border-gray-200"
 								>
 									<img
 										src={screenshot().url}
@@ -235,7 +235,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 						{/* Steps section */}
 						<Show when={flatSteps().length > 0}>
 							<div>
-								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+								<div class="eyebrow text-gray-500 mb-2">
 									Steps ({flatSteps().length})
 								</div>
 								<div class="space-y-2">
@@ -263,7 +263,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 						{/* Browser Spans section */}
 						<Show when={flatBrowserSpans().length > 0}>
 							<div>
-								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+								<div class="eyebrow text-gray-500 mb-2">
 									Browser Spans ({flatBrowserSpans().length})
 								</div>
 								<div class="space-y-2">
@@ -298,7 +298,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
 						{/* External Spans section */}
 						<Show when={flatExternalSpans().length > 0}>
 							<div>
-								<div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+								<div class="eyebrow text-gray-500 mb-2">
 									External Spans ({flatExternalSpans().length})
 								</div>
 								<div class="space-y-2">

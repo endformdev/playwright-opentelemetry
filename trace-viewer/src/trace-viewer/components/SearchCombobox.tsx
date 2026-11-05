@@ -54,7 +54,7 @@ function highlightMatches(
 
 		// Add highlighted text
 		parts.push(
-			<span class="bg-yellow-200 font-semibold">
+			<span class="bg-brand-yellow/40 font-semibold">
 				{text.slice(start, end + 1)}
 			</span>,
 		);
@@ -212,14 +212,14 @@ export function SearchCombobox(props: SearchComboboxProps) {
 					onBlur={() => setIsFocused(false)}
 					class="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-300 rounded-md 
                  bg-gray-50 focus:bg-white
-                 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                 focus:ring-4 focus:ring-gray-950/10 focus:outline-1 focus:-outline-offset-1 focus:outline-gray-950/50"
 					placeholder={props.placeholder || "Search spans..."}
 				/>
 
 				{/* Keyboard shortcut hint */}
 				<Show when={!isFocused() && !localValue()}>
 					<div class="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-						<kbd class="px-1.5 py-0.5 text-xs font-mono text-gray-400 bg-gray-100 border border-gray-300 rounded">
+						<kbd class="px-1.5 py-0.5 text-xs font-mono text-gray-400 bg-gray-100 border border-gray-300 rounded-sm">
 							/
 						</kbd>
 					</div>
@@ -240,7 +240,7 @@ export function SearchCombobox(props: SearchComboboxProps) {
 
 			<Portal>
 				<Combobox.Positioner>
-					<Combobox.Content class="mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-96 overflow-y-auto z-50">
+					<Combobox.Content class="mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-96 overflow-y-auto z-50">
 						<Show
 							when={collection().items.length > 0}
 							fallback={
@@ -256,7 +256,7 @@ export function SearchCombobox(props: SearchComboboxProps) {
 									<Combobox.Item
 										item={item}
 										class="w-full text-left px-4 py-2 border-b border-gray-100 last:border-b-0
-                           data-[highlighted]:bg-blue-50 cursor-pointer"
+                           data-[highlighted]:bg-gray-100 cursor-pointer"
 									>
 										<Combobox.ItemText class="text-sm font-mono">
 											{highlightMatches(

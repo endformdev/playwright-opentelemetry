@@ -21,9 +21,8 @@ export interface SettingsMenuProps {
 const SETTING_KEYS = Object.keys(VIEWER_SETTING_LABELS) as ViewerSectionKey[];
 
 const ITEM_CLASS =
-	"flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-gray-700 data-[highlighted]:bg-gray-100 data-[disabled]:cursor-not-allowed data-[disabled]:text-gray-400";
-const GROUP_LABEL_CLASS =
-	"px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400";
+	"mx-1 flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-gray-700 data-[highlighted]:bg-gray-100 data-[disabled]:cursor-not-allowed data-[disabled]:text-gray-400";
+const GROUP_LABEL_CLASS = "eyebrow px-3 py-1.5 text-gray-500";
 
 export function SettingsMenu(props: SettingsMenuProps) {
 	return (
@@ -33,7 +32,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
 		>
 			<Menu.Trigger
 				type="button"
-				class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+				class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
 				aria-label="Viewer settings"
 				title="Viewer settings"
 			>
@@ -42,7 +41,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
 
 			<Portal>
 				<Menu.Positioner>
-					<Menu.Content class="mt-1 w-56 rounded-md border border-gray-200 bg-white py-1 shadow-lg z-50">
+					<Menu.Content class="mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg z-50">
 						<Menu.ItemGroup id="viewer-sections">
 							<Menu.ItemGroupLabel class={GROUP_LABEL_CLASS}>
 								Show

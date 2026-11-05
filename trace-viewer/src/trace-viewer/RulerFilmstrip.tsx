@@ -103,7 +103,7 @@ export function RulerFilmstrip(props: RulerFilmstripProps) {
 					<Show when={props.range}>
 						{(range) => (
 							<div
-								class="absolute -inset-y-1 z-20 border-x border-blue-500/40 bg-blue-500/10"
+								class="absolute -inset-y-1 z-20 border-x border-gray-900/30 bg-gray-900/10"
 								style={{
 									left: `${toPercent(range().startMs)}%`,
 									width: `${toPercent(range().endMs) - toPercent(range().startMs)}%`,
@@ -131,7 +131,7 @@ export function RulerFilmstrip(props: RulerFilmstripProps) {
 
 					<Show when={pointerPercent() !== null}>
 						<div
-							class="absolute -inset-y-1 z-30 w-px bg-blue-600"
+							class="absolute -inset-y-1 z-30 w-px bg-gray-900"
 							style={{ left: `${pointerPercent()}%` }}
 						/>
 					</Show>

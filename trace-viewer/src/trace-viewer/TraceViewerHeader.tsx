@@ -1,6 +1,14 @@
+import {
+	CircleCheck,
+	CircleX,
+	Minus,
+	Timer,
+	TriangleAlert,
+} from "lucide-solid";
 import { type Accessor, Show } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import type { Span } from "../trace-data-loader/exportToSpans";
-import type { TestInfo } from "../trace-info-loader";
+import type { TestInfo, TestStatus } from "../trace-info-loader";
 import { ErrorSpansDropdown } from "./components/ErrorSpansDropdown";
 import { SearchCombobox } from "./components/SearchCombobox";
 import {
@@ -31,40 +39,6 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 		const endNano = BigInt(testInfo.endTimeUnixNano);
 		const durationMs = Number((endNano - startNano) / BigInt(1_000_000));
 		return durationMs;
-	};
-
-	const statusColor = () => {
-		switch (testInfo.status) {
-			case "passed":
-				return "text-green-600";
-			case "failed":
-				return "text-red-600";
-			case "skipped":
-				return "text-yellow-600";
-			case "timedOut":
-				return "text-orange-600";
-			case "interrupted":
-				return "text-orange-600";
-			default:
-				return "text-gray-500";
-		}
-	};
-
-	const statusIcon = () => {
-		switch (testInfo.status) {
-			case "passed":
-				return "✓";
-			case "failed":
-				return "✗";
-			case "skipped":
-				return "○";
-			case "timedOut":
-				return "⏱";
-			case "interrupted":
-				return "⚠";
-			default:
-				return "?";
-		}
 	};
 
 	// Get test start time as a Date
@@ -105,8 +79,7 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 			data-testid="trace-viewer-header"
 		>
 			<div class="flex items-center gap-4">
-				{/* Status Icon */}
-				<span class={`text-xl ${statusColor()}`}>{statusIcon()}</span>
+				<StatusPill status={testInfo.status} />
 
 				{/* Test Name and Info */}
 				<div class="flex-1 min-w-0">
@@ -133,9 +106,6 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 						</span>
 						<span class="text-gray-300">|</span>
 						<span class="font-mono">{duration()}ms</span>
-						<span class={statusColor()} data-testid="test-status">
-							{testInfo.status}
-						</span>
 					</div>
 				</div>
 
@@ -170,7 +140,10 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 					>
 						{(time) => (
 							<div>
-								<div class="text-sm font-mono text-blue-600">
+								<div
+									class="text-sm font-mono text-gray-900"
+									data-testid="header-time"
+								>
 									{Math.round(time())}ms
 								</div>
 								<div class="text-xs font-mono text-gray-400">
@@ -188,5 +161,32 @@ export function TraceViewerHeader(props: TraceViewerHeaderProps) {
 				/>
 			</div>
 		</header>
+	);
+}
+
+const STATUS_PILLS: Record<
+	TestStatus,
+	{ class: string; icon: typeof CircleX }
+> = {
+	passed: { class: "bg-emerald-50 text-emerald-700", icon: CircleCheck },
+	failed: { class: "bg-red-50 text-red-700", icon: CircleX },
+	timedOut: { class: "bg-red-50 text-red-700", icon: Timer },
+	interrupted: { class: "bg-amber-50 text-amber-700", icon: TriangleAlert },
+	skipped: { class: "bg-gray-100 text-gray-600", icon: Minus },
+};
+
+function StatusPill(props: { status: TestStatus }) {
+	return (
+		<span
+			class={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-sm font-medium whitespace-nowrap ${STATUS_PILLS[props.status].class}`}
+			data-testid="test-status"
+		>
+			<Dynamic
+				component={STATUS_PILLS[props.status].icon}
+				size={14}
+				aria-hidden="true"
+			/>
+			{props.status}
+		</span>
 	);
 }
