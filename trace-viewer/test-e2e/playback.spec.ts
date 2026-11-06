@@ -170,6 +170,13 @@ test("plays the test back in real time at the chosen speed", async ({
 		await expect(stepViewer.playButton).toBeVisible();
 	});
 
+	await test.step("Clicking the screen plays and pauses", async () => {
+		await stepViewer.screen.click();
+		await expect(stepViewer.pauseButton).toBeVisible();
+		await stepViewer.screen.click();
+		await expect(stepViewer.playButton).toBeVisible();
+	});
+
 	await test.step("The counter follows playback from step to step", async () => {
 		await stepViewer.speedButton.click();
 		await expect(stepViewer.speedButton).toHaveText("0.5×");

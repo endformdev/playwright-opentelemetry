@@ -23,7 +23,8 @@ export interface StepViewerProps extends Omit<
  * the test with nothing over it, or else a filmstrip of every page; then one
  * bar of controls and the step ruler. Left/Right step through the test body's
  * steps, showing each once it has finished; Home/End jump to the first and
- * last step (see useStepViewer for when the keys apply).
+ * last step (see useStepViewer for when the keys apply). Clicking the big
+ * screen plays and pauses, as in a video player.
  */
 export function StepViewer(props: StepViewerProps) {
 	// Each read of a JSX prop creates it anew, so resolve it just once.
@@ -46,9 +47,9 @@ export function StepViewer(props: StepViewerProps) {
 				when={filmstrip()}
 				fallback={
 					<div
-						class="relative min-h-0 flex-1 bg-gray-100 p-3"
+						class="relative min-h-0 flex-1 cursor-pointer bg-gray-100 p-3"
 						data-testid="step-viewer-screen"
-						onClick={props.onActivate}
+						onClick={props.onTogglePlayback}
 					>
 						<Show
 							when={props.screenshot}
