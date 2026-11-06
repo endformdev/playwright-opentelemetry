@@ -113,6 +113,20 @@ app.get(
 	}),
 );
 
+app.get(
+	"/fixtures/refused-trace/:code/traces",
+	defineEventHandler(
+		(event) =>
+			new Response(
+				JSON.stringify({
+					code: getRouterParam(event, "code"),
+					expiredAt: "2026-11-06T11:53:00.000Z",
+				}),
+				{ headers: { "access-control-allow-origin": "*" }, status: 401 },
+			),
+	),
+);
+
 app.get("/health", () => {
 	return { status: "ok" };
 });
