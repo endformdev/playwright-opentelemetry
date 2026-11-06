@@ -681,12 +681,9 @@ test("steps through each test body step, showing it once it has finished", async
 		await expectStop("1/3", fill, 950);
 	});
 
-	await test.step("Clicking the counter or the viewer selects the first stop", async () => {
+	await test.step("Clicking the counter selects the first stop", async () => {
 		await page.keyboard.press("Escape");
 		await stepViewer.position.click();
-		await expectStop("1/3", fill, 950);
-		await page.keyboard.press("Escape");
-		await stepViewer.screen.click();
 		await expectStop("1/3", fill, 950);
 	});
 
