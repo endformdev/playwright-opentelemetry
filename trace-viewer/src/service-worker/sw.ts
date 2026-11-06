@@ -111,6 +111,11 @@ sw.addEventListener("message", (event: ExtendableMessageEvent) => {
 			client?.postMessage({ requestId, type: "PONG" });
 			break;
 		}
+
+		case "CLAIM_PAGE": {
+			event.waitUntil(sw.clients.claim());
+			break;
+		}
 	}
 });
 

@@ -55,7 +55,8 @@ export type ServiceWorkerMessage =
 	  }
 	| { type: "UNLOAD_TRACE" }
 	| { type: "CLEAR_SCREENSHOT_STATE" }
-	| { type: "PING" };
+	| { type: "PING" }
+	| { type: "CLAIM_PAGE" };
 
 export type ServiceWorkerResponse =
 	| { type: "TRACE_LOADED"; data: TraceLoadedData }
@@ -98,7 +99,10 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 
 	// Wait for the service worker to be active and controlling this page.
 	await container.ready;
-	await waitForActiveWorker(registration);
+	const activeWorker = await waitForActiveWorker(registration);
+	// A hard reload bypasses an active worker, which only claims pages itself
+	// when it activates, so this page would wait for a controller in vain.
+	if (!container.controller) activeWorker.postMessage({ type: "CLAIM_PAGE" });
 	const controller = await waitForController();
 
 	await pingServiceWorker(controller);
