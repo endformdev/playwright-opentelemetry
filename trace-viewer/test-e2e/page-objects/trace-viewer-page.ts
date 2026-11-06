@@ -159,12 +159,15 @@ export class RulerFilmstrip {
 	readonly root: Locator;
 	/** Names what is under the pointer, as in "2. Click · 1.2s" */
 	readonly label: Locator;
+	/** Runs from the label to the ruler, at the time under the pointer */
+	readonly line: Locator;
 	/** The frame under the pointer, one per row */
 	readonly framesUnderPointer: Locator;
 
 	constructor(scope: Page | FrameLocator) {
 		this.root = scope.getByTestId("ruler-filmstrip");
 		this.label = this.root.getByTestId("ruler-filmstrip-label");
+		this.line = this.root.getByTestId("ruler-filmstrip-line");
 		this.framesUnderPointer = this.root.locator("[data-under-pointer]");
 	}
 
