@@ -143,6 +143,11 @@ test("shows the step viewer with its control bar and step ruler in the player vi
 		const rulerBox = (await ruler.root.boundingBox())!;
 		expect(filmstrip.y + filmstrip.height).toBeCloseTo(rulerBox.y, 0);
 		expect(filmstrip.y).toBeLessThan(bar.y);
+		// The pointer's line runs unbroken from the label into the ruler.
+		const line = (await ruler.filmstrip.line.boundingBox())!;
+		const label = (await ruler.filmstrip.label.boundingBox())!;
+		expect(line.y).toBeCloseTo(label.y + label.height, 0);
+		expect(line.y + line.height).toBeCloseTo(rulerBox.y, 0);
 		await page.mouse.move(10, 10);
 		await expect(ruler.filmstrip.root).toBeHidden();
 	});
@@ -200,6 +205,13 @@ test("shows everything except the step viewer in the spans view", async ({
 	expect(
 		Math.abs(filmstripBox.y - (rulerBox.y + rulerBox.height)),
 	).toBeLessThanOrEqual(1);
+	// Below the ruler, the frames sit between it and the label.
+	const lineBox = (await viewer.ruler.filmstrip.line.boundingBox())!;
+	const labelBox = (await viewer.ruler.filmstrip.label.boundingBox())!;
+	expect(
+		Math.abs(lineBox.y - (rulerBox.y + rulerBox.height)),
+	).toBeLessThanOrEqual(1);
+	expect(lineBox.y + lineBox.height).toBeCloseTo(labelBox.y, 0);
 });
 
 test("lets an explicit panels list override the view", async ({
