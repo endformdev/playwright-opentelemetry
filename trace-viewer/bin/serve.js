@@ -2,11 +2,12 @@
 
 import { access, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join } from "node:path";
+import { extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const DIST_DIR = join(__dirname, "..", "dist");
+const ASSETS_DIR = join(DIST_DIR, "assets") + sep;
 
 const DEFAULT_PORT = 9294;
 
@@ -79,6 +80,12 @@ async function serveFile(filePath, res) {
 		// Service worker needs special headers
 		if (filePath.endsWith("sw.js")) {
 			headers["Service-Worker-Allowed"] = "/";
+		}
+
+		// A sandboxed iframe has an opaque origin, so even the viewer's own
+		// assets are cross-origin to it. Matches public/_headers.
+		if (filePath.startsWith(ASSETS_DIR)) {
+			headers["Access-Control-Allow-Origin"] = "*";
 		}
 
 		res.writeHead(200, headers);

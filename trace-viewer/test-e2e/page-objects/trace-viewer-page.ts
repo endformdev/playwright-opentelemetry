@@ -6,6 +6,8 @@ import {
 } from "@playwright/test";
 
 export const TRACE_API_URL = "http://localhost:9295";
+/** The production build as Cloudflare serves it, with public/_headers applied */
+export const WRANGLER_VIEWER_URL = "http://localhost:9296";
 
 const spanAttributes = {
 	id: "data-span-id",
@@ -54,8 +56,8 @@ export class SpanSection {
 	readonly root: Locator;
 	readonly header: Locator;
 
-	constructor(page: Page, name: string) {
-		this.root = page.getByRole("region", { name });
+	constructor(scope: Page | FrameLocator, name: string) {
+		this.root = scope.getByRole("region", { name });
 		this.header = this.root.getByText(name, { exact: true });
 	}
 

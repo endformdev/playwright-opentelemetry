@@ -82,7 +82,7 @@ export function useTraceInfoLoader(
 		};
 	};
 
-	// Cleanup: unload trace from service worker when component unmounts
+	// Cleanup: release the trace's screenshots when component unmounts
 	onCleanup(() => {
 		unloadCurrentTrace();
 	});

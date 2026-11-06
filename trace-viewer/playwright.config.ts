@@ -24,6 +24,14 @@ export default defineConfig({
 			url: "http://localhost:9294",
 		},
 		{
+			// Serves the build above the way Cloudflare does. `vite preview` ignores
+			// public/_headers, so tests of those headers need this server.
+			command:
+				"pnpm exec wrangler dev --port 9296 --ip localhost --show-interactive-dev-session=false",
+			url: "http://localhost:9296",
+			env: { WRANGLER_SEND_METRICS: "false" },
+		},
+		{
 			command:
 				"pnpm --filter @playwright-opentelemetry/trace-api build && pnpm exec tsx test-e2e/trace-api-server.ts",
 			url: "http://localhost:9295/health",
