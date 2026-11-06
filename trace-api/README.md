@@ -44,7 +44,7 @@ export default {
 For maximum flexibility, compose your own API using individual handlers:
 
 ```typescript
-import { H3, getHeader, createError } from "h3";
+import { H3, getHeader, getQuery, createError } from "h3";
 import {
 	createS3Storage,
 	createOtlpHandler,
@@ -72,9 +72,19 @@ const authMiddleware = async (event) => {
 	}
 };
 
-// Apply auth to write endpoints
+// Authentication middleware for read endpoints. The trace viewer can't set
+// headers on these requests, so it passes its token in the query string.
+const readAuthMiddleware = async (event) => {
+	const { traceToken } = getQuery(event);
+	if (typeof traceToken !== "string" || !(await validateToken(traceToken))) {
+		throw createError({ statusCode: 401, message: "Unauthorized" });
+	}
+};
+
+// Apply auth to write and read endpoints
 app.use(OTLP_TRACES_WRITE_PATH, authMiddleware);
 app.use(PLAYWRIGHT_REPORTER_WRITE_PATH, authMiddleware);
+app.use(TRACE_VIEWER_READ_PATH, readAuthMiddleware);
 
 // Add handlers
 // /v1/traces/
@@ -146,7 +156,16 @@ interface TraceApiConfig {
 
 Provide either `storage` for a custom `TraceStorage` implementation or `storageConfig` to create the built-in S3-compatible storage.
 
-`corsOrigin` defaults to `false`. To let a [trace viewer in a sandboxed iframe](../trace-viewer/README.md#embed-in-a-sandboxed-iframe) read traces, set it to `"*"` and authorize with `traceToken`: the frame's origin is `null`, so allowing only the viewer's own origin won't match.
+`corsOrigin` defaults to `false`. To let a [trace viewer in a sandboxed iframe](../trace-viewer/README.md#embed-in-a-sandboxed-iframe) read traces, set it to `"*"`: the frame's origin is `null`, so allowing only the viewer's own origin won't match. Only the read endpoints need it, so you can pass it to `createViewerHandler` alone:
+
+```typescript
+app.get(
+	TRACE_VIEWER_READ_PATH,
+	createViewerHandler({ storage, corsOrigin: "*" }),
+);
+```
+
+With `"*"`, any website can read whatever these endpoints return, and the Trace API doesn't authenticate them for you. The viewer sends `traceToken` as a query parameter, but nothing here checks it, so validate it yourself as in [the example above](#low-level-building-blocks-with-authentication). A rejection from that middleware has no CORS headers, so a sandboxed viewer can't read it and reports a failed fetch. To show the viewer's [page for a refused link](../trace-viewer/README.md#run-the-trace-viewer) there, reply with `Access-Control-Allow-Origin` and a `code`.
 
 ### Endpoints
 
