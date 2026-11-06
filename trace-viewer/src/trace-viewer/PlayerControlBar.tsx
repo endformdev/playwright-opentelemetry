@@ -130,11 +130,8 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 			<Show when={props.stopCount > 0}>
 				<button
 					type="button"
-					class="inline-flex h-6 min-w-14 flex-shrink-0 items-center justify-center rounded-full px-2 font-mono text-[11px] tabular-nums transition-colors"
-					classList={{
-						"bg-fill-playhead text-gray-950": active(),
-						"bg-gray-100 text-gray-500 hover:text-gray-800": !active(),
-					}}
+					class="min-w-10 flex-shrink-0 text-left font-mono text-[11px] tabular-nums text-gray-500 transition-colors"
+					classList={{ "hover:text-gray-800": !active() }}
 					data-testid="step-viewer-position"
 					data-active={active() ? "true" : undefined}
 					title={
