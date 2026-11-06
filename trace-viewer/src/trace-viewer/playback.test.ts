@@ -7,7 +7,7 @@ import {
 	MAX_PLAYBACK_FRAME_MS,
 	nextPlaybackSpeed,
 } from "./playback";
-import type { TimelineViewport } from "./viewport";
+import { createViewport, type TimelineViewport } from "./viewport";
 
 function viewport(
 	visibleStartMs: number,
@@ -66,6 +66,13 @@ describe("advancePlayback", () => {
 });
 
 describe("followPlayhead", () => {
+	it("has nowhere to go when fully zoomed out", () => {
+		const fullyZoomedOut = createViewport(10_000);
+		for (let timeMs = 9000; timeMs <= 10_000; timeMs += 16.67) {
+			expect(followPlayhead(fullyZoomedOut, timeMs)).toBeNull();
+		}
+	});
+
 	it("leaves the view alone while the playhead is comfortably in it", () => {
 		expect(followPlayhead(viewport(1000, 3000), 2000)).toBeNull();
 	});

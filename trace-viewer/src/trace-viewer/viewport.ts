@@ -13,6 +13,8 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 100;
 /** Minimum visible duration in ms (to prevent zooming into nothing) */
 const MIN_VISIBLE_DURATION_MS = 10;
+/** How far short of the timeline's width a window can be and still fill it */
+const FULL_WIDTH_TOLERANCE = 1e-9;
 
 export function zoomViewport(
 	viewport: TimelineViewport,
@@ -139,25 +141,29 @@ export function isFullyZoomedOut(viewport: TimelineViewport): boolean {
 
 export function clampViewport(viewport: TimelineViewport): TimelineViewport {
 	const visibleDuration = getVisibleDuration(viewport);
-	const clampedDuration = Math.min(visibleDuration, viewport.totalDurationMs);
+
+	// Shifting a window rounds its edges, so one as wide as the timeline can
+	// come out a hair narrower: not quite fully zoomed out, and showing the
+	// ruler's zoom window.
+	if (
+		visibleDuration >=
+		viewport.totalDurationMs * (1 - FULL_WIDTH_TOLERANCE)
+	) {
+		return createViewport(viewport.totalDurationMs);
+	}
 
 	let start = viewport.visibleStartMs;
 	let end = viewport.visibleEndMs;
 
-	// Ensure we don't exceed the total duration
-	if (clampedDuration < visibleDuration) {
-		end = start + clampedDuration;
-	}
-
 	// Clamp to bounds
 	if (start < 0) {
 		start = 0;
-		end = clampedDuration;
+		end = visibleDuration;
 	}
 
 	if (end > viewport.totalDurationMs) {
 		end = viewport.totalDurationMs;
-		start = Math.max(0, end - clampedDuration);
+		start = end - visibleDuration;
 	}
 
 	return {

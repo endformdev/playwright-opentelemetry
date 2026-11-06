@@ -291,6 +291,21 @@ describe("clampViewport", () => {
 	});
 });
 
+describe("clampViewport on a window as wide as the timeline", () => {
+	it("keeps it fully zoomed out when shifting rounded its edges", () => {
+		// Past 4096 the sum rounds to a coarser grid than either number is on.
+		const delta = 96.0007;
+		const shifted: TimelineViewport = {
+			visibleStartMs: delta,
+			visibleEndMs: 4000 + delta,
+			totalDurationMs: 4000,
+		};
+		expect(shifted.visibleEndMs - shifted.visibleStartMs).not.toBe(4000);
+
+		expect(clampViewport(shifted)).toEqual(createViewport(4000));
+	});
+});
+
 describe("zoomViewport", () => {
 	it("zooms in when delta is positive", () => {
 		const viewport = createViewport(10000);
@@ -519,6 +534,19 @@ describe("fitTimeRange", () => {
 });
 
 describe("panTimeRangeIntoView", () => {
+	it("leaves a fully zoomed out viewport untouched for every time", () => {
+		// Durations just under a power of two round when panned past the end.
+		for (const durationMs of [1000, 3987, 4000, 8000]) {
+			const viewport = createViewport(durationMs);
+			for (let i = 0; i <= 2000; i++) {
+				const timeMs = (i / 2000) * durationMs;
+				expect(panTimeRangeIntoView(viewport, timeMs, timeMs, timeMs)).toBe(
+					viewport,
+				);
+			}
+		}
+	});
+
 	const view = (visibleStartMs: number, visibleEndMs: number) => ({
 		visibleStartMs,
 		visibleEndMs,
