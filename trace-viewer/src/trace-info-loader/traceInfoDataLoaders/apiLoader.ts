@@ -1,6 +1,7 @@
 import { parseOtlpExport } from "../../trace-data-loader";
 import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
 import type { ScreenshotInfo, TraceInfoData } from "../TraceInfoLoader";
+import { parseTraceAccessFailure, TraceAccessError } from "../traceAccessError";
 import { loadScreenshotsInPage } from "./pageScreenshots";
 import { ensureServiceWorker, loadScreenshotsForTrace } from "./zipLoader";
 
@@ -23,6 +24,9 @@ export async function loadRemoteApi(
 	const tracesResponse = await fetch(tracesUrl);
 	if (!tracesResponse.ok) {
 		const body = await tracesResponse.text();
+		const accessFailure = parseTraceAccessFailure(body);
+		if (accessFailure) throw new TraceAccessError(accessFailure);
+
 		throw new Error(
 			`Failed to fetch trace data from ${tracesUrl}: ${tracesResponse.status} ${body}`,
 		);

@@ -39,8 +39,16 @@ The token can also be embedded in the `traceSource` URL, or in a Trace API URL e
 
 The remote API contract is:
 
-- `GET {baseUrl}/traces` returns `{ "resourceSpans": [...] }` or `404` when the trace does not exist
+- `GET {baseUrl}/traces` returns `{ "resourceSpans": [...] }`, `404` when the trace does not exist, or `401` when the viewer isn't allowed to read it
 - `GET {baseUrl}/screenshots.zip` returns a ZIP with root `manifest.json` and `screenshots/*`, or `404` when there are no screenshots
+
+A `401` can say why with a `code` in its JSON body, and the viewer then shows a page explaining the problem instead of the load form. The codes are `token_expired`, `token_invalid` and `token_missing`. With `token_expired`, add `expiredAt` as an ISO 8601 time to show when:
+
+```json
+{ "code": "token_expired", "expiredAt": "2026-11-06T11:53:00.000Z" }
+```
+
+Any other response shows the generic error above the load form.
 
 The service worker loads the ZIP and exposes internal per-screenshot URLs to the viewer. Where no service worker can run, the page downloads and unpacks the ZIP itself.
 
