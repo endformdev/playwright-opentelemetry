@@ -394,7 +394,8 @@ async function fetchZip(url: string): Promise<Blob | undefined> {
 	const response = await fetch(url);
 	if (response.status === 404) return undefined;
 	if (!response.ok) {
-		throw new Error(`Failed to fetch ZIP from ${url}: ${response.statusText}`);
+		// The URL isn't in this message because it can carry a trace token.
+		throw new Error(`Failed to fetch ZIP: ${response.status}`);
 	}
 	return response.blob();
 }
