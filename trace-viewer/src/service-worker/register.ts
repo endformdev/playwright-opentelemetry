@@ -1,21 +1,11 @@
 import { getBasePath, resolveBasePath } from "../basePath";
 import type { OtlpExport } from "../trace-data-loader";
+import type { ScreenshotMeta } from "./screenshotZip";
 
 export interface ServiceWorkerState {
 	registration: ServiceWorkerRegistration | null;
 	ready: boolean;
 	error: Error | null;
-}
-
-/**
- * Screenshot metadata for the /screenshots list endpoint
- */
-export interface ScreenshotMeta {
-	timestamp: number;
-	file: string;
-	path: string;
-	contentType: string;
-	pageId: string;
 }
 
 /**
@@ -78,22 +68,36 @@ type ServiceWorkerMessageWithRequestId = ServiceWorkerMessage & {
 	requestId: string;
 };
 
+/**
+ * The page's service worker container, or null where it has none. It's missing
+ * outside secure contexts, and just reading it throws in a sandboxed iframe
+ * without allow-same-origin, so `"serviceWorker" in navigator` isn't enough.
+ */
+export function getServiceWorkerContainer(): ServiceWorkerContainer | null {
+	try {
+		return navigator.serviceWorker ?? null;
+	} catch {
+		return null;
+	}
+}
+
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
-	if (!("serviceWorker" in navigator)) {
-		throw new Error("Service Workers are not supported in this browser");
+	const container = getServiceWorkerContainer();
+	if (!container) {
+		throw new Error("Service workers are not available in this page");
 	}
 
 	const basePath = getBasePath();
 	const swUrl = getServiceWorkerUrl();
 
 	// Register the service worker with scope matching the base path
-	const registration = await navigator.serviceWorker.register(swUrl, {
+	const registration = await container.register(swUrl, {
 		scope: basePath,
 		type: "module",
 	});
 
 	// Wait for the service worker to be active and controlling this page.
-	await navigator.serviceWorker.ready;
+	await container.ready;
 	await waitForActiveWorker(registration);
 	const controller = await waitForController();
 
@@ -295,7 +299,10 @@ async function postServiceWorkerMessage<Data>(
  * Unload trace data from the service worker
  */
 export async function unloadTraceFromServiceWorker(): Promise<void> {
-	const registration = await navigator.serviceWorker.ready;
+	const container = getServiceWorkerContainer();
+	if (!container) return;
+
+	const registration = await container.ready;
 	const worker = registration.active;
 
 	if (worker) {

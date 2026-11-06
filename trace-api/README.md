@@ -146,6 +146,8 @@ interface TraceApiConfig {
 
 Provide either `storage` for a custom `TraceStorage` implementation or `storageConfig` to create the built-in S3-compatible storage.
 
+`corsOrigin` defaults to `false`. To let a [trace viewer in a sandboxed iframe](../trace-viewer/README.md#embed-in-a-sandboxed-iframe) read traces, set it to `"*"` and authorize with `traceToken`: the frame's origin is `null`, so allowing only the viewer's own origin won't match.
+
 ### Endpoints
 
 **Write Endpoints:**

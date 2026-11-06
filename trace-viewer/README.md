@@ -25,7 +25,7 @@ To boot the trace viewer on `localhost:9294`:
 npx @playwright-opentelemetry/trace-viewer
 ```
 
-The viewer can load a local trace zip or a trace-specific API base URL such as `/playwright-otel-trace-viewer/v1/{traceId}`. Remote API loading fetches `{baseUrl}/traces` once for the merged OTLP export, derives test metadata from the root `playwright.test` span, then downloads `{baseUrl}/screenshots.zip` into the service worker when screenshots are needed.
+The viewer can load a local trace zip or a trace-specific API base URL such as `/playwright-otel-trace-viewer/v1/{traceId}`. Remote API loading fetches `{baseUrl}/traces` once for the merged OTLP export, derives test metadata from the root `playwright.test` span, then downloads `{baseUrl}/screenshots.zip` when screenshots are needed.
 
 If the viewer URL includes `traceToken`, the token is propagated to remote Trace API requests as a query parameter:
 
@@ -42,7 +42,7 @@ The remote API contract is:
 - `GET {baseUrl}/traces` returns `{ "resourceSpans": [...] }` or `404` when the trace does not exist
 - `GET {baseUrl}/screenshots.zip` returns a ZIP with root `manifest.json` and `screenshots/*`, or `404` when there are no screenshots
 
-The service worker exposes internal per-screenshot URLs to the viewer after loading the ZIP.
+The service worker loads the ZIP and exposes internal per-screenshot URLs to the viewer. Where no service worker can run, the page downloads and unpacks the ZIP itself.
 
 ## Choose which panels to show
 
@@ -97,6 +97,15 @@ window.addEventListener("message", (event) => {
 
 Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it. Sections with no data are disabled in the settings menu.
 
+## Embed in a sandboxed iframe
+
+Remote API traces work inside `<iframe sandbox="allow-scripts allow-forms">`, which gives the viewer an opaque origin (`null`) and no service worker. The viewer detects this and needs no configuration, but two things have to be readable from origin `null`:
+
+- The viewer's assets. Served with `Access-Control-Allow-Origin: *` on `/assets/*` by default on Cloudflare (through `public/_headers`) and by `npx @playwright-opentelemetry/trace-viewer`. On any other host, including a custom base path behind a proxy, add that header yourself. Without it the sandboxed page stays blank.
+- The Trace API. Set [`corsOrigin: "*"`](../trace-api/README.md) and authorize with `traceToken`, because a sandboxed frame can't send cookies this way.
+
+Local and remote trace ZIPs still need a service worker, so they can't be loaded there.
+
 ## Deploy Your Own
 
 ### Cloudflare
@@ -117,7 +126,7 @@ pnpm deploy
 If you want to build with absolute paths for a specific deployment location:
 
 ```bash
-TRACE_VIEWER_BASE=/trace-viewer/ pnpm build
+VITE_TRACE_VIEWER_BASE=/trace-viewer/ pnpm build
 ```
 
 ## Local Development

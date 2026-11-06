@@ -9,6 +9,7 @@ import {
 } from "../../service-worker/register";
 import type { ScreenshotInfo, TraceInfoData } from "../TraceInfoLoader";
 import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
+import { unloadPageScreenshots } from "./pageScreenshots";
 
 let swRegistrationPromise: Promise<ServiceWorkerRegistration> | null = null;
 let localZipSourceCounter = 0;
@@ -119,6 +120,7 @@ function createLocalZipSourceId(): string {
 }
 
 export async function unloadCurrentTrace(): Promise<void> {
+	unloadPageScreenshots();
 	await unloadTraceFromServiceWorker();
 }
 

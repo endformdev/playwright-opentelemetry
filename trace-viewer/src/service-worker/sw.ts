@@ -7,40 +7,23 @@
 
 /// <reference lib="webworker" />
 
-import type { Entry, FileEntry } from "@zip.js/zip.js";
-import { BlobReader, BlobWriter, TextWriter, ZipReader } from "@zip.js/zip.js";
+import type { Entry } from "@zip.js/zip.js";
+import { TextWriter } from "@zip.js/zip.js";
 import {
 	mergeOtlpExports,
 	parseOtlpExport,
 	type OtlpExport,
 } from "../trace-data-loader/otlp";
+import {
+	extractScreenshots,
+	isFileEntry,
+	loadScreenshotMetas,
+	openZip,
+	parseScreenshotManifest,
+	type ScreenshotMeta,
+} from "./screenshotZip";
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
-
-interface ScreenshotMeta {
-	timestamp: number;
-	file: string;
-	path: string;
-	contentType: string;
-	pageId: string;
-}
-
-interface ScreenshotManifest {
-	version: 3;
-	screenshots: ScreenshotMeta[];
-}
-
-interface ScreenshotManifestV1Entry {
-	timestamp?: number;
-	file?: string;
-	path?: string;
-	contentType?: string;
-}
-
-interface ScreenshotManifestV1 {
-	version?: 1;
-	screenshots?: ScreenshotManifestV1Entry[];
-}
 
 interface ZipLoadResult {
 	traceId: string;
@@ -453,7 +436,7 @@ function sourceKey(
 }
 
 async function loadZip(zip: Blob): Promise<ZipLoadResult> {
-	const zipReader = new ZipReader(new BlobReader(zip));
+	const zipReader = openZip(zip);
 	try {
 		return await parseZipEntries(await zipReader.getEntries());
 	} finally {
@@ -495,141 +478,6 @@ async function parseZipEntries(entries: Entry[]): Promise<ZipLoadResult> {
 	}
 
 	return { traceId, traceData, screenshotMetas };
-}
-
-async function loadScreenshotMetas(zip: Blob): Promise<ScreenshotMeta[]> {
-	const zipReader = new ZipReader(new BlobReader(zip));
-	try {
-		return parseScreenshotManifest(await zipReader.getEntries());
-	} finally {
-		await zipReader.close();
-	}
-}
-
-async function parseScreenshotManifest(
-	entries: Entry[],
-): Promise<ScreenshotMeta[]> {
-	const manifestEntry = entries.find(
-		(entry): entry is FileEntry =>
-			isFileEntry(entry) && entry.filename === "manifest.json",
-	);
-	if (!manifestEntry) return [];
-
-	const manifest = parseScreenshotManifestJson(
-		JSON.parse(await manifestEntry.getData(new TextWriter())),
-	);
-	return manifest.screenshots.sort((a, b) => a.timestamp - b.timestamp);
-}
-
-function parseScreenshotManifestJson(value: unknown): ScreenshotManifest {
-	if (!isObject(value)) {
-		throw new Error("Invalid screenshot manifest: expected object");
-	}
-
-	// v2 carried a contextId per entry which is no longer used; v3 dropped it.
-	if (value.version === 3 || value.version === 2) {
-		return parseScreenshotManifestEntries(value);
-	}
-
-	if (value.version === 1 || value.version === undefined) {
-		return parseScreenshotManifestEntries(upgradeScreenshotManifestV1(value));
-	}
-
-	throw new Error(
-		`Unsupported screenshot manifest version: ${String(value.version)}`,
-	);
-}
-
-function parseScreenshotManifestEntries(value: unknown): ScreenshotManifest {
-	if (!isObject(value)) {
-		throw new Error("Invalid screenshot manifest: expected object");
-	}
-	if (!Array.isArray(value.screenshots)) {
-		throw new Error("Invalid screenshot manifest: expected screenshots array");
-	}
-
-	return {
-		version: 3,
-		screenshots: value.screenshots.map((screenshot, index) =>
-			parseScreenshotManifestEntry(screenshot, index),
-		),
-	};
-}
-
-function parseScreenshotManifestEntry(
-	value: unknown,
-	index: number,
-): ScreenshotMeta {
-	if (!isObject(value)) {
-		throw new Error(
-			`Invalid screenshot manifest entry at index ${index}: expected object`,
-		);
-	}
-
-	return {
-		timestamp: requiredNumber(value.timestamp, "timestamp", index),
-		file: requiredString(value.file, "file", index),
-		path: requiredString(value.path, "path", index),
-		contentType: requiredString(value.contentType, "contentType", index),
-		pageId: requiredString(value.pageId, "pageId", index),
-	};
-}
-
-function upgradeScreenshotManifestV1(
-	manifest: ScreenshotManifestV1,
-): ScreenshotManifest {
-	if (!Array.isArray(manifest.screenshots)) {
-		throw new Error(
-			"Invalid screenshot manifest v1: expected screenshots array",
-		);
-	}
-
-	return {
-		version: 3,
-		screenshots: manifest.screenshots.map((screenshot, index) => {
-			if (
-				typeof screenshot.timestamp !== "number" ||
-				typeof screenshot.file !== "string" ||
-				screenshot.file.length === 0
-			) {
-				throw new Error(
-					`Invalid screenshot manifest v1 entry at index ${index}: expected timestamp and file`,
-				);
-			}
-
-			return {
-				timestamp: screenshot.timestamp,
-				file: screenshot.file,
-				path: screenshot.path || `screenshots/${screenshot.file}`,
-				contentType: screenshot.contentType || getMimeType(screenshot.file),
-				pageId: extractResourceIdFromFilename(screenshot.file),
-			};
-		}),
-	};
-}
-
-function requiredString(value: unknown, field: string, index: number): string {
-	if (typeof value === "string" && value.length > 0) return value;
-	throw new Error(
-		`Invalid screenshot manifest entry at index ${index}: expected ${field}`,
-	);
-}
-
-function requiredNumber(value: unknown, field: string, index: number): number {
-	if (typeof value === "number") return value;
-	throw new Error(
-		`Invalid screenshot manifest entry at index ${index}: expected ${field}`,
-	);
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function extractResourceIdFromFilename(filename: string): string {
-	const lastDashIndex = filename.lastIndexOf("-");
-	if (lastDashIndex === -1) return "unknown-page";
-	return filename.slice(0, lastDashIndex) || "unknown-page";
 }
 
 async function screenshotResponse(
@@ -682,21 +530,12 @@ async function extractScreenshotBlob(
 		throw new Error(`Screenshot not found in manifest: ${filename}`);
 	}
 
-	const zipReader = new ZipReader(new BlobReader(trace.zip));
-	try {
-		const entry = (await zipReader.getEntries()).find(
-			(entry): entry is FileEntry =>
-				isFileEntry(entry) && entry.filename === screenshotMeta.path,
-		);
-
-		if (!entry) {
-			throw new Error(`Screenshot not found in ZIP: ${filename}`);
-		}
-
-		return entry.getData(new BlobWriter(screenshotMeta.contentType));
-	} finally {
-		await zipReader.close();
+	const blobs = await extractScreenshots(trace.zip, [screenshotMeta]);
+	const blob = blobs.get(filename);
+	if (!blob) {
+		throw new Error(`Screenshot not found in ZIP: ${filename}`);
 	}
+	return blob;
 }
 
 function metasByFile(
@@ -737,23 +576,4 @@ function blobResponse(blob: Blob): Response {
 
 function notFoundResponse(message: string): Response {
 	return new Response(message, { status: 404 });
-}
-
-function getMimeType(filename: string): string {
-	const ext = filename.split(".").pop()?.toLowerCase();
-	switch (ext) {
-		case "png":
-			return "image/png";
-		case "jpg":
-		case "jpeg":
-			return "image/jpeg";
-		case "webp":
-			return "image/webp";
-		default:
-			return "application/octet-stream";
-	}
-}
-
-function isFileEntry(entry: Entry): entry is FileEntry {
-	return !entry.directory;
 }

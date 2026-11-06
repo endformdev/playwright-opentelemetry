@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadRemoteApi } from "./apiLoader";
-import { loadScreenshotsForTrace } from "./zipLoader";
+import { loadScreenshotsInPage } from "./pageScreenshots";
+import { ensureServiceWorker, loadScreenshotsForTrace } from "./zipLoader";
 
 vi.mock("./zipLoader", () => ({
 	ensureServiceWorker: vi.fn(async () => ({})),
@@ -8,10 +9,15 @@ vi.mock("./zipLoader", () => ({
 	loadScreenshotsForTrace: vi.fn(),
 }));
 
+vi.mock("./pageScreenshots", () => ({
+	loadScreenshotsInPage: vi.fn(),
+}));
+
 describe("loading a trace from the remote trace API", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		vi.clearAllMocks();
+		vi.useRealTimers();
 	});
 
 	it("loads trace data, derives test header metadata, and builds screenshot URLs", async () => {
@@ -135,6 +141,65 @@ describe("loading a trace from the remote trace API", () => {
 		await expect(
 			loadRemoteApi(`https://traces.example.com/${traceId}`, null),
 		).rejects.toThrow("no playwright.test span found");
+	});
+
+	describe("loading screenshots", () => {
+		const traceId = "7709187832dca84f02f413a312421586";
+		const screenshotsZipUrl = `https://traces.example.com/${traceId}/screenshots.zip`;
+		const screenshots = [
+			{ timestamp: 1, url: "blob:null/screenshot", pageId: "page@abc" },
+		];
+
+		async function loadTrace() {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () => jsonResponse(otlpExport(traceId))),
+			);
+			return loadRemoteApi(`https://traces.example.com/${traceId}`, null);
+		}
+
+		it("loads them in the page when there's no service worker", async () => {
+			vi.spyOn(console, "info").mockImplementationOnce(() => undefined);
+			vi.mocked(ensureServiceWorker).mockRejectedValueOnce(
+				new Error("Service workers are not available in this page"),
+			);
+			vi.mocked(loadScreenshotsInPage).mockResolvedValueOnce(screenshots);
+			const traceInfo = await loadTrace();
+
+			expect(await traceInfo.loadScreenshots()).toEqual(screenshots);
+			expect(loadScreenshotsInPage).toHaveBeenCalledWith(screenshotsZipUrl);
+			expect(loadScreenshotsForTrace).not.toHaveBeenCalled();
+		});
+
+		it("loads them in the page when a service worker never takes control", async () => {
+			vi.useFakeTimers();
+			vi.spyOn(console, "info").mockImplementationOnce(() => undefined);
+			vi.mocked(ensureServiceWorker).mockReturnValueOnce(
+				new Promise(() => undefined),
+			);
+			vi.mocked(loadScreenshotsInPage).mockResolvedValueOnce(screenshots);
+			const traceInfo = await loadTrace();
+
+			const loading = traceInfo.loadScreenshots();
+			await vi.advanceTimersByTimeAsync(10000);
+
+			expect(await loading).toEqual(screenshots);
+			expect(loadScreenshotsForTrace).not.toHaveBeenCalled();
+		});
+
+		it("doesn't download the ZIP again when the service worker fails to", async () => {
+			const warn = vi
+				.spyOn(console, "warn")
+				.mockImplementationOnce(() => undefined);
+			vi.mocked(loadScreenshotsForTrace).mockRejectedValueOnce(
+				new Error("Failed to fetch ZIP"),
+			);
+			const traceInfo = await loadTrace();
+
+			expect(await traceInfo.loadScreenshots()).toEqual([]);
+			expect(loadScreenshotsInPage).not.toHaveBeenCalled();
+			expect(warn).toHaveBeenCalledOnce();
+		});
 	});
 });
 
