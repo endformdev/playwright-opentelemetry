@@ -110,9 +110,19 @@ Without `view` or `panels`, the viewer settings saved in the browser decide what
 Remote API traces work inside `<iframe sandbox="allow-scripts allow-forms">`, which gives the viewer an opaque origin (`null`) and no service worker. The viewer detects this and needs no configuration, but two things have to be readable from origin `null`:
 
 - The viewer's assets. Served with `Access-Control-Allow-Origin: *` on `/assets/*` by default on Cloudflare (through `public/_headers`) and by `npx @playwright-opentelemetry/trace-viewer`. On any other host, including a custom base path behind a proxy, add that header yourself. Without it the sandboxed page stays blank.
-- The Trace API. Set [`corsOrigin: "*"`](../trace-api/README.md) and authorize with `traceToken`, because a sandboxed frame can't send cookies this way.
+- The Trace API. Set [`corsOrigin: "*"`](../trace-api/README.md#configuration) and pass a `traceToken`, because a sandboxed frame can't send cookies this way. The viewer only forwards the token: [validate it in your Trace API](../trace-api/README.md#low-level-building-blocks-with-authentication), which doesn't check it for you.
 
 Local and remote trace ZIPs still need a service worker, so they can't be loaded there.
+
+Messages from an [action](#add-an-action-to-an-embedded-player) arrive with the origin `"null"`, so the `event.origin` check in that section rejects them. Any sandboxed page has that origin too, so don't allow `"null"` instead. Check which frame sent the message:
+
+```ts
+window.addEventListener("message", (event) => {
+	if (event.source !== iframe.contentWindow) return;
+	if (event.data?.type !== "trace-viewer:action") return;
+	if (event.data.action === "expand") openExpandedTrace();
+});
+```
 
 ## Deploy Your Own
 

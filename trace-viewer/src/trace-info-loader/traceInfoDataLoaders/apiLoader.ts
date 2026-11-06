@@ -28,7 +28,7 @@ export async function loadRemoteApi(
 		if (accessFailure) throw new TraceAccessError(accessFailure);
 
 		throw new Error(
-			`Failed to fetch trace data from ${tracesUrl}: ${tracesResponse.status} ${body}`,
+			`Failed to fetch trace data from ${normalizedBaseUrl}/${TRACES_PATH}: ${tracesResponse.status} ${body}`,
 		);
 	}
 	const traceData = parseOtlpExport(await tracesResponse.json());

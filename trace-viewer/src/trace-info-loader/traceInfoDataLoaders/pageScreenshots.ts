@@ -1,7 +1,3 @@
-import {
-	extractScreenshots,
-	loadScreenshotMetas,
-} from "../../service-worker/screenshotZip";
 import type { ScreenshotInfo } from "../TraceInfoLoader";
 
 /** Blob URLs of the trace on show, kept until the next one replaces them. */
@@ -14,8 +10,8 @@ let loadGeneration = 0;
  * unpacks the ZIP itself, and hands out blob URLs.
  *
  * Nothing can intercept a blob URL to extract an image on demand, so all of
- * them are extracted here. The ZIP can go afterwards, so this keeps about as
- * much in memory as the service worker does by holding on to the ZIP.
+ * them are extracted here. That takes longer and uses more memory than the
+ * service worker does by holding on to the ZIP.
  */
 export async function loadScreenshotsInPage(
 	screenshotsZipUrl: string,
@@ -32,6 +28,10 @@ export async function loadScreenshotsInPage(
 		throw new Error(`Failed to fetch screenshots ZIP: ${response.status}`);
 	}
 
+	// Only this path needs the ZIP code in the page: the service worker has its
+	// own copy. The download carries on while this chunk loads.
+	const { extractScreenshots, loadScreenshotMetas } =
+		await import("../../service-worker/screenshotZip");
 	const zip = await response.blob();
 	const screenshotMetas = await loadScreenshotMetas(zip);
 	const blobs = await extractScreenshots(zip, screenshotMetas);

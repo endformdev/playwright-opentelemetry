@@ -149,6 +149,24 @@ describe("loading a trace from the remote trace API", () => {
 		).rejects.toThrow("401 Unauthorized");
 	});
 
+	it("keeps the trace token out of a failed load's message", async () => {
+		const traceId = "7709187832dca84f02f413a312421586";
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => textResponse("Trace not found", 404)),
+		);
+
+		const error = await loadRemoteApi(
+			`https://traces.example.com/${traceId}`,
+			"secret-token",
+		).catch((error: unknown) => error);
+
+		expect(String(error)).toContain(
+			`https://traces.example.com/${traceId}/traces: 404`,
+		);
+		expect(String(error)).not.toContain("secret-token");
+	});
+
 	it("fails clearly when the trace API returns data without a Playwright root span", async () => {
 		const traceId = "7709187832dca84f02f413a312421586";
 		vi.stubGlobal(
