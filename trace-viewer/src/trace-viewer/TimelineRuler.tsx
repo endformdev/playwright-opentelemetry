@@ -353,7 +353,6 @@ export function TimelineRuler(props: TimelineRulerProps) {
 					durationMs={props.durationMs}
 					pointerTimeMs={pointer()?.timeMs ?? null}
 					label={filmstripLabel()}
-					range={pointer()?.item ?? null}
 				/>
 			</Show>
 

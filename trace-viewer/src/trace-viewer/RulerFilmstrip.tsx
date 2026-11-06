@@ -22,8 +22,6 @@ export interface RulerFilmstripProps {
 	pointerTimeMs: number | null;
 	/** Names what is under the pointer, e.g. `7. Navigate · 900ms` */
 	label: string;
-	/** Time range of the step or hooks under the pointer, to shade */
-	range: { startMs: number; endMs: number } | null;
 }
 
 /** Rows get shorter as pages are added, so several still fit over the player. */
@@ -35,7 +33,8 @@ function getRowHeightPx(rowCount: number): number {
 
 /**
  * Screenshots across the whole test, one row per page, shown while the
- * pointer is on the step ruler. It lines up in time with the ruler.
+ * pointer is on the step ruler. It lines up in time with the ruler, and fades
+ * in and out where it stands so nothing on screen moves.
  */
 export function RulerFilmstrip(props: RulerFilmstripProps) {
 	let plotRef: HTMLDivElement | undefined;
@@ -63,18 +62,24 @@ export function RulerFilmstrip(props: RulerFilmstripProps) {
 		props.pointerTimeMs === null ? null : toPercent(props.pointerTimeMs);
 	return (
 		<div
-			class="pointer-events-none absolute inset-x-0 z-[60] border-gray-200 bg-white/95 py-2 shadow-lg backdrop-blur-sm transition-[opacity,transform,visibility] duration-150"
+			class="pointer-events-none absolute inset-x-0 z-[60] border-gray-200 bg-white/95 py-2 shadow-lg backdrop-blur-sm transition-[opacity,visibility] duration-150"
 			classList={{
 				"bottom-full border-t": props.placement === "above",
 				"top-full border-b": props.placement === "below",
-				"visible opacity-100 translate-y-0": props.open,
-				invisible: !props.open,
-				"opacity-0 translate-y-2": !props.open && props.placement === "above",
-				"opacity-0 -translate-y-2": !props.open && props.placement === "below",
+				"visible opacity-100": props.open,
+				"invisible opacity-0": !props.open,
 			}}
 			data-testid="ruler-filmstrip"
 			aria-hidden="true"
 		>
+			{/*
+			  The padding under the frames still counts as the ruler while the
+			  filmstrip is open, so a small slip upwards keeps scrubbing. It stops
+			  short of the control bar's buttons, so they still take clicks.
+			*/}
+			<Show when={props.placement === "above"}>
+				<div class="pointer-events-auto absolute inset-x-0 bottom-0 h-2" />
+			</Show>
 			<div
 				ref={plotRef}
 				class="relative"
@@ -100,21 +105,6 @@ export function RulerFilmstrip(props: RulerFilmstripProps) {
 				</div>
 
 				<div class="relative flex flex-col gap-1">
-					<Show when={props.range}>
-						{(range) => (
-							<div
-								class="absolute -inset-y-1 z-20 border-x border-gray-900/30 bg-gray-900/10"
-								style={{
-									left: `${toPercent(range().startMs)}%`,
-									width: `${toPercent(range().endMs) - toPercent(range().startMs)}%`,
-								}}
-								data-testid="ruler-filmstrip-range"
-								data-start-ms={range().startMs}
-								data-end-ms={range().endMs}
-							/>
-						)}
-					</Show>
-
 					<For each={rows()}>
 						{(page) => (
 							<FilmstripRow
