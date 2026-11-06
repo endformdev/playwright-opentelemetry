@@ -22,12 +22,12 @@ import { SpanKind, TraceDataBuilder } from "./test-data-builder";
  */
 async function createTrace(
 	request: APIRequestContext,
-	options: { screenshots?: boolean; pages?: number } = {},
+	options: { screenshots?: boolean; pages?: number; durationMs?: number } = {},
 ): Promise<string> {
 	const traceId = randomUUID().replaceAll("-", "");
 	const testStartTime = Date.now();
 	await new TraceDataBuilder(traceId, testStartTime)
-		.addTestSpan("Viewer panels", 3000)
+		.addTestSpan("Viewer panels", options.durationMs ?? 3000)
 		.addStepSpan("Open the app", 400, { startOffsetMs: 100 })
 		.addCustomSpan({
 			serviceName: "playwright-browser",
@@ -64,6 +64,40 @@ async function createTrace(
 	}
 	return traceId;
 }
+
+test("scrubbing to the end of the ruler stays a scrub in the player view", async ({
+	page,
+	request,
+}) => {
+	const viewer = new TraceViewerPage(page);
+	// Just under a power of two, where panning past the end rounds the edges.
+	await viewer.loadTraceFromUrlParam(
+		await createTrace(request, { durationMs: 4000 }),
+		{ view: "player" },
+	);
+	const { stepViewer, ruler } = viewer;
+	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+
+	const start = await ruler.pointAt(0.95);
+	const end = await ruler.pointAt(1);
+	await page.mouse.move(start.x, start.y);
+	await page.mouse.down();
+	for (let x = Math.ceil(start.x); x <= end.x; x++) {
+		await page.mouse.move(x, start.y);
+		await expect(ruler.zoomWindow).toHaveCount(0);
+	}
+	await page.mouse.up();
+
+	await test.step("A press on the ticks along the bottom seeks", async () => {
+		const box = (await ruler.root.boundingBox())!;
+		await page.mouse.click(box.x + box.width / 2, box.y + box.height - 8);
+		await expect(ruler.playhead).toHaveAttribute(
+			"data-time-ms",
+			/^(199|200)\d/,
+		);
+		await expect(ruler.zoomWindow).toHaveCount(0);
+	});
+});
 
 test("shows the step viewer with its control bar and step ruler in the player view", async ({
 	page,
