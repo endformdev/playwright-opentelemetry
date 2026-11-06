@@ -113,26 +113,18 @@ app.get(
 	}),
 );
 
-/** Refuses access the way a host's auth middleware does, naming a reason */
 app.get(
 	"/fixtures/refused-trace/:code/traces",
-	defineEventHandler((event) => {
-		const code = getRouterParam(event, "code");
-		const status = code === "token_wrong_trace" ? 403 : 401;
-		const expiredAt =
-			code === "token_expired" ? "2026-11-06T11:53:00.000Z" : undefined;
-
-		return new Response(
-			JSON.stringify({ status, message: "Refused", code, expiredAt }),
-			{
-				headers: {
-					"access-control-allow-origin": "*",
-					"content-type": "application/json",
-				},
-				status,
-			},
-		);
-	}),
+	defineEventHandler(
+		(event) =>
+			new Response(
+				JSON.stringify({
+					code: getRouterParam(event, "code"),
+					expiredAt: "2026-11-06T11:53:00.000Z",
+				}),
+				{ headers: { "access-control-allow-origin": "*" }, status: 401 },
+			),
+	),
 );
 
 app.get("/health", () => {

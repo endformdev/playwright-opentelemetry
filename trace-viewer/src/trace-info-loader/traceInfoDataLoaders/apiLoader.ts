@@ -24,7 +24,7 @@ export async function loadRemoteApi(
 	const tracesResponse = await fetch(tracesUrl);
 	if (!tracesResponse.ok) {
 		const body = await tracesResponse.text();
-		const accessFailure = parseTraceAccessFailure(tracesResponse.status, body);
+		const accessFailure = parseTraceAccessFailure(body);
 		if (accessFailure) throw new TraceAccessError(accessFailure);
 
 		throw new Error(

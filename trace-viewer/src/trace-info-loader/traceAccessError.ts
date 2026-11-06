@@ -2,7 +2,6 @@
 export type TraceAccessFailure =
 	| { code: "token_expired"; expiredAt: Date | null }
 	| { code: "token_invalid" }
-	| { code: "token_wrong_trace" }
 	| { code: "token_missing" };
 
 export class TraceAccessError extends Error {
@@ -15,22 +14,15 @@ export class TraceAccessError extends Error {
 	}
 }
 
-/**
- * Reads the reason out of a refused response. Responses without a known `code`
- * give null, as a 401 alone doesn't say what went wrong.
- */
+/** Reads the reason out of a refused response, or null if it doesn't give one. */
 export function parseTraceAccessFailure(
-	status: number,
 	body: string,
 ): TraceAccessFailure | null {
-	if (status !== 401 && status !== 403) return null;
-
-	const denial = parseJsonObject(body);
+	const denial = parseJson(body);
 	switch (denial?.code) {
 		case "token_expired":
 			return { code: "token_expired", expiredAt: parseDate(denial.expiredAt) };
 		case "token_invalid":
-		case "token_wrong_trace":
 		case "token_missing":
 			return { code: denial.code };
 		default:
@@ -38,19 +30,17 @@ export function parseTraceAccessFailure(
 	}
 }
 
-function parseJsonObject(body: string): Record<string, unknown> | null {
+function parseJson(
+	body: string,
+): { code?: unknown; expiredAt?: unknown } | null {
 	try {
-		const value: unknown = JSON.parse(body);
-		return typeof value === "object" && value !== null
-			? (value as Record<string, unknown>)
-			: null;
+		return JSON.parse(body);
 	} catch {
 		return null;
 	}
 }
 
 function parseDate(value: unknown): Date | null {
-	if (typeof value !== "string") return null;
-	const date = new Date(value);
+	const date = new Date(typeof value === "string" ? value : Number.NaN);
 	return Number.isNaN(date.getTime()) ? null : date;
 }

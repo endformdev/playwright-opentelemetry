@@ -54,11 +54,6 @@ function accessDeniedCopy(failure: TraceAccessFailure): {
 				title: "This trace link isn't valid",
 				explanation: "The trace server didn't accept the link's access token.",
 			};
-		case "token_wrong_trace":
-			return {
-				title: "This link is for a different trace",
-				explanation: "The link's access token doesn't cover this trace.",
-			};
 		case "token_missing":
 			return {
 				title: "You don't have access to this trace",
