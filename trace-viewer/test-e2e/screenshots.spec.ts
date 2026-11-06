@@ -78,6 +78,66 @@ test("the ruler's filmstrip shows a row per browser page", async ({ page }) => {
 	await expect(ruler.filmstrip.framesUnderPointer).toHaveCount(2);
 });
 
+test("the ruler's filmstrip stays put and survives a small slip above the ruler", async ({
+	page,
+	request,
+}) => {
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const offsetsMs = [0, 500, 1000, 1500, 2000, 2500, 3000, 3500];
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Ruler slip",
+		4000,
+	);
+	builder.addStepSpanAndGetId("Inspect page", 3000, { startOffsetMs: 500 });
+	await builder.send(request);
+	await uploadScreenshots(request, traceId, testStartTime, offsetsMs);
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	const { ruler, stepViewer } = viewer;
+	const { filmstrip } = ruler;
+	await expect(stepViewer.screenshot).toBeVisible({ timeout: 10000 });
+	await viewer.leaveOpeningStep();
+
+	const rulerBox = (await ruler.root.boundingBox())!;
+	const playBox = (await stepViewer.playButton.boundingBox())!;
+	const { x } = await ruler.pointAt(0.6);
+	const justAboveRuler = rulerBox.y - 4;
+
+	await test.step("The space above the ruler opens nothing by itself", async () => {
+		await page.mouse.move(x, justAboveRuler);
+		await expect(filmstrip.root).toBeHidden();
+	});
+
+	await test.step("Opening and closing does not move the filmstrip", async () => {
+		const closed = (await filmstrip.root.boundingBox())!;
+		await ruler.hoverAt(0.6);
+		await expect(filmstrip.root).toBeVisible();
+		const open = (await filmstrip.root.boundingBox())!;
+		expect(open.y).toBe(closed.y);
+	});
+
+	await test.step("Slipping up to just under the controls keeps scrubbing", async () => {
+		const { x: slippedX } = await ruler.pointAt(0.8);
+		await page.mouse.move(slippedX, justAboveRuler);
+		await expect(filmstrip.root).toBeVisible();
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			frameAt(testStartTime, offsetsMs, 0.8 * 4000),
+		);
+	});
+
+	await test.step("Reaching the controls closes it, and they take the click", async () => {
+		await page.mouse.click(
+			playBox.x + playBox.width / 2,
+			playBox.y + playBox.height - 2,
+		);
+		await expect(filmstrip.root).toBeHidden();
+		await expect(stepViewer.pauseButton).toBeVisible();
+	});
+});
+
 test("the filmstrip lines up in time with the ruler and names the step under the pointer", async ({
 	page,
 	request,
