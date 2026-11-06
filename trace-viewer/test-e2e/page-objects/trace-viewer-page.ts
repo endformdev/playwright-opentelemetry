@@ -159,15 +159,12 @@ export class RulerFilmstrip {
 	readonly root: Locator;
 	/** Names what is under the pointer, as in "2. Click · 1.2s" */
 	readonly label: Locator;
-	/** Shades the time range of the step or hooks under the pointer */
-	readonly range: Locator;
 	/** The frame under the pointer, one per row */
 	readonly framesUnderPointer: Locator;
 
 	constructor(scope: Page | FrameLocator) {
 		this.root = scope.getByTestId("ruler-filmstrip");
 		this.label = this.root.getByTestId("ruler-filmstrip-label");
-		this.range = this.root.getByTestId("ruler-filmstrip-range");
 		this.framesUnderPointer = this.root.locator("[data-under-pointer]");
 	}
 
@@ -192,6 +189,8 @@ export class TimelineRulerComponent {
 	/** The steps that stand out: the one on display and the one hovered */
 	readonly highlightedSteps: Locator;
 	readonly hooks: Locator;
+	/** The hooks under the pointer, which stand out like a step */
+	readonly highlightedHooks: Locator;
 	/** The bar's fill, up to the playhead */
 	readonly fill: Locator;
 	/** The playhead knob, carrying the locked time */
@@ -209,6 +208,9 @@ export class TimelineRulerComponent {
 			this.root.locator(".bg-gray-900\\/25"),
 		);
 		this.hooks = this.root.getByTestId("step-ruler-hooks");
+		this.highlightedHooks = this.hooks.and(
+			this.root.locator(".bg-gray-900\\/25"),
+		);
 		this.fill = this.root.getByTestId("step-ruler-fill");
 		this.playhead = this.root.getByTestId("step-ruler-playhead");
 		this.zoomWindow = this.root.getByTestId("ruler-zoom-window");

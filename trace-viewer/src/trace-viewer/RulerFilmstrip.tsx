@@ -22,8 +22,6 @@ export interface RulerFilmstripProps {
 	pointerTimeMs: number | null;
 	/** Names what is under the pointer, e.g. `7. Navigate · 900ms` */
 	label: string;
-	/** Time range of the step or hooks under the pointer, to shade */
-	range: { startMs: number; endMs: number } | null;
 }
 
 /** Rows get shorter as pages are added, so several still fit over the player. */
@@ -100,21 +98,6 @@ export function RulerFilmstrip(props: RulerFilmstripProps) {
 				</div>
 
 				<div class="relative flex flex-col gap-1">
-					<Show when={props.range}>
-						{(range) => (
-							<div
-								class="absolute -inset-y-1 z-20 border-x border-gray-900/30 bg-gray-900/10"
-								style={{
-									left: `${toPercent(range().startMs)}%`,
-									width: `${toPercent(range().endMs) - toPercent(range().startMs)}%`,
-								}}
-								data-testid="ruler-filmstrip-range"
-								data-start-ms={range().startMs}
-								data-end-ms={range().endMs}
-							/>
-						)}
-					</Show>
-
 					<For each={rows()}>
 						{(page) => (
 							<FilmstripRow

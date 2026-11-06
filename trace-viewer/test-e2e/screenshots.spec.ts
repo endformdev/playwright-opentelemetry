@@ -94,7 +94,9 @@ test("the filmstrip lines up in time with the ruler and names the step under the
 		startOffsetMs: 500,
 		attributes: { "test.step.subtitle": "example.com" },
 	});
-	builder.addStepSpanAndGetId("Inspect page", 2000, { startOffsetMs: 1200 });
+	const inspectPage = builder.addStepSpanAndGetId("Inspect page", 2000, {
+		startOffsetMs: 1200,
+	});
 	await builder.send(request);
 	await uploadScreenshots(request, traceId, testStartTime, offsetsMs);
 
@@ -134,13 +136,12 @@ test("the filmstrip lines up in time with the ruler and names the step under the
 		);
 	});
 
-	await test.step("Labels and shades the step under the pointer", async () => {
+	await test.step("Labels the step under the pointer and picks it out on the ruler", async () => {
 		await expect(filmstrip.label).toHaveText("2. Inspect page · 2.2s");
-		await expect(filmstrip.range).toHaveAttribute("data-start-ms", "1200");
-		await expect(filmstrip.range).toHaveAttribute("data-end-ms", "3200");
-		const range = (await filmstrip.range.boundingBox())!;
-		const segment = (await ruler.steps.nth(1).boundingBox())!;
-		expect(Math.abs(range.x - segment.x)).toBeLessThan(2);
+		await expect(ruler.highlightedSteps).toHaveAttribute(
+			"data-span-id",
+			inspectPage,
+		);
 
 		await ruler.hoverAt(0.17);
 		await expect(filmstrip.label).toHaveText(
@@ -148,7 +149,10 @@ test("the filmstrip lines up in time with the ruler and names the step under the
 		);
 		await ruler.hoverAt(0.05);
 		await expect(filmstrip.label).toHaveText("Before hooks · 200ms");
-		await expect(filmstrip.range).toHaveAttribute("data-start-ms", "0");
+		await expect(ruler.highlightedHooks).toHaveAttribute(
+			"data-hooks",
+			"before-hooks",
+		);
 	});
 
 	await test.step("With nothing locked, the screenshot follows the pointer on the ruler", async () => {
