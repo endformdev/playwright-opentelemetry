@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TraceAccessError } from "../traceAccessError";
 import { loadRemoteApi } from "./apiLoader";
 import { loadScreenshotsInPage } from "./pageScreenshots";
 import { ensureServiceWorker, loadScreenshotsForTrace } from "./zipLoader";
@@ -124,6 +125,39 @@ describe("loading a trace from the remote trace API", () => {
 			loadRemoteApi(`https://traces.example.com/${traceId}`, null),
 		).rejects.toThrow("Failed to fetch trace data");
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("reports the reason the trace API gives for refusing access", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse(
+				{ status: 401, message: "Unauthorized", code: "token_invalid" },
+				401,
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const error = await loadRemoteApi(
+			"https://traces.example.com/trace-id",
+			"secret-token",
+		).catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(TraceAccessError);
+		expect((error as TraceAccessError).failure).toEqual({
+			code: "token_invalid",
+		});
+		expect((error as TraceAccessError).message).not.toContain("secret-token");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("falls back to the generic error when a 401 gives no reason", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => textResponse("Unauthorized", 401)),
+		);
+
+		await expect(
+			loadRemoteApi("https://traces.example.com/trace-id", null),
+		).rejects.toThrow("401 Unauthorized");
 	});
 
 	it("fails clearly when the trace API returns data without a Playwright root span", async () => {

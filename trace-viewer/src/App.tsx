@@ -1,9 +1,10 @@
 import { ErrorBoundary, Match, Switch } from "solid-js";
+import { TraceAccessDenied } from "./TraceAccessDenied";
 import {
 	TraceLoadInterface,
 	type TraceLoadInterfaceStatus,
 } from "./TraceLoadInterface";
-import { useTraceInfoLoader } from "./trace-info-loader";
+import { TraceAccessError, useTraceInfoLoader } from "./trace-info-loader";
 import { createTraceLoadRequestSignal, type TraceSource } from "./trace-source";
 import { TraceViewer } from "./trace-viewer";
 import { readViewerActionFromQueryParams } from "./trace-viewer/viewerAction";
@@ -23,6 +24,12 @@ export default function App() {
 			return undefined;
 		}
 		return request.source;
+	};
+	const accessFailure = () => {
+		const error = traceInfoData.error;
+		return loadRequest() && error instanceof TraceAccessError
+			? error.failure
+			: undefined;
 	};
 	const traceLoadInterfaceStatus = (): TraceLoadInterfaceStatus => {
 		const request = loadRequest();
@@ -76,6 +83,14 @@ export default function App() {
 					</Match>
 					<Match when={urlLoadingSource()}>
 						{(source) => <TraceLoading source={source()} />}
+					</Match>
+					<Match when={accessFailure()}>
+						{(failure) => (
+							<TraceAccessDenied
+								failure={failure()}
+								onLoadAnother={() => setLoadRequest(null)}
+							/>
+						)}
 					</Match>
 				</Switch>
 			</div>
