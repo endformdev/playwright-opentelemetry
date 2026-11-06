@@ -14,10 +14,11 @@
 
 	/*
 	 * Where you are in the test, and nothing else: the playhead, the played part
-	 * of the ruler, the running play button, the current step and page. Green
-	 * from the Endform logo. Text on it is near-black: white fails contrast.
+	 * of the ruler, the running play button, the current step and page. Emerald,
+	 * like the status pill beside it. Text on it is near-black: white fails
+	 * contrast.
 	 */
-	--color-fill-playhead: #22aa5b;
+	--color-fill-playhead: var(--color-emerald-500);
 	--color-fill-playhead-strong: color-mix(
 		in oklab,
 		var(--color-fill-playhead) 60%,
