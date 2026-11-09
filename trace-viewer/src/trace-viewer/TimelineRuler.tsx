@@ -59,7 +59,17 @@ export interface TimelineRulerProps {
 	showFilmstrip: boolean;
 	/** Where the filmstrip opens while the pointer is on the ruler */
 	filmstripPlacement: "above" | "below";
+	/** Moments to point out, e.g. a highlighted span's start */
+	markers?: RulerMarker[];
 }
+
+export interface RulerMarker {
+	timeMs: number;
+	label: string;
+}
+
+/** Past this share of the ruler, a marker's label sits left of its line. */
+const MARKER_LABEL_FLIP_PERCENT = 70;
 
 /** Aligns ruler content with the shared timeline plot box. */
 const PLOT_STYLE = {
@@ -490,6 +500,31 @@ export function TimelineRuler(props: TimelineRulerProps) {
 							</For>
 						</Show>
 					</div>
+
+					{/* Markers: a line through the step bar, labelled below it */}
+					<For each={props.markers ?? []}>
+						{(marker) => (
+							<div
+								class="pointer-events-none absolute inset-y-0 z-30"
+								style={{ left: `${toPercent(marker.timeMs)}%` }}
+								data-testid="step-ruler-marker"
+								data-time-ms={marker.timeMs}
+							>
+								<div class="absolute top-0.5 h-6 -ml-px w-[3px] rounded-full bg-amber-500" />
+								<span
+									class="absolute top-7 whitespace-nowrap rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-900"
+									classList={{
+										"left-1":
+											toPercent(marker.timeMs) <= MARKER_LABEL_FLIP_PERCENT,
+										"right-1":
+											toPercent(marker.timeMs) > MARKER_LABEL_FLIP_PERCENT,
+									}}
+								>
+									{marker.label}
+								</span>
+							</div>
+						)}
+					</For>
 
 					{/* Hover line */}
 					<Show when={hoverLineTimeMs() !== null}>

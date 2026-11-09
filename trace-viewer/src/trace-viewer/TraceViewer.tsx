@@ -1,5 +1,6 @@
 import {
 	batch,
+	createEffect,
 	createMemo,
 	createSignal,
 	onCleanup,
@@ -46,6 +47,7 @@ import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
 import { useTimelinePointer } from "./useTimelinePointer";
 import type { ViewerAction } from "./viewerAction";
+import type { ViewerHighlight } from "./viewerHighlight";
 import { type ViewerPanels, viewerSettingsFromPanels } from "./viewerPanels";
 import { createViewerSettings, type ViewerSectionKey } from "./viewerSettings";
 import {
@@ -65,6 +67,8 @@ export interface TraceViewerProps {
 	panels?: ViewerPanels | null;
 	/** Adds a button for this action to the player's control bar */
 	action?: ViewerAction | null;
+	/** A span to open on and mark on the step ruler, e.g. from the URL */
+	highlight?: ViewerHighlight | null;
 }
 
 /** Panel size configuration (without content - content rendered separately) */
@@ -136,6 +140,7 @@ export function TraceViewer(props: TraceViewerProps) {
 						testStartTimeMs={testStartTimeMs}
 						panels={props.panels ?? null}
 						action={props.action ?? null}
+						highlight={props.highlight ?? null}
 					/>
 				</HoverProvider>
 			</SearchProvider>
@@ -149,6 +154,7 @@ interface TraceViewerInnerProps {
 	testStartTimeMs: () => number;
 	panels: ViewerPanels | null;
 	action: ViewerAction | null;
+	highlight: ViewerHighlight | null;
 }
 
 function TraceViewerInner(props: TraceViewerInnerProps) {
@@ -447,6 +453,28 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		});
 	};
 
+	/** The highlighted span, when the trace contains it */
+	const highlightedSpan = createMemo(() => {
+		const spanId = props.highlight?.spanId;
+		return spanId ? (spanById().get(spanId) ?? null) : null;
+	});
+	const rulerMarkers = createMemo(() => {
+		const span = highlightedSpan();
+		return span && props.highlight
+			? [{ timeMs: span.startOffsetMs, label: props.highlight.label }]
+			: [];
+	});
+
+	// Once loaded, open on the highlighted span. Locking first keeps the step
+	// viewer from opening on the first screenshot instead.
+	let openedOnHighlight = false;
+	createEffect(() => {
+		if (openedOnHighlight || props.traceData.status() !== "loaded") return;
+		openedOnHighlight = true;
+		const span = highlightedSpan();
+		if (span) untrack(() => handleRulerSeek(span.startOffsetMs));
+	});
+
 	/**
 	 * Search results and error spans take over the selection and go to the
 	 * span: zoomed to fit and with its row centred.
@@ -590,6 +618,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			testStartTimeMs={props.testStartTimeMs()}
 			showFilmstrip={!showPlayerFilmstrip()}
 			filmstripPlacement={showStepViewer() ? "above" : "below"}
+			markers={rulerMarkers()}
 		/>
 	);
 

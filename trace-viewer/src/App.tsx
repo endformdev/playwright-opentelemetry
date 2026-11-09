@@ -8,12 +8,14 @@ import { TraceAccessError, useTraceInfoLoader } from "./trace-info-loader";
 import { createTraceLoadRequestSignal, type TraceSource } from "./trace-source";
 import { TraceViewer } from "./trace-viewer";
 import { readViewerActionFromQueryParams } from "./trace-viewer/viewerAction";
+import { readViewerHighlightFromQueryParams } from "./trace-viewer/viewerHighlight";
 import { readViewerPanelsFromQueryParams } from "./trace-viewer/viewerPanels";
 
 export default function App() {
 	const [loadRequest, setLoadRequest] = createTraceLoadRequestSignal();
 	const viewerPanels = readViewerPanelsFromQueryParams();
 	const viewerAction = readViewerActionFromQueryParams();
+	const viewerHighlight = readViewerHighlightFromQueryParams();
 	const { traceInfoData, traceInfo } = useTraceInfoLoader(
 		() => loadRequest()?.source ?? null,
 	);
@@ -78,6 +80,7 @@ export default function App() {
 								traceInfo={info()}
 								panels={viewerPanels}
 								action={viewerAction}
+								highlight={viewerHighlight}
 							/>
 						)}
 					</Match>
