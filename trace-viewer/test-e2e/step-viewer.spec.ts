@@ -858,3 +858,68 @@ test("a search result takes over from the step viewer and goes to the span", asy
 		await expect(focusRing).toHaveAttribute("data-span-id", save);
 	});
 });
+
+test("opens on a highlighted span, naming the step that starts there", async ({
+	page,
+	request,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Highlight",
+		2000,
+	);
+	builder.addStepSpanAndGetId("First", 500, { startOffsetMs: 500 });
+	// Starts as First ends, where time alone names First.
+	const group = builder.addStepSpanAndGetId("Group", 1000, {
+		startOffsetMs: 1000,
+	});
+	const inner = builder.addStepSpanAndGetId("Inner", 500, {
+		startOffsetMs: 1000,
+		parentSpanId: group,
+	});
+	builder.addStepSpanAndGetId("Last", 500, {
+		startOffsetMs: 1500,
+		parentSpanId: group,
+	});
+	await builder.send(request);
+
+	const zip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [0, 500, 1000, 1500],
+	});
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await zip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
+	);
+	expect(upload.ok()).toBeTruthy();
+
+	const viewer = new TraceViewerPage(page);
+	const { stepViewer, ruler } = viewer;
+	const marker = viewer.root.getByTestId("step-ruler-marker");
+
+	await test.step("A highlighted step is named, not the one ending there", async () => {
+		await viewer.loadTraceFromUrlParam(traceId, {
+			highlightSpan: inner,
+			highlightLabel: "Changed around here",
+		});
+		await expect(marker).toHaveText("Changed around here", { timeout: 10000 });
+		await expect(stepViewer.position).toHaveText("2/3");
+		await expect(stepViewer.stepTitle).toHaveText("Inner");
+		await expect(ruler.playhead).toHaveAttribute(
+			"data-time-ms",
+			await marker.getAttribute("data-time-ms").then(String),
+		);
+	});
+
+	await test.step("A highlighted parent names its first step", async () => {
+		await viewer.loadTraceFromUrlParam(traceId, { highlightSpan: group });
+		await expect(marker).toHaveText("Highlighted step", { timeout: 10000 });
+		await expect(stepViewer.position).toHaveText("2/3");
+		await expect(stepViewer.stepTitle).toHaveText("Inner");
+	});
+});
