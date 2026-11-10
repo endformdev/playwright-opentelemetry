@@ -1,5 +1,6 @@
 import { children, type JSX, Show, splitProps } from "solid-js";
 import type { ScreenshotInfo } from "../trace-info-loader";
+import { ScreenshotSkeleton, skeletonPhaseStyle } from "./TraceViewerSkeleton";
 import {
 	PlayerControlBar,
 	type PlayerControlBarProps,
@@ -60,11 +61,23 @@ export function StepViewer(props: StepViewerProps) {
 								<Show
 									when={props.noScreenshots}
 									fallback={
-										<div class="flex h-full items-center justify-center text-sm text-gray-400">
-											{props.screenshotsLoading
-												? "Loading screenshots..."
-												: "No screenshot at this time"}
-										</div>
+										<Show
+											when={!props.screenshotsLoading}
+											fallback={
+												<div
+													role="status"
+													aria-label="Loading screenshots"
+													class="h-full"
+													style={skeletonPhaseStyle()}
+												>
+													<ScreenshotSkeleton />
+												</div>
+											}
+										>
+											<div class="flex h-full items-center justify-center text-sm text-gray-400">
+												No screenshot at this time
+											</div>
+										</Show>
 									}
 								>
 									<div

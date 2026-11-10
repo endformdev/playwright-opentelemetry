@@ -6,7 +6,7 @@ import {
 } from "./TraceLoadInterface";
 import { TraceAccessError, useTraceInfoLoader } from "./trace-info-loader";
 import { createTraceLoadRequestSignal, type TraceSource } from "./trace-source";
-import { TraceViewer } from "./trace-viewer";
+import { TraceViewer, TraceViewerSkeleton } from "./trace-viewer";
 import { readViewerActionFromQueryParams } from "./trace-viewer/viewerAction";
 import { readViewerHighlightFromQueryParams } from "./trace-viewer/viewerHighlight";
 import { readViewerPanelsFromQueryParams } from "./trace-viewer/viewerPanels";
@@ -85,7 +85,13 @@ export default function App() {
 						)}
 					</Match>
 					<Match when={urlLoadingSource()}>
-						{(source) => <TraceLoading source={source()} />}
+						{(source) => (
+							<TraceViewerSkeleton
+								panels={viewerPanels}
+								hasAction={viewerAction !== null}
+								message={`Loading trace. ${loadingMessage(source())}`}
+							/>
+						)}
 					</Match>
 					<Match when={accessFailure()}>
 						{(failure) => (
@@ -98,17 +104,6 @@ export default function App() {
 				</Switch>
 			</div>
 		</ErrorBoundary>
-	);
-}
-
-function TraceLoading(props: { source: TraceSource }) {
-	return (
-		<div class="flex flex-1 items-center justify-center">
-			<div class="text-center">
-				<div class="mb-2">Loading trace...</div>
-				<div class="text-sm text-gray-500">{loadingMessage(props.source)}</div>
-			</div>
-		</div>
 	);
 }
 
