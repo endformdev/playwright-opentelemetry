@@ -6,7 +6,7 @@ import { ensureServiceWorker, loadScreenshotsForTrace } from "./zipLoader";
 
 vi.mock("./zipLoader", () => ({
 	ensureServiceWorker: vi.fn(async () => ({})),
-	unloadCurrentTrace: vi.fn(async () => undefined),
+	unloadTrace: vi.fn(async () => undefined),
 	loadScreenshotsForTrace: vi.fn(),
 }));
 
@@ -46,6 +46,7 @@ describe("loading a trace from the remote trace API", () => {
 		const traceInfo = await loadRemoteApi(
 			`https://traces.example.com/${traceId}/`,
 			null,
+			"primary",
 		);
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -99,6 +100,7 @@ describe("loading a trace from the remote trace API", () => {
 		const traceInfo = await loadRemoteApi(
 			`https://traces.example.com/${traceId}/`,
 			"token 123",
+			"primary",
 		);
 
 		expect(fetchMock).toHaveBeenCalledWith(
@@ -122,7 +124,7 @@ describe("loading a trace from the remote trace API", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(
-			loadRemoteApi(`https://traces.example.com/${traceId}`, null),
+			loadRemoteApi(`https://traces.example.com/${traceId}`, null, "primary"),
 		).rejects.toThrow("Failed to fetch trace data");
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
@@ -134,7 +136,7 @@ describe("loading a trace from the remote trace API", () => {
 		);
 
 		await expect(
-			loadRemoteApi("https://traces.example.com/trace-id", null),
+			loadRemoteApi("https://traces.example.com/trace-id", null, "primary"),
 		).rejects.toBeInstanceOf(TraceAccessError);
 	});
 
@@ -145,7 +147,7 @@ describe("loading a trace from the remote trace API", () => {
 		);
 
 		await expect(
-			loadRemoteApi("https://traces.example.com/trace-id", null),
+			loadRemoteApi("https://traces.example.com/trace-id", null, "primary"),
 		).rejects.toThrow("401 Unauthorized");
 	});
 
@@ -159,6 +161,7 @@ describe("loading a trace from the remote trace API", () => {
 		const error = await loadRemoteApi(
 			`https://traces.example.com/${traceId}`,
 			"secret-token",
+			"primary",
 		).catch((error: unknown) => error);
 
 		expect(String(error)).toContain(
@@ -180,7 +183,7 @@ describe("loading a trace from the remote trace API", () => {
 		);
 
 		await expect(
-			loadRemoteApi(`https://traces.example.com/${traceId}`, null),
+			loadRemoteApi(`https://traces.example.com/${traceId}`, null, "primary"),
 		).rejects.toThrow("no playwright.test span found");
 	});
 
@@ -191,13 +194,28 @@ describe("loading a trace from the remote trace API", () => {
 			{ timestamp: 1, url: "blob:null/screenshot", pageId: "page@abc" },
 		];
 
-		async function loadTrace() {
+		async function loadTrace(slot: "primary" | "comparison" = "primary") {
 			vi.stubGlobal(
 				"fetch",
 				vi.fn(async () => jsonResponse(otlpExport(traceId))),
 			);
-			return loadRemoteApi(`https://traces.example.com/${traceId}`, null);
+			return loadRemoteApi(`https://traces.example.com/${traceId}`, null, slot);
 		}
+
+		it("loads a comparison's in the page into its own slot", async () => {
+			vi.spyOn(console, "info").mockImplementationOnce(() => undefined);
+			vi.mocked(ensureServiceWorker).mockRejectedValueOnce(
+				new Error("Service workers are not available in this page"),
+			);
+			vi.mocked(loadScreenshotsInPage).mockResolvedValueOnce(screenshots);
+			const traceInfo = await loadTrace("comparison");
+
+			await traceInfo.loadScreenshots();
+			expect(loadScreenshotsInPage).toHaveBeenCalledWith(
+				screenshotsZipUrl,
+				"comparison",
+			);
+		});
 
 		it("loads them in the page when there's no service worker", async () => {
 			vi.spyOn(console, "info").mockImplementationOnce(() => undefined);
@@ -208,7 +226,10 @@ describe("loading a trace from the remote trace API", () => {
 			const traceInfo = await loadTrace();
 
 			expect(await traceInfo.loadScreenshots()).toEqual(screenshots);
-			expect(loadScreenshotsInPage).toHaveBeenCalledWith(screenshotsZipUrl);
+			expect(loadScreenshotsInPage).toHaveBeenCalledWith(
+				screenshotsZipUrl,
+				"primary",
+			);
 			expect(loadScreenshotsForTrace).not.toHaveBeenCalled();
 		});
 

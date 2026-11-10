@@ -79,11 +79,15 @@ describe("loading ZIP traces", () => {
 			],
 		});
 
-		const traceInfo = await loadRemoteZip("https://example.com/trace.zip");
+		const traceInfo = await loadRemoteZip(
+			"https://example.com/trace.zip",
+			"primary",
+		);
 
 		expect(serviceWorker.loadTraceZipUrlInServiceWorker).toHaveBeenCalledWith({
 			zipUrl: "https://example.com/trace.zip",
 		});
+		expect(serviceWorker.unloadTraceFromServiceWorker).toHaveBeenCalled();
 		expect(traceInfo.traceData.resourceSpans).toHaveLength(1);
 		expect(await traceInfo.loadScreenshots()).toEqual([
 			{
@@ -92,6 +96,19 @@ describe("loading ZIP traces", () => {
 				pageId: "page@abc",
 			},
 		]);
+	});
+
+	it("leaves the primary loaded when loading a comparison", async () => {
+		const traceId = "7709187832dca84f02f413a312421586";
+		serviceWorker.loadTraceZipUrlInServiceWorker.mockResolvedValueOnce({
+			traceId,
+			traceData: otlpExport(traceId),
+			screenshotMetas: [],
+		});
+
+		await loadRemoteZip("https://example.com/baseline.zip", "comparison");
+
+		expect(serviceWorker.unloadTraceFromServiceWorker).not.toHaveBeenCalled();
 	});
 });
 

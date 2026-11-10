@@ -7,11 +7,14 @@ import {
 import type { TraceSource } from "../trace-source";
 import type { OtlpExport } from "../trace-data-loader";
 import { loadRemoteApi } from "./traceInfoDataLoaders/apiLoader";
+import type { TraceSlot } from "./traceInfoDataLoaders/pageScreenshots";
 import {
 	loadLocalZip,
 	loadRemoteZip,
-	unloadCurrentTrace,
+	unloadTrace,
 } from "./traceInfoDataLoaders/zipLoader";
+
+export type { TraceSlot };
 
 export interface TraceInfo {
 	testInfo: TestInfo;
@@ -55,12 +58,17 @@ export interface TraceInfoLoaderResult {
 	traceInfo: Accessor<TraceInfo | undefined>;
 }
 
+/**
+ * Loads the trace a source names into a slot. The viewer has two: the primary,
+ * and a comparison shown beside it, each keeping its own screenshots.
+ */
 export function useTraceInfoLoader(
 	source: () => TraceSource | null,
+	slot: TraceSlot = "primary",
 ): TraceInfoLoaderResult {
 	const [traceInfoData] = createResource(source, async (src) => {
 		if (!src) return undefined;
-		return loadTraceSource(src);
+		return loadTraceSource(src, slot);
 	});
 	const [screenshots] = createResource(
 		() =>
@@ -82,21 +90,27 @@ export function useTraceInfoLoader(
 		};
 	};
 
-	// Cleanup: release the trace's screenshots when component unmounts
+	// Cleanup: release the slot's screenshots when component unmounts
 	onCleanup(() => {
-		unloadCurrentTrace();
+		unloadTrace(slot);
 	});
 
 	return { traceInfoData, traceInfo };
 }
 
-async function loadTraceSource(source: TraceSource): Promise<TraceInfoData> {
+async function loadTraceSource(
+	source: TraceSource,
+	slot: TraceSlot,
+): Promise<TraceInfoData> {
 	switch (source.kind) {
 		case "local-zip":
+			if (slot !== "primary") {
+				throw new Error("A local ZIP can't be a comparison");
+			}
 			return loadLocalZip(source.file);
 		case "remote-zip":
-			return loadRemoteZip(source.url);
+			return loadRemoteZip(source.url, slot);
 		case "remote-api":
-			return loadRemoteApi(source.url, source.traceToken);
+			return loadRemoteApi(source.url, source.traceToken, slot);
 	}
 }

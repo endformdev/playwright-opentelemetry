@@ -47,6 +47,7 @@ import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
 import { useTimelinePointer } from "./useTimelinePointer";
 import type { ViewerAction } from "./viewerAction";
+import type { ViewerComparison } from "./viewerComparison";
 import type { ViewerHighlight } from "./viewerHighlight";
 import { type ViewerPanels, viewerSettingsFromPanels } from "./viewerPanels";
 import { createViewerSettings, type ViewerSectionKey } from "./viewerSettings";
@@ -69,6 +70,8 @@ export interface TraceViewerProps {
 	action?: ViewerAction | null;
 	/** A span to open on and mark on the step ruler, e.g. from the URL */
 	highlight?: ViewerHighlight | null;
+	/** Another trace to show beside this one on the big screen */
+	comparison?: ViewerComparison | null;
 }
 
 /** Panel size configuration (without content - content rendered separately) */

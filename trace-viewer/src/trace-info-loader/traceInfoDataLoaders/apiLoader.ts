@@ -2,7 +2,7 @@ import { parseOtlpExport } from "../../trace-data-loader";
 import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
 import type { ScreenshotInfo, TraceInfoData } from "../TraceInfoLoader";
 import { parseTraceAccessFailure, TraceAccessError } from "../traceAccessError";
-import { loadScreenshotsInPage } from "./pageScreenshots";
+import { loadScreenshotsInPage, type TraceSlot } from "./pageScreenshots";
 import { ensureServiceWorker, loadScreenshotsForTrace } from "./zipLoader";
 
 const TRACES_PATH = "traces";
@@ -13,6 +13,7 @@ const SERVICE_WORKER_TIMEOUT_MS = 10000;
 export async function loadRemoteApi(
 	baseUrl: string,
 	traceToken: string | null,
+	slot: TraceSlot,
 ): Promise<TraceInfoData> {
 	// Normalize base URL (remove trailing slash)
 	const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
@@ -45,6 +46,7 @@ export async function loadRemoteApi(
 			loadScreenshotsFromApi({
 				traceId: testInfo.traceId,
 				screenshotsZipUrl,
+				slot,
 			}),
 	};
 }
@@ -57,15 +59,17 @@ function withTraceToken(url: string, traceToken: string | null): string {
 async function loadScreenshotsFromApi({
 	traceId,
 	screenshotsZipUrl,
+	slot,
 }: {
 	traceId: string;
 	screenshotsZipUrl: string;
+	slot: TraceSlot;
 }): Promise<ScreenshotInfo[]> {
 	try {
 		if (await canUseServiceWorker()) {
 			return await loadScreenshotsForTrace(traceId, screenshotsZipUrl);
 		}
-		return await loadScreenshotsInPage(screenshotsZipUrl);
+		return await loadScreenshotsInPage(screenshotsZipUrl, slot);
 	} catch (error) {
 		console.warn(
 			`Failed to load screenshots ZIP: ${error instanceof Error ? error.message : String(error)}`,
