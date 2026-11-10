@@ -10,13 +10,16 @@ export const matchableSteps = (structure: TestStructure): Span[] =>
 
 /**
  * Why two steps were paired, strongest first:
- *  - "exact": same source line and same text
- *  - "text": same text on another line (the file was edited above it)
- *  - "line": same source line and kind of step, other text (a generated value)
+ *  - "text": same kind of step and same text
+ *  - "locator": same kind of step on the same locator, another value (a
+ *    generated email, a new order number)
  *  - "changed": the same kind of step between the same matched neighbours, or
  *    a test.step block paired through the actions inside it
+ *
+ * Source lines are not evidence. Once the file is edited another step can sit
+ * on a step's old line, and steps in a page-object helper all share one.
  */
-export type MatchEvidence = "exact" | "text" | "line" | "changed";
+export type MatchEvidence = "text" | "locator" | "changed";
 
 export interface StepPair {
 	primary: Span;
@@ -34,6 +37,13 @@ export interface StepMatch {
 
 /** Above this many score cells, actions are not aligned; blocks pair by title. */
 const MAX_ALIGNMENT_CELLS = 4_000_000;
+
+/**
+ * Above this many score cells, steps left between the same two neighbours
+ * pair by kind alone. Comparing their text token by token costs about a
+ * second when a thousand steps share one gap.
+ */
+const MAX_SIMILARITY_CELLS = 10_000;
 
 /**
  * Pairs the test body steps of two runs of a test. Both lists hold the
@@ -76,8 +86,8 @@ interface Described {
 	verb: string;
 	/** Title and subtitle, as the timeline shows it */
 	text: string;
-	/** `file:line`, or null when the step has no location */
-	location: string | null;
+	/** What the step acted on, `getByLabel('Email')`, or null for none */
+	locator: string | null;
 	startMs: number;
 	endMs: number;
 	parent: Described | null;
@@ -94,15 +104,17 @@ interface Candidate {
 function describeSteps(steps: Span[]): Described[] {
 	const described = steps.map((span): Described => {
 		const category = String(span.attributes["test.step.category"] ?? "");
-		const file = span.attributes["code.file.path"];
-		const line = span.attributes["code.line.number"];
+		const value = span.attributes["test.step.param.value"];
 		return {
 			span,
 			category,
-			verb: verbOf(category, span.title),
+			verb: verbOf(
+				category,
+				span.title,
+				typeof value === "string" ? value : undefined,
+			),
 			text: formatStepTitle(span),
-			location:
-				file !== undefined && line !== undefined ? `${file}:${line}` : null,
+			locator: locatorOf(span),
 			startMs: span.startOffsetMs,
 			endMs: span.startOffsetMs + span.durationMs,
 			parent: null,
@@ -124,38 +136,48 @@ function describeSteps(steps: Span[]): Described[] {
 /**
  * Quoted parts of an action's title are values (`Fill "John Doe"`); an
  * expect's quoted part is its matcher. A test.step has no verb: its title is
- * free text.
+ * free text. The reported value goes first and whole, so quotes inside it
+ * don't leave a piece behind.
  */
-function verbOf(category: string, title: string): string {
+function verbOf(category: string, title: string, value?: string): string {
 	if (category === "test.step") return "";
 	if (category === "expect") return title;
-	return title.replace(/\s*"[^"]*"/g, "").trim();
+	const rest = value === undefined ? title : title.replace(`"${value}"`, "");
+	return rest
+		.replace(/\s*"[^"]*"/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
 }
 
 /**
- * Whether two steps are the same step, as a score, or 0 when they aren't.
+ * The locator the reporter recorded as a param (Playwright 1.63 and newer),
+ * else the subtitle: older traces get one by splitting it off the title.
+ */
+function locatorOf(span: Span): string | null {
+	const param = span.attributes["test.step.param.locator"];
+	if (typeof param === "string" && param.length > 0) return param;
+	return span.subtitle || null;
+}
+
+/**
+ * Whether two steps are the same step, as a score, or 0 when they aren't:
+ * the same verb on the same text, or on the same locator with another value.
  * Similar text alone is not evidence: `Fill ... { name: 'City' }` and
- * `Fill ... { name: 'State' }` are mostly the same characters.
+ * `Fill ... { name: 'State' }` are mostly the same characters. Every pair of
+ * steps is scored, so this only compares strings.
  */
 function sameStepScore(a: Described, b: Described): number {
 	if (a.category !== b.category || a.verb !== b.verb) return 0;
-	const sameLine = a.location !== null && a.location === b.location;
 	let score: number;
-	if (a.text === b.text) score = sameLine ? 1 : 0.9;
-	// Comparing text token by token is the costly part of matching, and only
-	// steps on the same line need it: every pair of steps is scored.
-	else if (!sameLine) return 0;
-	else {
-		const similarity = textSimilarity(a.text, b.text);
-		if (similarity < 0.5 && !sameTarget(a, b)) return 0;
-		score = 0.7 + 0.2 * similarity;
-	}
+	if (a.text === b.text) score = 1;
+	else if (sameLocator(a, b)) score = 0.8;
+	else return 0;
 	// The same action under the same step is likelier the same action.
 	return score + (a.parent?.span.title === b.parent?.span.title ? 0.05 : 0);
 }
 
-const sameTarget = (a: Described, b: Described) =>
-	!!a.span.subtitle && a.span.subtitle === b.span.subtitle;
+const sameLocator = (a: Described, b: Described) =>
+	a.locator !== null && a.locator === b.locator;
 
 /** For steps left over between the same two matched neighbours. */
 function changedStepScore(a: Described, b: Described): number {
@@ -165,10 +187,15 @@ function changedStepScore(a: Described, b: Described): number {
 	return 0.3 + 0.5 * similarity;
 }
 
+/** For a gap too big to compare text in: actions of a kind pair in order. */
+const sameKindScore = (a: Described, b: Described) =>
+	a.category === b.category && a.verb === b.verb && a.category !== "test.step"
+		? 0.3
+		: 0;
+
 function evidenceOf(a: Described, b: Described): MatchEvidence {
-	const sameLine = a.location !== null && a.location === b.location;
-	if (a.text === b.text) return sameLine ? "exact" : "text";
-	return sameLine ? "line" : "changed";
+	if (a.text === b.text) return "text";
+	return sameLocator(a, b) ? "locator" : "changed";
 }
 
 /**
@@ -184,7 +211,8 @@ const inRunOrder = (steps: Described[]) =>
  *  1. order-preserving, strong evidence only
  *  2. strong pairs that sit one position out of order (steps running at once)
  *  3. between the same two matched neighbours, steps of the same kind in
- *     order: an edited locator, or a new value on a shifted line
+ *     order: an edited locator. In a gap too big to compare text in, by kind
+ *     alone
  */
 function alignLeaves(leavesA: Described[], leavesB: Described[]): Candidate[] {
 	const a = inRunOrder(leavesA);
@@ -228,7 +256,14 @@ function alignLeaves(leavesA: Described[], leavesB: Described[]): Candidate[] {
 	for (const gap of new Set(restA.values())) {
 		const inA = [...restA].filter(([, g]) => g === gap).map(([step]) => step);
 		const inB = [...restB].filter(([, g]) => g === gap).map(([step]) => step);
-		pairs.push(...alignSequences(inA, inB, changedStepScore));
+		const compareText = inA.length * inB.length <= MAX_SIMILARITY_CELLS;
+		pairs.push(
+			...alignSequences(
+				inA,
+				inB,
+				compareText ? changedStepScore : sameKindScore,
+			),
+		);
 	}
 	return pairs.sort((x, y) => indexA.get(x.a)! - indexA.get(y.a)!);
 }
