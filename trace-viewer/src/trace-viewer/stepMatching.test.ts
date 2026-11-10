@@ -433,6 +433,54 @@ describe("matchSteps", () => {
 		]);
 	});
 
+	it("pairs a step on the same line whose only shared text is its locator", () => {
+		const result = match(
+			[
+				[
+					"pw:api",
+					'Fill "4111 1111 1111 1111"',
+					"getByLabel('Card')",
+					10,
+					0,
+					10,
+				],
+			],
+			[
+				[
+					"pw:api",
+					'Fill "5500 0000 0000 0004"',
+					"getByLabel('Card')",
+					10,
+					0,
+					10,
+				],
+			],
+		);
+		expect(pairsOf(result)).toEqual([["a:0", "b:0", "line"]]);
+	});
+
+	it("matches a long test without holding up the page", () => {
+		// Same verbs throughout, values that differ between the runs, and lines
+		// that repeat: the pairs every step is scored against.
+		const longRun = (run: number) =>
+			Array.from({ length: 1000 }, (_, index): StepRow => [
+				"pw:api",
+				`Fill "value ${index}-${run}"`,
+				`getByRole('textbox', { name: 'Field ${index % 25}' })`,
+				100 + (index % 40),
+				index * 10,
+				index * 10 + 5,
+			]);
+		const start = performance.now();
+		const result = match(longRun(1), longRun(2));
+		const elapsedMs = performance.now() - start;
+
+		expect(result.pairs).toHaveLength(1000);
+		expect(result.pairs.every((pair) => pair.evidence === "line")).toBe(true);
+		// About 50ms; scoring every pair by its text took a second.
+		expect(elapsedMs).toBeLessThan(500);
+	});
+
 	it("pairs nothing when either side has no steps", () => {
 		expect(match([], logIn()).pairs).toEqual([]);
 		expect(match(logIn(), []).pairs).toEqual([]);

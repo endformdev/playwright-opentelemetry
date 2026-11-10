@@ -139,13 +139,17 @@ function verbOf(category: string, title: string): string {
  */
 function sameStepScore(a: Described, b: Described): number {
 	if (a.category !== b.category || a.verb !== b.verb) return 0;
-	const similarity = textSimilarity(a.text, b.text);
 	const sameLine = a.location !== null && a.location === b.location;
 	let score: number;
-	if (similarity === 1) score = sameLine ? 1 : 0.9;
-	else if (sameLine && (similarity >= 0.5 || sameTarget(a, b))) {
+	if (a.text === b.text) score = sameLine ? 1 : 0.9;
+	// Comparing text token by token is the costly part of matching, and only
+	// steps on the same line need it: every pair of steps is scored.
+	else if (!sameLine) return 0;
+	else {
+		const similarity = textSimilarity(a.text, b.text);
+		if (similarity < 0.5 && !sameTarget(a, b)) return 0;
 		score = 0.7 + 0.2 * similarity;
-	} else return 0;
+	}
 	// The same action under the same step is likelier the same action.
 	return score + (a.parent?.span.title === b.parent?.span.title ? 0.05 : 0);
 }
