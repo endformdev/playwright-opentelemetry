@@ -11,6 +11,8 @@ export interface StepViewerProps extends Omit<
 > {
 	screenshot: ScreenshotInfo | null;
 	screenshotsLoading: boolean;
+	/** The screenshots have loaded and the test took none */
+	noScreenshots: boolean;
 	ref: (element: HTMLElement) => void;
 	/** The step ruler, at the bottom of the player; absent when left out */
 	ruler?: JSX.Element;
@@ -32,6 +34,7 @@ export function StepViewer(props: StepViewerProps) {
 	const [, controlBarProps] = splitProps(props, [
 		"screenshot",
 		"screenshotsLoading",
+		"noScreenshots",
 		"ref",
 		"ruler",
 		"filmstrip",
@@ -54,11 +57,28 @@ export function StepViewer(props: StepViewerProps) {
 						<Show
 							when={props.screenshot}
 							fallback={
-								<div class="flex h-full items-center justify-center text-sm text-gray-400">
-									{props.screenshotsLoading
-										? "Loading screenshots..."
-										: "No screenshot at this time"}
-								</div>
+								<Show
+									when={props.noScreenshots}
+									fallback={
+										<div class="flex h-full items-center justify-center text-sm text-gray-400">
+											{props.screenshotsLoading
+												? "Loading screenshots..."
+												: "No screenshot at this time"}
+										</div>
+									}
+								>
+									<div
+										class="flex h-full flex-col items-center justify-center gap-1 px-6 text-center"
+										data-testid="step-viewer-no-screenshots"
+									>
+										<p class="text-sm font-medium text-gray-600">
+											This test didn't take any screenshots
+										</p>
+										<p class="max-w-sm text-sm text-gray-400">
+											It may have failed before a browser page was opened.
+										</p>
+									</div>
+								</Show>
 							}
 						>
 							{(screenshot) => (
