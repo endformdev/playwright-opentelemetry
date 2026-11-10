@@ -172,6 +172,43 @@ test("a sandboxed viewer plays a trace in the player view", async ({
 	expect(errors).toEqual([]);
 });
 
+test("a sandboxed viewer shows a comparison beside the trace", async ({
+	page,
+	request,
+}) => {
+	const primary = await createTrace(request);
+	const comparison = await createTrace(request);
+	const errors = collectConsoleErrors(page);
+	const query = new URLSearchParams({
+		traceSource: `${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${primary.traceId}`,
+		traceToken: "test-token",
+		compareSource: `${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${comparison.traceId}`,
+		compareToken: "other-token",
+		view: "player",
+	});
+	const frame = await sandboxViewer(page, query.toString());
+	const stepViewer = new StepViewerComponent(frame);
+
+	for (const image of [
+		stepViewer.screenshot,
+		stepViewer.comparisonScreenshot,
+	]) {
+		await expect(image).toHaveAttribute("src", /^blob:/);
+		await expectRendered(image);
+	}
+
+	await test.step("Stepping keeps both rendering", async () => {
+		// It opens on the first step.
+		await expect(stepViewer.position).toHaveText("1/2");
+		await stepViewer.nextButton.click();
+		await expect(stepViewer.position).toHaveText("2/2");
+		await expectRendered(stepViewer.screenshot);
+		await expectRendered(stepViewer.comparisonScreenshot);
+	});
+
+	expect(errors).toEqual([]);
+});
+
 test("a sandboxed viewer loads a trace from its form, updating the URL", async ({
 	page,
 	request,

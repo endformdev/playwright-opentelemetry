@@ -5,6 +5,11 @@ export type TraceLoadOrigin = "url" | "ui";
 export interface TraceLoadRequest {
 	source: TraceSource;
 	origin: TraceLoadOrigin;
+	/**
+	 * A second trace to show beside the first, named by `compareSource` and
+	 * `compareToken` in the URL; null without one
+	 */
+	comparison: TraceSource | null;
 }
 
 export type TraceLoadRequestSetter = (
@@ -35,6 +40,8 @@ interface RemoteApiTraceSource {
 
 const TRACE_SOURCE_QUERY_PARAM_NAME = "traceSource";
 const TRACE_TOKEN_QUERY_PARAM_NAME = "traceToken";
+const COMPARE_SOURCE_QUERY_PARAM_NAME = "compareSource";
+const COMPARE_TOKEN_QUERY_PARAM_NAME = "compareToken";
 const URL_PARSE_BASE = "http://trace-viewer.local";
 
 export function createTraceLoadRequestSignal(): [
@@ -45,11 +52,13 @@ export function createTraceLoadRequestSignal(): [
 	const [request, setRequestInternal] = createSignal<TraceLoadRequest | null>(
 		initialRequest,
 	);
-	if (initialRequest) writeToQueryParam(initialRequest.source, "replace");
+	if (initialRequest) writeToQueryParam(initialRequest, "replace");
 
+	// Loading another trace drops the comparison: it was chosen for the last one.
 	const setRequest: TraceLoadRequestSetter = (source, origin = "ui") => {
-		setRequestInternal(source ? { source, origin } : null);
-		writeToQueryParam(source, "push");
+		const nextRequest = source ? { source, origin, comparison: null } : null;
+		setRequestInternal(nextRequest);
+		writeToQueryParam(nextRequest, "push");
 	};
 
 	// Handle browser back/forward navigation
@@ -58,7 +67,7 @@ export function createTraceLoadRequestSignal(): [
 			// Update signal from URL without pushing to history
 			const nextRequest = requestFromQueryParam();
 			setRequestInternal(nextRequest);
-			if (nextRequest) writeToQueryParam(nextRequest.source, "replace");
+			if (nextRequest) writeToQueryParam(nextRequest, "replace");
 		});
 	}
 
@@ -66,16 +75,18 @@ export function createTraceLoadRequestSignal(): [
 }
 
 function requestFromQueryParam(): TraceLoadRequest | null {
-	const source = readFromQueryParam();
-	return source ? { source, origin: "url" } : null;
-}
-
-function readFromQueryParam(): TraceSource | null {
 	const params = new URLSearchParams(window.location.search);
-	return parseTraceSourceInput(
+	const source = parseTraceSourceInput(
 		params.get(TRACE_SOURCE_QUERY_PARAM_NAME),
-		readTraceTokenQueryParam(),
+		params.get(TRACE_TOKEN_QUERY_PARAM_NAME),
 	);
+	if (!source) return null;
+	// Each source has its own token: the two can be on different origins.
+	const comparison = parseTraceSourceInput(
+		params.get(COMPARE_SOURCE_QUERY_PARAM_NAME),
+		params.get(COMPARE_TOKEN_QUERY_PARAM_NAME),
+	);
+	return { source, origin: "url", comparison };
 }
 
 export function readTraceTokenQueryParam(): string | null {
@@ -85,22 +96,22 @@ export function readTraceTokenQueryParam(): string | null {
 }
 
 function writeToQueryParam(
-	source: TraceSource | null,
+	request: TraceLoadRequest | null,
 	historyMode: "push" | "replace",
 ): void {
 	const params = new URLSearchParams(window.location.search);
-
-	if (source && source.kind !== "local-zip") {
-		params.set(TRACE_SOURCE_QUERY_PARAM_NAME, serializeTraceSource(source));
-	} else {
-		params.delete(TRACE_SOURCE_QUERY_PARAM_NAME);
-	}
-
-	if (source?.kind === "remote-api" && source.traceToken) {
-		params.set(TRACE_TOKEN_QUERY_PARAM_NAME, source.traceToken);
-	} else {
-		params.delete(TRACE_TOKEN_QUERY_PARAM_NAME);
-	}
+	writeSourceParams(
+		params,
+		request?.source ?? null,
+		TRACE_SOURCE_QUERY_PARAM_NAME,
+		TRACE_TOKEN_QUERY_PARAM_NAME,
+	);
+	writeSourceParams(
+		params,
+		request?.comparison ?? null,
+		COMPARE_SOURCE_QUERY_PARAM_NAME,
+		COMPARE_TOKEN_QUERY_PARAM_NAME,
+	);
 
 	const url = new URL(window.location.href);
 	url.search = params.toString();
@@ -109,6 +120,25 @@ function writeToQueryParam(
 		window.history.replaceState(null, "", url.toString());
 	} else {
 		window.history.pushState(null, "", url.toString());
+	}
+}
+
+function writeSourceParams(
+	params: URLSearchParams,
+	source: TraceSource | null,
+	sourceParamName: string,
+	tokenParamName: string,
+): void {
+	if (source && source.kind !== "local-zip") {
+		params.set(sourceParamName, serializeTraceSource(source));
+	} else {
+		params.delete(sourceParamName);
+	}
+
+	if (source?.kind === "remote-api" && source.traceToken) {
+		params.set(tokenParamName, source.traceToken);
+	} else {
+		params.delete(tokenParamName);
 	}
 }
 

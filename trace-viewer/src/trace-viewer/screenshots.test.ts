@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ScreenshotInfo } from "../trace-info-loader";
 import {
+	findCounterpartPage,
 	findFirstContentfulScreenshot,
+	groupScreenshotsByPage,
 	isBlankPixels,
 	MAX_BLANK_CHECKS,
 } from "./screenshots";
@@ -107,5 +109,31 @@ describe("findFirstContentfulScreenshot", () => {
 
 	it("finds nothing without screenshots", async () => {
 		expect(await findFirstContentfulScreenshot([])).toBeNull();
+	});
+});
+
+describe("findCounterpartPage", () => {
+	const pages = groupScreenshotsByPage([
+		{ timestamp: 1, url: "/a", pageId: "page-0" },
+		{ timestamp: 2, url: "/b", pageId: "page-1" },
+	]);
+
+	it("finds the page with the same id", () => {
+		expect(
+			findCounterpartPage(pages, { pageId: "page-1", number: 1 })?.pageId,
+		).toBe("page-1");
+	});
+
+	it("finds the page with the same number when the ids differ", () => {
+		expect(
+			findCounterpartPage(pages, { pageId: "page@5f2a", number: 2 })?.pageId,
+		).toBe("page-1");
+	});
+
+	it("finds none for a page with no counterpart", () => {
+		expect(findCounterpartPage(pages, { pageId: "page-7", number: 3 })).toBe(
+			null,
+		);
+		expect(findCounterpartPage(pages, null)).toBe(null);
 	});
 });

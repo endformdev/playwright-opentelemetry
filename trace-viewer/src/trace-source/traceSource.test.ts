@@ -117,6 +117,7 @@ describe("trace source input parsing", () => {
 				url: "https://example.com/api",
 				traceToken: "embedded",
 			},
+			comparison: null,
 		});
 		expect(history.replaceState).toHaveBeenCalledWith(
 			null,
@@ -159,6 +160,97 @@ describe("trace source input parsing", () => {
 			null,
 			"",
 			"https://viewer.example.com/?traceToken=top-level&traceSource=https%3A%2F%2Fexample.com%2Fapi",
+		);
+	});
+});
+
+describe("comparison trace source", () => {
+	const primary = encodeURIComponent("https://a.example.com/api");
+
+	it("reads the comparison with its own token, never the primary's", () => {
+		stubWindow(
+			`https://viewer.example.com/?traceSource=${primary}&traceToken=token-a&compareSource=${encodeURIComponent("https://b.example.com/api")}`,
+		);
+
+		const [request] = createTraceLoadRequestSignal();
+
+		expect(request()?.source).toEqual({
+			kind: "remote-api",
+			url: "https://a.example.com/api",
+			traceToken: "token-a",
+		});
+		expect(request()?.comparison).toEqual({
+			kind: "remote-api",
+			url: "https://b.example.com/api",
+			traceToken: null,
+		});
+	});
+
+	it("moves a token embedded in the comparison URL to compareToken", () => {
+		const { history } = stubWindow(
+			`https://viewer.example.com/?traceSource=${primary}&compareSource=${encodeURIComponent("https://b.example.com/api?traceToken=token-b")}`,
+		);
+
+		const [request] = createTraceLoadRequestSignal();
+
+		expect(request()?.comparison).toEqual({
+			kind: "remote-api",
+			url: "https://b.example.com/api",
+			traceToken: "token-b",
+		});
+		expect(history.replaceState).toHaveBeenCalledWith(
+			null,
+			"",
+			"https://viewer.example.com/?traceSource=https%3A%2F%2Fa.example.com%2Fapi&compareSource=https%3A%2F%2Fb.example.com%2Fapi&compareToken=token-b",
+		);
+	});
+
+	it("reads a ZIP comparison", () => {
+		stubWindow(
+			`https://viewer.example.com/?traceSource=${primary}&compareSource=${encodeURIComponent("https://b.example.com/trace.zip")}&compareToken=token-b`,
+		);
+
+		const [request] = createTraceLoadRequestSignal();
+
+		expect(request()?.comparison).toEqual({
+			kind: "remote-zip",
+			url: "https://b.example.com/trace.zip",
+		});
+	});
+
+	it("does nothing with a comparison and no primary", () => {
+		stubWindow(
+			`https://viewer.example.com/?compareSource=${encodeURIComponent("https://b.example.com/api")}`,
+		);
+
+		const [request] = createTraceLoadRequestSignal();
+
+		expect(request()).toBeNull();
+	});
+
+	it("ignores a local ZIP as the comparison", () => {
+		stubWindow(
+			`https://viewer.example.com/?traceSource=${primary}&compareSource=local-zip`,
+		);
+
+		const [request] = createTraceLoadRequestSignal();
+
+		expect(request()?.comparison).toBeNull();
+	});
+
+	it("drops the comparison when another trace is loaded", () => {
+		const { history } = stubWindow(
+			`https://viewer.example.com/?traceSource=${primary}&compareSource=${encodeURIComponent("https://b.example.com/api")}&compareToken=token-b&compareLabel=Main`,
+		);
+
+		const [request, setRequest] = createTraceLoadRequestSignal();
+		setRequest(parseTraceSourceInput("https://c.example.com/api", null), "ui");
+
+		expect(request()?.comparison).toBeNull();
+		expect(history.pushState).toHaveBeenLastCalledWith(
+			null,
+			"",
+			"https://viewer.example.com/?traceSource=https%3A%2F%2Fc.example.com%2Fapi&compareLabel=Main",
 		);
 	});
 });

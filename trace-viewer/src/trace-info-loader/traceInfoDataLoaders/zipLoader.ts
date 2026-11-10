@@ -9,21 +9,28 @@ import {
 } from "../../service-worker/register";
 import type { ScreenshotInfo, TraceInfoData } from "../TraceInfoLoader";
 import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
-import { unloadPageScreenshots } from "./pageScreenshots";
+import { type TraceSlot, unloadPageScreenshots } from "./pageScreenshots";
 
 let swRegistrationPromise: Promise<ServiceWorkerRegistration> | null = null;
 let localZipSourceCounter = 0;
 
 export async function loadLocalZip(file: File): Promise<TraceInfoData> {
 	await ensureServiceWorker();
-	await unloadCurrentTrace();
+	await unloadTrace("primary");
 
 	return loadZipBlob(file);
 }
 
-export async function loadRemoteZip(url: string): Promise<TraceInfoData> {
+/**
+ * A comparison leaves the primary loaded: the service worker serves both, as
+ * their screenshot URLs name the ZIP they come from.
+ */
+export async function loadRemoteZip(
+	url: string,
+	slot: TraceSlot,
+): Promise<TraceInfoData> {
 	await ensureServiceWorker();
-	await unloadCurrentTrace();
+	await unloadTrace(slot);
 
 	const loadedTrace = await loadTraceZipUrlInServiceWorker({ zipUrl: url });
 	return traceInfoFromLoadedTrace(loadedTrace, { traceZip: url });
@@ -119,7 +126,15 @@ function createLocalZipSourceId(): string {
 	return `local-zip-${Date.now()}-${localZipSourceCounter}`;
 }
 
-export async function unloadCurrentTrace(): Promise<void> {
+/**
+ * Lets go of a slot's trace. The primary takes the comparison with it, as one
+ * is only ever loaded beside the other.
+ */
+export async function unloadTrace(slot: TraceSlot): Promise<void> {
+	if (slot === "comparison") {
+		unloadPageScreenshots("comparison");
+		return;
+	}
 	unloadPageScreenshots();
 	await unloadTraceFromServiceWorker();
 }

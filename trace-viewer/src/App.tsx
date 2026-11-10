@@ -8,6 +8,10 @@ import { TraceAccessError, useTraceInfoLoader } from "./trace-info-loader";
 import { createTraceLoadRequestSignal, type TraceSource } from "./trace-source";
 import { TraceViewer, TraceViewerSkeleton } from "./trace-viewer";
 import { readViewerActionFromQueryParams } from "./trace-viewer/viewerAction";
+import {
+	readComparisonLabelFromQueryParams,
+	type ViewerComparison,
+} from "./trace-viewer/viewerComparison";
 import { readViewerHighlightFromQueryParams } from "./trace-viewer/viewerHighlight";
 import { readViewerPanelsFromQueryParams } from "./trace-viewer/viewerPanels";
 
@@ -20,6 +24,26 @@ export default function App() {
 		() => loadRequest()?.source ?? null,
 	);
 	const loadedTraceInfo = () => (loadRequest() ? traceInfo() : undefined);
+
+	// The comparison loads once the trace has, so that the trace shows first and
+	// loading it can't unload the comparison. Its failures are its own: the
+	// trace shows as usual, with a notice where the comparison would be.
+	const comparisonLabel = readComparisonLabelFromQueryParams();
+	const comparisonSource = () => {
+		const comparison = loadRequest()?.comparison;
+		return comparison && traceInfoData.state === "ready" ? comparison : null;
+	};
+	const comparisonLoader = useTraceInfoLoader(comparisonSource, "comparison");
+	const comparison = (): ViewerComparison | null => {
+		if (!comparisonSource()) return null;
+		if (comparisonLoader.traceInfoData.error) {
+			return { status: "failed", label: comparisonLabel };
+		}
+		const info = comparisonLoader.traceInfo();
+		return info
+			? { status: "ready", label: comparisonLabel, traceInfo: info }
+			: { status: "loading", label: comparisonLabel };
+	};
 	const urlLoadingSource = () => {
 		const request = loadRequest();
 		if (request?.origin !== "url" || !traceInfoData.loading) {
@@ -81,6 +105,7 @@ export default function App() {
 								panels={viewerPanels}
 								action={viewerAction}
 								highlight={viewerHighlight}
+								comparison={comparison()}
 							/>
 						)}
 					</Match>

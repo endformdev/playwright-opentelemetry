@@ -105,6 +105,26 @@ window.addEventListener("message", (event) => {
 
 Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it. Sections with no data are disabled in the settings menu.
 
+## Compare with another trace
+
+Add a second trace to show its screenshots beside this one's on the big screen, for example the last passing run of a test that just failed:
+
+| Parameter       | Meaning                                                                                   |
+| --------------- | ----------------------------------------------------------------------------------------- |
+| `compareSource` | The trace to compare with: a Trace API base URL or a `.zip` URL, read like `traceSource`. |
+| `compareToken`  | Token for a Trace API `compareSource`, sent as `traceToken` on its requests.              |
+| `compareLabel`  | Caption over the comparison, at most 80 characters. Defaults to "Baseline".               |
+
+```text
+https://trace.endform.dev/?traceSource=https%3A%2F%2Fapi.example.com%2Fv1%2F{failingTraceId}&traceToken={tokenA}
+  &compareSource=https%3A%2F%2Fapi.example.com%2Fv1%2F{passingTraceId}&compareToken={tokenB}
+  &compareLabel=Last%20passing%20run%20on%20main&view=player
+```
+
+Each trace gets only its own token: `traceToken` never goes to `compareSource`, nor `compareToken` to `traceSource`, so the two can live on different origins. A token embedded in `compareSource` is moved to `compareToken`. The comparison is shown on the left, this run on the right, and a button in the control bar hides it. If it can't be loaded, the trace is shown as usual with a notice in its place. Loading another trace from the viewer's form drops the comparison.
+
+The two runs never take the same time, so the viewer works out which moment of the comparison goes with each moment of this run from the steps they share. Steps that match start and end together; between them the comparison is slowed down or sped up evenly to fit. Two steps match when they do the same thing to the same locator, even with another value, so a fill with a generated email still matches. Source lines aren't compared, since editing the test moves them. Actions and expects match even when the `test.step` blocks around them were renamed or removed. When either run failed, the comparison plays on from the start of the step that failed to its settled result of that step, and holds there. The caption says "No matching step" when the step on show has no counterpart, and "Approximate timing" when no step matched and only the whole test body is stretched to fit.
+
 ## Embed in a sandboxed iframe
 
 Remote API traces work inside `<iframe sandbox="allow-scripts allow-forms">`, which gives the viewer an opaque origin (`null`) and no service worker. The viewer detects this and needs no configuration, but two things have to be readable from origin `null`:

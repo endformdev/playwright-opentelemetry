@@ -25,6 +25,24 @@ export function groupScreenshotsByPage(
 	}));
 }
 
+/**
+ * The page of another run of the test that stands for one of this run's: the
+ * one with the same id, else the one with the same number, else none. Page ids
+ * are `page-0`, `page-1` from reporter 0.14; before that they were random, and
+ * only the order pages opened in tells them apart.
+ */
+export function findCounterpartPage(
+	pages: ScreenshotPage[],
+	page: { pageId: string; number: number } | null,
+): ScreenshotPage | null {
+	if (!page) return null;
+	return (
+		pages.find((other) => other.pageId === page.pageId) ??
+		pages.find((other) => other.number === page.number) ??
+		null
+	);
+}
+
 export function findScreenshotAtTime(
 	screenshots: ScreenshotInfo[],
 	absoluteTimeMs: number,
