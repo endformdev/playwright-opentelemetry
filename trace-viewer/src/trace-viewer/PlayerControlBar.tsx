@@ -36,6 +36,8 @@ export interface PlayerControlBarProps {
 	onPinPage: (pageId: string | null) => void;
 	/** The embedding page's action, a button at the end of the bar */
 	action: ViewerAction | null;
+	/** The span the embedding page highlights, named before any step inside it */
+	highlightedSpanId: string | null;
 }
 
 const ACTION_BUTTONS: Record<
@@ -154,6 +156,7 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 							parents={props.stepAncestry
 								.slice(0, -1)
 								.filter((span) => span.name === "playwright.test.step")}
+							highlightedSpanId={props.highlightedSpanId}
 						/>
 					)}
 				</Show>
@@ -233,7 +236,16 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
  * The step on one line, title then locator, cut short to fit. The full
  * title, the steps it is nested in and the locator show on hover.
  */
-function StepLine(props: { step: Span; depth: number; parents: Span[] }) {
+function StepLine(props: {
+	step: Span;
+	depth: number;
+	parents: Span[];
+	highlightedSpanId: string | null;
+}) {
+	// The caption names only the innermost step, which alone doesn't show that
+	// it is part of the highlighted one.
+	const highlightedParent = () =>
+		props.parents.find((parent) => parent.id === props.highlightedSpanId);
 	const color = () =>
 		isErrorSpan(props.step)
 			? "#dc2626"
@@ -259,6 +271,16 @@ function StepLine(props: { step: Span; depth: number; parents: Span[] }) {
 				style={{ "background-color": color() }}
 				aria-hidden="true"
 			/>
+			<Show when={highlightedParent()}>
+				{(parent) => (
+					<span
+						class="text-gray-500"
+						data-testid="step-viewer-highlighted-parent"
+					>
+						{parent().title} ›{" "}
+					</span>
+				)}
+			</Show>
 			<span
 				class="font-semibold text-gray-900"
 				data-testid="step-viewer-step-title"
