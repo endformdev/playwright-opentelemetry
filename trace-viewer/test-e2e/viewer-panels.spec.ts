@@ -246,6 +246,27 @@ test("only shows listed panels that have data", async ({ page, request }) => {
 	await expect(viewer.stepViewer.root).toHaveCount(0);
 });
 
+test("the player view says when the test took no screenshots", async ({
+	page,
+	request,
+}) => {
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromUrlParam(
+		await createTrace(request, { screenshots: false }),
+		{ view: "player" },
+	);
+	const { stepViewer } = viewer;
+
+	await expect(stepViewer.noScreenshots).toHaveText(
+		/didn't take any screenshots/,
+		{ timeout: 10000 },
+	);
+	await expect(stepViewer.screenshot).toHaveCount(0);
+	// The player keeps its controls and the step ruler
+	await expect(stepViewer.controlBar).toBeVisible();
+	await expect(viewer.timelineRuler).toBeVisible();
+});
+
 const VIEWER_URL = "http://localhost:9294";
 
 /**

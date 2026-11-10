@@ -264,10 +264,18 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		(props.traceInfo.screenshots() ?? []).length > 0;
 	const hasScreenshots = () =>
 		props.traceInfo.screenshots.loading || hasLoadedScreenshots();
-	const showStepViewer = () => settings().stepViewer && hasScreenshots();
+	/**
+	 * Without screenshots the span panels take the player's place. With none
+	 * of those either, as in the player view, the player stays to say so.
+	 */
+	const showStepViewer = () =>
+		settings().stepViewer &&
+		(hasScreenshots() || shownTimelinePanels().length === 0);
 	/** The step viewer shows a filmstrip rather than the big screen */
 	const showPlayerFilmstrip = () =>
-		showStepViewer() && settings().playerScreen === "filmstrip";
+		showStepViewer() &&
+		hasScreenshots() &&
+		settings().playerScreen === "filmstrip";
 	const [columnHeightPx, setColumnHeightPx] = createSignal(0);
 	const columnObserver = new ResizeObserver(([entry]) => {
 		if (entry) setColumnHeightPx(entry.contentRect.height);
@@ -728,6 +736,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			screenshotsLoading={
 				props.traceInfo.screenshots.loading || stepViewer.screenshotPending()
 			}
+			noScreenshots={!hasScreenshots()}
 			highlightedSpanId={highlightedSpan()?.id ?? null}
 			stopCount={stepViewer.stops().length}
 			stopIndex={stepViewer.shownIndex()}

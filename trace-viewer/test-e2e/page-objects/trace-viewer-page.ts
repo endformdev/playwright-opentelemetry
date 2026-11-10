@@ -342,6 +342,8 @@ export class StepViewerComponent {
 	/** Step counter; reads "3/12" on a stop and "–/12" otherwise */
 	readonly position: Locator;
 	readonly screenshot: Locator;
+	/** Shown in place of the screenshot when the test took none */
+	readonly noScreenshots: Locator;
 	/**
 	 * The step the viewer is on, named in the control bar; its title
 	 * tooltip holds its parents, title and locator, one per line
@@ -373,6 +375,7 @@ export class StepViewerComponent {
 		this.screenshot = this.root.getByRole("img", {
 			name: /Step viewer screenshot/,
 		});
+		this.noScreenshots = this.root.getByTestId("step-viewer-no-screenshots");
 		const playback = this.root.getByRole("group", { name: "Playback" });
 		this.previousButton = playback.getByRole("button", {
 			name: "Previous step",
