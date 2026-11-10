@@ -29,6 +29,15 @@
 	--color-brand-yellow: oklch(0.87 0.17 90);
 }
 
+/*
+ * A placeholder for content still loading. Pulses with the other skeletons on
+ * screen, set in step by `--skeleton-delay` (see skeletonPhaseStyle).
+ */
+@utility skeleton {
+	@apply animate-pulse rounded bg-gray-100;
+	animation-delay: var(--skeleton-delay, 0ms);
+}
+
 /* A section label, like the eyebrows on Endform's pages. */
 @utility eyebrow {
 	@apply font-mono text-[10px] tracking-[0.18em] uppercase;
