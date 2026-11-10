@@ -728,6 +728,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			screenshotsLoading={
 				props.traceInfo.screenshots.loading || stepViewer.screenshotPending()
 			}
+			highlightedSpanId={highlightedSpan()?.id ?? null}
 			stopCount={stepViewer.stops().length}
 			stopIndex={stepViewer.shownIndex()}
 			stepAncestry={stepViewerStepAncestry()}
