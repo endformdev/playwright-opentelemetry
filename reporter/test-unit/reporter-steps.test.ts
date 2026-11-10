@@ -263,6 +263,49 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 		);
 	});
 
+	it("keeps identical steps that start in the same millisecond", async () => {
+		// Back-to-back assertions, like expect(body).toContain(...) on
+		// consecutive lines, often start within the same millisecond.
+		const startTime = new Date("2025-11-06T10:00:00.100Z");
+		const assertion = (line: number) => ({
+			title: 'Expect "toContain"',
+			category: "expect",
+			startTime,
+			duration: 0,
+			location: { file: "/Users/test/project/test-e2e/test.spec.ts", line },
+		});
+
+		await runReporterTest({
+			test: { title: "robots.txt" },
+			result: {
+				steps: [
+					assertion(6),
+					assertion(7),
+					assertion(8),
+					{
+						title: "group",
+						category: "test.step",
+						startTime,
+						duration: 1,
+						steps: [assertion(10), assertion(11)],
+					},
+				],
+			},
+		});
+
+		const [spans] = (sendSpans as ReturnType<typeof vi.fn>).mock.calls[0];
+		const assertionLines = spans
+			.filter(
+				(span: { attributes: Record<string, unknown> }) =>
+					span.attributes[ATTR_TEST_STEP_TITLE] === 'Expect "toContain"',
+			)
+			.map(
+				(span: { attributes: Record<string, unknown> }) =>
+					span.attributes[ATTR_CODE_LINE_NUMBER],
+			);
+		expect(assertionLines).toEqual([6, 7, 8, 10, 11]);
+	});
+
 	it("creates deeply nested spans (3 levels)", async () => {
 		await runReporterTest({
 			test: {
