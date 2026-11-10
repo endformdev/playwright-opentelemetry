@@ -445,10 +445,13 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		reset();
 	};
 
-	/** Seeking on the step ruler locks there, keeping the time in view. */
-	const handleRulerSeek = (timeMs: number) => {
+	/**
+	 * Seeking on the step ruler locks there, keeping the time in view. A step
+	 * names the step on display where time alone would name another.
+	 */
+	const handleRulerSeek = (timeMs: number, stepId?: string) => {
 		batch(() => {
-			lock(timeMs, null, "ruler");
+			lock(timeMs, stepId ? { type: "step", id: stepId } : null, "ruler");
 			animateTo(panTimeRangeIntoView(viewport(), timeMs, timeMs, timeMs));
 		});
 	};
@@ -466,13 +469,22 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	});
 
 	// Once loaded, open on the highlighted span. Locking first keeps the step
-	// viewer from opening on the first screenshot instead.
+	// viewer from opening on the first screenshot instead. By time alone, a
+	// step's start belongs to the step that just ended, so the lock names the
+	// first step starting there: the span itself, or its first child step.
 	let openedOnHighlight = false;
 	createEffect(() => {
 		if (openedOnHighlight || props.traceData.status() !== "loaded") return;
 		openedOnHighlight = true;
 		const span = highlightedSpan();
-		if (span) untrack(() => handleRulerSeek(span.startOffsetMs));
+		if (!span) return;
+
+		untrack(() => {
+			const step = stepViewer
+				.segments()
+				.steps.find((segment) => segment.startMs >= span.startOffsetMs)?.step;
+			handleRulerSeek(span.startOffsetMs, step?.id);
+		});
 	});
 
 	/**
