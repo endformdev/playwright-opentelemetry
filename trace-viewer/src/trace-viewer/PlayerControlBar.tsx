@@ -1,6 +1,7 @@
 import {
 	ChevronLeft,
 	ChevronRight,
+	Columns2,
 	Maximize2,
 	Pause,
 	Pin,
@@ -38,6 +39,12 @@ export interface PlayerControlBarProps {
 	action: ViewerAction | null;
 	/** The span the embedding page highlights, named before any step inside it */
 	highlightedSpanId: string | null;
+	/**
+	 * Whether the comparison trace is shown beside this one, or null without a
+	 * comparison to show, when there is no button for it
+	 */
+	comparisonShown: boolean | null;
+	onToggleComparison: () => void;
 }
 
 const ACTION_BUTTONS: Record<
@@ -210,6 +217,21 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 						}}
 					</For>
 				</div>
+			</Show>
+
+			<Show when={props.comparisonShown !== null}>
+				<button
+					type="button"
+					class={BUTTON_CLASS}
+					classList={{ "bg-gray-100 text-gray-900": !!props.comparisonShown }}
+					aria-label={
+						props.comparisonShown ? "Hide comparison" : "Show comparison"
+					}
+					title={props.comparisonShown ? "Hide comparison" : "Show comparison"}
+					onClick={props.onToggleComparison}
+				>
+					<Columns2 size={16} aria-hidden="true" />
+				</button>
 			</Show>
 
 			<Show when={props.action}>

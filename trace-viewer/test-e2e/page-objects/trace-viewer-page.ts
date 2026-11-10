@@ -344,6 +344,15 @@ export class StepViewerComponent {
 	readonly screenshot: Locator;
 	/** Shown in place of the screenshot when the test took none */
 	readonly noScreenshots: Locator;
+	/** The comparison trace's half of the big screen, with its caption */
+	readonly comparison: Locator;
+	readonly comparisonScreenshot: Locator;
+	/** Says when the comparison can't follow the step closely */
+	readonly comparisonNote: Locator;
+	/** Holds both halves; `data-layout` says how they're laid out */
+	readonly comparisonLayout: Locator;
+	readonly hideComparisonButton: Locator;
+	readonly showComparisonButton: Locator;
 	/**
 	 * The step the viewer is on, named in the control bar; its title
 	 * tooltip holds its parents, title and locator, one per line
@@ -376,6 +385,20 @@ export class StepViewerComponent {
 			name: /Step viewer screenshot/,
 		});
 		this.noScreenshots = this.root.getByTestId("step-viewer-no-screenshots");
+		this.comparison = this.root.getByTestId("step-viewer-comparison");
+		this.comparisonScreenshot = this.comparison.getByRole("img", {
+			name: /Comparison screenshot/,
+		});
+		this.comparisonNote = this.root.getByTestId("step-viewer-comparison-note");
+		this.comparisonLayout = this.root.getByTestId(
+			"step-viewer-comparison-layout",
+		);
+		this.hideComparisonButton = this.controlBar.getByRole("button", {
+			name: "Hide comparison",
+		});
+		this.showComparisonButton = this.controlBar.getByRole("button", {
+			name: "Show comparison",
+		});
 		const playback = this.root.getByRole("group", { name: "Playback" });
 		this.previousButton = playback.getByRole("button", {
 			name: "Previous step",

@@ -65,6 +65,13 @@ export interface StepViewer {
 	shownIndex: Accessor<number | null>;
 	/** Screenshot to show: the pinned page's, else the latest of any page */
 	screenshot: Accessor<ScreenshotInfo | null>;
+	/**
+	 * The moment the screenshot on show stands for, relative to test start: the
+	 * time on display, or the screenshot's own time when there is no frame yet
+	 * at that time and a later one is shown instead, like the frame the viewer
+	 * opens on. Null with neither.
+	 */
+	shownTimeMs: Accessor<number | null>;
 	/** Whether the frame to show with no time on display is still being found */
 	screenshotPending: Accessor<boolean>;
 	/** Pages that took screenshots; the picker shows when there are several */
@@ -163,6 +170,16 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		return atTime ?? firstContentfulScreenshot() ?? null;
 	};
 
+	const shownTimeMs = () => {
+		const timeMs = options.peekTimeMs() ?? displayTimeMs();
+		const shown = screenshot();
+		if (!shown) return timeMs;
+		const shownAtMs = shown.timestamp - options.testStartTimeMs();
+		return timeMs !== null && shownAtMs <= timeMs
+			? timeMs
+			: Math.max(0, shownAtMs);
+	};
+
 	/** Goes to a step, by default at its stop, the moment after it finished. */
 	const goToStop = (index: number, atTimeMs?: number) => {
 		const stop = stops()[index];
@@ -245,6 +262,7 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		currentIndex,
 		shownIndex,
 		screenshot,
+		shownTimeMs,
 		screenshotPending: () => firstContentfulScreenshot.loading,
 		pages,
 		pinnedPageId,

@@ -37,7 +37,7 @@ import type { NavigationDirection } from "./spanNavigation";
 import type { SpanSelectionPlacement } from "./spanSelection";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import { describeStepRulerTime } from "./stepRulerSegments";
-import { StepViewer } from "./StepViewer";
+import { StepViewer, type StepViewerComparison } from "./StepViewer";
 import { TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
 import { buildTestStructure, getStepAncestry } from "./testStructure";
@@ -45,6 +45,7 @@ import { layoutTimelineSpans } from "./timelineLayout";
 import { usePlayback } from "./usePlayback";
 import { useSpanFocus } from "./useSpanFocus";
 import { useStepViewer } from "./useStepViewer";
+import { useTraceComparison } from "./useTraceComparison";
 import { useTimelinePointer } from "./useTimelinePointer";
 import type { ViewerAction } from "./viewerAction";
 import type { ViewerComparison } from "./viewerComparison";
@@ -144,6 +145,7 @@ export function TraceViewer(props: TraceViewerProps) {
 						panels={props.panels ?? null}
 						action={props.action ?? null}
 						highlight={props.highlight ?? null}
+						comparison={props.comparison ?? null}
 					/>
 				</HoverProvider>
 			</SearchProvider>
@@ -158,6 +160,7 @@ interface TraceViewerInnerProps {
 	panels: ViewerPanels | null;
 	action: ViewerAction | null;
 	highlight: ViewerHighlight | null;
+	comparison: ViewerComparison | null;
 }
 
 function TraceViewerInner(props: TraceViewerInnerProps) {
@@ -381,6 +384,54 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		canFrame: () => settings().steps,
 		spanFocus,
 	});
+
+	// The comparison follows on the big screen only, and only beside this
+	// run's own screenshots. Hiding it is for now, not a saved setting.
+	const [comparisonToggledOn, setComparisonToggledOn] = createSignal(true);
+	const comparisonHasRoom = () =>
+		props.comparison !== null && hasScreenshots() && !showPlayerFilmstrip();
+	const comparison = useTraceComparison({
+		comparison: () => props.comparison,
+		structure: testStructure,
+		durationMs: () => props.traceData.totalDurationMs(),
+		passed: () => props.traceInfo.testInfo.status === "passed",
+		loaded: () => props.traceData.status() === "loaded",
+		enabled: () => comparisonHasRoom() && comparisonToggledOn(),
+	});
+	const stepViewerComparison = (): StepViewerComparison | null => {
+		const viewerComparison = props.comparison;
+		if (!viewerComparison || !comparisonHasRoom() || !comparisonToggledOn()) {
+			return null;
+		}
+		const info = comparison.traceInfo();
+		const ready = comparison.ready() && !!info && !info.screenshots.loading;
+		const shownPageId = stepViewer.screenshot()?.pageId;
+		const shownPage =
+			stepViewer.pages().find((page) => page.pageId === shownPageId) ?? null;
+		const shownIndex = stepViewer.shownIndex();
+		const shownStepId =
+			shownIndex === null
+				? null
+				: (stepViewer.stops()[shownIndex]?.stepId ?? null);
+		return {
+			label: viewerComparison.label,
+			status:
+				viewerComparison.status === "failed"
+					? "failed"
+					: ready
+						? "ready"
+						: "loading",
+			testStatus: info?.testInfo.status ?? null,
+			frame: comparison.frame(stepViewer.shownTimeMs(), shownPage),
+			noScreenshots: ready && (info?.screenshots() ?? []).length === 0,
+			note: ready ? comparison.note(shownStepId) : null,
+		};
+	};
+	/** The toggle is there once the comparison has loaded, where it can show */
+	const comparisonShown = () =>
+		props.comparison?.status === "ready" && comparisonHasRoom()
+			? comparisonToggledOn()
+			: null;
 
 	const playback = usePlayback({
 		endMs: () => props.traceData.totalDurationMs(),
@@ -740,6 +791,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				props.traceInfo.screenshots.loading || stepViewer.screenshotPending()
 			}
 			noScreenshots={!hasScreenshots()}
+			testStatus={props.traceInfo.testInfo.status}
+			comparison={stepViewerComparison()}
+			comparisonShown={comparisonShown()}
+			onToggleComparison={() => setComparisonToggledOn((on) => !on)}
 			highlightedSpanId={highlightedSpan()?.id ?? null}
 			stopCount={stepViewer.stops().length}
 			stopIndex={stepViewer.shownIndex()}
