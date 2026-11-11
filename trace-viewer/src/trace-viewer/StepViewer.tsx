@@ -159,10 +159,10 @@ function PrimaryScreen(props: {
 						data-testid="step-viewer-no-screenshots"
 					>
 						<p class="text-sm font-medium text-gray-600">
-							This test didn't take any screenshots
+							No screenshots were captured in this test
 						</p>
 						<p class="max-w-sm text-sm text-gray-400">
-							It may have failed before a browser page was opened.
+							No browser pages were opened that could have captured screenshots.
 						</p>
 					</div>
 				</Show>
