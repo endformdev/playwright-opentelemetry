@@ -907,8 +907,8 @@ test("opens on a highlighted span, naming the step that starts there", async ({
 
 	await test.step("A highlighted step is named, not the one ending there", async () => {
 		await viewer.loadTraceFromUrlParam(traceId, {
-			highlightSpan: inner,
-			highlightLabel: "Changed around here",
+			highlightSpanId: inner,
+			highlightSpanLabel: "Changed around here",
 		});
 		await expect(marker).toHaveText("Changed around here", { timeout: 10000 });
 		await expect(stepViewer.position).toHaveText("2/3");
@@ -921,7 +921,7 @@ test("opens on a highlighted span, naming the step that starts there", async ({
 	});
 
 	await test.step("A highlighted parent is named before each step inside it", async () => {
-		await viewer.loadTraceFromUrlParam(traceId, { highlightSpan: group });
+		await viewer.loadTraceFromUrlParam(traceId, { highlightSpanId: group });
 		await expect(marker).toHaveText("Highlighted step", { timeout: 10000 });
 		await expect(stepViewer.position).toHaveText("2/3");
 		await expect(highlightedParent).toHaveText("Group ›");
