@@ -291,9 +291,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const playerSizePercent = () =>
 		settings().playerScreen === "filmstrip"
 			? getPlayerFilmstripSizePercent(
-					stepViewer.pages().length,
-					columnHeightPx(),
-				)
+				stepViewer.pages().length,
+				columnHeightPx(),
+			)
 			: PLAYER_BIG_SCREEN_SIZE_PERCENT;
 	// Sections with nothing to show are disabled in the settings menu.
 	const emptySections = createMemo(() => {
@@ -523,15 +523,45 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		const spanId = props.highlight?.spanId;
 		return spanId ? (spanById().get(spanId) ?? null) : null;
 	});
-	const rulerMarkers = createMemo(() => {
+
+	/**
+	 * Where the highlighted span shows its result: the stop of the last step
+	 * inside it, where stepping shows what that step did. Null when asked to
+	 * open on its start, or when no step is inside it.
+	 */
+	const highlightedSpanResult = createMemo(() => {
 		const span = highlightedSpan();
-		return span && props.highlight
-			? [{ timeMs: span.startOffsetMs, label: props.highlight.label }]
-			: [];
+		if (!span || props.highlight?.at === "start") return null;
+
+		const spanEndMs = span.startOffsetMs + span.durationMs;
+		return (
+			[...stepViewer.stops()].reverse().find((stop) => {
+				const step = spanById().get(stop.stepId);
+				return (
+					step !== undefined &&
+					step.startOffsetMs >= span.startOffsetMs &&
+					step.startOffsetMs + step.durationMs <= spanEndMs
+				);
+			}) ?? null
+		);
 	});
 
-	// Once loaded, open on the highlighted span: by default on its result, the
-	// stop of the last step inside it, where stepping shows what that step did,
+	// The marker covers the span from its start to the result the viewer
+	// opens on, so the playhead lands on its edge rather than beside a line.
+	const rulerMarkers = createMemo(() => {
+		const span = highlightedSpan();
+		if (!span || !props.highlight) return [];
+
+		return [
+			{
+				timeMs: span.startOffsetMs,
+				endMs: highlightedSpanResult()?.timeMs,
+				label: props.highlight.label,
+			},
+		];
+	});
+
+	// Once loaded, open on the highlighted span: by default on its result,
 	// since its start shows the page before it acted. Locking first keeps the
 	// step viewer from opening on the first screenshot instead.
 	let openedOnHighlight = false;
@@ -542,20 +572,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (!span) return;
 
 		untrack(() => {
-			if (props.highlight?.at !== "start") {
-				const spanEndMs = span.startOffsetMs + span.durationMs;
-				const stop = [...stepViewer.stops()].reverse().find((stop) => {
-					const step = spanById().get(stop.stepId);
-					return (
-						step !== undefined &&
-						step.startOffsetMs >= span.startOffsetMs &&
-						step.startOffsetMs + step.durationMs <= spanEndMs
-					);
-				});
-				if (stop) {
-					handleRulerSeek(stop.timeMs, stop.stepId);
-					return;
-				}
+			const result = highlightedSpanResult();
+			if (result) {
+				handleRulerSeek(result.timeMs, result.stepId);
+				return;
 			}
 
 			// On its start when asked, or when no step is inside it. By time
@@ -564,6 +584,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			const step = stepViewer
 				.segments()
 				.steps.find((segment) => segment.startMs >= span.startOffsetMs)?.step;
+
 			handleRulerSeek(span.startOffsetMs, step?.id);
 		});
 	});
