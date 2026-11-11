@@ -59,12 +59,14 @@ export interface TimelineRulerProps {
 	showFilmstrip: boolean;
 	/** Where the filmstrip opens while the pointer is on the ruler */
 	filmstripPlacement: "above" | "below";
-	/** Moments to point out, e.g. a highlighted span's start */
+	/** Moments or ranges to point out, e.g. a highlighted span */
 	markers?: RulerMarker[];
 }
 
 export interface RulerMarker {
 	timeMs: number;
+	/** Where a range ends; without it the marker is a line at timeMs */
+	endMs?: number;
 	label: string;
 }
 
@@ -501,16 +503,30 @@ export function TimelineRuler(props: TimelineRulerProps) {
 						</Show>
 					</div>
 
-					{/* Markers: a line through the step bar, labelled below it */}
+					{/* Markers: a line or a range over the step bar, labelled below it */}
 					<For each={props.markers ?? []}>
 						{(marker) => (
 							<div
 								class="pointer-events-none absolute inset-y-0 z-30"
-								style={{ left: `${toPercent(marker.timeMs)}%` }}
+								style={{
+									left: `${toPercent(marker.timeMs)}%`,
+									width:
+										marker.endMs === undefined
+											? undefined
+											: `${toPercent(marker.endMs) - toPercent(marker.timeMs)}%`,
+								}}
 								data-testid="step-ruler-marker"
 								data-time-ms={marker.timeMs}
+								data-end-ms={marker.endMs}
 							>
-								<div class="absolute top-0.5 h-6 -ml-px w-[3px] rounded-full bg-amber-500" />
+								<Show
+									when={marker.endMs !== undefined}
+									fallback={
+										<div class="absolute top-0.5 h-6 -ml-px w-[3px] rounded-full bg-amber-500" />
+									}
+								>
+									<div class="absolute inset-x-0 top-0.5 h-6 min-w-[3px] rounded-sm border border-amber-500 bg-amber-400/30" />
+								</Show>
 								<span
 									class="absolute top-7 whitespace-nowrap rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-900"
 									classList={{

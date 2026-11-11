@@ -859,7 +859,7 @@ test("a search result takes over from the step viewer and goes to the span", asy
 	});
 });
 
-test("opens on a highlighted span's result, marking where it starts", async ({
+test("opens on a highlighted span's result, marking the span up to it", async ({
 	page,
 	request,
 }) => {
@@ -911,7 +911,9 @@ test("opens on a highlighted span's result, marking where it starts", async ({
 			highlightSpanLabel: "Changed around here",
 		});
 		await expect(marker).toHaveText("Changed around here", { timeout: 10000 });
+		// The marker covers the step up to the result the playhead opens on
 		await expect(marker).toHaveAttribute("data-time-ms", "1000");
+		await expect(marker).toHaveAttribute("data-end-ms", "1500");
 		await expect(stepViewer.position).toHaveText("2/3");
 		await expect(stepViewer.stepTitle).toHaveText("Inner");
 		await expect(highlightedParent).toHaveCount(0);
@@ -928,11 +930,13 @@ test("opens on a highlighted span's result, marking where it starts", async ({
 		await expect(stepViewer.position).toHaveText("2/3");
 		await expect(stepViewer.stepTitle).toHaveText("Inner");
 		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "1000");
+		await expect(marker).not.toHaveAttribute("data-end-ms");
 	});
 
 	await test.step("A highlighted parent opens on the result of its last step", async () => {
 		await viewer.loadTraceFromUrlParam(traceId, { highlightSpanId: group });
 		await expect(marker).toHaveText("Highlighted step", { timeout: 10000 });
+		await expect(marker).toHaveAttribute("data-end-ms", "2000");
 		await expect(stepViewer.position).toHaveText("3/3");
 		await expect(highlightedParent).toHaveText("Group ›");
 		await expect(stepViewer.stepTitle).toHaveText("Last");
