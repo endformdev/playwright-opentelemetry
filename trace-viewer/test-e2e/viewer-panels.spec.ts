@@ -258,7 +258,7 @@ test("the player view says when the test took no screenshots", async ({
 	const { stepViewer } = viewer;
 
 	await expect(stepViewer.noScreenshots).toHaveText(
-		/didn't take any screenshots/,
+		/No screenshots were captured/,
 		{ timeout: 10000 },
 	);
 	await expect(stepViewer.screenshot).toHaveCount(0);
