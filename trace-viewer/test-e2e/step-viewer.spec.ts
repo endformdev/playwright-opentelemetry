@@ -859,7 +859,7 @@ test("a search result takes over from the step viewer and goes to the span", asy
 	});
 });
 
-test("opens on a highlighted span, naming the step that starts there", async ({
+test("opens on a highlighted span's result, marking where it starts", async ({
 	page,
 	request,
 }) => {
@@ -905,34 +905,44 @@ test("opens on a highlighted span, naming the step that starts there", async ({
 		"step-viewer-highlighted-parent",
 	);
 
-	await test.step("A highlighted step is named, not the one ending there", async () => {
+	await test.step("A highlighted step opens on its result, at its stop", async () => {
 		await viewer.loadTraceFromUrlParam(traceId, {
 			highlightSpanId: inner,
 			highlightSpanLabel: "Changed around here",
 		});
 		await expect(marker).toHaveText("Changed around here", { timeout: 10000 });
+		await expect(marker).toHaveAttribute("data-time-ms", "1000");
 		await expect(stepViewer.position).toHaveText("2/3");
 		await expect(stepViewer.stepTitle).toHaveText("Inner");
 		await expect(highlightedParent).toHaveCount(0);
-		await expect(ruler.playhead).toHaveAttribute(
-			"data-time-ms",
-			await marker.getAttribute("data-time-ms").then(String),
-		);
+		// The step's stop: its end, since Last starts just as it ends
+		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "1500");
 	});
 
-	await test.step("A highlighted parent is named before each step inside it", async () => {
-		await viewer.loadTraceFromUrlParam(traceId, { highlightSpanId: group });
+	await test.step("highlightSpanAt=start opens on the step's start instead", async () => {
+		await viewer.loadTraceFromUrlParam(traceId, {
+			highlightSpanId: inner,
+			highlightSpanAt: "start",
+		});
 		await expect(marker).toHaveText("Highlighted step", { timeout: 10000 });
 		await expect(stepViewer.position).toHaveText("2/3");
-		await expect(highlightedParent).toHaveText("Group ›");
 		await expect(stepViewer.stepTitle).toHaveText("Inner");
+		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "1000");
+	});
+
+	await test.step("A highlighted parent opens on the result of its last step", async () => {
+		await viewer.loadTraceFromUrlParam(traceId, { highlightSpanId: group });
+		await expect(marker).toHaveText("Highlighted step", { timeout: 10000 });
+		await expect(stepViewer.position).toHaveText("3/3");
+		await expect(highlightedParent).toHaveText("Group ›");
+		await expect(stepViewer.stepTitle).toHaveText("Last");
+
+		await page.keyboard.press("ArrowLeft");
+		await expect(stepViewer.stepTitle).toHaveText("Inner");
+		await expect(highlightedParent).toHaveText("Group ›");
 
 		await page.keyboard.press("ArrowLeft");
 		await expect(stepViewer.stepTitle).toHaveText("First");
 		await expect(highlightedParent).toHaveCount(0);
-
-		await page.keyboard.press("End");
-		await expect(stepViewer.stepTitle).toHaveText("Last");
-		await expect(highlightedParent).toHaveText("Group ›");
 	});
 });

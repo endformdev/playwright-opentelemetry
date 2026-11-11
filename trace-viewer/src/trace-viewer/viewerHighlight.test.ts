@@ -18,14 +18,24 @@ describe("parseViewerHighlight", () => {
 			highlight(
 				"highlightSpanId=abc123&highlightSpanLabel=Changed%20around%20here",
 			),
-		).toEqual({ spanId: "abc123", label: "Changed around here" });
+		).toEqual({ spanId: "abc123", label: "Changed around here", at: "end" });
 	});
 
 	it("falls back to a generic label", () => {
 		expect(highlight("highlightSpanId=abc123")).toEqual({
 			spanId: "abc123",
 			label: "Highlighted step",
+			at: "end",
 		});
+	});
+
+	it("opens on the span's start only when asked", () => {
+		expect(highlight("highlightSpanId=abc123&highlightSpanAt=start")?.at).toBe(
+			"start",
+		);
+		expect(highlight("highlightSpanId=abc123&highlightSpanAt=middle")?.at).toBe(
+			"end",
+		);
 	});
 
 	it("shortens a long label", () => {

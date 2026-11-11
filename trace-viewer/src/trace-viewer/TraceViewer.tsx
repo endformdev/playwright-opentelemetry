@@ -530,10 +530,10 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			: [];
 	});
 
-	// Once loaded, open on the highlighted span. Locking first keeps the step
-	// viewer from opening on the first screenshot instead. By time alone, a
-	// step's start belongs to the step that just ended, so the lock names the
-	// first step starting there: the span itself, or its first child step.
+	// Once loaded, open on the highlighted span: by default on its result, the
+	// stop of the last step inside it, where stepping shows what that step did,
+	// since its start shows the page before it acted. Locking first keeps the
+	// step viewer from opening on the first screenshot instead.
 	let openedOnHighlight = false;
 	createEffect(() => {
 		if (openedOnHighlight || props.traceData.status() !== "loaded") return;
@@ -542,6 +542,25 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (!span) return;
 
 		untrack(() => {
+			if (props.highlight?.at !== "start") {
+				const spanEndMs = span.startOffsetMs + span.durationMs;
+				const stop = [...stepViewer.stops()].reverse().find((stop) => {
+					const step = spanById().get(stop.stepId);
+					return (
+						step !== undefined &&
+						step.startOffsetMs >= span.startOffsetMs &&
+						step.startOffsetMs + step.durationMs <= spanEndMs
+					);
+				});
+				if (stop) {
+					handleRulerSeek(stop.timeMs, stop.stepId);
+					return;
+				}
+			}
+
+			// On its start when asked, or when no step is inside it. By time
+			// alone, a step's start belongs to the step that just ended, so the
+			// lock names the first step starting there.
 			const step = stepViewer
 				.segments()
 				.steps.find((segment) => segment.startMs >= span.startOffsetMs)?.step;
