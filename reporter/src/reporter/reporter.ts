@@ -203,26 +203,14 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_CODE_LINE_NUMBER] = line;
 		}
 
-		// Process test steps recursively first to collect all child spans
-		// Track processed step IDs to merge duplicates (Playwright can report the same step twice,
-		// once with location info and once without - we want to merge them)
-		const processedSteps = new Map<string, Span>();
-		const skippedStepIds = new Set<string>();
-		if (result.steps && result.steps.length > 0) {
-			for (const step of result.steps) {
-				this.processTestStep(
-					test,
-					step,
-					testSpanId,
-					traceId,
-					[],
-					processedSteps,
-					skippedStepIds,
-				);
-			}
+		// Process test steps recursively first to collect all child spans.
+		// Every step in the finished tree is its own step: identical steps that
+		// start in the same millisecond, like back-to-back assertions, are not
+		// duplicates.
+		const stepSpans: Span[] = [];
+		for (const step of result.steps ?? []) {
+			this.processTestStep(step, testSpanId, traceId, [], stepSpans);
 		}
-
-		const stepSpans = Array.from(processedSteps.values());
 
 		// Calculate test span timing to encompass all child spans
 		// Start with Playwright's reported timing as the baseline
@@ -380,13 +368,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	private processTestStep(
-		test: TestCase,
 		step: TestStep,
 		parentSpanId: string,
 		traceId: string,
 		parentTitlePath: string[],
-		processedSteps: Map<string, Span>,
-		skippedStepIds: Set<string>,
+		stepSpans: Span[],
 		inheritedPhase?: "before" | "after",
 	) {
 		// Playwright groups hook and fixture work into these lifecycle steps.
@@ -398,89 +384,25 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				phase = "after";
 			}
 		}
-		const stepId = getStepId(test, step);
 
-		// If this step is from our fixture file, mark it and remove any already-created span
-		// (Playwright sometimes reports the same fixture twice, once without location first)
+		// Our own fixture's steps aren't the user's: leave them out, keeping
+		// what ran inside them under the same parent.
 		if (isInternalFixtureStep(step) || isInternalApiRequestStep(step)) {
-			skippedStepIds.add(stepId);
-
-			// Remove any span we already created for this stepId (from a duplicate without location)
-			processedSteps.delete(stepId);
-
-			// Still process nested steps with the same parent (skip this fixture as a span)
-			if (step.steps && step.steps.length > 0) {
-				for (const childStep of step.steps) {
-					this.processTestStep(
-						test,
-						childStep,
-						parentSpanId,
-						traceId,
-						parentTitlePath,
-						processedSteps,
-						skippedStepIds,
-						phase,
-					);
-				}
-			}
-			return;
-		}
-
-		// Skip if we've already identified this stepId as our fixture
-		if (skippedStepIds.has(stepId)) {
-			if (step.steps && step.steps.length > 0) {
-				for (const childStep of step.steps) {
-					this.processTestStep(
-						test,
-						childStep,
-						parentSpanId,
-						traceId,
-						parentTitlePath,
-						processedSteps,
-						skippedStepIds,
-						phase,
-					);
-				}
+			for (const childStep of step.steps ?? []) {
+				this.processTestStep(
+					childStep,
+					parentSpanId,
+					traceId,
+					parentTitlePath,
+					stepSpans,
+					phase,
+				);
 			}
 			return;
 		}
 
 		// Build the full title path for this step
 		const currentTitlePath = [...parentTitlePath, step.title];
-
-		// Check if we've already processed this step (Playwright can report duplicates)
-		const existingSpan = processedSteps.get(stepId);
-		if (existingSpan) {
-			if (step.error) {
-				existingSpan.status = errorStatus(step.error.message);
-			}
-
-			// Merge: if this step has location info and the existing one doesn't, add it
-			if (step.location && !existingSpan.attributes[ATTR_CODE_FILE_PATH]) {
-				const { file, line } = step.location;
-				const relativePath = this.rootDir
-					? path.relative(this.rootDir, file)
-					: file;
-				existingSpan.attributes[ATTR_CODE_FILE_PATH] = relativePath;
-				existingSpan.attributes[ATTR_CODE_LINE_NUMBER] = line;
-			}
-			// Still need to process nested steps
-			if (step.steps && step.steps.length > 0) {
-				for (const childStep of step.steps) {
-					this.processTestStep(
-						test,
-						childStep,
-						existingSpan.spanId,
-						traceId,
-						currentTitlePath,
-						processedSteps,
-						skippedStepIds,
-						phase,
-					);
-				}
-			}
-			return;
-		}
 
 		const attributes: Record<string, string | number | boolean | string[]> = {};
 
@@ -529,22 +451,18 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			stepSpan.status = errorStatus(step.error.message);
 		}
 
-		processedSteps.set(stepId, stepSpan);
+		stepSpans.push(stepSpan);
 
 		// Recursively process nested steps
-		if (step.steps && step.steps.length > 0) {
-			for (const childStep of step.steps) {
-				this.processTestStep(
-					test,
-					childStep,
-					stepSpan.spanId,
-					traceId,
-					currentTitlePath,
-					processedSteps,
-					skippedStepIds,
-					phase,
-				);
-			}
+		for (const childStep of step.steps ?? []) {
+			this.processTestStep(
+				childStep,
+				stepSpan.spanId,
+				traceId,
+				currentTitlePath,
+				stepSpans,
+				phase,
+			);
 		}
 	}
 
@@ -954,14 +872,4 @@ function isTraceContextAttachment(
 		typeof value.traceId === "string" &&
 		typeof value.rootSpanId === "string"
 	);
-}
-
-function getStepId(test: TestCase, step: TestStep): string {
-	// Include startTime to ensure uniqueness when steps have the same title
-	// Without this, repeated steps like test.step("Click button", ...) would collide
-	const startTimeMs = step.startTime.getTime();
-	const id = [test.id, step.category, startTimeMs, ...step.titlePath()].join(
-		" > ",
-	);
-	return id;
 }
