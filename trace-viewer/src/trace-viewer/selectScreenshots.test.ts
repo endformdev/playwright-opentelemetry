@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { SCREENSHOT_LAG_MS } from "./screenshots";
 import {
 	type Screenshot,
 	selectScreenshots,
@@ -147,6 +148,24 @@ describe("selectScreenshots", () => {
 			expect(result[1]).toBeNull();
 			expect(result[2]).toBeNull();
 			expect(result[3]).toBeNull();
+		});
+	});
+
+	describe("screenshot lag", () => {
+		it("shows a frame stamped up to SCREENSHOT_LAG_MS after a slot's start", () => {
+			const range: TimeRange = { startMs: 0, endMs: 300 };
+			const atLag = makeScreenshots(100 + SCREENSHOT_LAG_MS);
+			expect(getTimestamps(selectScreenshots(atLag, 3, range))).toEqual([
+				null,
+				100 + SCREENSHOT_LAG_MS,
+				100 + SCREENSHOT_LAG_MS,
+			]);
+			const pastLag = makeScreenshots(100 + SCREENSHOT_LAG_MS + 1);
+			expect(getTimestamps(selectScreenshots(pastLag, 3, range))).toEqual([
+				null,
+				null,
+				100 + SCREENSHOT_LAG_MS + 1,
+			]);
 		});
 	});
 

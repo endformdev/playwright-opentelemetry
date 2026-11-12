@@ -16,7 +16,7 @@ export interface HoveredSpan {
  * All elements at a specific point in time.
  */
 export interface HoveredElements {
-	/** The most recent screenshot before or at the hover time */
+	/** The screenshot showing the page at the hover time, as findScreenshotAtTime picks it */
 	screenshot: ScreenshotInfo | null;
 	/** Steps active at this time, as a hierarchical tree */
 	steps: HoveredSpan[];
