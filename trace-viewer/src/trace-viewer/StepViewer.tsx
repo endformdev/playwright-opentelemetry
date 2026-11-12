@@ -60,7 +60,7 @@ const CAPTION_PX = 24;
 /** Space between the two figures, in pixels: Tailwind's gap-3 */
 const FIGURE_GAP_PX = 12;
 /** The comparison's screenshot is this much smaller than this run's */
-const COMPARISON_SCALE = 0.8;
+const COMPARISON_SCALE = 0.85;
 
 /**
  * The player: the big screen, one large screenshot of the current moment in
