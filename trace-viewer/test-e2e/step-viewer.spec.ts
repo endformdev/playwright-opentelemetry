@@ -950,3 +950,78 @@ test("opens on a highlighted span's result, marking the span up to it", async ({
 		await expect(highlightedParent).toHaveCount(0);
 	});
 });
+
+test("opens a failed test on the innermost step it failed at", async ({
+	page,
+	request,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+	const failed = { code: 2, message: "Expected to be visible" };
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Fails part way",
+		3000,
+		{ status: "failed" },
+	);
+	const first = builder.addStepSpanAndGetId("First", 500, {
+		startOffsetMs: 0,
+	});
+	// A soft assertion fails without stopping the test.
+	builder.addStepSpanAndGetId("Soft check", 200, {
+		startOffsetMs: 500,
+		status: failed,
+	});
+	const group = builder.addStepSpanAndGetId("Check out", 1300, {
+		startOffsetMs: 1000,
+		status: failed,
+	});
+	builder.addStepSpanAndGetId("Pay", 300, {
+		startOffsetMs: 1000,
+		parentSpanId: group,
+	});
+	const check = builder.addStepSpanAndGetId("Paid", 1000, {
+		startOffsetMs: 1300,
+		parentSpanId: group,
+		status: failed,
+	});
+	await builder.send(request);
+
+	const zip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [100, 600, 1100, 1400, 2200],
+	});
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await zip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
+	);
+	expect(upload.ok()).toBeTruthy();
+
+	const viewer = new TraceViewerPage(page);
+	const { stepViewer, ruler } = viewer;
+
+	await test.step("Opens on the failed assertion inside the failed step", async () => {
+		await viewer.loadTraceFromApi(traceId);
+		await page.mouse.move(0, 0);
+		await expect(stepViewer.position).toHaveText("4/4", { timeout: 10000 });
+		await expect(stepViewer.stepTitle).toHaveText("Paid");
+		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "2300");
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			String(testStartTime + 2200),
+		);
+		await expect(viewer.details.focusedCards).toHaveAttribute(
+			"data-span-id",
+			check,
+		);
+	});
+
+	await test.step("A highlighted span still comes first", async () => {
+		await viewer.loadTraceFromUrlParam(traceId, { highlightSpanId: first });
+		await expect(stepViewer.position).toHaveText("1/4", { timeout: 10000 });
+		await expect(stepViewer.stepTitle).toHaveText("First");
+	});
+});

@@ -307,7 +307,7 @@ test("says when the step on show has no match, wherever the pointer peeks", asyn
 	});
 });
 
-test("at a failure, shows the comparison's settled result of the failed step", async ({
+test("opens a failed run on its failure, beside the comparison's settled result of the failed step", async ({
 	page,
 	request,
 }) => {
@@ -341,8 +341,6 @@ test("at a failure, shows the comparison's settled result of the failed step", a
 	});
 	await expect(stepViewer.comparison).toContainText("Last passing run on main");
 
-	await stepViewer.root.focus();
-	await page.keyboard.press("End");
 	await expect(stepViewer.position).toHaveText("2/2");
 	await expect(stepViewer.screenshot).toHaveAttribute(
 		"data-screenshot-timestamp",
