@@ -83,6 +83,44 @@ test("shows the player's layout while the trace loads, where the player will be"
 	});
 });
 
+test("shows the comparison's layout while the traces load, where the two will be", async ({
+	page,
+	request,
+}) => {
+	const traceId = await createTrace(request);
+	const comparisonId = await createTrace(request);
+	await page.setViewportSize({ width: 900, height: 512 });
+	const release = await holdTraceSpans(page);
+	const viewer = new TraceViewerPage(page);
+	const stepViewer = new StepViewerComponent(page);
+
+	await viewer.loadTraceFromUrlParam(traceId, {
+		view: "player",
+		compareSource: `${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${comparisonId}`,
+		compareLabel: "Last pass",
+	});
+
+	const skeleton = page.getByRole("status", { name: "Loading trace" });
+	await expect(skeleton.getByText("Last pass")).toBeVisible();
+	const skeletonComparison = skeleton.getByTestId("step-viewer-comparison");
+	const skeletonPrimary = skeleton.getByTestId("step-viewer-primary");
+	await expect(skeletonPrimary).toBeVisible();
+	const skeletonComparisonBox = await skeletonComparison.boundingBox();
+	const skeletonPrimaryBox = await skeletonPrimary.boundingBox();
+
+	release();
+	await expect(stepViewer.comparisonScreenshot).toBeVisible();
+	await expect(skeleton).toHaveCount(0);
+
+	// Both screenshots fill in where their skeletons were.
+	const comparisonBox = await stepViewer.comparison.boundingBox();
+	const primaryBox = await page
+		.getByTestId("step-viewer-primary")
+		.boundingBox();
+	expect(comparisonBox).toEqual(skeletonComparisonBox);
+	expect(primaryBox).toEqual(skeletonPrimaryBox);
+});
+
 test("shows the full viewer's regions while the trace loads", async ({
 	page,
 	request,

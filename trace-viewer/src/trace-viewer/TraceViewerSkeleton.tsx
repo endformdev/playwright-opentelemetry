@@ -3,6 +3,7 @@ import {
 	calculateInitialPanelSizes,
 	PLAYER_BIG_SCREEN_SIZE_PERCENT,
 } from "./panelSizing";
+import { ComparisonScreens } from "./StepViewer";
 import { type ViewerPanels, viewerSettingsFromPanels } from "./viewerPanels";
 import { createViewerSettings } from "./viewerSettings";
 
@@ -26,6 +27,8 @@ export interface TraceViewerSkeletonProps {
 	hasAction: boolean;
 	/** For screen readers: what is loading */
 	message: string;
+	/** The caption of the trace to compare with, when the URL names one */
+	comparisonLabel: string | null;
 }
 
 /**
@@ -80,7 +83,22 @@ export function TraceViewerSkeleton(props: TraceViewerSkeletonProps) {
 	const player = () => (
 		<div class="flex h-full flex-col bg-white">
 			<div class="relative min-h-0 flex-1 bg-gray-100 p-3">
-				<ScreenshotSkeleton />
+				<Show when={props.comparisonLabel} fallback={<ScreenshotSkeleton />}>
+					{(label) => (
+						<ComparisonScreens
+							comparison={{
+								label: label(),
+								status: "loading",
+								testStatus: null,
+								frame: { timeMs: null, screenshot: null },
+								noScreenshots: false,
+								note: null,
+							}}
+							testStatus={null}
+							primaryScreen={() => <ScreenshotSkeleton />}
+						/>
+					)}
+				</Show>
 			</div>
 			<ControlBarSkeleton hasAction={props.hasAction} />
 			<Show when={showRuler}>

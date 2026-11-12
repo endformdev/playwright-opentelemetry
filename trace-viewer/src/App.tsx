@@ -115,6 +115,9 @@ export default function App() {
 								panels={viewerPanels}
 								hasAction={viewerAction !== null}
 								message={`Loading trace. ${loadingMessage(source())}`}
+								comparisonLabel={
+									loadRequest()?.comparison ? comparisonLabel : null
+								}
 							/>
 						)}
 					</Match>
