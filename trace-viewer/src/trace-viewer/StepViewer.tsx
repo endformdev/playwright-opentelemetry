@@ -192,9 +192,9 @@ function PrimaryScreen(props: {
  * down so this run reads as the main one. Each figure is as large as its
  * screenshot, so the caption sits on the image's own edge.
  */
-function ComparisonScreens(props: {
+export function ComparisonScreens(props: {
 	comparison: StepViewerComparison;
-	testStatus: TestStatus;
+	testStatus: TestStatus | null;
 	primaryScreen: (
 		onImageLoad: (image: HTMLImageElement) => void,
 	) => JSX.Element;
