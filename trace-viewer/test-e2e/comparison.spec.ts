@@ -523,3 +523,20 @@ test("stacks the two when that makes them larger", async ({
 		primaryBox!.y,
 	);
 });
+
+test("shows the comparison smaller than this run", async ({
+	page,
+	request,
+}) => {
+	const { primary, comparison } = await createStretchedRuns(request);
+	const { stepViewer } = await openComparison(page, primary.url, {
+		compareSource: comparison.url,
+	});
+	await expect(stepViewer.comparisonScreenshot).toBeVisible();
+	await expect(stepViewer.screenshot).toBeVisible();
+
+	const comparisonBox = await stepViewer.comparisonScreenshot.boundingBox();
+	const primaryBox = await stepViewer.screenshot.boundingBox();
+	expect(comparisonBox!.width).toBeLessThan(primaryBox!.width);
+	expect(comparisonBox!.height).toBeLessThan(primaryBox!.height);
+});
