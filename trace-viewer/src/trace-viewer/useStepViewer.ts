@@ -13,6 +13,7 @@ import {
 	findFirstContentfulScreenshot,
 	findScreenshotAtTime,
 	groupScreenshotsByPage,
+	SCREENSHOT_LAG_MS,
 } from "./screenshots";
 import {
 	computeStepRulerSegments,
@@ -187,7 +188,8 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		const shown = screenshot();
 		if (!shown) return timeMs;
 		const shownAtMs = shown.timestamp - options.testStartTimeMs();
-		return timeMs !== null && shownAtMs <= timeMs
+		// A frame stamped just after the time still shows that time.
+		return timeMs !== null && shownAtMs <= timeMs + SCREENSHOT_LAG_MS
 			? timeMs
 			: Math.max(0, shownAtMs);
 	};

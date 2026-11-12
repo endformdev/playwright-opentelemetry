@@ -43,14 +43,29 @@ export function findCounterpartPage(
 	);
 }
 
+/**
+ * How long after a moment a screenshot can still be showing it. Screenshots
+ * are taken in the background, so the frame with a step's effect on it is
+ * stamped a few milliseconds after the step ended (5 ms typically, up to about
+ * 30), usually after the next step has started. Steps follow each other within
+ * a millisecond or two, so without this a step's last frame would often be
+ * missed: in every view, and in a comparison mapped onto a step's end.
+ */
+export const SCREENSHOT_LAG_MS = 30;
+
+/**
+ * The frame showing the page at a moment: the latest one taken by
+ * SCREENSHOT_LAG_MS after it, or null before the first.
+ */
 export function findScreenshotAtTime(
 	screenshots: ScreenshotInfo[],
 	absoluteTimeMs: number,
 ): ScreenshotInfo | null {
+	const latestMs = absoluteTimeMs + SCREENSHOT_LAG_MS;
 	let bestScreenshot: ScreenshotInfo | null = null;
 	for (const screenshot of screenshots) {
 		if (
-			screenshot.timestamp <= absoluteTimeMs &&
+			screenshot.timestamp <= latestMs &&
 			(!bestScreenshot || screenshot.timestamp > bestScreenshot.timestamp)
 		) {
 			bestScreenshot = screenshot;

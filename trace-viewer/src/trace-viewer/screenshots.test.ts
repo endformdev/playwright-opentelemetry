@@ -3,9 +3,11 @@ import type { ScreenshotInfo } from "../trace-info-loader";
 import {
 	findCounterpartPage,
 	findFirstContentfulScreenshot,
+	findScreenshotAtTime,
 	groupScreenshotsByPage,
 	isBlankPixels,
 	MAX_BLANK_CHECKS,
+	SCREENSHOT_LAG_MS,
 } from "./screenshots";
 
 function pixels(...colors: [number, number, number][]): Uint8ClampedArray {
@@ -15,6 +17,31 @@ function pixels(...colors: [number, number, number][]): Uint8ClampedArray {
 function screenshot(timestamp: number): ScreenshotInfo {
 	return { timestamp, url: `/screenshots/${timestamp}`, pageId: "page" };
 }
+
+describe("findScreenshotAtTime", () => {
+	// From a real trace: the step ended at 4298, its result was stamped at 4304.
+	const frames = [screenshot(4204), screenshot(4304)];
+
+	it("shows the frame stamped just after a step ended", () => {
+		expect(findScreenshotAtTime(frames, 4298)?.timestamp).toBe(4304);
+	});
+
+	it("looks ahead by SCREENSHOT_LAG_MS, and no further", () => {
+		expect(
+			findScreenshotAtTime(frames, 4304 - SCREENSHOT_LAG_MS)?.timestamp,
+		).toBe(4304);
+		expect(
+			findScreenshotAtTime(frames, 4304 - SCREENSHOT_LAG_MS - 1)?.timestamp,
+		).toBe(4204);
+	});
+
+	it("shows nothing before the first frame is near", () => {
+		expect(findScreenshotAtTime(frames, 4204 - SCREENSHOT_LAG_MS - 1)).toBe(
+			null,
+		);
+		expect(findScreenshotAtTime([], 4298)).toBe(null);
+	});
+});
 
 describe("isBlankPixels", () => {
 	it("counts a single colour of any kind as blank", () => {
