@@ -483,6 +483,41 @@ describe("Trace API Integration", () => {
 		}
 	});
 
+	it("sends spans without waiting for a screenshots upload that then fails", async () => {
+		const uploadState = { settled: false };
+		const spanEndpointsBeforeUploadSettled: string[] = [];
+		mockFetch.mockImplementation(async (url: string) => {
+			if (url.endsWith("/screenshots.zip")) {
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				uploadState.settled = true;
+				throw new TypeError("fetch failed");
+			}
+			if (!uploadState.settled) {
+				spanEndpointsBeforeUploadSettled.push(url);
+			}
+			return { ok: true, status: 200 };
+		});
+		const attachments = [
+			retainedTraceAttachment(),
+			await screenshotsAttachment([{ pageId: "page-0", timestamp: 1000 }]),
+		];
+
+		const run = runReporterTest({
+			playwrightOpentelemetry: {
+				otlpEndpoint: { url: "https://otel-collector.example.com/v1/traces" },
+				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+			},
+			test: { title: "renders the dashboard" },
+			result: { status: "passed", duration: 1000, attachments },
+		});
+
+		await expect(run).rejects.toThrow("fetch failed");
+		expect(spanEndpointsBeforeUploadSettled.toSorted()).toEqual([
+			"https://otel-collector.example.com/v1/traces",
+			"https://traces.example.com/v1/traces",
+		]);
+	});
+
 	it("warns for every failed endpoint and writes the trace ZIP before failing on a trace API send error", async () => {
 		mockFetch.mockRejectedValue(new TypeError("fetch failed"));
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

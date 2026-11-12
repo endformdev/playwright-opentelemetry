@@ -284,21 +284,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	async onEnd(_result: FullResult) {
-		for (const artifact of this.pendingTraceArtifacts) {
-			const prepared = await artifact.prepared;
-			if ("error" in prepared) {
-				throw prepared.error;
-			}
-
-			if (prepared.traceZipBlob) {
-				await writeTraceZip(
-					artifact.outputDir,
-					artifact.test,
-					prepared.traceZipBlob,
-				);
-			}
-		}
-
 		const destinations = new Map<string, SpanDestination>();
 
 		for (const batch of this.spanBatches) {
@@ -347,6 +332,21 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			console.warn(
 				`Failed to send spans to ${failure.destination.options.tracesEndpoint}: ${errorMessage(failure.error)}`,
 			);
+		}
+
+		for (const artifact of this.pendingTraceArtifacts) {
+			const prepared = await artifact.prepared;
+			if ("error" in prepared) {
+				throw prepared.error;
+			}
+
+			if (prepared.traceZipBlob) {
+				await writeTraceZip(
+					artifact.outputDir,
+					artifact.test,
+					prepared.traceZipBlob,
+				);
+			}
 		}
 
 		const traceApiFailure = sendFailures.find(
