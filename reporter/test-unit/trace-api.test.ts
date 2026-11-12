@@ -447,6 +447,88 @@ describe("Trace API Integration", () => {
 		expect(traceApiTraceId).toBe(otelTraceId);
 	});
 
+	it("only warns when the OTLP endpoint can't be reached", async () => {
+		const options: PlaywrightOpentelemetryConfig = {
+			otlpEndpoint: {
+				url: "https://unreachable-collector.example.com/v1/traces",
+			},
+			playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+		};
+		mockFetch.mockImplementation(async (url: string) => {
+			if (url.startsWith("https://unreachable-collector.example.com")) {
+				throw new TypeError("fetch failed");
+			}
+			return { ok: true, status: 200 };
+		});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		try {
+			await runReporterTest({
+				playwrightOpentelemetry: options,
+				test: { title: "renders the dashboard" },
+				result: { status: "passed", duration: 1000 },
+			});
+
+			const traceApiSpanCalls = mockFetch.mock.calls.filter(
+				(call) => call[0] === "https://traces.example.com/v1/traces",
+			);
+			expect(traceApiSpanCalls).toHaveLength(1);
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"https://unreachable-collector.example.com/v1/traces",
+				),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("warns for every failed endpoint and writes the trace ZIP before failing on a trace API send error", async () => {
+		mockFetch.mockRejectedValue(new TypeError("fetch failed"));
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const outputDir = await fs.mkdtemp(
+			path.join(os.tmpdir(), "trace-api-zip-"),
+		);
+
+		try {
+			const run = runReporterTest({
+				playwrightOpentelemetry: {
+					storeTraceZip: true,
+					otlpEndpoint: {
+						url: "https://unreachable-collector.example.com/v1/traces",
+					},
+					playwrightTraceApiEndpoint: {
+						url: "https://unreachable-traces.example.com",
+					},
+				},
+				config: { outputDir },
+				test: { title: "renders the dashboard" },
+				result: {
+					status: "passed",
+					duration: 1000,
+					attachments: [retainedTraceAttachment()],
+				},
+			});
+
+			await expect(run).rejects.toThrow("fetch failed");
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"https://unreachable-collector.example.com/v1/traces",
+				),
+			);
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"https://unreachable-traces.example.com/v1/traces",
+				),
+			);
+			const outputFiles = await fs.readdir(outputDir);
+			expect(outputFiles).toContain("test-renders-the-dashboard-pw-otel.zip");
+		} finally {
+			warn.mockRestore();
+			await fs.rm(outputDir, { recursive: true, force: true });
+		}
+	});
+
 	it("sends Trace API spans and screenshots to every plural Trace API destination", async () => {
 		const options: PlaywrightOpentelemetryConfig = {
 			playwrightTraceApiEndpoints: [

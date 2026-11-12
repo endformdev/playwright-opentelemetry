@@ -69,6 +69,17 @@ type SpanBatch = {
 	config: ResolvedPlaywrightOpentelemetryConfig;
 };
 
+type SpanDestination = {
+	kind: "trace-api" | "otlp";
+	spans: Span[];
+	options: SendSpansOptions;
+};
+
+type SpanSendFailure = {
+	destination: SpanDestination;
+	error: unknown;
+};
+
 type PendingTraceArtifact = {
 	outputDir: string;
 	test: TestCase;
@@ -288,10 +299,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			}
 		}
 
-		const destinations = new Map<
-			string,
-			{ spans: Span[]; options: SendSpansOptions }
-		>();
+		const destinations = new Map<string, SpanDestination>();
 
 		for (const batch of this.spanBatches) {
 			for (const destination of batch.config.otlpDestinations) {
@@ -299,7 +307,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					continue;
 				}
 
-				addDestinationSpans(destinations, batch.spans, {
+				addDestinationSpans(destinations, batch.spans, "otlp", {
 					tracesEndpoint: destination.url,
 					headers: destination.headers,
 					playwrightVersion: this.playwrightVersion || "unknown",
@@ -312,7 +320,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					continue;
 				}
 
-				addDestinationSpans(destinations, batch.spans, {
+				addDestinationSpans(destinations, batch.spans, "trace-api", {
 					tracesEndpoint: `${destination.url}/v1/traces`,
 					headers: withPlaywrightTraceApiHeaders(destination.headers),
 					playwrightVersion: this.playwrightVersion || "unknown",
@@ -321,8 +329,31 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			}
 		}
 
-		for (const destination of destinations.values()) {
-			await sendSpans(destination.spans, destination.options);
+		const failuresPerDestination = await Promise.all(
+			[...destinations.values()].map(
+				async (destination): Promise<SpanSendFailure[]> => {
+					try {
+						await sendSpans(destination.spans, destination.options);
+						return [];
+					} catch (error) {
+						return [{ destination, error }];
+					}
+				},
+			),
+		);
+		const sendFailures = failuresPerDestination.flat();
+
+		for (const failure of sendFailures) {
+			console.warn(
+				`Failed to send spans to ${failure.destination.options.tracesEndpoint}: ${errorMessage(failure.error)}`,
+			);
+		}
+
+		const traceApiFailure = sendFailures.find(
+			(failure) => failure.destination.kind === "trace-api",
+		);
+		if (traceApiFailure) {
+			throw traceApiFailure.error;
 		}
 	}
 
@@ -579,9 +610,17 @@ function getTestOutputDir(test: TestCase): string {
 	return outputDir;
 }
 
+function errorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+	return String(error);
+}
+
 function addDestinationSpans(
-	destinations: Map<string, { spans: Span[]; options: SendSpansOptions }>,
+	destinations: Map<string, SpanDestination>,
 	spans: Span[],
+	kind: SpanDestination["kind"],
 	options: SendSpansOptions,
 ): void {
 	const key = JSON.stringify(options);
@@ -591,7 +630,7 @@ function addDestinationSpans(
 		return;
 	}
 
-	destinations.set(key, { spans: [...spans], options });
+	destinations.set(key, { kind, spans: [...spans], options });
 }
 
 function hasTraceApiDestination(
