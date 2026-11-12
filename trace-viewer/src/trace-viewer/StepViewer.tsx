@@ -7,7 +7,7 @@ import {
 	splitProps,
 } from "solid-js";
 import type { ScreenshotInfo, TestStatus } from "../trace-info-loader";
-import { layOutComparison } from "./comparisonLayout";
+import { layOutComparison, type ScreenshotSize } from "./comparisonLayout";
 import { ScreenshotSkeleton, skeletonPhaseStyle } from "./TraceViewerSkeleton";
 import {
 	PlayerControlBar,
@@ -59,6 +59,8 @@ const DEFAULT_SCREENSHOT_ASPECT = 16 / 9;
 const CAPTION_PX = 24;
 /** Space between the two figures, in pixels: Tailwind's gap-3 */
 const FIGURE_GAP_PX = 12;
+/** The comparison's screenshot is this much smaller than this run's */
+const COMPARISON_SCALE = 0.8;
 
 /**
  * The player: the big screen, one large screenshot of the current moment in
@@ -69,7 +71,8 @@ const FIGURE_GAP_PX = 12;
  * screen plays and pauses, as in a video player.
  *
  * With a comparison, the big screen shows its screenshot of the same moment
- * on the left, before this run's on the right, each under a caption.
+ * on the left, a little smaller, before this run's on the right, each under a
+ * caption.
  */
 export function StepViewer(props: StepViewerProps) {
 	// Each read of a JSX prop creates it anew, so resolve it just once.
@@ -185,8 +188,9 @@ function PrimaryScreen(props: {
 
 /**
  * The comparison and this run as two captioned figures, side by side or
- * stacked, whichever shows the screenshots larger. Each figure is as large as
- * its screenshot, so the caption sits on the image's own edge.
+ * stacked, whichever shows the screenshots larger. The comparison is scaled
+ * down so this run reads as the main one. Each figure is as large as its
+ * screenshot, so the caption sits on the image's own edge.
  */
 function ComparisonScreens(props: {
 	comparison: StepViewerComparison;
@@ -209,9 +213,14 @@ function ComparisonScreens(props: {
 			aspect: aspect(),
 			captionPx: CAPTION_PX,
 			gapPx: FIGURE_GAP_PX,
+			comparisonScale: COMPARISON_SCALE,
 		});
-	const figureStyle = () => ({ width: `${choice().imageWidthPx}px` });
-	const imageStyle = () => ({ height: `${choice().imageHeightPx}px` });
+	const figureStyle = (size: ScreenshotSize) => ({
+		width: `${size.widthPx}px`,
+	});
+	const imageStyle = (size: ScreenshotSize) => ({
+		height: `${size.heightPx}px`,
+	});
 	// Screenshots of one test share a size; this run's image tells it.
 	const measureAspect = (image: HTMLImageElement) => {
 		if (image.naturalWidth > 0 && image.naturalHeight > 0) {
@@ -230,7 +239,7 @@ function ComparisonScreens(props: {
 		>
 			<figure
 				class="flex min-w-0 flex-shrink-0 flex-col"
-				style={figureStyle()}
+				style={figureStyle(choice().comparison)}
 				data-testid="step-viewer-comparison"
 				data-comparison-time-ms={frame().timeMs ?? undefined}
 			>
@@ -239,7 +248,7 @@ function ComparisonScreens(props: {
 					testStatus={props.comparison.testStatus}
 					note={props.comparison.note}
 				/>
-				<div style={imageStyle()}>
+				<div style={imageStyle(choice().comparison)}>
 					<Show
 						when={props.comparison.status !== "failed"}
 						fallback={<Notice>Couldn't load this trace</Notice>}
@@ -275,11 +284,13 @@ function ComparisonScreens(props: {
 			</figure>
 			<figure
 				class="flex min-w-0 flex-shrink-0 flex-col"
-				style={figureStyle()}
+				style={figureStyle(choice().primary)}
 				data-testid="step-viewer-primary"
 			>
 				<Caption label="This run" testStatus={props.testStatus} note={null} />
-				<div style={imageStyle()}>{props.primaryScreen(measureAspect)}</div>
+				<div style={imageStyle(choice().primary)}>
+					{props.primaryScreen(measureAspect)}
+				</div>
 			</figure>
 		</div>
 	);

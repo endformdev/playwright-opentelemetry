@@ -11,35 +11,53 @@ export interface ComparisonArea {
 	captionPx: number;
 	/** Space between the two figures */
 	gapPx: number;
+	/**
+	 * The comparison's screenshot size over the primary's, so the primary
+	 * reads as the main one
+	 */
+	comparisonScale: number;
+}
+
+export interface ScreenshotSize {
+	widthPx: number;
+	heightPx: number;
 }
 
 export interface ComparisonLayoutChoice {
 	layout: ComparisonLayout;
 	/** The size each screenshot is shown at, which its caption spans */
-	imageWidthPx: number;
-	imageHeightPx: number;
+	primary: ScreenshotSize;
+	comparison: ScreenshotSize;
 }
 
 /**
  * Side by side, unless stacking the two makes the screenshots larger, as in a
- * player embedded in a narrow column. Both are shown whole, so the larger
- * layout is the one where each screenshot gets more height.
+ * player embedded in a narrow column. Both are shown whole, the comparison
+ * scaled down from the primary, so the larger layout is the one where the
+ * primary gets more height.
  */
 export function layOutComparison(area: ComparisonArea): ComparisonLayoutChoice {
-	const { widthPx, heightPx, aspect, captionPx, gapPx } = area;
+	const { widthPx, heightPx, aspect, captionPx, gapPx, comparisonScale } = area;
 	const sideBySideHeight = Math.min(
-		(widthPx - gapPx) / 2 / aspect,
+		(widthPx - gapPx) / (1 + comparisonScale) / aspect,
 		heightPx - captionPx,
 	);
 	const stackedHeight = Math.min(
 		widthPx / aspect,
-		(heightPx - gapPx) / 2 - captionPx,
+		(heightPx - gapPx - 2 * captionPx) / (1 + comparisonScale),
 	);
 	const stacked = stackedHeight > sideBySideHeight;
-	const imageHeightPx = Math.max(0, stacked ? stackedHeight : sideBySideHeight);
+	const primaryHeightPx = Math.max(
+		0,
+		stacked ? stackedHeight : sideBySideHeight,
+	);
+	const comparisonHeightPx = primaryHeightPx * comparisonScale;
 	return {
 		layout: stacked ? "stacked" : "side-by-side",
-		imageWidthPx: imageHeightPx * aspect,
-		imageHeightPx,
+		primary: { widthPx: primaryHeightPx * aspect, heightPx: primaryHeightPx },
+		comparison: {
+			widthPx: comparisonHeightPx * aspect,
+			heightPx: comparisonHeightPx,
+		},
 	};
 }
