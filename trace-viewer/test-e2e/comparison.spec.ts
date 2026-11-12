@@ -253,6 +253,60 @@ test("follows hovering and playback", async ({ page, request }) => {
 	});
 });
 
+test("says when the step on show has no match, wherever the pointer peeks", async ({
+	page,
+	request,
+}) => {
+	const now = Date.now();
+	const primary = await createRun(request, {
+		testStartTime: now,
+		durationMs: 4000,
+		bodyStartMs: 500,
+		bodyEndMs: 3000,
+		steps: [
+			click("One", 10, 500, 500),
+			click("New", 11, 1000, 1000),
+			click("Two", 12, 2000, 500),
+		],
+		screenshots: [100, 950, 1950, 2450],
+	});
+	const comparison = await createRun(request, {
+		testStartTime: now - ONE_HOUR_MS,
+		durationMs: 3000,
+		bodyStartMs: 500,
+		bodyEndMs: 2000,
+		steps: [click("One", 10, 500, 500), click("Two", 11, 1000, 500)],
+		screenshots: [100, 950, 1450],
+	});
+	const viewer = await openComparison(page, primary.url, {
+		compareSource: comparison.url,
+	});
+	const { stepViewer, ruler } = viewer;
+	await expect(stepViewer.comparisonScreenshot).toBeVisible();
+
+	await test.step("On the new step's stop, it has no match", async () => {
+		await stepViewer.root.focus();
+		await page.keyboard.press("Home");
+		await page.keyboard.press("ArrowRight");
+		await expect(stepViewer.position).toHaveText("2/3");
+		await expect(stepViewer.comparisonNote).toHaveText("No matching step");
+	});
+
+	await test.step("Peeking at a matched step drops the note", async () => {
+		await ruler.hoverAt(0.2);
+		await expect(stepViewer.screenshot).toHaveAttribute(
+			"data-screenshot-timestamp",
+			primary.at(100),
+		);
+		await expect(stepViewer.comparisonNote).toHaveCount(0);
+	});
+
+	await test.step("Peeking back at the new step brings it back", async () => {
+		await ruler.hoverAt(0.4);
+		await expect(stepViewer.comparisonNote).toHaveText("No matching step");
+	});
+});
+
 test("at a failure, shows the comparison's settled result of the failed step", async ({
 	page,
 	request,

@@ -63,6 +63,11 @@ export interface StepViewer {
 	 * playback). Null with no time, or before the first step starts.
 	 */
 	shownIndex: Accessor<number | null>;
+	/**
+	 * Index of the step the frames on show come from: the step at the peeked
+	 * time while the pointer peeks past a lock, else the shown step
+	 */
+	frameIndex: Accessor<number | null>;
 	/** Screenshot to show: the pinned page's, else the latest of any page */
 	screenshot: Accessor<ScreenshotInfo | null>;
 	/**
@@ -126,6 +131,13 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 			: (getStepSegmentAtTime(segments().steps, timeMs)?.stopIndex ?? null);
 	});
 	const shownIndex = () => currentIndex() ?? indexAtDisplayTime();
+	const frameIndex = () => {
+		const peekTimeMs = options.peekTimeMs();
+		if (peekTimeMs === null) return shownIndex();
+		return (
+			getStepSegmentAtTime(segments().steps, peekTimeMs)?.stopIndex ?? null
+		);
+	};
 
 	const screenshotPages = createMemo(() =>
 		groupScreenshotsByPage(options.screenshots()),
@@ -261,6 +273,7 @@ export function useStepViewer(options: StepViewerOptions): StepViewer {
 		segments,
 		currentIndex,
 		shownIndex,
+		frameIndex,
 		screenshot,
 		shownTimeMs,
 		screenshotPending: () => firstContentfulScreenshot.loading,

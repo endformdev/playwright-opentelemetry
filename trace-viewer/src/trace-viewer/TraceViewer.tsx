@@ -291,9 +291,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const playerSizePercent = () =>
 		settings().playerScreen === "filmstrip"
 			? getPlayerFilmstripSizePercent(
-				stepViewer.pages().length,
-				columnHeightPx(),
-			)
+					stepViewer.pages().length,
+					columnHeightPx(),
+				)
 			: PLAYER_BIG_SCREEN_SIZE_PERCENT;
 	// Sections with nothing to show are disabled in the settings menu.
 	const emptySections = createMemo(() => {
@@ -408,11 +408,12 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		const shownPageId = stepViewer.screenshot()?.pageId;
 		const shownPage =
 			stepViewer.pages().find((page) => page.pageId === shownPageId) ?? null;
-		const shownIndex = stepViewer.shownIndex();
-		const shownStepId =
-			shownIndex === null
+		// The note is about the frames on show, which follow a peek too.
+		const frameIndex = stepViewer.frameIndex();
+		const frameStepId =
+			frameIndex === null
 				? null
-				: (stepViewer.stops()[shownIndex]?.stepId ?? null);
+				: (stepViewer.stops()[frameIndex]?.stepId ?? null);
 		return {
 			label: viewerComparison.label,
 			status:
@@ -424,7 +425,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			testStatus: info?.testInfo.status ?? null,
 			frame: comparison.frame(stepViewer.shownTimeMs(), shownPage),
 			noScreenshots: ready && (info?.screenshots() ?? []).length === 0,
-			note: ready ? comparison.note(shownStepId) : null,
+			note: ready ? comparison.note(frameStepId) : null,
 		};
 	};
 	/** The toggle is there once the comparison has loaded, where it can show */
