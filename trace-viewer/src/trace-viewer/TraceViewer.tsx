@@ -25,6 +25,7 @@ import {
 	useViewportContext,
 	ViewportProvider,
 } from "./contexts/ViewportContext";
+import { findFailingStep } from "./failingStep";
 import { MultiResizablePanel } from "./MultiResizablePanel";
 import {
 	calculateInitialPanelSizes,
@@ -525,15 +526,18 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		return spanId ? (spanById().get(spanId) ?? null) : null;
 	});
 
-	/**
-	 * Where the highlighted span shows its result: the stop of the last step
-	 * inside it, where stepping shows what that step did. Null when asked to
-	 * open on its start, or when no step is inside it.
-	 */
-	const highlightedSpanResult = createMemo(() => {
-		const span = highlightedSpan();
-		if (!span || props.highlight?.at === "start") return null;
+	/** The step the test failed at, when it didn't pass */
+	const failingStep = createMemo(() => {
+		const { status } = props.traceInfo.testInfo;
+		if (status === "passed" || status === "skipped") return null;
+		return findFailingStep(props.traceData.steps(), testStructure());
+	});
 
+	/**
+	 * Where a span shows its result: the stop of the last step inside it,
+	 * where stepping shows what that step did. Null when no step is inside it.
+	 */
+	const resultStopOf = (span: Span) => {
 		const spanEndMs = span.startOffsetMs + span.durationMs;
 		return (
 			[...stepViewer.stops()].reverse().find((stop) => {
@@ -545,6 +549,13 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 				);
 			}) ?? null
 		);
+	};
+
+	/** Where the highlighted span shows its result, unless asked for its start */
+	const highlightedSpanResult = createMemo(() => {
+		const span = highlightedSpan();
+		if (!span || props.highlight?.at === "start") return null;
+		return resultStopOf(span);
 	});
 
 	// The marker covers the span from its start to the result the viewer
@@ -562,31 +573,53 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		];
 	});
 
-	// Once loaded, open on the highlighted span: by default on its result,
-	// since its start shows the page before it acted. Locking first keeps the
-	// step viewer from opening on the first screenshot instead.
-	let openedOnHighlight = false;
-	createEffect(() => {
-		if (openedOnHighlight || props.traceData.status() !== "loaded") return;
-		openedOnHighlight = true;
-		const span = highlightedSpan();
-		if (!span) return;
+	/**
+	 * Opens on the highlighted span: by default on its result, since its start
+	 * shows the page before it acted.
+	 */
+	const openOnHighlight = (span: Span) => {
+		const result = highlightedSpanResult();
+		if (result) {
+			handleRulerSeek(result.timeMs, result.stepId);
+			return;
+		}
 
+		// On its start when asked, or when no step is inside it. By time
+		// alone, a step's start belongs to the step that just ended, so the
+		// lock names the first step starting there.
+		const step = stepViewer
+			.segments()
+			.steps.find((segment) => segment.startMs >= span.startOffsetMs)?.step;
+
+		handleRulerSeek(span.startOffsetMs, step?.id);
+	};
+
+	/**
+	 * Opens on the failure: the failing step's result, as the page was left
+	 * when it gave up. A step outside the test body, like a failing hook, has
+	 * no stop, so that opens on its end.
+	 */
+	const openOnFailure = (step: Span) => {
+		const result = resultStopOf(step);
+		if (result) handleRulerSeek(result.timeMs, result.stepId);
+		else handleRulerSeek(step.startOffsetMs + step.durationMs, step.id);
+	};
+
+	// Once loaded, open on the highlighted span, else on where a test that
+	// didn't pass failed. Locking first keeps the step viewer from opening on
+	// the first screenshot instead.
+	let opened = false;
+	createEffect(() => {
+		if (opened || props.traceData.status() !== "loaded") return;
+		opened = true;
 		untrack(() => {
-			const result = highlightedSpanResult();
-			if (result) {
-				handleRulerSeek(result.timeMs, result.stepId);
+			const highlighted = highlightedSpan();
+			if (highlighted) {
+				openOnHighlight(highlighted);
 				return;
 			}
-
-			// On its start when asked, or when no step is inside it. By time
-			// alone, a step's start belongs to the step that just ended, so the
-			// lock names the first step starting there.
-			const step = stepViewer
-				.segments()
-				.steps.find((segment) => segment.startMs >= span.startOffsetMs)?.step;
-
-			handleRulerSeek(span.startOffsetMs, step?.id);
+			const failing = failingStep();
+			if (failing) openOnFailure(failing);
 		});
 	});
 
