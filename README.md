@@ -18,7 +18,7 @@
 
 <p align="center">
 	<a href="#quick-start">Quick start</a> ·
-	<a href="#usage">Usage</a> ·
+	<a href="#documentation">Documentation</a> ·
 	<a href="https://trace.endform.dev/?traceSource=https%3A%2F%2Fdemo-traces.endform.dev%2Fotel-traces%2Fplaywright-tutorial%2Fpayment-server-error%2Fv2.zip">View example trace</a> ·
 	<a href="#contributing">Contributing</a>
 </p>
@@ -128,191 +128,13 @@ npx @playwright-opentelemetry/trace-viewer
 
 Two things set the boundary on what you will see. Connected backend spans require services that are already instrumented with OpenTelemetry and honor the propagated trace context. Screenshots are captured by the fixture, so tests need to use its `test`.
 
-## Usage
+## Documentation
 
-Two things need to be set up for complete OpenTelemetry tracing:
-
-1. A **reporter** that sends traces to your provider of choice
-2. A **fixture** that propagates trace context to enable nested spans
-
-### Configure the reporter
-
-```ts
-import { defineConfig, devices } from "@playwright/test";
-import type {
-	PlaywrightOpentelemetryConfig,
-	PlaywrightOpentelemetryUseOptions,
-} from "playwright-opentelemetry/fixture";
-
-const playwrightOpentelemetry: PlaywrightOpentelemetryConfig = {
-	// Or use environment variable OTEL_EXPORTER_OTLP_ENDPOINT
-	otlpEndpoint: {
-		url: "https://api.eu1.honeycomb.io/v1/traces",
-		// Or use environment variable OTEL_EXPORTER_OTLP_HEADERS
-		headers: {
-			"x-honeycomb-team": "xxxabc",
-		},
-	},
-	// Add more OTLP traces endpoints:
-	// otlpEndpoints: [{ url: "https://collector-a.example.com/v1/traces", trace: "on" }],
-	// Or output an opentelemetry report zip
-	storeTraceZip: true,
-	// Defaults to true. When enabled, browser requests receive a W3C
-	// traceparent header that makes downstream spans children of the
-	// Playwright-generated test trace. Export Playwright telemetry to the
-	// same backend as your app telemetry to avoid missing root spans.
-	propagateTraceHeaders: true,
-	// Optional. Defaults to following Playwright's trace setting below.
-	// trace: "on",
-};
-
-export default defineConfig<PlaywrightOpentelemetryUseOptions>({
-	// ... other Playwright config
-	reporter: [["playwright-opentelemetry/reporter"]],
-	use: {
-		playwrightOpentelemetry,
-		// Playwright trace retention. OpenTelemetry output follows this unless
-		// playwrightOpentelemetry.trace is configured above.
-		trace: "retain-on-failure",
-	},
-	// ... rest of Playwright config
-});
-```
-
-The current implementation sends OTLP/HTTP JSON payloads to configurable trace endpoints, so check that your destination accepts that transport before you wire it up.
-
-### Configure the fixture
-
-```ts
-import { expect } from "@playwright/test";
-import { test } from "playwright-opentelemetry/fixture";
-
-test("has title", async ({ page }) => {
-	await page.goto("https://playwright.dev/");
-
-	await expect(page).toHaveTitle(/Playwright/);
-});
-```
-
-### Screenshots
-
-The fixture captures screenshots of every page in a test through Playwright's [`page.screencast`](https://playwright.dev/docs/api/class-screencast) API, sharing the browser's existing screencast rather than starting a second one. They are stored with the trace and follow the [trace retention](#trace-retention) settings. They don't depend on Playwright's own trace screenshots, so you can set `screenshots: false` in Playwright's `trace` option.
-
-Tests can still use `page.screencast` themselves. To turn screenshots off, set `use.playwrightOpentelemetry.screenshots` to `false`.
-
-> On Playwright versions before 1.61, screenshots are read from Playwright's trace instead, so keep Playwright's trace screenshots on (for example `trace: "on"`).
-
-### Trace retention
-
-By default, reporter output follows Playwright trace retention. If Playwright does not produce or retain a `trace` attachment for a test, `playwright-opentelemetry` will not send OTLP data, upload Trace API data, or write a local `*-pw-otel.zip` for that test.
-
-Configure `use.trace` to control when Playwright traces and OpenTelemetry output are produced:
-
-- `trace: "on"` exports every test.
-- `trace: "retain-on-failure"` exports failed or unexpected tests.
-- `trace: "on-first-retry"` exports first retries.
-- `trace: "off"` exports nothing.
-
-To control OpenTelemetry output independently, set `use.playwrightOpentelemetry.trace`. It accepts the same values as Playwright's `use.trace` and overrides Playwright's trace setting for both the fixture and reporter:
-
-```ts
-export default defineConfig<PlaywrightOpentelemetryUseOptions>({
-	use: {
-		playwrightOpentelemetry: {
-			trace: "on",
-		},
-		trace: "retain-on-failure",
-	},
-});
-```
-
-You can also override trace retention for individual OpenTelemetry destinations. A destination-level `trace` setting overrides `use.playwrightOpentelemetry.trace` for that endpoint only. For example, you can keep local trace zips limited to failures while sending every test attempt to a specific OTLP backend:
-
-```ts
-export default defineConfig<PlaywrightOpentelemetryUseOptions>({
-	use: {
-		playwrightOpentelemetry: {
-			trace: "retain-on-failure",
-			storeTraceZip: true,
-			otlpEndpoint: {
-				url: "https://all-traces.example.com/v1/traces",
-				trace: "on",
-			},
-		},
-		trace: "retain-on-failure",
-	},
-});
-```
-
-Note: `storeTraceZip` follows only the top-level trace setting.
-
-### Viewing a trace
-
-Open the [example trace](https://trace.endform.dev/?traceSource=https%3A%2F%2Fdemo-traces.endform.dev%2Fotel-traces%2Fplaywright-tutorial%2Fpayment-server-error%2Fv2.zip) to explore a complete failure with connected Playwright, browser, and backend spans, or go to the [hosted trace viewer](https://trace.endform.dev) to load your own trace ZIP.
-
-Or boot your own locally:
-
-```bash
-npx @playwright-opentelemetry/trace-viewer
-```
-
-This boots the trace viewer on `localhost:9294`. Then load your ZIP file or an API URL responding with telemetry.
-
-The viewer separates the trace into three views that match how you investigate a failure:
-
-- **Test steps** for the Playwright test, hooks, fixtures, and actions
-- **Browser spans** for navigation, routes, JavaScript, fonts, images, fetches, and other requests
-- **External spans** for your instrumented application and backend services
-
-Console messages and uncaught browser errors appear as span events on the timeline, and the error navigator jumps straight to failing spans and their recorded exceptions.
-
-![The error navigator jumps straight to the failing span and its recorded exception](docs/assets/error-navigator.png)
-
-### Using trace IDs in other reporters
-
-Reporters configured after `playwright-opentelemetry/reporter` can read the trace ID from `TestResult.annotations` in `onTestEnd`:
-
-```ts
-const traceId = result.annotations.find(
-	(annotation) => annotation.type === "playwrightOpentelemetryTraceId",
-)?.description;
-```
-
-The annotation type is `playwrightOpentelemetryTraceId`. Its `description` is the 32-character OpenTelemetry trace ID, and it is only present when a trace was created for that test attempt.
-
-## Output formats
-
-### `opentelemetry-trace.zip` format
-
-When `storeTraceZip: true` and Playwright retained a trace for the test, a local copy of trace data will be stored to your results folder with the format:
-
-```
-{file.spec}:{linenumber}-{testId}-pw-otel.zip
-- traces/
-  - playwright-opentelemetry.json <-- the OTLP request body of all trace data collected by the reporter related to this test. Test metadata is stored on the root `playwright.test` span.
-- manifest.json <-- screenshot metadata with timestamps and ZIP paths
-- screenshots/ <-- the screenshots captured during the test run
-  - {pageId}-{timestamp}.jpeg <-- pageId matches the page's `browser.page.id` span attribute
-```
-
-### Trace API
-
-The trace viewer can also load traces from a trace-specific API base URL, for example `/playwright-otel-trace-viewer/v1/{traceId}`. That base URL must respond to the following endpoints:
-
-- `GET {baseUrl}/traces` - merged OTLP trace export response
-  - Response format `{ "resourceSpans": [...] }`
-  - Returns `404` when the trace does not exist
-- `GET {baseUrl}/screenshots.zip` - ZIP containing root `manifest.json` and `screenshots/*`, or `404` when there are no screenshots
-
-Reporter step spans in Before Hooks carry `playwright.test.phase: "before"`; spans in After Hooks and Worker Cleanup carry `playwright.test.phase: "after"`. This custom attribute is inherited by nested hooks, fixtures, and steps. Test-body steps and the root test span omit it.
-
-The trace viewer derives base test information from the root `playwright.test` span attributes, including `test.case.title`, `playwright.test.describes`, `playwright.test.status`, `code.file.path`, and `code.line.number`.
-
-### Deploying your own Trace API
-
-The `@playwright-opentelemetry/trace-api` package provides a customizable H3-based library for storing and serving traces from S3-compatible storage. You can deploy it to Cloudflare Workers, Deno, Bun, Node.js, or any platform supporting web-standard Request/Response handlers.
-
-See the [trace-api README](trace-api/README.md) for installation, usage examples, and deployment instructions.
+- [Configure the reporter](docs/configure-the-reporter.md): OTLP destinations, trace retention, and trace IDs in other reporters
+- [Configure the fixture](docs/configure-the-fixture.md): trace context propagation and screenshots
+- [View a trace](docs/view-a-trace.md): the hosted and local trace viewer
+- [Output formats](docs/output-formats.md): the `opentelemetry-trace.zip` format and the Trace API
+- [Deploy your own Trace API](docs/deploy-the-trace-api.md): store and serve traces from S3-compatible storage
 
 ## Project status
 
