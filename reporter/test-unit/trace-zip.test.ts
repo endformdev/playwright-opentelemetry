@@ -17,6 +17,7 @@ import {
 	DEFAULT_ROOT_DIR,
 	DEFAULT_START_TIME,
 	PlaywrightOpentelemetryReporter,
+	leaveScreenshotsZip,
 } from "./reporter-harness";
 
 // Mock the sender module to prevent actual HTTP calls but keep buildOtlpRequest
@@ -30,10 +31,7 @@ vi.mock("../src/reporter/sender", async (importOriginal) => {
 });
 
 import { sendSpans } from "../src/reporter/sender";
-import {
-	createScreenshotsZip,
-	SCREENSHOTS_ATTACHMENT_NAME,
-} from "../src/shared/screenshots-zip";
+import { createScreenshotsZip } from "../src/shared/screenshots-zip";
 import {
 	FIXTURE_SPANS_ATTACHMENT_NAME,
 	TRACE_CONTEXT_ATTACHMENT_NAME,
@@ -66,7 +64,6 @@ async function createScreenshotsAttachments(
 	outputDir: string,
 	screenshots: Array<{ pageId: string; timestamp: number }>,
 ): Promise<TestResult["attachments"]> {
-	const screenshotsZipPath = path.join(outputDir, "screenshots.zip");
 	const zip = await createScreenshotsZip(
 		screenshots.map(({ pageId, timestamp }) => ({
 			pageId,
@@ -76,7 +73,6 @@ async function createScreenshotsAttachments(
 			blob: new Blob([new Uint8Array(createMinimalJpeg())]),
 		})),
 	);
-	await fs.writeFile(screenshotsZipPath, Buffer.from(await zip.arrayBuffer()));
 
 	return [
 		{
@@ -84,11 +80,7 @@ async function createScreenshotsAttachments(
 			contentType: "application/zip",
 			path: path.join(outputDir, "trace.zip"),
 		},
-		{
-			name: SCREENSHOTS_ATTACHMENT_NAME,
-			contentType: "application/zip",
-			path: screenshotsZipPath,
-		},
+		await leaveScreenshotsZip(outputDir, zip),
 	];
 }
 
@@ -725,21 +717,15 @@ describe("PlaywrightOpentelemetryReporter - Trace Zip", () => {
 				},
 			};
 
-			// Create screenshots attachments for each test
-			const test1TraceDir = path.join(outputDir, "trace1");
-			const test2TraceDir = path.join(outputDir, "trace2");
-			mkdirSync(test1TraceDir, { recursive: true });
-			mkdirSync(test2TraceDir, { recursive: true });
-
 			const screenshot1Timestamp = DEFAULT_START_TIME.getTime() + 500;
-			const attachments1 = await createScreenshotsAttachments(test1TraceDir, [
+			const attachments1 = await createScreenshotsAttachments(outputDir, [
 				{ pageId: test1.pageId, timestamp: screenshot1Timestamp },
 			]);
 
 			const screenshot2Timestamp1 = DEFAULT_START_TIME.getTime() + 2500;
 			const screenshot2Timestamp2 = DEFAULT_START_TIME.getTime() + 2700;
 			const screenshot2Timestamp3 = DEFAULT_START_TIME.getTime() + 3000;
-			const attachments2 = await createScreenshotsAttachments(test2TraceDir, [
+			const attachments2 = await createScreenshotsAttachments(outputDir, [
 				{ pageId: test2.pageId, timestamp: screenshot2Timestamp1 },
 				{ pageId: test2.pageId, timestamp: screenshot2Timestamp2 },
 				{ pageId: test2.pageId, timestamp: screenshot2Timestamp3 },

@@ -1,8 +1,9 @@
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { BlobWriter, ZipWriter } from "@zip.js/zip.js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
 import {
 	PLAYWRIGHT_TRACE_API_SOURCE_HEADER,
@@ -10,12 +11,15 @@ import {
 } from "../src/shared/otel";
 import {
 	readScreenshotsZip,
-	SCREENSHOTS_ATTACHMENT_NAME,
+	screenshotsZipDir,
 } from "../src/shared/screenshots-zip";
 import {
+	leaveScreenshotsZip,
 	retainedTraceAttachment,
 	runReporterTest,
 	screenshotsAttachment,
+	screenshotsFileNameAttachment,
+	temporaryOutputDir,
 } from "./reporter-harness";
 
 const mockFetch = vi.fn();
@@ -235,8 +239,11 @@ describe("Trace API Integration", () => {
 		});
 	});
 
-	it("uploads the screenshots ZIP the fixture attached", async () => {
+	it("uploads the screenshots ZIP the fixture left", async () => {
+		const outputDir = await temporaryOutputDir();
+
 		await runReporterTest({
+			config: { outputDir },
 			playwrightOpentelemetry: {
 				playwrightTraceApiEndpoint: {
 					url: "https://traces.example.com",
@@ -247,7 +254,9 @@ describe("Trace API Integration", () => {
 			result: {
 				attachments: [
 					retainedTraceAttachment(),
-					await screenshotsAttachment([{ pageId: "page-0", timestamp: 1000 }]),
+					await screenshotsAttachment(outputDir, [
+						{ pageId: "page-0", timestamp: 1000 },
+					]),
 				],
 			},
 		});
@@ -273,6 +282,60 @@ describe("Trace API Integration", () => {
 				file: "page-0-1000.jpeg",
 			}),
 		]);
+	});
+
+	it.each([
+		{
+			zip: "readable",
+			leave: (outputDir: string) => screenshotsAttachment(outputDir),
+		},
+		{
+			zip: "corrupt",
+			leave: (outputDir: string) =>
+				leaveScreenshotsZip(outputDir, new Blob(["not a zip"])),
+		},
+	])(
+		"deletes the fixture's $zip screenshots ZIP once it has read it",
+		async ({ leave }) => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			onTestFinished(() => warn.mockRestore());
+			const outputDir = await temporaryOutputDir();
+			const attachment = await leave(outputDir);
+
+			await runReporterTest({
+				config: { outputDir },
+				playwrightOpentelemetry: {
+					playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+				},
+				test: { title: "screenshots test" },
+				result: { attachments: [retainedTraceAttachment(), attachment] },
+			});
+
+			const leftoverZips = await fs.readdir(screenshotsZipDir(outputDir));
+			expect(leftoverZips).toEqual([]);
+		},
+	);
+
+	it("ignores a screenshots attachment that isn't a name the fixture made", async () => {
+		const outputDir = await temporaryOutputDir();
+		const victimPath = path.join(outputDir, "keep-me.txt");
+		await fs.writeFile(victimPath, "keep me");
+
+		await runReporterTest({
+			config: { outputDir },
+			playwrightOpentelemetry: {
+				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+			},
+			test: { title: "screenshots test" },
+			result: {
+				attachments: [
+					retainedTraceAttachment(),
+					screenshotsFileNameAttachment("../keep-me.txt"),
+				],
+			},
+		});
+
+		expect(existsSync(victimPath)).toBe(true);
 	});
 
 	it("doesn't read screenshots from Playwright's trace", async () => {
@@ -322,11 +385,9 @@ describe("Trace API Integration", () => {
 				result: {
 					attachments: [
 						retainedTraceAttachment(),
-						{
-							name: SCREENSHOTS_ATTACHMENT_NAME,
-							contentType: "application/zip",
-							path: path.join(os.tmpdir(), "missing-screenshots.zip"),
-						},
+						screenshotsFileNameAttachment(
+							"00000000-0000-4000-8000-000000000000.zip",
+						),
 					],
 				},
 			});
@@ -497,12 +558,16 @@ describe("Trace API Integration", () => {
 			}
 			return { ok: true, status: 200 };
 		});
+		const outputDir = await temporaryOutputDir();
 		const attachments = [
 			retainedTraceAttachment(),
-			await screenshotsAttachment([{ pageId: "page-0", timestamp: 1000 }]),
+			await screenshotsAttachment(outputDir, [
+				{ pageId: "page-0", timestamp: 1000 },
+			]),
 		];
 
 		const run = runReporterTest({
+			config: { outputDir },
 			playwrightOpentelemetry: {
 				otlpEndpoint: { url: "https://otel-collector.example.com/v1/traces" },
 				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
@@ -578,13 +643,19 @@ describe("Trace API Integration", () => {
 			],
 		};
 
+		const outputDir = await temporaryOutputDir();
+
 		await runReporterTest({
+			config: { outputDir },
 			playwrightOpentelemetry: options,
 			test: {
 				title: "should fan out trace API uploads",
 			},
 			result: {
-				attachments: [retainedTraceAttachment(), await screenshotsAttachment()],
+				attachments: [
+					retainedTraceAttachment(),
+					await screenshotsAttachment(outputDir),
+				],
 			},
 		});
 

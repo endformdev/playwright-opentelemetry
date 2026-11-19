@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { TestResult } from "@playwright/test/reporter";
 import { BlobWriter, ZipWriter } from "@zip.js/zip.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractScreenshotsFromPlaywrightTrace } from "../src/reporter/legacy/trace-zip-screenshots";
@@ -13,9 +14,8 @@ import type { PlaywrightOpentelemetryConfig } from "../src/shared/config";
 import {
 	createScreenshotsZip,
 	readScreenshotsZip,
-	SCREENSHOTS_ATTACHMENT_NAME,
 } from "../src/shared/screenshots-zip";
-import { runReporterTest } from "./reporter-harness";
+import { leaveScreenshotsZip, runReporterTest } from "./reporter-harness";
 
 function createTestOutputDir(testName: string): string {
 	const outputDir = `/tmp/legacy-trace-zip-test-${testName}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -373,11 +373,10 @@ describe("reporter screenshots before Playwright 1.61", () => {
 		const traceZipPath = await createMockPlaywrightTraceZip(outputDir, [
 			{ pageGuid: "page@aaa111", timestamp: 1000 },
 		]);
-		const attachments = [
+		const attachments: TestResult["attachments"] = [
 			{ name: "trace", contentType: "application/zip", path: traceZipPath },
 		];
 		if (options.withFixtureScreenshots) {
-			const screenshotsZipPath = path.join(outputDir, "screenshots.zip");
 			const zip = await createScreenshotsZip([
 				{
 					pageId: "page-0",
@@ -387,19 +386,11 @@ describe("reporter screenshots before Playwright 1.61", () => {
 					blob: new Blob([new Uint8Array(createMinimalJpeg())]),
 				},
 			]);
-			await fs.writeFile(
-				screenshotsZipPath,
-				Buffer.from(await zip.arrayBuffer()),
-			);
-			attachments.push({
-				name: SCREENSHOTS_ATTACHMENT_NAME,
-				contentType: "application/zip",
-				path: screenshotsZipPath,
-			});
+			attachments.push(await leaveScreenshotsZip(outputDir, zip));
 		}
 
 		await runReporterTest({
-			config: { version: "1.60.0" },
+			config: { version: "1.60.0", outputDir },
 			playwrightOpentelemetry: {
 				...traceApiConfig,
 				...options.playwrightOpentelemetry,

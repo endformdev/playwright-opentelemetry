@@ -25,6 +25,7 @@ import { generateSpanId, generateTraceId } from "../src/shared/otel";
 import {
 	createScreenshotsZip,
 	SCREENSHOTS_ATTACHMENT_NAME,
+	writeScreenshotsZip,
 } from "../src/shared/screenshots-zip";
 import { onTestFinished } from "vitest";
 
@@ -424,21 +425,22 @@ export function buildTestResult(
 	} as Partial<TestResult> as TestResult;
 }
 
-/**
- * Writes a screenshots ZIP like the one the fixture attaches, with one frame
- * per entry, and returns its attachment. The file is removed after the test.
- */
+/** A project output directory for one test, removed after it. */
+export async function temporaryOutputDir(): Promise<string> {
+	const dir = await fs.mkdtemp(
+		path.join(os.tmpdir(), "playwright-opentelemetry-output-"),
+	);
+	onTestFinished(() => fs.rm(dir, { recursive: true, force: true }));
+	return dir;
+}
+
+/** Leaves a screenshots ZIP with one frame per entry, like the fixture. */
 export async function screenshotsAttachment(
+	outputDir: string,
 	screenshots: Array<{ pageId: string; timestamp: number }> = [
 		{ pageId: "page-0", timestamp: 1000 },
 	],
 ) {
-	const dir = await fs.mkdtemp(
-		path.join(os.tmpdir(), "playwright-opentelemetry-screenshots-"),
-	);
-	onTestFinished(() => fs.rm(dir, { recursive: true, force: true }));
-
-	const zipPath = path.join(dir, "screenshots.zip");
 	const zip = await createScreenshotsZip(
 		screenshots.map(({ pageId, timestamp }) => ({
 			pageId,
@@ -448,11 +450,20 @@ export async function screenshotsAttachment(
 			blob: new Blob([`frame-${pageId}-${timestamp}`]),
 		})),
 	);
-	await fs.writeFile(zipPath, Buffer.from(await zip.arrayBuffer()));
+	return leaveScreenshotsZip(outputDir, zip);
+}
+
+/** Leaves a screenshots ZIP like the fixture and returns its attachment. */
+export async function leaveScreenshotsZip(outputDir: string, zip: Blob) {
+	const fileName = await writeScreenshotsZip(outputDir, zip);
+	return screenshotsFileNameAttachment(fileName);
+}
+
+export function screenshotsFileNameAttachment(fileName: string) {
 	return {
 		name: SCREENSHOTS_ATTACHMENT_NAME,
-		contentType: "application/zip",
-		path: zipPath,
+		contentType: "text/plain",
+		body: Buffer.from(fileName),
 	};
 }
 

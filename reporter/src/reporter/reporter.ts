@@ -38,6 +38,7 @@ import { supportsScreencastScreenshots } from "../shared/screencast-screenshots"
 import {
 	createScreenshotsZip,
 	readScreenshotsZip,
+	parseScreenshotsZipPath,
 	SCREENSHOTS_ATTACHMENT_NAME,
 	type ScreenshotResource,
 } from "../shared/screenshots-zip";
@@ -90,7 +91,7 @@ type PrepareTraceArtifactOptions = {
 	test: TestCase;
 	spans: Span[];
 	fixtureSpans: Span[];
-	screenshotsAttachmentPath?: string;
+	screenshotsZipPath: string | null;
 	traceAttachmentPath?: string;
 	traceId: string;
 	config: ResolvedPlaywrightOpentelemetryConfig;
@@ -261,14 +262,17 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			retainedConfig.storeTraceZip ||
 			hasTraceApiDestination(retainedConfig)
 		) {
+			const screenshotsAttachment = result.attachments.find(
+				(attachment) => attachment.name === SCREENSHOTS_ATTACHMENT_NAME,
+			);
 			const prepared = this.prepareTraceArtifact({
 				test,
 				spans: testSpans,
 				fixtureSpans,
-				screenshotsAttachmentPath: result.attachments.find(
-					(attachment) =>
-						attachment.name === SCREENSHOTS_ATTACHMENT_NAME && attachment.path,
-				)?.path,
+				screenshotsZipPath: parseScreenshotsZipPath(
+					outputDir,
+					screenshotsAttachment?.body?.toString("utf8") ?? null,
+				),
 				traceAttachmentPath: traceAttachment?.path,
 				traceId,
 				config: retainedConfig,
@@ -550,7 +554,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 async function readTestScreenshots(options: {
 	config: ResolvedPlaywrightOpentelemetryConfig;
 	playwrightVersion: string;
-	screenshotsAttachmentPath?: string;
+	screenshotsZipPath: string | null;
 	traceAttachmentPath?: string;
 }): Promise<ScreenshotResource[]> {
 	if (!options.config.screenshots) {
@@ -558,18 +562,20 @@ async function readTestScreenshots(options: {
 	}
 
 	if (supportsScreencastScreenshots(options.playwrightVersion)) {
-		if (!options.screenshotsAttachmentPath) {
+		if (!options.screenshotsZipPath) {
 			return [];
 		}
 		try {
 			return await readScreenshotsZip(
-				new Blob([await fs.readFile(options.screenshotsAttachmentPath)]),
+				new Blob([await fs.readFile(options.screenshotsZipPath)]),
 			);
 		} catch (error) {
 			console.warn(
 				`Failed to read the test's screenshots: ${error instanceof Error ? error.message : String(error)}`,
 			);
 			return [];
+		} finally {
+			await fs.rm(options.screenshotsZipPath, { force: true }).catch(() => {});
 		}
 	}
 

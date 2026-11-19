@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { runReporterTest, screenshotsAttachment } from "./reporter-harness";
+import {
+	runReporterTest,
+	screenshotsAttachment,
+	temporaryOutputDir,
+} from "./reporter-harness";
 
 vi.mock("../src/reporter/sender", () => ({
 	sendSpans: vi.fn(),
@@ -115,7 +119,10 @@ describe("PlaywrightOpentelemetryReporter trace retention", () => {
 		});
 		global.fetch = fetchMock;
 
+		const outputDir = await temporaryOutputDir();
+
 		await runReporterTest({
+			config: { outputDir },
 			playwrightOpentelemetry: {
 				trace: "retain-on-failure",
 				playwrightTraceApiEndpoint: {
@@ -124,7 +131,7 @@ describe("PlaywrightOpentelemetryReporter trace retention", () => {
 				},
 			},
 			test: { title: "trace api destination override" },
-			result: { attachments: [await screenshotsAttachment()] },
+			result: { attachments: [await screenshotsAttachment(outputDir)] },
 		});
 
 		expect(sendSpans).toHaveBeenCalledTimes(1);

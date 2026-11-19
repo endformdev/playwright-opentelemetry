@@ -17,9 +17,12 @@ import {
 import { supportsScreencastScreenshots } from "../src/shared/screencast-screenshots";
 import { resolvePlaywrightOpentelemetryConfig } from "../src/shared/config";
 import {
+	parseScreenshotsZipPath,
 	readScreenshotsZip,
 	SCREENSHOTS_ATTACHMENT_NAME,
+	screenshotsZipDir,
 } from "../src/shared/screenshots-zip";
+import { temporaryOutputDir } from "./reporter-harness";
 
 describe("ScreencastFrameThrottle", () => {
 	afterEach(() => {
@@ -262,7 +265,8 @@ describe("screenshots attachment", () => {
 		).toBe(false);
 	});
 
-	it("attaches the captured frames as a screenshots ZIP when the test is kept", async () => {
+	it("leaves the screenshots ZIP in the project's output directory and attaches only its name", async () => {
+		const outputDir = await temporaryOutputDir();
 		const { capture, context } = await startCapture();
 		const page = context.newPage();
 		capture.addContext(context.asContext());
@@ -272,23 +276,27 @@ describe("screenshots attachment", () => {
 			viewportWidth: 1280,
 			viewportHeight: 720,
 		});
+		const attach = vi.fn();
+		const testInfo = {
+			attach,
+			project: { outputDir },
+			retry: 0,
+			status: "failed",
+		} as unknown as TestInfo;
 
-		const attached: Array<{ name: string; zip: Blob }> = [];
-		const attach = vi.fn(async (name: string, options: { path: string }) => {
-			attached.push({
-				name,
-				zip: new Blob([await fs.readFile(options.path)]),
-			});
-		});
 		await attachScreenshots(capture, config, {
 			trace: "retain-on-failure",
-			testInfo: { attach, retry: 0, status: "failed" } as unknown as TestInfo,
+			testInfo,
 		});
 
-		expect(attached.map(({ name }) => name)).toEqual([
-			SCREENSHOTS_ATTACHMENT_NAME,
-		]);
-		expect(await readScreenshotsZip(attached[0].zip)).toEqual([
+		const [[name, options]] = attach.mock.calls;
+		const zipPath = parseScreenshotsZipPath(outputDir, options.body);
+		expect(name).toBe(SCREENSHOTS_ATTACHMENT_NAME);
+		expect(options).not.toHaveProperty("path");
+		expect(zipPath).not.toBeNull();
+		const zipBytes = await fs.readFile(zipPath ?? "");
+		const screenshots = await readScreenshotsZip(new Blob([zipBytes]));
+		expect(screenshots).toEqual([
 			expect.objectContaining({
 				pageId: "page-0",
 				timestamp: 1000,
@@ -301,6 +309,7 @@ describe("screenshots attachment", () => {
 	});
 
 	it("drops the frames when the test isn't kept", async () => {
+		const outputDir = await temporaryOutputDir();
 		const { capture, context } = await startCapture();
 		const page = context.newPage();
 		capture.addContext(context.asContext());
@@ -310,10 +319,16 @@ describe("screenshots attachment", () => {
 		const attach = vi.fn();
 		await attachScreenshots(capture, config, {
 			trace: "retain-on-failure",
-			testInfo: { attach, retry: 0, status: "passed" } as unknown as TestInfo,
+			testInfo: {
+				attach,
+				project: { outputDir },
+				retry: 0,
+				status: "passed",
+			} as unknown as TestInfo,
 		});
 
 		expect(attach).not.toHaveBeenCalled();
+		expect(existsSync(screenshotsZipDir(outputDir))).toBe(false);
 		expect(existsSync(capture.dir)).toBe(false);
 	});
 });
