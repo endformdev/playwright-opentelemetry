@@ -76,7 +76,7 @@ npx @playwright-opentelemetry/trace-viewer
 
 ## Documentation
 
-Full documentation, including trace retention options, screenshot capture, multiple OTLP destinations, output formats, and the self-hostable Trace API, lives in the [project README](https://github.com/endformdev/playwright-opentelemetry#usage).
+Full documentation, including trace retention options, screenshot capture, multiple OTLP destinations, output formats, and the self-hostable Trace API, lives in the [project docs](https://github.com/endformdev/playwright-opentelemetry#documentation).
 
 ## Developing the reporter / fixture
 
