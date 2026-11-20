@@ -52,12 +52,6 @@
 			"require": "./dist/reporter.cjs",
 			"default": "./dist/reporter.mjs"
 		},
-		"./host": {
-			"types": "./dist/host.d.mts",
-			"import": "./dist/host.mjs",
-			"require": "./dist/host.cjs",
-			"default": "./dist/host.mjs"
-		},
 		"./package.json": "./package.json"
 	},
 	"scripts": {

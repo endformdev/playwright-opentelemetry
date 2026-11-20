@@ -135,7 +135,6 @@ Two things set the boundary on what you will see. Connected backend spans requir
 - [View a trace](docs/view-a-trace.md): the hosted and local trace viewer
 - [Output formats](docs/output-formats.md): the `opentelemetry-trace.zip` format and the Trace API
 - [Deploy your own Trace API](docs/deploy-the-trace-api.md): store and serve traces from S3-compatible storage
-- [Seed trace IDs from a host](docs/seed-trace-context.md): let a custom runner or orchestrator choose each test attempt's trace ID
 
 ## Project status
 

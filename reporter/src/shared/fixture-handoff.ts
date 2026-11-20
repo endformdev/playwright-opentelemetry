@@ -9,9 +9,10 @@ import type { TestInfo } from "@playwright/test";
  * ID and retry: the ID is already unique per project, file, title and
  * repeat-each index.
  *
- * Part of the public API: a host that runs the tests can seed
- * {@link TRACE_CONTEXT_HANDOFF_FILE} here to choose the attempt's trace ID.
- * See docs/seed-trace-context.md.
+ * Not documented, but Endform relies on it: its worker controller seeds
+ * {@link TRACE_CONTEXT_HANDOFF_FILE} here before dispatching an attempt, so
+ * it knows the attempt's trace ID even though it runs the reporter in another
+ * process. Keep the layout and format stable.
  */
 export function fixtureHandoffDir(
 	projectOutputDir: string,
@@ -29,7 +30,6 @@ export function fixtureHandoffRoot(projectOutputDir: string): string {
 	return path.join(projectOutputDir, ".playwright-opentelemetry");
 }
 
-/** A {@link TraceContextHandoff} as JSON. */
 export const TRACE_CONTEXT_HANDOFF_FILE = "trace-context.json";
 export const FIXTURE_SPANS_HANDOFF_FILE = "fixture-spans.json";
 export const SCREENSHOTS_HANDOFF_FILE = "screenshots.zip";
