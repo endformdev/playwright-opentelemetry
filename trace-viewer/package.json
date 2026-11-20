@@ -12,9 +12,10 @@
 	"exports": {
 		"./components": {
 			"types": "./lib/types/components.d.ts",
-			"import": "./lib/components.js"
+			"default": "./lib/components.js"
 		},
-		"./components.css": "./lib/components.css"
+		"./components.css": "./lib/components.css",
+		"./package.json": "./package.json"
 	},
 	"scripts": {
 		"dev": "vite",
