@@ -331,7 +331,7 @@ describe("Trace API Integration", () => {
 				},
 			});
 			expect(warn).toHaveBeenCalledWith(
-				expect.stringContaining("Failed to read the test's screenshots"),
+				expect.stringContaining("Failed to read missing-screenshots.zip"),
 			);
 		} finally {
 			warn.mockRestore();

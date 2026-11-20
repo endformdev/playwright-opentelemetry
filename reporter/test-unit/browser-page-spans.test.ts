@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type {
 	ConsoleMessage,
 	Page,
@@ -22,7 +24,12 @@ import {
 	type TestTraceContext,
 } from "../src/fixture/trace-context";
 import { resolvePlaywrightOpentelemetryConfig } from "../src/shared/config";
+import {
+	FIXTURE_SPANS_HANDOFF_FILE,
+	fixtureHandoffDir,
+} from "../src/shared/fixture-handoff";
 import { generateSpanId, generateTraceId } from "../src/shared/otel";
+import { temporaryOutputDir } from "./reporter-harness";
 
 describe("fixture browser span hierarchy", () => {
 	beforeEach(() => {
@@ -334,47 +341,69 @@ describe("fixture browser span hierarchy", () => {
 		warn.mockRestore();
 	});
 
-	it("attaches fixture spans when trace ZIP storage is enabled", async () => {
-		const traceContext = createTraceContext();
-		const spanStartTime = new Date("2025-11-06T10:00:00.000Z");
-		traceContext.addSpan({
-			traceId: traceContext.traceId,
-			spanId: generateSpanId(),
-			parentSpanId: traceContext.rootSpanId,
-			name: "browser.page",
-			startTime: spanStartTime,
-			endTime: new Date("2025-11-06T10:00:01.000Z"),
-			attributes: { "browser.resource.type": "page" },
-			events: [],
-			status: { code: 0 },
-			serviceName: "playwright-browser",
-		});
-		const attach = vi.fn<TestInfo["attach"]>(async () => {});
-		const testInfo = createFlushTestInfo({ attach });
-
-		await flushFixtureSpans(
-			traceContext,
-			resolvePlaywrightOpentelemetryConfig({ storeTraceZip: true }),
-			{ trace: "on", testInfo },
-		);
-
-		expect(attach).toHaveBeenCalledWith(FIXTURE_SPANS_ATTACHMENT_NAME, {
-			body: expect.any(String),
-			contentType: "application/json",
-		});
-		const attachmentBody = attach.mock.calls[0]?.[1]?.body;
-		expect(typeof attachmentBody).toBe("string");
-		const body = JSON.parse(attachmentBody as string);
-		expect(body.spans).toEqual([
-			expect.objectContaining({
+	it.each([
+		{ handoff: "leaves them for the reporter", attachFixtureData: false },
+		{ handoff: "attaches them", attachFixtureData: true },
+	])(
+		"$handoff when trace ZIP storage needs the fixture spans",
+		async ({ attachFixtureData }) => {
+			const traceContext = createTraceContext();
+			const spanStartTime = new Date("2025-11-06T10:00:00.000Z");
+			traceContext.addSpan({
 				traceId: traceContext.traceId,
+				spanId: generateSpanId(),
+				parentSpanId: traceContext.rootSpanId,
 				name: "browser.page",
-				startTime: spanStartTime.toISOString(),
+				startTime: spanStartTime,
+				endTime: new Date("2025-11-06T10:00:01.000Z"),
+				attributes: { "browser.resource.type": "page" },
 				events: [],
+				status: { code: 0 },
 				serviceName: "playwright-browser",
-			}),
-		]);
-	});
+			});
+			const attach = vi.fn<TestInfo["attach"]>(async () => {});
+			const testInfo = createFlushTestInfo({ attach });
+
+			await flushFixtureSpans(
+				traceContext,
+				resolvePlaywrightOpentelemetryConfig({
+					storeTraceZip: true,
+					attachFixtureData,
+				}),
+				{ trace: "on", testInfo },
+			);
+
+			const handoffFile = path.join(
+				fixtureHandoffDir(
+					testInfo.project.outputDir,
+					testInfo.testId,
+					testInfo.retry,
+				),
+				FIXTURE_SPANS_HANDOFF_FILE,
+			);
+			let handedOff: string;
+			if (attachFixtureData) {
+				expect(attach).toHaveBeenCalledWith(FIXTURE_SPANS_ATTACHMENT_NAME, {
+					body: expect.any(String),
+					contentType: "application/json",
+				});
+				expect(() => readFileSync(handoffFile)).toThrow();
+				handedOff = attach.mock.calls[0]?.[1]?.body as string;
+			} else {
+				expect(attach).not.toHaveBeenCalled();
+				handedOff = readFileSync(handoffFile, "utf8");
+			}
+			expect(JSON.parse(handedOff).spans).toEqual([
+				expect.objectContaining({
+					traceId: traceContext.traceId,
+					name: "browser.page",
+					startTime: spanStartTime.toISOString(),
+					events: [],
+					serviceName: "playwright-browser",
+				}),
+			]);
+		},
+	);
 
 	it("does not flush fixture spans when Playwright trace retention would discard the trace", async () => {
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
@@ -518,6 +547,8 @@ function createFlushTestInfo({
 		status,
 		expectedStatus,
 		retry,
+		testId: "file-0-test-0",
+		project: { outputDir: temporaryOutputDir() } as TestInfo["project"],
 	};
 }
 

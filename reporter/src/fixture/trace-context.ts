@@ -11,6 +11,12 @@ import {
 import type { ResolvedPlaywrightOpentelemetryConfig } from "../shared/config";
 import { filterRetainedDestinations } from "../shared/destinations";
 import {
+	FIXTURE_SPANS_HANDOFF_FILE,
+	type FixtureHandoffTestInfo,
+	TRACE_CONTEXT_HANDOFF_FILE,
+	writeFixtureHandoffFile,
+} from "../shared/fixture-handoff";
+import {
 	couldRetainPlaywrightTrace,
 	type PlaywrightTracePreTestInfo,
 	shouldRetainPlaywrightTrace,
@@ -46,7 +52,8 @@ export interface PlaywrightOtelFixtureSpansAttachment {
 
 type FlushFixtureSpansOptions = {
 	trace: PlaywrightTraceOption | undefined;
-	testInfo?: Pick<TestInfo, "attach" | "expectedStatus" | "retry" | "status">;
+	testInfo?: FixtureHandoffTestInfo &
+		Pick<TestInfo, "attach" | "expectedStatus" | "status">;
 };
 
 type RegisterExpectedTraceOptions = {
@@ -68,7 +75,8 @@ export interface TestTraceContext extends PlaywrightOtelTraceContextAttachment {
 }
 
 export async function createTestTraceContext(
-	testInfo: TestInfo,
+	testInfo: FixtureHandoffTestInfo & Pick<TestInfo, "attach">,
+	config: Pick<ResolvedPlaywrightOpentelemetryConfig, "attachFixtureData">,
 ): Promise<TestTraceContext> {
 	const traceContext: TestTraceContext = {
 		traceId: generateTraceId(),
@@ -80,13 +88,18 @@ export async function createTestTraceContext(
 		},
 	};
 
-	await testInfo.attach(TRACE_CONTEXT_ATTACHMENT_NAME, {
-		body: JSON.stringify({
-			traceId: traceContext.traceId,
-			rootSpanId: traceContext.rootSpanId,
-		}),
-		contentType: "application/json",
+	const body = JSON.stringify({
+		traceId: traceContext.traceId,
+		rootSpanId: traceContext.rootSpanId,
 	});
+	if (config.attachFixtureData) {
+		await testInfo.attach(TRACE_CONTEXT_ATTACHMENT_NAME, {
+			body,
+			contentType: "application/json",
+		});
+	} else {
+		await writeFixtureHandoffFile(testInfo, TRACE_CONTEXT_HANDOFF_FILE, body);
+	}
 
 	return traceContext;
 }
@@ -169,12 +182,21 @@ export async function flushFixtureSpans(
 		options.testInfo &&
 		shouldRetainTrace(config.trace)
 	) {
-		await options.testInfo.attach(FIXTURE_SPANS_ATTACHMENT_NAME, {
-			body: JSON.stringify({
-				spans: traceContext.spans.map(serializeSpanForAttachment),
-			}),
-			contentType: "application/json",
+		const body = JSON.stringify({
+			spans: traceContext.spans.map(serializeSpanForAttachment),
 		});
+		if (config.attachFixtureData) {
+			await options.testInfo.attach(FIXTURE_SPANS_ATTACHMENT_NAME, {
+				body,
+				contentType: "application/json",
+			});
+		} else {
+			await writeFixtureHandoffFile(
+				options.testInfo,
+				FIXTURE_SPANS_HANDOFF_FILE,
+				body,
+			);
+		}
 	}
 
 	const destinations = fixtureSpanDestinations(config, shouldRetainTrace);

@@ -22,7 +22,7 @@ import {
 } from "./reporter-config";
 import { fixtureCaptureRequestResponse } from "./request-response-capture";
 import { ScreencastCapture } from "./screencast-capture";
-import { attachScreenshots, shouldCaptureScreenshots } from "./screenshots";
+import { handOffScreenshots, shouldCaptureScreenshots } from "./screenshots";
 import { runWithTestFetchCapture } from "./test-fetch-capture";
 import {
 	createTestTraceContext,
@@ -57,7 +57,14 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 		playwrightOpentelemetry: [undefined, { option: true }],
 		_playwrightOpentelemetryReporterCheck: [
 			async ({}, use, workerInfo) => {
-				if (!hasPlaywrightOpentelemetryReporter(workerInfo.config.reporter)) {
+				// With attached fixture data the reporter can run later, in
+				// `merge-reports`, rather than in this test run.
+				const options = workerInfo.project
+					.use as PlaywrightOpentelemetryUseOptions;
+				if (
+					options.playwrightOpentelemetry?.attachFixtureData !== true &&
+					!hasPlaywrightOpentelemetryReporter(workerInfo.config.reporter)
+				) {
 					throw new Error(MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR);
 				}
 
@@ -105,7 +112,7 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				const config = resolvePlaywrightOpentelemetryConfig(
 					playwrightOpentelemetry,
 				);
-				const traceContext = await createTestTraceContext(testInfo);
+				const traceContext = await createTestTraceContext(testInfo, config);
 				// Downstream services batch their exports, so their spans reach the
 				// Trace API well after this marker. Don't make the test wait for it.
 				const registration = registerExpectedTrace(traceContext, config, {
@@ -173,7 +180,7 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				} finally {
 					newContexts.delete(addContext);
 				}
-				await attachScreenshots(capture, config, { trace, testInfo });
+				await handOffScreenshots(capture, config, { trace, testInfo });
 			},
 			{ auto: true },
 		],

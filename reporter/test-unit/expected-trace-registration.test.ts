@@ -14,6 +14,7 @@ import {
 	PLAYWRIGHT_TRACE_API_SOURCE_HEADER,
 	PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 } from "../src/shared/otel";
+import { temporaryOutputDir } from "./reporter-harness";
 
 const fetchMock = vi.fn();
 
@@ -75,7 +76,12 @@ describe("expected trace registration", () => {
 				trace: "on",
 			},
 			use,
-			{ attach: vi.fn(), retry: 0 } as unknown as TestInfo,
+			{
+				attach: vi.fn(),
+				retry: 0,
+				testId: "file-0-test-0",
+				project: { outputDir: temporaryOutputDir() },
+			} as unknown as TestInfo,
 		).then(() => {
 			finished = true;
 		});
