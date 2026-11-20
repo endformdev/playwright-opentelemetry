@@ -44,6 +44,11 @@
 	"peerDependencies": {
 		"solid-js": "^1.9.0"
 	},
+	"peerDependenciesMeta": {
+		"solid-js": {
+			"optional": true
+		}
+	},
 	"devDependencies": {
 		"@ark-ui/solid": "^5.37.0",
 		"@fontsource-variable/inter": "^5.3.0",
