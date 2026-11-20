@@ -13,6 +13,7 @@ import { filterRetainedDestinations } from "../shared/destinations";
 import {
 	FIXTURE_SPANS_HANDOFF_FILE,
 	type FixtureHandoffTestInfo,
+	readSeededTraceContext,
 	TRACE_CONTEXT_HANDOFF_FILE,
 	writeFixtureHandoffFile,
 } from "../shared/fixture-handoff";
@@ -74,13 +75,30 @@ export interface TestTraceContext extends PlaywrightOtelTraceContextAttachment {
 	addSpan(span: FixtureSpan): void;
 }
 
+/**
+ * Uses the trace context a host seeded in the attempt's handoff directory, if
+ * there is a valid one, so a host that runs the reporter in another process
+ * knows the attempt's trace ID up front. Otherwise creates new IDs and hands
+ * them to the reporter.
+ */
 export async function createTestTraceContext(
 	testInfo: FixtureHandoffTestInfo & Pick<TestInfo, "attach">,
 	config: Pick<ResolvedPlaywrightOpentelemetryConfig, "attachFixtureData">,
 ): Promise<TestTraceContext> {
-	const traceContext: TestTraceContext = {
+	const seeded = await readSeededTraceContext(testInfo);
+	if (seeded === "invalid") {
+		console.warn(
+			`Ignoring invalid ${TRACE_CONTEXT_HANDOFF_FILE} for test ${testInfo.testId} (retry ${testInfo.retry}): expected {"traceId": <32 hex>, "rootSpanId": <16 hex>}. Replacing it with new IDs.`,
+		);
+	}
+	const seededIds = seeded === "invalid" ? undefined : seeded;
+	const ids = seededIds ?? {
 		traceId: generateTraceId(),
 		rootSpanId: generateSpanId(),
+	};
+
+	const traceContext: TestTraceContext = {
+		...ids,
 		spans: [],
 		requestContexts: new WeakMap<object, NetworkRequestTraceContext>(),
 		addSpan(span) {
@@ -88,16 +106,15 @@ export async function createTestTraceContext(
 		},
 	};
 
-	const body = JSON.stringify({
-		traceId: traceContext.traceId,
-		rootSpanId: traceContext.rootSpanId,
-	});
+	const body = JSON.stringify(ids);
 	if (config.attachFixtureData) {
 		await testInfo.attach(TRACE_CONTEXT_ATTACHMENT_NAME, {
 			body,
 			contentType: "application/json",
 		});
-	} else {
+	} else if (!seededIds) {
+		// Overwriting an invalid seeded file keeps the reporter from failing
+		// on it in onTestEnd.
 		await writeFixtureHandoffFile(testInfo, TRACE_CONTEXT_HANDOFF_FILE, body);
 	}
 

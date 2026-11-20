@@ -8,6 +8,7 @@ export default defineConfig({
 		index: "./src/index",
 		reporter: "./src/reporter",
 		fixture: "./src/fixture",
+		host: "./src/host",
 	},
 	fixedExtension: true,
 	format: ["esm", "cjs"],

@@ -142,3 +142,5 @@ const traceId = result.annotations.find(
 ```
 
 The annotation type is `playwrightOpentelemetryTraceId`. Its `description` is the 32-character OpenTelemetry trace ID, and it is only present when a trace was created for that test attempt.
+
+To choose the trace ID before the attempt starts instead, for example from a host that runs the reporter in another process, see [Seed trace IDs from a host](seed-trace-context.md).
