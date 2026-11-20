@@ -4,6 +4,11 @@ import type { TestInfo } from "@playwright/test";
 import type { ResolvedPlaywrightOpentelemetryConfig } from "../shared/config";
 import { filterRetainedDestinations } from "../shared/destinations";
 import {
+	type FixtureHandoffTestInfo,
+	SCREENSHOTS_HANDOFF_FILE,
+	writeFixtureHandoffFile,
+} from "../shared/fixture-handoff";
+import {
 	couldRetainPlaywrightTrace,
 	type PlaywrightTraceOption,
 	shouldRetainPlaywrightTrace,
@@ -16,7 +21,8 @@ import type { ScreencastCapture } from "./screencast-capture";
 
 type ScreenshotsOptions = {
 	trace: PlaywrightTraceOption | undefined;
-	testInfo: Pick<TestInfo, "attach" | "expectedStatus" | "retry" | "status">;
+	testInfo: FixtureHandoffTestInfo &
+		Pick<TestInfo, "attach" | "expectedStatus" | "status">;
 };
 
 /**
@@ -36,11 +42,11 @@ export function shouldCaptureScreenshots(
 }
 
 /**
- * Stops the capture and, if the test is retained, attaches its frames as a
- * screenshots ZIP for the reporter to upload. Never rejects: a test must not
- * fail because its screenshots couldn't be stored.
+ * Stops the capture and, if the test is retained, hands its frames to the
+ * reporter as a screenshots ZIP. Never rejects: a test must not fail because
+ * its screenshots couldn't be stored.
  */
-export async function attachScreenshots(
+export async function handOffScreenshots(
 	capture: ScreencastCapture,
 	config: ResolvedPlaywrightOpentelemetryConfig,
 	options: ScreenshotsOptions,
@@ -67,8 +73,18 @@ export async function attachScreenshots(
 				})),
 			),
 		);
+		const zipBytes = new Uint8Array(await zip.arrayBuffer());
+		if (!config.attachFixtureData) {
+			await writeFixtureHandoffFile(
+				options.testInfo,
+				SCREENSHOTS_HANDOFF_FILE,
+				zipBytes,
+			);
+			return;
+		}
+
 		const zipPath = path.join(capture.dir, "screenshots.zip");
-		await fs.writeFile(zipPath, Buffer.from(await zip.arrayBuffer()));
+		await fs.writeFile(zipPath, zipBytes);
 		await options.testInfo.attach(SCREENSHOTS_ATTACHMENT_NAME, {
 			path: zipPath,
 			contentType: "application/zip",

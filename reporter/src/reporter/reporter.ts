@@ -1,3 +1,4 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -34,6 +35,13 @@ import {
 	shouldRetainPlaywrightTrace,
 } from "../shared/playwright-trace";
 import { filterRetainedDestinations } from "../shared/destinations";
+import {
+	FIXTURE_SPANS_HANDOFF_FILE,
+	fixtureHandoffDir,
+	fixtureHandoffRoot,
+	SCREENSHOTS_HANDOFF_FILE,
+	TRACE_CONTEXT_HANDOFF_FILE,
+} from "../shared/fixture-handoff";
 import { supportsScreencastScreenshots } from "../shared/screencast-screenshots";
 import {
 	createScreenshotsZip,
@@ -90,7 +98,7 @@ type PrepareTraceArtifactOptions = {
 	test: TestCase;
 	spans: Span[];
 	fixtureSpans: Span[];
-	screenshotsAttachmentPath?: string;
+	screenshotsZip?: Buffer<ArrayBuffer>;
 	traceAttachmentPath?: string;
 	traceId: string;
 	config: ResolvedPlaywrightOpentelemetryConfig;
@@ -106,6 +114,7 @@ type PreparedTraceArtifact = {
 export class PlaywrightOpentelemetryReporter implements Reporter {
 	private spanBatches: SpanBatch[] = [];
 	private pendingTraceArtifacts: PendingTraceArtifact[] = [];
+	private fixtureHandoffRoots = new Set<string>();
 	private rootDir?: string;
 	private playwrightVersion?: string;
 	private debug = false;
@@ -133,6 +142,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	onStepEnd(_test: TestCase, _result: TestResult, _step: TestStep) {}
 
 	onTestEnd(test: TestCase, result: TestResult): void {
+		const fixtureData = this.takeFixtureData(test, result);
 		const config = getTestConfig(test);
 		const traceAttachment = result.attachments.find(
 			(attachment) =>
@@ -172,12 +182,12 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		const testId = test.id;
 		const outputDir = getTestOutputDir(test);
-		const { traceId, rootSpanId: testSpanId } = readTraceContextAttachment(
-			result,
+		const { traceId, rootSpanId: testSpanId } = parseTraceContext(
+			fixtureData.traceContext,
 			testId,
 		);
 		const fixtureSpans = retainedConfig.storeTraceZip
-			? readFixtureSpansAttachment(result, testId)
+			? parseFixtureSpans(fixtureData.fixtureSpans, testId)
 			: [];
 
 		result.annotations.push({
@@ -265,10 +275,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				test,
 				spans: testSpans,
 				fixtureSpans,
-				screenshotsAttachmentPath: result.attachments.find(
-					(attachment) =>
-						attachment.name === SCREENSHOTS_ATTACHMENT_NAME && attachment.path,
-				)?.path,
+				screenshotsZip: fixtureData.screenshotsZip,
 				traceAttachmentPath: traceAttachment?.path,
 				traceId,
 				config: retainedConfig,
@@ -284,6 +291,12 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	}
 
 	async onEnd(_result: FullResult) {
+		// Each attempt's directory is gone by now. Only removes an empty root,
+		// never files left for a test this run didn't report.
+		for (const root of this.fixtureHandoffRoots) {
+			await fs.rmdir(root).catch(() => {});
+		}
+
 		const destinations = new Map<string, SpanDestination>();
 
 		for (const batch of this.spanBatches) {
@@ -354,6 +367,48 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		);
 		if (traceApiFailure) {
 			throw traceApiFailure.error;
+		}
+	}
+
+	/**
+	 * What the fixture handed over for this test attempt: its attachments with
+	 * `attachFixtureData`, otherwise the files in the attempt's handoff
+	 * directory, which is deleted here whether or not the test is reported.
+	 */
+	private takeFixtureData(test: TestCase, result: TestResult): FixtureData {
+		const attachment = (name: string) =>
+			result.attachments.find((attachment) => attachment.name === name);
+		const screenshotsAttachmentPath = attachment(
+			SCREENSHOTS_ATTACHMENT_NAME,
+		)?.path;
+		const attached: FixtureData = {
+			traceContext: attachment(TRACE_CONTEXT_ATTACHMENT_NAME)?.body,
+			fixtureSpans: attachment(FIXTURE_SPANS_ATTACHMENT_NAME)?.body,
+			screenshotsZip: screenshotsAttachmentPath
+				? readFixtureFile(screenshotsAttachmentPath, { required: true })
+				: undefined,
+		};
+
+		const outputDir = getProjectOutputDir(test);
+		if (!outputDir) {
+			return attached;
+		}
+		this.fixtureHandoffRoots.add(fixtureHandoffRoot(outputDir));
+		const dir = fixtureHandoffDir(outputDir, test.id, result.retry);
+		try {
+			return {
+				traceContext:
+					attached.traceContext ??
+					readFixtureFile(path.join(dir, TRACE_CONTEXT_HANDOFF_FILE)),
+				fixtureSpans:
+					attached.fixtureSpans ??
+					readFixtureFile(path.join(dir, FIXTURE_SPANS_HANDOFF_FILE)),
+				screenshotsZip:
+					attached.screenshotsZip ??
+					readFixtureFile(path.join(dir, SCREENSHOTS_HANDOFF_FILE)),
+			};
+		} finally {
+			fsSync.rmSync(dir, { recursive: true, force: true });
 		}
 	}
 
@@ -543,14 +598,14 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 /**
  * A test's screenshots. Playwright versions with a usable screencast only use
- * the frames the fixture captured and attached; older versions only use
+ * the frames the fixture captured; older versions only use
  * Playwright's trace. Never rejects: a test's spans are still sent without
  * its screenshots.
  */
 async function readTestScreenshots(options: {
 	config: ResolvedPlaywrightOpentelemetryConfig;
 	playwrightVersion: string;
-	screenshotsAttachmentPath?: string;
+	screenshotsZip?: Buffer<ArrayBuffer>;
 	traceAttachmentPath?: string;
 }): Promise<ScreenshotResource[]> {
 	if (!options.config.screenshots) {
@@ -558,13 +613,11 @@ async function readTestScreenshots(options: {
 	}
 
 	if (supportsScreencastScreenshots(options.playwrightVersion)) {
-		if (!options.screenshotsAttachmentPath) {
+		if (!options.screenshotsZip) {
 			return [];
 		}
 		try {
-			return await readScreenshotsZip(
-				new Blob([await fs.readFile(options.screenshotsAttachmentPath)]),
-			);
+			return await readScreenshotsZip(new Blob([options.screenshotsZip]));
 		} catch (error) {
 			console.warn(
 				`Failed to read the test's screenshots: ${error instanceof Error ? error.message : String(error)}`,
@@ -600,10 +653,13 @@ function getTestConfig(test: TestCase): ResolvedPlaywrightOpentelemetryConfig {
 	);
 }
 
+function getProjectOutputDir(test: TestCase): string | undefined {
+	return (test.parent.project() as { outputDir?: string } | undefined)
+		?.outputDir;
+}
+
 function getTestOutputDir(test: TestCase): string {
-	const outputDir = (
-		test.parent.project() as { outputDir?: string } | undefined
-	)?.outputDir;
+	const outputDir = getProjectOutputDir(test);
 	if (!outputDir) {
 		throw new Error(`No outputDir found for test "${test.id}"`);
 	}
@@ -653,60 +709,78 @@ function hasPlaywrightOpentelemetryDestination(
 	);
 }
 
-function readTraceContextAttachment(
-	result: TestResult,
+type FixtureData = {
+	traceContext?: Buffer;
+	fixtureSpans?: Buffer;
+	screenshotsZip?: Buffer<ArrayBuffer>;
+};
+
+/**
+ * A file the fixture left, or undefined when it left none. Handoff files are
+ * optional; an attachment's file is not, so a missing one is reported.
+ */
+function readFixtureFile(
+	filePath: string,
+	options: { required?: boolean } = {},
+): Buffer<ArrayBuffer> | undefined {
+	try {
+		return fsSync.readFileSync(filePath);
+	} catch (error) {
+		if (
+			options.required ||
+			(error as NodeJS.ErrnoException).code !== "ENOENT"
+		) {
+			console.warn(
+				`Failed to read ${path.basename(filePath)} from the playwright-opentelemetry fixture: ${errorMessage(error)}`,
+			);
+		}
+		return undefined;
+	}
+}
+
+function parseTraceContext(
+	body: Buffer | undefined,
 	testId: string,
 ): { traceId: string; rootSpanId: string } {
-	const attachment = result.attachments.find(
-		(attachment) => attachment.name === TRACE_CONTEXT_ATTACHMENT_NAME,
-	);
-
-	if (!attachment?.body) {
+	if (!body) {
 		return { traceId: generateTraceId(), rootSpanId: generateSpanId() };
 	}
 
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(attachment.body.toString("utf-8"));
+		parsed = JSON.parse(body.toString("utf-8"));
 	} catch (error) {
 		throw new Error(
-			`Invalid ${TRACE_CONTEXT_ATTACHMENT_NAME} attachment for test ${testId}: ${error}`,
+			`Invalid ${TRACE_CONTEXT_ATTACHMENT_NAME} for test ${testId}: ${error}`,
 		);
 	}
 
 	if (!isTraceContextAttachment(parsed)) {
 		throw new Error(
-			`Invalid ${TRACE_CONTEXT_ATTACHMENT_NAME} attachment for test ${testId}: expected { traceId, rootSpanId }`,
+			`Invalid ${TRACE_CONTEXT_ATTACHMENT_NAME} for test ${testId}: expected { traceId, rootSpanId }`,
 		);
 	}
 
 	return parsed;
 }
 
-function readFixtureSpansAttachment(
-	result: TestResult,
-	testId: string,
-): Span[] {
-	const attachment = result.attachments.find(
-		(attachment) => attachment.name === FIXTURE_SPANS_ATTACHMENT_NAME,
-	);
-
-	if (!attachment?.body) {
+function parseFixtureSpans(body: Buffer | undefined, testId: string): Span[] {
+	if (!body) {
 		return [];
 	}
 
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(attachment.body.toString("utf-8"));
+		parsed = JSON.parse(body.toString("utf-8"));
 	} catch (error) {
 		throw new Error(
-			`Invalid ${FIXTURE_SPANS_ATTACHMENT_NAME} attachment for test ${testId}: ${error}`,
+			`Invalid ${FIXTURE_SPANS_ATTACHMENT_NAME} for test ${testId}: ${error}`,
 		);
 	}
 
 	if (!isRecord(parsed) || !Array.isArray(parsed.spans)) {
 		throw new Error(
-			`Invalid ${FIXTURE_SPANS_ATTACHMENT_NAME} attachment for test ${testId}: expected { spans }`,
+			`Invalid ${FIXTURE_SPANS_ATTACHMENT_NAME} for test ${testId}: expected { spans }`,
 		);
 	}
 
@@ -758,7 +832,7 @@ function parseFixtureSpan(value: unknown, testId: string, index: number): Span {
 
 function invalidFixtureSpanError(testId: string, index: number): Error {
 	return new Error(
-		`Invalid ${FIXTURE_SPANS_ATTACHMENT_NAME} attachment for test ${testId}: invalid span at index ${index}`,
+		`Invalid ${FIXTURE_SPANS_ATTACHMENT_NAME} for test ${testId}: invalid span at index ${index}`,
 	);
 }
 

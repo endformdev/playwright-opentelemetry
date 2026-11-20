@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
+import path from "node:path";
 import type { BrowserContext, Page, TestInfo } from "@playwright/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -11,15 +12,20 @@ import {
 	ScreencastFrameThrottle,
 } from "../src/fixture/screencast-capture";
 import {
-	attachScreenshots,
+	handOffScreenshots,
 	shouldCaptureScreenshots,
 } from "../src/fixture/screenshots";
 import { supportsScreencastScreenshots } from "../src/shared/screencast-screenshots";
 import { resolvePlaywrightOpentelemetryConfig } from "../src/shared/config";
 import {
+	fixtureHandoffDir,
+	SCREENSHOTS_HANDOFF_FILE,
+} from "../src/shared/fixture-handoff";
+import {
 	readScreenshotsZip,
 	SCREENSHOTS_ATTACHMENT_NAME,
 } from "../src/shared/screenshots-zip";
+import { temporaryOutputDir } from "./reporter-harness";
 
 describe("ScreencastFrameThrottle", () => {
 	afterEach(() => {
@@ -230,7 +236,7 @@ describe("supportsScreencastScreenshots", () => {
 	});
 });
 
-describe("screenshots attachment", () => {
+describe("screenshots handoff", () => {
 	const config = resolvePlaywrightOpentelemetryConfig({
 		playwrightTraceApiEndpoint: { url: "https://trace-api.example.com" },
 	});
@@ -262,43 +268,69 @@ describe("screenshots attachment", () => {
 		).toBe(false);
 	});
 
-	it("attaches the captured frames as a screenshots ZIP when the test is kept", async () => {
-		const { capture, context } = await startCapture();
-		const page = context.newPage();
-		capture.addContext(context.asContext());
-		await page.screencastStarted();
-		await page.emit({
-			...frame(1000),
-			viewportWidth: 1280,
-			viewportHeight: 720,
-		});
-
-		const attached: Array<{ name: string; zip: Blob }> = [];
-		const attach = vi.fn(async (name: string, options: { path: string }) => {
-			attached.push({
-				name,
-				zip: new Blob([await fs.readFile(options.path)]),
-			});
-		});
-		await attachScreenshots(capture, config, {
-			trace: "retain-on-failure",
-			testInfo: { attach, retry: 0, status: "failed" } as unknown as TestInfo,
-		});
-
-		expect(attached.map(({ name }) => name)).toEqual([
-			SCREENSHOTS_ATTACHMENT_NAME,
-		]);
-		expect(await readScreenshotsZip(attached[0].zip)).toEqual([
-			expect.objectContaining({
-				pageId: "page-0",
-				timestamp: 1000,
-				file: "page-0-1000.jpeg",
+	it.each([
+		{ handoff: "leaves", attachFixtureData: false },
+		{ handoff: "attaches", attachFixtureData: true },
+	])(
+		"$handoff the captured frames as a screenshots ZIP when the test is kept",
+		async ({ attachFixtureData }) => {
+			const { capture, context } = await startCapture();
+			const page = context.newPage();
+			capture.addContext(context.asContext());
+			await page.screencastStarted();
+			await page.emit({
+				...frame(1000),
 				viewportWidth: 1280,
 				viewportHeight: 720,
-			}),
-		]);
-		expect(existsSync(capture.dir)).toBe(false);
-	});
+			});
+
+			const attached: Array<{ name: string; zip: Blob }> = [];
+			const attach = vi.fn(async (name: string, options: { path: string }) => {
+				attached.push({
+					name,
+					zip: new Blob([await fs.readFile(options.path)]),
+				});
+			});
+			const testInfo = {
+				attach,
+				retry: 0,
+				status: "failed",
+				testId: "file-0-test-0",
+				project: { outputDir: temporaryOutputDir() },
+			} as unknown as TestInfo;
+			await handOffScreenshots(
+				capture,
+				{ ...config, attachFixtureData },
+				{ trace: "retain-on-failure", testInfo },
+			);
+
+			const handoffFile = path.join(
+				fixtureHandoffDir(testInfo.project.outputDir, testInfo.testId, 0),
+				SCREENSHOTS_HANDOFF_FILE,
+			);
+			let zip: Blob;
+			if (attachFixtureData) {
+				expect(attached.map(({ name }) => name)).toEqual([
+					SCREENSHOTS_ATTACHMENT_NAME,
+				]);
+				expect(existsSync(handoffFile)).toBe(false);
+				zip = attached[0].zip;
+			} else {
+				expect(attach).not.toHaveBeenCalled();
+				zip = new Blob([await fs.readFile(handoffFile)]);
+			}
+			expect(await readScreenshotsZip(zip)).toEqual([
+				expect.objectContaining({
+					pageId: "page-0",
+					timestamp: 1000,
+					file: "page-0-1000.jpeg",
+					viewportWidth: 1280,
+					viewportHeight: 720,
+				}),
+			]);
+			expect(existsSync(capture.dir)).toBe(false);
+		},
+	);
 
 	it("drops the frames when the test isn't kept", async () => {
 		const { capture, context } = await startCapture();
@@ -308,7 +340,7 @@ describe("screenshots attachment", () => {
 		await page.emit(frame(1000));
 
 		const attach = vi.fn();
-		await attachScreenshots(capture, config, {
+		await handOffScreenshots(capture, config, {
 			trace: "retain-on-failure",
 			testInfo: { attach, retry: 0, status: "passed" } as unknown as TestInfo,
 		});

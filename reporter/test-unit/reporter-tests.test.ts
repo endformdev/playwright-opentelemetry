@@ -142,7 +142,7 @@ describe("PlaywrightOpentelemetryReporter - Tests", () => {
 				},
 			}),
 		).rejects.toThrow(
-			/Invalid playwright-opentelemetry-trace-context attachment .* expected \{ traceId, rootSpanId \}/,
+			/Invalid playwright-opentelemetry-trace-context for test .* expected \{ traceId, rootSpanId \}/,
 		);
 		expect(sendSpans).not.toHaveBeenCalled();
 	});

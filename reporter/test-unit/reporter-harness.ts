@@ -1,3 +1,4 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -424,9 +425,19 @@ export function buildTestResult(
 	} as Partial<TestResult> as TestResult;
 }
 
+/** A project output directory for one test, removed after it. */
+export function temporaryOutputDir(): string {
+	const dir = mkdtempSync(
+		path.join(os.tmpdir(), "playwright-opentelemetry-output-"),
+	);
+	onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+	return dir;
+}
+
 /**
- * Writes a screenshots ZIP like the one the fixture attaches, with one frame
- * per entry, and returns its attachment. The file is removed after the test.
+ * Writes a screenshots ZIP like the one the fixture attaches with
+ * `attachFixtureData`, with one frame per entry, and returns its attachment.
+ * The file is removed after the test.
  */
 export async function screenshotsAttachment(
 	screenshots: Array<{ pageId: string; timestamp: number }> = [

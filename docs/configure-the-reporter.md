@@ -96,6 +96,41 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 > [!NOTE]
 > `storeTraceZip` follows only the top-level trace setting.
 
+## Sharded runs and `merge-reports`
+
+The fixture hands its data to the reporter: the test's trace context, the spans it records and its screenshots. By default it leaves them as files in the project's output directory, and the reporter reads and deletes them. This keeps them out of Playwright's own trace and HTML report, but it needs the reporter to run in the same test run as the fixture, so add it to each shard's config if you shard.
+
+To run the reporter only when you merge blob reports instead, set `attachFixtureData: true`. The fixture then attaches its data to each test result, so it travels with the blob report, and no longer requires the reporter in the test run:
+
+```ts
+// playwright.config.ts, used by each shard
+export default defineConfig<PlaywrightOpentelemetryUseOptions>({
+	reporter: [["blob"]],
+	use: {
+		playwrightOpentelemetry: {
+			attachFixtureData: true,
+		},
+		trace: "retain-on-failure",
+	},
+});
+```
+
+```ts
+// merge.config.ts
+export default {
+	reporter: [["playwright-opentelemetry/reporter"]],
+};
+```
+
+```sh
+npx playwright merge-reports --config merge.config.ts ./blob-report
+```
+
+Blob reports don't keep `use` options, so configure destinations through environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `PLAYWRIGHT_TRACE_API_ENDPOINT` and their `_HEADERS`) both when you merge and in the shards, where the fixture sends its own spans.
+
+> [!NOTE]
+> With `attachFixtureData`, Playwright copies the attachments into its trace and HTML report, so a retained test's screenshots and fixture spans are stored twice.
+
 ## Using trace IDs in other reporters
 
 Reporters configured after `playwright-opentelemetry/reporter` can read the trace ID from `TestResult.annotations` in `onTestEnd`:

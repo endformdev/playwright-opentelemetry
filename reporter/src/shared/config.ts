@@ -25,6 +25,15 @@ export interface PlaywrightOpentelemetryConfig {
 	 * destinations and the local trace ZIP. Defaults to true.
 	 */
 	screenshots?: boolean;
+	/**
+	 * Attach the fixture's data (trace context, fixture spans and screenshots)
+	 * to each test result, so it travels with blob reports and the reporter can
+	 * run in `merge-reports` instead of in the test run. Playwright then copies
+	 * that data into its own trace and HTML report. Defaults to false: the
+	 * fixture leaves it in the project's output directory for the reporter,
+	 * which must then run in the same test run.
+	 */
+	attachFixtureData?: boolean;
 	propagateTraceHeaders?: boolean;
 	debug?: boolean;
 }
@@ -39,6 +48,7 @@ export interface ResolvedPlaywrightOpentelemetryConfig {
 	storeTraceZip: boolean;
 	trace: PlaywrightTraceOption | null;
 	screenshots: boolean;
+	attachFixtureData: boolean;
 	propagateTraceHeaders: boolean;
 	debug: boolean;
 }
@@ -75,6 +85,7 @@ export function resolvePlaywrightOpentelemetryConfig(
 		storeTraceZip: config?.storeTraceZip === true,
 		trace: config?.trace ?? null,
 		screenshots: config?.screenshots ?? true,
+		attachFixtureData: config?.attachFixtureData === true,
 		propagateTraceHeaders: config?.propagateTraceHeaders ?? true,
 		debug:
 			debugEnv === undefined
