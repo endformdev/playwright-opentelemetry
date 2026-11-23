@@ -36,6 +36,13 @@ import {
 } from "../shared/playwright-trace";
 import { filterRetainedDestinations } from "../shared/destinations";
 import {
+	API_REQUESTS_ATTACHMENT_NAME,
+	apiRequestHttpAttributes,
+	type CapturedApiRequest,
+	parseApiRequestsHandoff,
+} from "../shared/api-requests";
+import {
+	API_REQUESTS_HANDOFF_FILE,
 	FIXTURE_SPANS_HANDOFF_FILE,
 	fixtureHandoffDir,
 	fixtureHandoffRoot,
@@ -67,6 +74,12 @@ import {
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
 } from "./reporter-attributes";
+import {
+	ApiRequestMatcher,
+	type ApiRequestStepCall,
+	apiRequestStepCall,
+	isApiRequestWrapperFile,
+} from "./api-request-matcher";
 import { extractScreenshotsFromPlaywrightTrace } from "./legacy/trace-zip-screenshots";
 import { sendSpans } from "./sender";
 import { createTraceZipBlob, writeTraceZip } from "./trace-zip-builder";
@@ -118,6 +131,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 	private fixtureHandoffRoots = new Set<string>();
 	private rootDir?: string;
 	private playwrightVersion?: string;
+	private warnedAboutVisibleWrapper = false;
 	private debug = false;
 
 	constructor() {}
@@ -231,8 +245,31 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// start in the same millisecond, like back-to-back assertions, are not
 		// duplicates.
 		const stepSpans: Span[] = [];
+		const apiRequests = new ApiRequestMatcher(
+			parseApiRequests(fixtureData.apiRequests, testId),
+			this.rootDir,
+		);
 		for (const step of result.steps ?? []) {
-			this.processTestStep(step, testSpanId, traceId, [], stepSpans);
+			this.processTestStep(
+				step,
+				testSpanId,
+				traceId,
+				[],
+				stepSpans,
+				apiRequests,
+			);
+		}
+		// Calls no step reported still happened: keep them, under the test.
+		for (const request of apiRequests.unmatched()) {
+			stepSpans.push(
+				unmatchedApiRequestSpan(request, { traceId, parentSpanId: testSpanId }),
+			);
+		}
+		if (apiRequests.wrapperWasVisible && !this.warnedAboutVisibleWrapper) {
+			this.warnedAboutVisibleWrapper = true;
+			console.warn(
+				`Playwright ${this.playwrightVersion ?? ""} reports playwright-opentelemetry's request wrapper as the location of request steps. Traces still have the right locations, but Playwright's own reports don't. Please report this to playwright-opentelemetry.`,
+			);
 		}
 
 		// Calculate test span timing to encompass all child spans
@@ -386,6 +423,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		const attached: FixtureData = {
 			traceContext: attachment(TRACE_CONTEXT_ATTACHMENT_NAME)?.body,
 			fixtureSpans: attachment(FIXTURE_SPANS_ATTACHMENT_NAME)?.body,
+			apiRequests: attachment(API_REQUESTS_ATTACHMENT_NAME)?.body,
 			screenshotsZip: screenshotsAttachmentPath
 				? readFixtureFile(screenshotsAttachmentPath, { required: true })
 				: undefined,
@@ -405,6 +443,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				fixtureSpans:
 					attached.fixtureSpans ??
 					readFixtureFile(path.join(dir, FIXTURE_SPANS_HANDOFF_FILE)),
+				apiRequests:
+					attached.apiRequests ??
+					readFixtureFile(path.join(dir, API_REQUESTS_HANDOFF_FILE)),
 				screenshotsZip:
 					attached.screenshotsZip ??
 					readFixtureFile(path.join(dir, SCREENSHOTS_HANDOFF_FILE)),
@@ -461,6 +502,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		traceId: string,
 		parentTitlePath: string[],
 		stepSpans: Span[],
+		apiRequests: ApiRequestMatcher,
 		inheritedPhase?: "before" | "after",
 	) {
 		// Playwright groups hook and fixture work into these lifecycle steps.
@@ -483,6 +525,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 					traceId,
 					parentTitlePath,
 					stepSpans,
+					apiRequests,
 					phase,
 				);
 			}
@@ -516,7 +559,22 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		// Add code location attributes if available. The column tells apart
 		// the steps one line runs, such as the `Query count` and the
 		// `Expect "toBe"` of `expect(await rows.count()).toBe(3)`.
-		if (step.location) {
+		// A call on an `APIRequestContext` is also the HTTP client span of the
+		// request it made. The fixture recorded how that went.
+		const apiRequestCall = apiRequestStepCall(step);
+		const apiRequest = apiRequestCall
+			? apiRequests.take(step, apiRequestCall)
+			: undefined;
+
+		if (isApiRequestWrapperFile(step.location?.file)) {
+			// Playwright didn't see past the fixture's wrapper. The fixture
+			// recorded where the test made the call.
+			if (apiRequest?.location) {
+				attributes[ATTR_CODE_FILE_PATH] = apiRequest.location.file;
+				attributes[ATTR_CODE_LINE_NUMBER] = apiRequest.location.line;
+				attributes[ATTR_CODE_COLUMN_NUMBER] = apiRequest.location.column;
+			}
+		} else if (step.location) {
 			const { file, line, column } = step.location;
 
 			// Calculate relative path from rootDir
@@ -529,6 +587,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			attributes[ATTR_CODE_COLUMN_NUMBER] = column;
 		}
 
+		const httpAttributes = apiRequest
+			? capturedApiRequestAttributes(apiRequest)
+			: apiRequestCall && apiRequestStepAttributes(apiRequestCall);
+		Object.assign(attributes, httpAttributes);
+
 		const stepSpan: Span = {
 			traceId,
 			spanId: generateSpanId(),
@@ -538,6 +601,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			endTime: new Date(step.startTime.getTime() + step.duration),
 			attributes,
 		};
+		if (httpAttributes) {
+			stepSpan.kind = SPAN_KIND_CLIENT;
+		}
+		// The span's status stays the step's: an error response the test
+		// expected doesn't fail the step.
 		if (step.error) {
 			stepSpan.status = errorStatus(step.error.message);
 		}
@@ -552,6 +620,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				traceId,
 				currentTitlePath,
 				stepSpans,
+				apiRequests,
 				phase,
 			);
 		}
@@ -717,6 +786,7 @@ function hasPlaywrightOpentelemetryDestination(
 type FixtureData = {
 	traceContext?: Buffer;
 	fixtureSpans?: Buffer;
+	apiRequests?: Buffer;
 	screenshotsZip?: Buffer<ArrayBuffer>;
 };
 
@@ -882,26 +952,97 @@ function isInternalFixtureStep(step: TestStep): boolean {
 	return isInternalFixtureFile(step.location.file);
 }
 
+/**
+ * Earlier fixtures wrapped `request` in a Proxy, which made the fixture the
+ * location of each call's step, and recorded the calls as spans of their own.
+ * Their data can still arrive through `merge-reports`.
+ */
 function isInternalApiRequestStep(step: TestStep): boolean {
-	if (step.category !== "pw:api" || !step.location?.file) {
+	if (!step.location?.file) {
 		return false;
 	}
 
-	return isApiRequestStep(step) && isInternalFixtureFile(step.location.file);
+	return (
+		apiRequestStepCall(step) !== undefined &&
+		isInternalFixtureFile(step.location.file)
+	);
+}
+
+const SPAN_KIND_CLIENT = 3;
+
+function capturedApiRequestAttributes(
+	request: CapturedApiRequest,
+): Span["attributes"] {
+	return apiRequestHttpAttributes({
+		method: request.method,
+		url: request.responseUrl ?? request.url,
+		statusCode: request.statusCode,
+		responseHeaders: request.responseHeaders,
+		errorType: request.errorType,
+	});
 }
 
 /**
- * `APIRequestContext` calls. From Playwright 1.63 they report a url and a
- * method; before that they show up only in the title, e.g. `GET "/api"`.
+ * For a call the fixture didn't record, such as one made in a `beforeAll`
+ * hook: what the step itself tells, from Playwright 1.63. There is no
+ * response to report.
  */
-function isApiRequestStep(step: TestStep): boolean {
-	if (step.params) {
-		return (
-			typeof step.params.url === "string" &&
-			typeof step.params.method === "string"
-		);
+function apiRequestStepAttributes(
+	call: ApiRequestStepCall,
+): Span["attributes"] | undefined {
+	if (call.url === undefined || call.url.endsWith("…")) {
+		return undefined;
 	}
-	return /^(?:DELETE|FETCH|GET|HEAD|PATCH|POST|PUT)\s+"/.test(step.title);
+	return apiRequestHttpAttributes({
+		// What Playwright sends when the test names no method.
+		method: call.method ?? "GET",
+		url: call.url,
+	});
+}
+
+function unmatchedApiRequestSpan(
+	request: CapturedApiRequest,
+	options: { traceId: string; parentSpanId: string },
+): Span {
+	const startTime = new Date(request.startTime);
+	const endTime = request.endTime ? new Date(request.endTime) : startTime;
+	const attributes = capturedApiRequestAttributes(request);
+	if (request.location) {
+		attributes[ATTR_CODE_FILE_PATH] = request.location.file;
+		attributes[ATTR_CODE_LINE_NUMBER] = request.location.line;
+		attributes[ATTR_CODE_COLUMN_NUMBER] = request.location.column;
+	}
+	const failed =
+		request.errorType !== undefined ||
+		(request.statusCode !== undefined && request.statusCode >= 400);
+	return {
+		traceId: options.traceId,
+		spanId: generateSpanId(),
+		parentSpanId: options.parentSpanId,
+		name: `HTTP ${request.method}`,
+		kind: SPAN_KIND_CLIENT,
+		startTime,
+		endTime: Number.isNaN(endTime.getTime()) ? startTime : endTime,
+		attributes,
+		status: { code: failed ? 2 : 0 },
+	};
+}
+
+function parseApiRequests(
+	body: Buffer | undefined,
+	testId: string,
+): CapturedApiRequest[] {
+	if (!body) {
+		return [];
+	}
+	try {
+		return parseApiRequestsHandoff(body.toString("utf-8"));
+	} catch (error) {
+		console.warn(
+			`Ignoring invalid ${API_REQUESTS_ATTACHMENT_NAME} for test ${testId}: ${errorMessage(error)}`,
+		);
+		return [];
+	}
 }
 
 /**

@@ -1,12 +1,33 @@
-import type { APIRequestContext, APIResponse } from "@playwright/test";
-import { generateSpanId } from "../shared/otel";
-import type { FixtureSpan, TestTraceContext } from "./trace-context";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import vm from "node:vm";
+import type {
+	APIRequest,
+	APIRequestContext,
+	APIResponse,
+	TestInfo,
+} from "@playwright/test";
+import {
+	API_REQUEST_WRAPPER_FILE,
+	API_REQUESTS_ATTACHMENT_NAME,
+	type ApiRequestLocation,
+	type ApiRequestsHandoff,
+	type CapturedApiRequest,
+	RECORDED_RESPONSE_HEADERS,
+} from "../shared/api-requests";
+import type { ResolvedPlaywrightOpentelemetryConfig } from "../shared/config";
+import { filterRetainedDestinations } from "../shared/destinations";
+import {
+	API_REQUESTS_HANDOFF_FILE,
+	type FixtureHandoffTestInfo,
+	writeFixtureHandoffFile,
+} from "../shared/fixture-handoff";
+import {
+	type PlaywrightTraceOption,
+	shouldRetainPlaywrightTrace,
+} from "../shared/playwright-trace";
 
-const SPAN_KIND_CLIENT = 3;
-const SPAN_STATUS_CODE_UNSET = 0;
-const SPAN_STATUS_CODE_ERROR = 2;
-
-const CAPTURED_METHODS = new Set([
+const CAPTURED_METHODS = [
 	"delete",
 	"fetch",
 	"get",
@@ -14,202 +35,347 @@ const CAPTURED_METHODS = new Set([
 	"patch",
 	"post",
 	"put",
-]);
+] as const;
 
-export function createCapturedApiRequestContext(
-	request: APIRequestContext,
-	traceContext: TestTraceContext,
-): APIRequestContext {
-	return new Proxy(request, {
-		get(target, property, receiver) {
-			const value = Reflect.get(target, property, receiver) as unknown;
-			if (typeof property !== "string" || !CAPTURED_METHODS.has(property)) {
-				return value;
-			}
+type Recording = {
+	rootDir: string;
+	requests: CapturedApiRequest[];
+};
 
-			if (typeof value !== "function") {
-				return value;
-			}
+type CaptureState = {
+	/** The test whose calls are being recorded. A worker runs one at a time. */
+	recording?: Recording;
+	/** `get()` calls `fetch()`: only the call the test made is recorded. */
+	depth: number;
+};
 
-			return async (...args: unknown[]) => {
-				const startTime = new Date();
-				try {
-					const response = (await value.apply(target, args)) as APIResponse;
-					traceContext.addSpan(
-						createApiRequestSpan({
-							methodName: property,
-							args,
-							traceContext,
-							startTime,
-							endTime: new Date(),
-							statusCode: response.status(),
-							responseHeaders: response.headers(),
-						}),
-					);
-					return response;
-				} catch (error) {
-					traceContext.addSpan(
-						createApiRequestSpan({
-							methodName: property,
-							args,
-							traceContext,
-							startTime,
-							endTime: new Date(),
-							error,
-						}),
-					);
-					throw error;
+// On globalThis so the ESM and CommonJS builds of this module share one
+// state: the wrappers are installed once per process, whichever build did it.
+const STATE_KEY = Symbol.for("playwright-opentelemetry.api-request-capture");
+const WRAPPED = Symbol.for("playwright-opentelemetry.api-request-wrapper");
+const state = ((globalThis as { [STATE_KEY]?: CaptureState })[STATE_KEY] ??= {
+	depth: 0,
+});
+
+type AnyFunction = Function;
+
+/**
+ * Wraps a Playwright method without changing where Playwright says the call
+ * came from. A step's location is the first stack frame outside Playwright,
+ * so a wrapper written in this file would become the location of every step
+ * it wraps. Playwright skips the frames of Node's own modules, and this
+ * wrapper is compiled with such a file name. `begin` and `end` are not on the
+ * stack while `original` runs.
+ */
+const createWrapper = vm.compileFunction(
+	`return function (...args) {
+	const call = begin(args);
+	let result;
+	try {
+		result = Reflect.apply(original, this, args);
+	} catch (error) {
+		end(call, undefined);
+		throw error;
+	}
+	return end(call, result);
+};`,
+	["original", "begin", "end"],
+	{ filename: API_REQUEST_WRAPPER_FILE },
+) as <Call>(
+	original: AnyFunction,
+	begin: (args: unknown[]) => Call,
+	end: (call: Call, result: unknown) => unknown,
+) => AnyFunction;
+
+/**
+ * Records the calls made on every `APIRequestContext` of this process, by
+ * wrapping the methods of the class they share. The test still gets
+ * Playwright's own objects. Does nothing while no recording is active.
+ */
+export function captureApiRequests(requestContext: APIRequestContext): void {
+	try {
+		wrapRequestMethods(requestContext);
+	} catch {
+		// Requests stay unrecorded; the test must not notice.
+	}
+}
+
+function wrapRequestMethods(requestContext: APIRequestContext): void {
+	const prototype = Object.getPrototypeOf(requestContext) as Record<
+		string,
+		unknown
+	> | null;
+	if (!prototype || prototype === Object.prototype) {
+		return;
+	}
+
+	for (const methodName of CAPTURED_METHODS) {
+		const original = prototype[methodName];
+		if (typeof original !== "function" || isWrapped(original)) {
+			continue;
+		}
+		prototype[methodName] = markWrapped(
+			createWrapper(original, (args) => beginCall(methodName, args), endCall),
+		);
+	}
+}
+
+/**
+ * The class of `APIRequestContext` can only be reached through an instance:
+ * finds it when `playwright.request.newContext()` creates the first one, which
+ * is also how Playwright creates the `request` fixture.
+ */
+export function captureNewApiRequestContexts(apiRequest: APIRequest): void {
+	const target = apiRequest as unknown as Record<string, unknown>;
+	const original = target.newContext;
+	if (typeof original !== "function" || isWrapped(original)) {
+		return;
+	}
+	target.newContext = markWrapped(
+		createWrapper(
+			original,
+			() => undefined,
+			(_call, result) => {
+				if (!isPromiseLike(result)) {
+					return result;
 				}
-			};
-		},
-	});
+				// Before the test continues, so its first call is recorded.
+				return result.then((requestContext) => {
+					captureApiRequests(requestContext as APIRequestContext);
+					return requestContext;
+				});
+			},
+		),
+	);
 }
 
-function createApiRequestSpan({
-	methodName,
-	args,
-	traceContext,
-	startTime,
-	endTime,
-	statusCode,
-	responseHeaders,
-	error,
-}: {
-	methodName: string;
-	args: unknown[];
-	traceContext: TestTraceContext;
-	startTime: Date;
-	endTime: Date;
-	statusCode?: number;
-	responseHeaders?: Record<string, string>;
-	error?: unknown;
-}): FixtureSpan {
-	const method = getRequestMethod(methodName, args);
-	const url = getRequestUrl(args[0]);
-	const attributes = createHttpAttributes({
-		method,
-		url,
-		statusCode,
-		responseHeaders,
-		error,
-	});
-	const failed =
-		error !== undefined || (statusCode !== undefined && statusCode >= 400);
+export type ApiRequestRecording = {
+	/** Stops recording and returns the calls made, in the order they began. */
+	stop(): CapturedApiRequest[];
+};
 
+/**
+ * @param rootDir Playwright's `rootDir`; recorded locations are relative to it.
+ */
+export function startApiRequestRecording(rootDir: string): ApiRequestRecording {
+	const recording: Recording = { rootDir, requests: [] };
+	const previous = state.recording;
+	state.recording = recording;
 	return {
-		traceId: traceContext.traceId,
-		spanId: generateSpanId(),
-		parentSpanId: traceContext.rootSpanId,
-		name: `HTTP ${method}`,
-		kind: SPAN_KIND_CLIENT,
-		startTime,
-		endTime,
-		status: failed
-			? { code: SPAN_STATUS_CODE_ERROR, message: errorMessage(error) }
-			: { code: SPAN_STATUS_CODE_UNSET },
-		attributes,
-		events: [],
+		stop() {
+			if (state.recording === recording) {
+				state.recording = previous;
+			}
+			return recording.requests;
+		},
 	};
 }
 
-function createHttpAttributes({
-	method,
-	url,
-	statusCode,
-	responseHeaders,
-	error,
-}: {
-	method: string;
-	url: string;
-	statusCode?: number;
-	responseHeaders?: Record<string, string>;
-	error?: unknown;
-}): FixtureSpan["attributes"] {
-	const attributes: FixtureSpan["attributes"] = {
-		"http.request.method": method,
-		"http.resource.type": "fetch",
-		"playwright.request.api": true,
-		"url.full": url,
-	};
+export function resetApiRequestCaptureForTest(): void {
+	state.recording = undefined;
+	state.depth = 0;
+}
+
+function beginCall(
+	methodName: string,
+	args: unknown[],
+): CapturedApiRequest | undefined {
+	state.depth++;
+	const recording = state.recording;
+	if (state.depth > 1 || !recording) {
+		return undefined;
+	}
 
 	try {
-		const parsedUrl = new URL(url);
-		attributes["url.path"] = parsedUrl.pathname;
-		attributes["server.address"] = parsedUrl.hostname;
-		attributes["server.port"] = serverPort(parsedUrl);
-		if (parsedUrl.search) {
-			attributes["url.query"] = parsedUrl.search.slice(1);
-		}
+		const call: CapturedApiRequest = {
+			method: requestMethod(methodName, args),
+			url: requestUrl(args[0]),
+			startTime: new Date().toISOString(),
+			location: callSite(recording.rootDir),
+		};
+		recording.requests.push(call);
+		return call;
 	} catch {
-		// Keep url.full for relative or non-standard request URLs.
+		return undefined;
+	}
+}
+
+function endCall(
+	call: CapturedApiRequest | undefined,
+	result: unknown,
+): unknown {
+	state.depth--;
+	// Unrecorded calls hand back Playwright's own promise untouched.
+	if (!call || !isPromiseLike(result)) {
+		return result;
 	}
 
-	if (statusCode !== undefined) {
-		attributes["http.response.status_code"] = statusCode;
-		if (statusCode >= 400) {
-			attributes["error.type"] = statusCode.toString();
+	return result.then(
+		(response) => {
+			recordResponse(call, response as APIResponse);
+			return response;
+		},
+		(error: unknown) => {
+			call.endTime = new Date().toISOString();
+			call.errorType =
+				error instanceof Error && error.name ? error.name : "Error";
+			throw error;
+		},
+	);
+}
+
+function recordResponse(call: CapturedApiRequest, response: APIResponse): void {
+	call.endTime = new Date().toISOString();
+	try {
+		call.statusCode = response.status();
+		call.responseUrl = response.url();
+		const headers = response.headers();
+		const recorded: Record<string, string> = {};
+		for (const name of RECORDED_RESPONSE_HEADERS) {
+			if (typeof headers[name] === "string") {
+				recorded[name] = headers[name];
+			}
 		}
-	} else if (error !== undefined) {
-		attributes["error.type"] = errorType(error);
+		call.responseHeaders = recorded;
+	} catch {
+		// Keep what was read.
 	}
-
-	const contentType = responseHeaders?.["content-type"];
-	const cacheControl = responseHeaders?.["cache-control"];
-	if (contentType) {
-		attributes["http.response.header.content-type"] = [contentType];
-	}
-	if (cacheControl) {
-		attributes["http.response.header.cache-control"] = [cacheControl];
-	}
-
-	return attributes;
 }
 
-function getRequestMethod(methodName: string, args: unknown[]): string {
-	const options = getOptions(args[1]);
-	if (methodName === "fetch") {
-		const input = args[0];
-		const method =
-			options.method ??
-			(input instanceof Request ? input.method : undefined) ??
-			"GET";
-		return method.toUpperCase();
+function requestMethod(methodName: string, args: unknown[]): string {
+	if (methodName !== "fetch") {
+		return methodName.toUpperCase();
 	}
 
-	return methodName.toUpperCase();
+	const options = args[1] as { method?: unknown } | undefined;
+	const method =
+		typeof options?.method === "string"
+			? options.method
+			: (callIfFunction(args[0], "method") ?? "GET");
+	return method.toUpperCase();
 }
 
-function getRequestUrl(input: unknown): string {
-	if (input instanceof Request) {
-		return input.url;
+/** `fetch()` also takes a Playwright `Request`. */
+function requestUrl(input: unknown): string {
+	return typeof input === "string"
+		? input
+		: (callIfFunction(input, "url") ?? String(input));
+}
+
+function callIfFunction(target: unknown, name: string): string | undefined {
+	const member = (target as Record<string, unknown> | null | undefined)?.[name];
+	if (typeof member !== "function") {
+		return undefined;
+	}
+	const value: unknown = member.call(target);
+	return typeof value === "string" ? value : undefined;
+}
+
+const STACK_FRAME_LOCATION = /^\s*at (?:.*? \()?(.+?):(\d+):(\d+)\)?$/;
+const PLAYWRIGHT_PACKAGE_FILE =
+	/[/\\]node_modules[/\\](?:playwright|playwright-core|@playwright[/\\]test)[/\\]/;
+
+/**
+ * Where the wrapped method was called from: the first frame below the wrapper
+ * that Playwright would also take as the step's location.
+ */
+function callSite(rootDir: string): ApiRequestLocation | undefined {
+	const stackTraceLimit = Error.stackTraceLimit;
+	Error.stackTraceLimit = Math.max(stackTraceLimit, 20);
+	const stack = new Error().stack?.split("\n") ?? [];
+	Error.stackTraceLimit = stackTraceLimit;
+
+	const wrapperIndex = stack.findIndex((line) =>
+		line.includes(API_REQUEST_WRAPPER_FILE),
+	);
+	if (wrapperIndex === -1) {
+		return undefined;
 	}
 
-	return String(input);
-}
-
-function getOptions(value: unknown): { method?: string } {
-	if (typeof value !== "object" || value === null || !("method" in value)) {
-		return {};
+	for (const line of stack.slice(wrapperIndex + 1)) {
+		const match = STACK_FRAME_LOCATION.exec(line);
+		if (!match) {
+			continue;
+		}
+		const file = match[1].startsWith("file://")
+			? fileURLToPath(match[1])
+			: match[1];
+		if (!path.isAbsolute(file) || PLAYWRIGHT_PACKAGE_FILE.test(file)) {
+			continue;
+		}
+		return {
+			file: path.relative(rootDir, file),
+			line: Number(match[2]),
+			column: Number(match[3]),
+		};
 	}
-
-	const method = (value as { method?: unknown }).method;
-	return typeof method === "string" ? { method } : {};
+	return undefined;
 }
 
-function serverPort(url: URL): number {
-	if (url.port) {
-		return Number.parseInt(url.port, 10);
+type HandOffApiRequestsOptions = {
+	trace: PlaywrightTraceOption | undefined;
+	testInfo: FixtureHandoffTestInfo &
+		Pick<TestInfo, "attach" | "expectedStatus" | "status">;
+};
+
+/**
+ * Hands the recorded calls to the reporter, if anything keeps this test.
+ * Never rejects: a test must not fail because its requests couldn't be
+ * stored.
+ */
+export async function handOffApiRequests(
+	requests: CapturedApiRequest[],
+	config: ResolvedPlaywrightOpentelemetryConfig,
+	options: HandOffApiRequestsOptions,
+): Promise<void> {
+	try {
+		const retainsTrace = (trace: PlaywrightTraceOption | null) =>
+			shouldRetainPlaywrightTrace(trace ?? options.trace, options.testInfo);
+		const retained =
+			(config.storeTraceZip && retainsTrace(config.trace)) ||
+			[config.otlpDestinations, config.playwrightTraceApiDestinations].some(
+				(destinations) =>
+					filterRetainedDestinations(destinations, config.trace, retainsTrace)
+						.length > 0,
+			);
+		if (requests.length === 0 || !retained) {
+			return;
+		}
+
+		const handoff: ApiRequestsHandoff = { requests };
+		const body = JSON.stringify(handoff);
+		if (config.attachFixtureData) {
+			await options.testInfo.attach(API_REQUESTS_ATTACHMENT_NAME, {
+				body,
+				contentType: "application/json",
+			});
+			return;
+		}
+		await writeFixtureHandoffFile(
+			options.testInfo,
+			API_REQUESTS_HANDOFF_FILE,
+			body,
+		);
+	} catch (error) {
+		console.warn(
+			`Failed to store API requests: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
-	return url.protocol === "https:" ? 443 : 80;
 }
 
-function errorType(error: unknown): string {
-	if (error instanceof Error && error.name) {
-		return error.name;
-	}
-	return "Error";
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as { then?: unknown }).then === "function"
+	);
 }
 
-function errorMessage(error: unknown): string | undefined {
-	return error instanceof Error && error.message ? error.message : undefined;
+function isWrapped(method: AnyFunction): boolean {
+	return (method as { [WRAPPED]?: boolean })[WRAPPED] === true;
+}
+
+function markWrapped(wrapper: AnyFunction): AnyFunction {
+	(wrapper as { [WRAPPED]?: boolean })[WRAPPED] = true;
+	return wrapper;
 }

@@ -129,7 +129,7 @@ npx playwright merge-reports --config merge.config.ts ./blob-report
 Blob reports don't keep `use` options, so configure destinations through environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `PLAYWRIGHT_TRACE_API_ENDPOINT` and their `_HEADERS`) both when you merge and in the shards, where the fixture sends its own spans.
 
 > [!NOTE]
-> With `attachFixtureData`, Playwright copies the attachments into its trace and HTML report, so a retained test's screenshots and fixture spans are stored twice.
+> With `attachFixtureData`, Playwright copies the attachments into its trace and HTML report, so a retained test's screenshots, fixture spans and API request responses are stored twice.
 
 ## Using trace IDs in other reporters
 
