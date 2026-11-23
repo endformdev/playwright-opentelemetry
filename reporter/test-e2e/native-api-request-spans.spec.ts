@@ -7,7 +7,7 @@ export const NATIVE_API_REQUEST_TRACE_TEST_NAME =
 
 test(
 	NATIVE_API_REQUEST_TRACE_TEST_NAME,
-	async ({ request, page, context, browser, playwright }) => {
+	async ({ request, testTraceContext, page, context, browser, playwright }) => {
 		const server = await startFixtureServer();
 		try {
 			const address = server.address();
@@ -28,6 +28,19 @@ test(
 			expect(await getResponse.text()).toBe("native GET response");
 			expect(postResponse.status()).toBe(201);
 			expect(await postResponse.text()).toBe("native POST response");
+
+			// Requests carry the test's trace to the service that answers them.
+			const traced = await request.get(
+				`${baseUrl}/native-request?source=traceparent`,
+			);
+			const traceparent = await traced.text();
+			expect(traceparent).toMatch(
+				new RegExp(`^00-${testTraceContext.traceId}-[0-9a-f]{16}-01$`),
+			);
+			// Tells the trace viewer's test which span ID the server saw.
+			await request.get(
+				`${baseUrl}/native-request?source=saw-${traceparent.split("-")[2]}`,
+			);
 
 			// Every other way to an APIRequestContext.
 			await page.request.get(`${baseUrl}/native-request?source=page`);
@@ -57,6 +70,12 @@ function startFixtureServer(): Promise<Server> {
 		if (request.url === "/native-request?source=post") {
 			response.writeHead(201, { "content-type": "application/json" });
 			response.end("native POST response");
+			return;
+		}
+
+		if (request.url === "/native-request?source=traceparent") {
+			response.writeHead(200, { "content-type": "text/plain" });
+			response.end(request.headers.traceparent ?? "none");
 			return;
 		}
 

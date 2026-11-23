@@ -374,6 +374,30 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 		);
 	});
 
+	it("gives a request's span the ID the fixture sent in its traceparent header", async () => {
+		const spans = await report(
+			[
+				requestStep("GET", "/api/cart", 17, {
+					steps: [{ title: "nested" }],
+				}),
+				requestStep("GET", "/api/cart", 18),
+			],
+			[
+				recorded("GET", "/api/cart", 17, { spanId: "00f067aa0ba902b7" }),
+				recorded("GET", "/api/cart", 18, { spanId: "not-a-span-id" }),
+				recorded("GET", "/api/cart", 40, { spanId: "53995c3f42cd8ad8" }),
+			],
+		);
+
+		const [sent, nested, invalid] = stepSpans(spans);
+		expect(sent.spanId).toBe("00f067aa0ba902b7");
+		expect(nested.parentSpanId).toBe("00f067aa0ba902b7");
+		expect(invalid.spanId).toMatch(/^[0-9a-f]{16}$/);
+		expect(spans.find((span) => span.name === "HTTP GET")?.spanId).toBe(
+			"53995c3f42cd8ad8",
+		);
+	});
+
 	it("still locates requests if Playwright reports the fixture's wrapper as their location", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const wrapper = { file: API_REQUEST_WRAPPER_FILE, line: 5, column: 20 };

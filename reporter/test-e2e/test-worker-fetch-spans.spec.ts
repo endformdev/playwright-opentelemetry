@@ -7,7 +7,7 @@ export const TEST_WORKER_FETCH_TRACE_TEST_NAME =
 
 const test = base.extend<{ fetchedInFixture: string }>({
 	fetchedInFixture: [
-		async ({ testTraceContext: _testTraceContext }, use) => {
+		async ({ testTraceContext }, use) => {
 			const server = await startFixtureServer();
 			try {
 				const address = server.address();
@@ -17,6 +17,10 @@ const test = base.extend<{ fetchedInFixture: string }>({
 
 				const response = await fetch(
 					`http://127.0.0.1:${address.port}/fixture-fetch?source=test-worker`,
+				);
+				// The fetch carries the test's trace to the service it calls.
+				expect(response.headers.get("x-received-traceparent")).toMatch(
+					new RegExp(`^00-${testTraceContext.traceId}-[0-9a-f]{16}-01$`),
 				);
 				await use(await response.text());
 			} finally {
@@ -34,7 +38,10 @@ test(TEST_WORKER_FETCH_TRACE_TEST_NAME, async ({ fetchedInFixture }) => {
 function startFixtureServer(): Promise<Server> {
 	const server = createServer((request, response) => {
 		if (request.url?.startsWith("/fixture-fetch")) {
-			response.writeHead(202, { "content-type": "text/plain" });
+			response.writeHead(202, {
+				"content-type": "text/plain",
+				"x-received-traceparent": request.headers.traceparent ?? "none",
+			});
 			response.end("fixture fetch response");
 			return;
 		}

@@ -132,7 +132,12 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 					playwrightOpentelemetry,
 				);
 				const traceContext = await createTestTraceContext(testInfo, config);
-				const apiRequests = startApiRequestRecording(testInfo.config.rootDir);
+				const apiRequests = startApiRequestRecording({
+					rootDir: testInfo.config.rootDir,
+					traceId: config.propagateTraceHeaders
+						? traceContext.traceId
+						: undefined,
+				});
 				// Downstream services batch their exports, so their spans reach the
 				// Trace API well after this marker. Don't make the test wait for it.
 				const registration = registerExpectedTrace(traceContext, config, {
@@ -141,7 +146,9 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				});
 				let requests: CapturedApiRequest[];
 				try {
-					await runWithTestFetchCapture(traceContext, () => use(traceContext));
+					await runWithTestFetchCapture(traceContext, () => use(traceContext), {
+						propagateTraceHeaders: config.propagateTraceHeaders,
+					});
 				} finally {
 					requests = apiRequests.stop();
 				}

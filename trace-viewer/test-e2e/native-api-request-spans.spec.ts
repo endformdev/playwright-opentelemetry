@@ -75,6 +75,15 @@ test("renders native Playwright request fixture spans from the reporter API flow
 	expect(postSpan.kind).toBe(3);
 	expect(getSpan.parentSpanId).toBe(testSpan.spanId);
 	expect(postSpan.parentSpanId).toBe(postStepSpan.spanId);
+	// The service that answered a request was sent that request's span ID, so
+	// its spans become children of the request.
+	const tracedSpan = requiredNativeRequestSpan(
+		spans,
+		"GET",
+		"source=traceparent",
+	);
+	requiredNativeRequestSpan(spans, "GET", `source=saw-${tracedSpan.spanId}`);
+
 	// Every way to an APIRequestContext is recorded, and Playwright still
 	// locates each call on the test's own line.
 	const requestSpans = [

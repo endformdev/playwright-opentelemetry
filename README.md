@@ -51,7 +51,7 @@ One trace ID connects the failed step to everything that ran beneath it.
 A trace is produced by three sources of spans:
 
 - The **reporter** turns each retained test attempt into a root `playwright.test` span, with steps, hooks, fixtures, and actions as child spans.
-- The **fixture** records browser activity (navigations, requests, console messages, page errors) as spans and injects a W3C `traceparent` header into browser requests.
+- The **fixture** records browser activity (navigations, requests, console messages, page errors) as spans and injects a W3C `traceparent` header into the requests a test makes: browser requests, `request` calls and `fetch` calls.
 - Your **backend spans**: the fixture's reach stops at the browser, but any service already instrumented with OpenTelemetry that honors the propagated `traceparent` header attaches its spans beneath the test automatically.
 
 This repo ships the reporter and fixture, plus tooling for viewing and storing the traces they produce:

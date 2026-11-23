@@ -8,7 +8,7 @@ import type {
 
 const TEST_NAME = "native Playwright request fixture trace";
 const SPEC_FILE = "native-api-request-spans.spec.ts";
-const REQUESTS = 6;
+const REQUESTS = 8;
 
 /**
  * The fixture wraps `APIRequestContext` methods. Fails the run if Playwright

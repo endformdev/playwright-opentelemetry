@@ -1,5 +1,5 @@
 import type { Request, Route } from "@playwright/test";
-import { generateSpanId } from "../shared/otel";
+import { generateSpanId, traceparentHeader } from "../shared/otel";
 import type { TestTraceContext } from "./trace-context";
 
 export interface StoreRequestTraceContextOptions {
@@ -44,12 +44,10 @@ export async function propagateRouteTraceHeaders({
 	traceId,
 	spanId,
 }: PropagateRouteTraceHeadersOptions): Promise<void> {
-	const traceHeader = `00-${traceId}-${spanId}-01`;
-
 	await route.fallback({
 		headers: {
 			...request.headers(),
-			traceparent: traceHeader,
+			traceparent: traceparentHeader(traceId, spanId),
 		},
 	});
 }

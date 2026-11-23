@@ -27,8 +27,9 @@ const playwrightOpentelemetry: PlaywrightOpentelemetryConfig = {
 	// otlpEndpoints: [{ url: "https://collector-a.example.com/v1/traces", trace: "on" }],
 	// Or output an opentelemetry report zip
 	storeTraceZip: true,
-	// Defaults to true. When enabled, browser requests receive a W3C
-	// traceparent header that makes downstream spans children of the
+	// Defaults to true. When enabled, browser requests, calls on `request`
+	// and other APIRequestContexts, and `fetch` calls in the test receive a
+	// W3C traceparent header that makes downstream spans children of the
 	// Playwright-generated test trace. Export Playwright telemetry to the
 	// same backend as your app telemetry to avoid missing root spans.
 	propagateTraceHeaders: true,

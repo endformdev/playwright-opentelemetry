@@ -41,6 +41,8 @@ function createRequestContextClass() {
 		failure: Error | undefined;
 		/** The stack as Playwright would see it when it locates the step. */
 		stacks: string[] = [];
+		/** The options Playwright's fetch() was called with. */
+		sentOptions: Array<{ headers?: Record<string, string> } | undefined> = [];
 
 		async get(url: string, options?: object) {
 			return await this.fetch(url, { ...options, method: "GET" });
@@ -50,7 +52,8 @@ function createRequestContextClass() {
 			return await this.fetch(url, { ...options, method: "POST" });
 		}
 
-		async fetch(_urlOrRequest: unknown, _options?: object) {
+		async fetch(_urlOrRequest: unknown, options?: object) {
+			this.sentOptions.push(options);
 			this.stacks.push(new Error().stack ?? "");
 			await Promise.resolve();
 			if (this.failure) {
@@ -88,7 +91,7 @@ describe("API request capture", () => {
 			"content-type": "application/json",
 			"set-cookie": "session=secret",
 		});
-		const recording = startApiRequestRecording(ROOT_DIR);
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR });
 
 		const result = await request.post("/data");
 		await request.get("https://api.example.com/other");
@@ -122,7 +125,7 @@ describe("API request capture", () => {
 
 	it("keeps its own code off the stack Playwright takes a step's location from", async () => {
 		const request = createCapturedRequestContext();
-		const recording = startApiRequestRecording(ROOT_DIR);
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR });
 
 		await request.get("/data");
 		recording.stop();
@@ -139,7 +142,7 @@ describe("API request capture", () => {
 
 	it("records a call once when its method goes through fetch()", async () => {
 		const request = createCapturedRequestContext();
-		const recording = startApiRequestRecording(ROOT_DIR);
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR });
 
 		await request.get("/data");
 
@@ -150,7 +153,7 @@ describe("API request capture", () => {
 
 	it("reads the method and url of a fetch() from its options or its Request", async () => {
 		const request = createCapturedRequestContext();
-		const recording = startApiRequestRecording(ROOT_DIR);
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR });
 
 		await request.fetch("/default");
 		await request.fetch("/delete", { method: "delete" });
@@ -169,7 +172,7 @@ describe("API request capture", () => {
 	it("records the error of a failed call and still throws it", async () => {
 		const request = createCapturedRequestContext();
 		request.failure = new TypeError("connect ECONNREFUSED");
-		const recording = startApiRequestRecording(ROOT_DIR);
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR });
 
 		await expect(request.get("/data")).rejects.toBe(request.failure);
 
@@ -195,7 +198,7 @@ describe("API request capture", () => {
 
 		expect(request.fetch("/data")).toBe(promise);
 
-		const recording = startApiRequestRecording(ROOT_DIR);
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR });
 		recording.stop();
 		expect(request.fetch("/data")).toBe(promise);
 		expect(recording.stop()).toEqual([]);
@@ -203,7 +206,7 @@ describe("API request capture", () => {
 
 	it("completes a call that outlives its recording", async () => {
 		const request = createCapturedRequestContext();
-		const recording = startApiRequestRecording(ROOT_DIR);
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR });
 
 		const pending = request.get("/slow");
 		const requests = recording.stop();
@@ -211,6 +214,96 @@ describe("API request capture", () => {
 
 		await pending;
 		expect(requests[0]).toEqual(expect.objectContaining({ statusCode: 200 }));
+	});
+
+	it("sends a traceparent header of the test's trace and records its span ID", async () => {
+		const request = createCapturedRequestContext();
+		const traceId = "0af7651916cd43dd8448eb211c80319c";
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR, traceId });
+		const options = { headers: { accept: "application/json" }, timeout: 500 };
+
+		await request.get("/data", options);
+		await request.fetch("/data");
+
+		const [get, fetched] = recording.stop();
+		expect(get.spanId).toMatch(/^[0-9a-f]{16}$/);
+		expect(fetched.spanId).not.toBe(get.spanId);
+		expect(request.sentOptions).toEqual([
+			{
+				headers: {
+					accept: "application/json",
+					traceparent: `00-${traceId}-${get.spanId}-01`,
+				},
+				timeout: 500,
+				method: "GET",
+			},
+			{ headers: { traceparent: `00-${traceId}-${fetched.spanId}-01` } },
+		]);
+		// The test's own object is not changed.
+		expect(options).toEqual({
+			headers: { accept: "application/json" },
+			timeout: 500,
+		});
+	});
+
+	it("keeps the headers of a Request that fetch() is given", async () => {
+		const request = createCapturedRequestContext();
+		const recording = startApiRequestRecording({
+			rootDir: ROOT_DIR,
+			traceId: "0af7651916cd43dd8448eb211c80319c",
+		});
+		const browserRequest = {
+			url: () => "https://app.example.com/form",
+			method: () => "POST",
+			headers: () => ({ "content-type": "text/plain" }),
+		};
+
+		await request.fetch(browserRequest);
+		await request.fetch(browserRequest, { headers: { accept: "*/*" } });
+
+		const [first, second] = recording.stop();
+		expect(request.sentOptions).toEqual([
+			{
+				headers: {
+					"content-type": "text/plain",
+					traceparent: expect.stringContaining(first.spanId!),
+				},
+			},
+			{
+				headers: {
+					accept: "*/*",
+					traceparent: expect.stringContaining(second.spanId!),
+				},
+			},
+		]);
+	});
+
+	it("leaves a traceparent header the test sets itself alone", async () => {
+		const request = createCapturedRequestContext();
+		const recording = startApiRequestRecording({
+			rootDir: ROOT_DIR,
+			traceId: "0af7651916cd43dd8448eb211c80319c",
+		});
+		const options = { headers: { Traceparent: "00-own-trace-01" } };
+
+		await request.fetch("/data", options);
+
+		expect(request.sentOptions).toEqual([options]);
+		expect(recording.stop()[0]).not.toHaveProperty("spanId");
+	});
+
+	it("sends no traceparent header unless it is given a trace", async () => {
+		const request = createCapturedRequestContext();
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR });
+
+		await request.fetch("/data");
+		await request.fetch("/data", { headers: { accept: "*/*" } });
+
+		expect(request.sentOptions).toEqual([
+			undefined,
+			{ headers: { accept: "*/*" } },
+		]);
+		expect(recording.stop()[0]).not.toHaveProperty("spanId");
 	});
 
 	it("wraps a class once, however many of its contexts it sees", async () => {
@@ -249,7 +342,7 @@ describe("API request capture", () => {
 		};
 		captureNewApiRequestContexts(apiRequest as unknown as APIRequest);
 		captureNewApiRequestContexts(apiRequest as unknown as APIRequest);
-		const recording = startApiRequestRecording(ROOT_DIR);
+		const recording = startApiRequestRecording({ rootDir: ROOT_DIR });
 
 		const request = await apiRequest.newContext();
 		await request.get("/data");

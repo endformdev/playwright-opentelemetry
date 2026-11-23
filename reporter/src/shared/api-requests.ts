@@ -23,6 +23,12 @@ export interface CapturedApiRequest {
 	statusCode?: number;
 	/** Only {@link RECORDED_RESPONSE_HEADERS}, keyed in lower case. */
 	responseHeaders?: Record<string, string>;
+	/**
+	 * The span ID in the `traceparent` header the fixture sent with the call.
+	 * The reporter gives it to the call's span, which makes the spans of the
+	 * service that answered its children.
+	 */
+	spanId?: string;
 	/** The name of the error the call threw. */
 	errorType?: string;
 	/**

@@ -594,7 +594,9 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 		const stepSpan: Span = {
 			traceId,
-			spanId: generateSpanId(),
+			// The ID the fixture sent in the request's traceparent header, so
+			// the spans of the service that answered are this span's children.
+			spanId: sentSpanId(apiRequest) ?? generateSpanId(),
 			parentSpanId,
 			name: TEST_STEP_SPAN_NAME,
 			startTime: step.startTime,
@@ -1017,7 +1019,7 @@ function unmatchedApiRequestSpan(
 		(request.statusCode !== undefined && request.statusCode >= 400);
 	return {
 		traceId: options.traceId,
-		spanId: generateSpanId(),
+		spanId: sentSpanId(request) ?? generateSpanId(),
 		parentSpanId: options.parentSpanId,
 		name: `HTTP ${request.method}`,
 		kind: SPAN_KIND_CLIENT,
@@ -1026,6 +1028,15 @@ function unmatchedApiRequestSpan(
 		attributes,
 		status: { code: failed ? 2 : 0 },
 	};
+}
+
+function sentSpanId(
+	request: CapturedApiRequest | undefined,
+): string | undefined {
+	return typeof request?.spanId === "string" &&
+		/^[0-9a-f]{16}$/.test(request.spanId)
+		? request.spanId
+		: undefined;
 }
 
 function parseApiRequests(

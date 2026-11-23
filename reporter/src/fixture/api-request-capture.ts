@@ -22,6 +22,7 @@ import {
 	type FixtureHandoffTestInfo,
 	writeFixtureHandoffFile,
 } from "../shared/fixture-handoff";
+import { generateSpanId, traceparentHeader } from "../shared/otel";
 import {
 	type PlaywrightTraceOption,
 	shouldRetainPlaywrightTrace,
@@ -37,8 +38,14 @@ const CAPTURED_METHODS = [
 	"put",
 ] as const;
 
-type Recording = {
+type RecordingOptions = {
+	/** Playwright's `rootDir`; recorded locations are relative to it. */
 	rootDir: string;
+	/** Set to send a `traceparent` header of this trace with each call. */
+	traceId?: string;
+};
+
+type Recording = RecordingOptions & {
 	requests: CapturedApiRequest[];
 };
 
@@ -154,11 +161,10 @@ export type ApiRequestRecording = {
 	stop(): CapturedApiRequest[];
 };
 
-/**
- * @param rootDir Playwright's `rootDir`; recorded locations are relative to it.
- */
-export function startApiRequestRecording(rootDir: string): ApiRequestRecording {
-	const recording: Recording = { rootDir, requests: [] };
+export function startApiRequestRecording(
+	options: RecordingOptions,
+): ApiRequestRecording {
+	const recording: Recording = { ...options, requests: [] };
 	const previous = state.recording;
 	state.recording = recording;
 	return {
@@ -193,6 +199,12 @@ function beginCall(
 			startTime: new Date().toISOString(),
 			location: callSite(recording.rootDir),
 		};
+		if (recording.traceId) {
+			const spanId = generateSpanId();
+			if (addTraceparent(args, traceparentHeader(recording.traceId, spanId))) {
+				call.spanId = spanId;
+			}
+		}
 		recording.requests.push(call);
 		return call;
 	} catch {
@@ -240,6 +252,37 @@ function recordResponse(call: CapturedApiRequest, response: APIResponse): void {
 	} catch {
 		// Keep what was read.
 	}
+}
+
+/**
+ * Adds the header to the call's options, which `args` holds and Playwright is
+ * about to be called with. Leaves a `traceparent` the test set itself alone.
+ */
+function addTraceparent(args: unknown[], traceparent: string): boolean {
+	const options = args[1] as { headers?: unknown } | undefined | null;
+	if (options !== undefined && (typeof options !== "object" || !options)) {
+		return false;
+	}
+
+	// Without headers of its own, `fetch()` sends those of its `Request`.
+	const headers =
+		options?.headers ??
+		(typeof args[0] === "string" ? {} : requestHeaders(args[0]));
+	if (
+		typeof headers !== "object" ||
+		headers === null ||
+		Object.keys(headers).some((name) => name.toLowerCase() === "traceparent")
+	) {
+		return false;
+	}
+
+	args[1] = { ...options, headers: { ...headers, traceparent } };
+	return true;
+}
+
+function requestHeaders(input: unknown): unknown {
+	const headers = (input as { headers?: unknown } | null | undefined)?.headers;
+	return typeof headers === "function" ? headers.call(input) : undefined;
 }
 
 function requestMethod(methodName: string, args: unknown[]): string {
