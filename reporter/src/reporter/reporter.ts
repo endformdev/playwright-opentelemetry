@@ -519,23 +519,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			return;
 		}
 
-		// A call on the `request` fixture becomes the HTTP span for the request
-		// it made, in the step's place.
-		const apiRequestCall = apiRequestStepCall(step);
-		const apiRequestChain = apiRequestCall
-			? apiRequests.take(step, apiRequestCall)
-			: undefined;
-		if (apiRequestChain) {
-			stepSpans.push(
-				this.apiRequestStepSpan(step, apiRequestChain, {
-					traceId,
-					parentSpanId,
-					phase,
-				}),
-			);
-			return;
-		}
-
 		// Build the full title path for this step
 		const currentTitlePath = [...parentTitlePath, step.title];
 
@@ -589,6 +572,20 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 			stepSpan.status = errorStatus(step.error.message);
 		}
 
+		// A call on the `request` fixture is also the HTTP client span for the
+		// request it made.
+		const apiRequestCall = apiRequestStepCall(step);
+		const apiRequestChain = apiRequestCall
+			? apiRequests.take(step, apiRequestCall)
+			: undefined;
+		if (apiRequestChain) {
+			stepSpan.kind = SPAN_KIND_CLIENT;
+			Object.assign(
+				stepSpan.attributes,
+				apiRequestStepHttpAttributes(apiRequestChain),
+			);
+		}
+
 		stepSpans.push(stepSpan);
 
 		// Recursively process nested steps
@@ -603,50 +600,6 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 				phase,
 			);
 		}
-	}
-
-	private apiRequestStepSpan(
-		step: TestStep,
-		chain: CapturedApiRequest[],
-		options: {
-			traceId: string;
-			parentSpanId: string;
-			phase?: "before" | "after";
-		},
-	): Span {
-		const [first] = chain;
-		const last = chain[chain.length - 1];
-		const statusCode = last.status >= 0 ? last.status : undefined;
-		const attributes = apiRequestHttpAttributes({
-			method: first.method,
-			url: first.url,
-			statusCode,
-			responseHeaders: last.responseHeaders,
-			errorType: step.error || statusCode === undefined ? "Error" : undefined,
-		});
-		if (options.phase) attributes[ATTR_TEST_PHASE] = options.phase;
-		if (step.location) {
-			const { file, line, column } = step.location;
-			attributes[ATTR_CODE_FILE_PATH] = this.rootDir
-				? path.relative(this.rootDir, file)
-				: file;
-			attributes[ATTR_CODE_LINE_NUMBER] = line;
-			attributes[ATTR_CODE_COLUMN_NUMBER] = column;
-		}
-
-		const failed =
-			step.error !== undefined || statusCode === undefined || statusCode >= 400;
-		return {
-			traceId: options.traceId,
-			spanId: generateSpanId(),
-			parentSpanId: options.parentSpanId,
-			name: `HTTP ${first.method}`,
-			kind: SPAN_KIND_CLIENT,
-			startTime: step.startTime,
-			endTime: new Date(step.startTime.getTime() + step.duration),
-			attributes,
-			status: failed ? errorStatus(step.error?.message) : { code: 0 },
-		};
 	}
 
 	onStdOut(chunk: string | Buffer, _test: TestCase, _result: TestResult): void {
@@ -992,6 +945,26 @@ function isInternalApiRequestStep(step: TestStep): boolean {
 }
 
 const SPAN_KIND_CLIENT = 3;
+
+/**
+ * The HTTP attributes of a request step: the URL it requested, and the
+ * response it ended with after any redirects. The span's status stays the
+ * step's: an error response the test expected doesn't fail the step.
+ */
+function apiRequestStepHttpAttributes(
+	chain: CapturedApiRequest[],
+): Span["attributes"] {
+	const [first] = chain;
+	const last = chain[chain.length - 1];
+	const statusCode = last.status >= 0 ? last.status : undefined;
+	return apiRequestHttpAttributes({
+		method: first.method,
+		url: first.url,
+		statusCode,
+		responseHeaders: last.responseHeaders,
+		errorType: statusCode === undefined ? "Error" : undefined,
+	});
+}
 
 function unmatchedApiRequestSpan(
 	request: CapturedApiRequest,

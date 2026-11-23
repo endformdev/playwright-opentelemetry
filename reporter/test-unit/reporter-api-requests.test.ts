@@ -6,6 +6,8 @@ import {
 } from "../src/reporter/otel-attributes";
 import {
 	ATTR_TEST_PHASE,
+	ATTR_TEST_STEP_CATEGORY,
+	ATTR_TEST_STEP_NAME,
 	ATTR_TEST_STEP_TITLE,
 	TEST_SPAN_NAME,
 	TEST_STEP_SPAN_NAME,
@@ -30,13 +32,14 @@ import { sendSpans } from "../src/reporter/sender";
 
 const TEST_FILE = "/Users/test/project/test-e2e/api.spec.ts";
 const BASE = "http://127.0.0.1:3000";
+const SPAN_KIND_CLIENT = 3;
 
 describe("PlaywrightOpentelemetryReporter - API requests", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
 
-	it("turns a request step into the HTTP span for its request", async () => {
+	it("makes a request step the HTTP client span for its request", async () => {
 		const spans = await reportedSpans({
 			steps: [
 				{
@@ -62,21 +65,27 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 		});
 
 		const seed = stepSpan(spans, "Seed cart");
-		const get = httpSpan(spans, "GET");
-		const post = httpSpan(spans, "POST");
-		expect(spans.filter((span) => span.name === TEST_STEP_SPAN_NAME)).toEqual([
-			seed,
-		]);
+		const [get, post] = requestStepSpans(spans);
+		expect(spans.filter((span) => span.name.startsWith("HTTP "))).toEqual([]);
 		expect(get).toEqual(
 			expect.objectContaining({
+				name: TEST_STEP_SPAN_NAME,
 				parentSpanId: seed.spanId,
-				kind: 3,
+				kind: SPAN_KIND_CLIENT,
 				startTime: at(1),
 				endTime: at(9),
-				status: { code: 0 },
 			}),
 		);
+		expect(get.status).toBeUndefined();
 		expect(get.attributes).toEqual({
+			[ATTR_TEST_STEP_NAME]: "Seed cart > GET",
+			[ATTR_TEST_STEP_TITLE]: "GET",
+			[ATTR_TEST_STEP_CATEGORY]: "pw:api",
+			"test.step.param.url": `${BASE}/api/cart`,
+			"test.step.param.method": "GET",
+			[ATTR_CODE_FILE_PATH]: "api.spec.ts",
+			[ATTR_CODE_LINE_NUMBER]: 6,
+			[ATTR_CODE_COLUMN_NUMBER]: 5,
 			"http.request.method": "GET",
 			"http.resource.type": "fetch",
 			"playwright.request.api": true,
@@ -86,13 +95,11 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 			"server.port": 3000,
 			"http.response.status_code": 200,
 			"http.response.header.content-type": ["application/json"],
-			[ATTR_CODE_FILE_PATH]: "api.spec.ts",
-			[ATTR_CODE_LINE_NUMBER]: 6,
-			[ATTR_CODE_COLUMN_NUMBER]: 5,
 		});
 		expect(post.parentSpanId).toBe(seed.spanId);
 		expect(post.attributes).toEqual(
 			expect.objectContaining({
+				[ATTR_TEST_STEP_TITLE]: "POST",
 				"http.response.status_code": 201,
 				[ATTR_CODE_LINE_NUMBER]: 7,
 			}),
@@ -113,13 +120,15 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 			requests: [request("GET", `${BASE}/api/me`, { start: 1, status: 200 })],
 		});
 
-		expect(httpSpan(spans, "GET").attributes).toEqual(
+		const [step] = requestStepSpans(spans);
+		expect(step.kind).toBe(SPAN_KIND_CLIENT);
+		expect(step.attributes).toEqual(
 			expect.objectContaining({
+				[ATTR_TEST_STEP_TITLE]: 'GET "/api/me"',
 				"url.full": `${BASE}/api/me`,
-				[ATTR_CODE_LINE_NUMBER]: 9,
+				"http.response.status_code": 200,
 			}),
 		);
-		expect(spans.some((span) => span.name === TEST_STEP_SPAN_NAME)).toBe(false);
 	});
 
 	it("matches URLs relative to baseURL, with params applied", async () => {
@@ -133,7 +142,7 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 			],
 		});
 
-		expect(httpSpan(spans, "GET").attributes).toEqual(
+		expect(requestStepSpans(spans)[0].attributes).toEqual(
 			expect.objectContaining({
 				"url.full": `${BASE}/v2/users/1?expand=roles`,
 				"url.query": "expand=roles",
@@ -141,7 +150,7 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 		);
 	});
 
-	it("keeps steps of requests the fixture did not record", async () => {
+	it("leaves steps of requests the fixture did not record as they are", async () => {
 		// Sent at the same time, e.g. with Promise.all: only the URL tells
 		// which step made the recorded request.
 		const spans = await reportedSpans({
@@ -152,15 +161,17 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 			requests: [request("GET", `${BASE}/api/cart`, { start: 2, status: 200 })],
 		});
 
-		const step = spans.find(
+		const [unrecorded, recorded] = spans.filter(
 			(span) => span.attributes[ATTR_TEST_STEP_TITLE] === "GET",
 		);
-		expect(step?.name).toBe(TEST_STEP_SPAN_NAME);
-		expect(step?.attributes[ATTR_CODE_LINE_NUMBER]).toBe(4);
-		expect(httpSpan(spans, "GET").attributes[ATTR_CODE_LINE_NUMBER]).toBe(5);
+		expect(unrecorded.attributes[ATTR_CODE_LINE_NUMBER]).toBe(4);
+		expect(unrecorded.kind).toBeUndefined();
+		expect(unrecorded.attributes).not.toHaveProperty("http.request.method");
+		expect(recorded.attributes[ATTR_CODE_LINE_NUMBER]).toBe(5);
+		expect(recorded.attributes["url.path"]).toBe("/api/cart");
 	});
 
-	it("does not match a request sent outside the step", async () => {
+	it("keeps a request no step made as an HTTP span under the test", async () => {
 		const spans = await reportedSpans({
 			steps: [requestStep("GET", `${BASE}/api/cart`, { start: 0, line: 4 })],
 			requests: [
@@ -170,15 +181,10 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 
 		const [unmatched] = spans.filter((span) => span.name === "HTTP GET");
 		expect(unmatched.parentSpanId).toBe(testSpan(spans).spanId);
+		expect(unmatched.kind).toBe(SPAN_KIND_CLIENT);
 		expect(unmatched.startTime).toEqual(at(40));
-		expect(unmatched.attributes).not.toHaveProperty(ATTR_CODE_LINE_NUMBER);
-		expect(
-			spans.some(
-				(span) =>
-					span.name === TEST_STEP_SPAN_NAME &&
-					span.attributes[ATTR_TEST_STEP_TITLE] === "GET",
-			),
-		).toBe(true);
+		expect(unmatched.attributes["http.response.status_code"]).toBe(200);
+		expect(requestStepSpans(spans)).toEqual([]);
 	});
 
 	it("pairs requests to the same URL with their steps in order", async () => {
@@ -193,10 +199,11 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 			],
 		});
 
-		const statuses = spans
-			.filter((span) => span.name === "HTTP GET")
-			.map((span) => span.attributes["http.response.status_code"]);
-		expect(statuses).toEqual([200, 503]);
+		expect(
+			requestStepSpans(spans).map(
+				(span) => span.attributes["http.response.status_code"],
+			),
+		).toEqual([200, 503]);
 	});
 
 	it("reports the final response of a followed redirect", async () => {
@@ -216,9 +223,8 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 			],
 		});
 
-		const httpSpans = spans.filter((span) => span.name === "HTTP GET");
-		expect(httpSpans).toHaveLength(1);
-		expect(httpSpans[0].attributes).toEqual(
+		expect(spans.filter((span) => span.name.startsWith("HTTP "))).toEqual([]);
+		expect(requestStepSpans(spans)[0].attributes).toEqual(
 			expect.objectContaining({
 				"url.full": `${BASE}/old`,
 				"http.response.status_code": 200,
@@ -227,38 +233,43 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 		);
 	});
 
-	it("marks error responses and failed requests as errors", async () => {
+	it("fails the span only when the step failed", async () => {
 		const spans = await reportedSpans({
 			steps: [
+				// The test checks for the 404 itself.
+				requestStep("GET", `${BASE}/expected-404`, { start: 0, line: 4 }),
 				{
-					...requestStep("GET", `${BASE}/missing`, { start: 0, line: 4 }),
+					...requestStep("GET", `${BASE}/missing`, { start: 20, line: 5 }),
 					error: { message: "apiRequestContext.get: 404 Not Found" },
 				},
 				{
 					...requestStep("GET", "http://127.0.0.1:1/refused", {
-						start: 20,
-						line: 5,
+						start: 40,
+						line: 6,
 					}),
 					error: { message: "apiRequestContext.get: connect ECONNREFUSED" },
 				},
 			],
 			requests: [
-				request("GET", `${BASE}/missing`, { start: 1, status: 404 }),
-				request("GET", "http://127.0.0.1:1/refused", { start: 21, status: -1 }),
+				request("GET", `${BASE}/expected-404`, { start: 1, status: 404 }),
+				request("GET", `${BASE}/missing`, { start: 21, status: 404 }),
+				request("GET", "http://127.0.0.1:1/refused", { start: 41, status: -1 }),
 			],
 		});
 
-		const [missing, refused] = spans.filter((span) => span.name === "HTTP GET");
-		expect(missing.status).toEqual({
-			code: 2,
-			message: "apiRequestContext.get: 404 Not Found",
-		});
-		expect(missing.attributes).toEqual(
+		const [expected, missing, refused] = requestStepSpans(spans);
+		expect(expected.status).toBeUndefined();
+		expect(expected.attributes).toEqual(
 			expect.objectContaining({
 				"http.response.status_code": 404,
 				"error.type": "404",
 			}),
 		);
+		expect(missing.status).toEqual({
+			code: 2,
+			message: "apiRequestContext.get: 404 Not Found",
+		});
+		expect(missing.attributes["error.type"]).toBe("404");
 		expect(refused.status).toEqual({
 			code: 2,
 			message: "apiRequestContext.get: connect ECONNREFUSED",
@@ -285,7 +296,9 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 			],
 		});
 
-		expect(httpSpan(spans, "POST").attributes[ATTR_TEST_PHASE]).toBe("before");
+		const [login] = requestStepSpans(spans);
+		expect(login.attributes[ATTR_TEST_PHASE]).toBe("before");
+		expect(login.attributes["http.response.status_code"]).toBe(200);
 	});
 
 	it("ignores an invalid requests attachment", async () => {
@@ -295,7 +308,7 @@ describe("PlaywrightOpentelemetryReporter - API requests", () => {
 			requestsBody: "not json",
 		});
 
-		expect(spans.some((span) => span.name === "HTTP GET")).toBe(false);
+		expect(requestStepSpans(spans)).toEqual([]);
 		expect(warn).toHaveBeenCalledWith(
 			expect.stringContaining(
 				`Ignoring invalid ${API_REQUESTS_ATTACHMENT_NAME}`,
@@ -388,8 +401,13 @@ function stepSpan(spans: Span[], title: string): Span {
 	return span;
 }
 
-function httpSpan(spans: Span[], method: string): Span {
-	const span = spans.find((span) => span.name === `HTTP ${method}`);
-	if (!span) throw new Error(`no HTTP ${method} span`);
-	return span;
+/** Step spans that carry a recorded request, in start order */
+function requestStepSpans(spans: Span[]): Span[] {
+	return spans
+		.filter(
+			(span) =>
+				span.name === TEST_STEP_SPAN_NAME &&
+				"http.request.method" in span.attributes,
+		)
+		.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 }
