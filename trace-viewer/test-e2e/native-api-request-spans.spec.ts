@@ -62,10 +62,35 @@ test("renders native Playwright request fixture spans from the reporter API flow
 		[],
 	);
 
+	const postStepSpan = requiredSpan(
+		spans,
+		"Post native request step span",
+		(span) =>
+			span.name === "playwright.test.step" &&
+			attributes(span)["test.step.title"] === "Post native request",
+	);
+
 	expect(getSpan.kind).toBe(3);
 	expect(postSpan.kind).toBe(3);
+	// Each request takes the place of the Playwright step that made it.
 	expect(getSpan.parentSpanId).toBe(testSpan.spanId);
-	expect(postSpan.parentSpanId).toBe(testSpan.spanId);
+	expect(postSpan.parentSpanId).toBe(postStepSpan.spanId);
+	expect(attributes(getSpan)).toEqual(
+		expect.objectContaining({
+			"code.file.path": expect.stringMatching(
+				/native-api-request-spans\.spec\.ts$/,
+			),
+			"code.line.number": 17,
+		}),
+	);
+	expect(attributes(postSpan)).toEqual(
+		expect.objectContaining({
+			"code.file.path": expect.stringMatching(
+				/native-api-request-spans\.spec\.ts$/,
+			),
+			"code.line.number": 21,
+		}),
+	);
 	expect(getSpan.status).toEqual({ code: 0 });
 	expect(postSpan.status).toEqual({ code: 0 });
 	expect(attributes(getSpan)).toEqual(

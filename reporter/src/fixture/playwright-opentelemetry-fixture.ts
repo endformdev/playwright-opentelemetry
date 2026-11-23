@@ -15,7 +15,10 @@ import {
 	propagateRouteTraceHeaders,
 	storeRequestTraceContext,
 } from "./network-propagator";
-import { createCapturedApiRequestContext } from "./api-request-capture";
+import {
+	createCapturedApiRequestContext,
+	startApiRequestHar,
+} from "./api-request-capture";
 import {
 	hasPlaywrightOpentelemetryReporter,
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
@@ -184,9 +187,32 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ auto: true },
 		],
-		request: async ({ request, testTraceContext }, use) => {
-			await use(createCapturedApiRequestContext(request, testTraceContext));
-		},
+		request: [
+			async (
+				{ request, testTraceContext, playwrightOpentelemetry },
+				use,
+				testInfo,
+			) => {
+				const config = resolvePlaywrightOpentelemetryConfig(
+					playwrightOpentelemetry,
+				);
+				const har = await startApiRequestHar(request, {
+					attachFixtureData: config.attachFixtureData,
+					testInfo,
+				});
+				if (!har) {
+					await use(createCapturedApiRequestContext(request, testTraceContext));
+					return;
+				}
+				try {
+					await use(request);
+				} finally {
+					await har.stop();
+				}
+			},
+			// Keeps the HAR's start and export calls out of the test's steps.
+			{ scope: "test", box: true },
+		],
 		context: async (
 			{
 				context,

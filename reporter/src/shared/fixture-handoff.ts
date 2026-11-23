@@ -33,6 +33,7 @@ export function fixtureHandoffRoot(projectOutputDir: string): string {
 export const TRACE_CONTEXT_HANDOFF_FILE = "trace-context.json";
 export const FIXTURE_SPANS_HANDOFF_FILE = "fixture-spans.json";
 export const SCREENSHOTS_HANDOFF_FILE = "screenshots.zip";
+export const API_REQUESTS_HANDOFF_FILE = "api-requests.json";
 
 /** Body of {@link TRACE_CONTEXT_HANDOFF_FILE}. */
 export interface TraceContextHandoff {

@@ -17,10 +17,10 @@ test(NATIVE_API_REQUEST_TRACE_TEST_NAME, async ({ request }) => {
 		const getResponse = await request.get(
 			`${baseUrl}/native-request?source=get`,
 		);
-		const postResponse = await request.post(
-			`${baseUrl}/native-request?source=post`,
-			{ data: { source: "playwright-request" } },
-		);
+		const postResponse = await test.step("Post native request", () =>
+			request.post(`${baseUrl}/native-request?source=post`, {
+				data: { source: "playwright-request" },
+			}));
 
 		expect(getResponse.status()).toBe(203);
 		expect(await getResponse.text()).toBe("native GET response");
