@@ -26,12 +26,3 @@ Tests can still use `page.screencast` themselves. To turn screenshots off, set `
 
 > [!NOTE]
 > On Playwright versions before 1.61, screenshots are read from Playwright's trace instead, so keep Playwright's trace screenshots on (for example `trace: "on"`).
-
-## API requests
-
-Playwright records each call a test makes through its [`request`](https://playwright.dev/docs/api-testing) fixture as a step. The step's span is also the HTTP client span for the request: it has the client span kind and the HTTP attributes, such as `http.request.method`, `url.full` and `http.response.status_code`. The span's status follows the step, so an error response the test expected doesn't mark it as failed; `error.type` still records the status code.
-
-The fixture records them with the `request` context's [`tracing.startHar`](https://playwright.dev/docs/api/class-tracing#tracing-start-har). Playwright records one HAR at a time per context, so calling `request.tracing.startHar()` in a test fails. To record a HAR of your own, make the requests from a context you create with `playwright.request.newContext()`; the fixture doesn't record that context's requests, and its calls stay steps without HTTP attributes.
-
-> [!NOTE]
-> On Playwright versions before 1.60, which have no `tracing.startHar`, the fixture wraps `request` instead. Playwright then points each call's step at the fixture, so the reporter leaves those steps out, and the fixture records each request as a separate `HTTP` span under the test.
