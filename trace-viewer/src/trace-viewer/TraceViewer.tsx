@@ -39,7 +39,7 @@ import type { SpanSelectionPlacement } from "./spanSelection";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
 import { describeStepRulerTime } from "./stepRulerSegments";
 import { StepViewer, type StepViewerComparison } from "./StepViewer";
-import { TimelineRuler } from "./TimelineRuler";
+import { type RulerMarker, TimelineRuler } from "./TimelineRuler";
 import { TraceViewerHeader } from "./TraceViewerHeader";
 import { buildTestStructure, getStepAncestry } from "./testStructure";
 import { layoutTimelineSpans } from "./timelineLayout";
@@ -50,7 +50,11 @@ import { useTraceComparison } from "./useTraceComparison";
 import { useTimelinePointer } from "./useTimelinePointer";
 import type { ViewerAction } from "./viewerAction";
 import type { ViewerComparison } from "./viewerComparison";
-import type { ViewerHighlight } from "./viewerHighlight";
+import {
+	type ResolvedViewerHighlight,
+	resolveViewerHighlights,
+	type ViewerHighlight,
+} from "./viewerHighlight";
 import { type ViewerPanels, viewerSettingsFromPanels } from "./viewerPanels";
 import { createViewerSettings, type ViewerSectionKey } from "./viewerSettings";
 import {
@@ -70,8 +74,11 @@ export interface TraceViewerProps {
 	panels?: ViewerPanels | null;
 	/** Adds a button for this action to the player's control bar */
 	action?: ViewerAction | null;
-	/** A span to open on and mark on the step ruler, e.g. from the URL */
-	highlight?: ViewerHighlight | null;
+	/**
+	 * Moments to mark on the step ruler, opening on the first, e.g. from the
+	 * URL (see viewerHighlight.ts)
+	 */
+	highlights?: readonly ViewerHighlight[] | null;
 	/** Another trace to show beside this one on the big screen */
 	comparison?: ViewerComparison | null;
 }
@@ -145,7 +152,7 @@ export function TraceViewer(props: TraceViewerProps) {
 						testStartTimeMs={testStartTimeMs}
 						panels={props.panels ?? null}
 						action={props.action ?? null}
-						highlight={props.highlight ?? null}
+						highlights={props.highlights ?? []}
 						comparison={props.comparison ?? null}
 					/>
 				</HoverProvider>
@@ -160,7 +167,7 @@ interface TraceViewerInnerProps {
 	testStartTimeMs: () => number;
 	panels: ViewerPanels | null;
 	action: ViewerAction | null;
-	highlight: ViewerHighlight | null;
+	highlights: readonly ViewerHighlight[];
 	comparison: ViewerComparison | null;
 }
 
@@ -520,11 +527,17 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		});
 	};
 
-	/** The highlighted span, when the trace contains it */
-	const highlightedSpan = createMemo(() => {
-		const spanId = props.highlight?.spanId;
-		return spanId ? (spanById().get(spanId) ?? null) : null;
-	});
+	/** The highlights the trace has spans for */
+	const highlights = createMemo(() =>
+		resolveViewerHighlights(props.highlights, {
+			spanById: spanById(),
+			steps: props.traceData.steps(),
+			testStartTimeMs: props.testStartTimeMs(),
+		}),
+	);
+	const highlightedSpanIds = createMemo(
+		() => new Set(highlights().map((highlight) => highlight.span.id)),
+	);
 
 	/** The step the test failed at, when it didn't pass */
 	const failingStep = createMemo(() => {
@@ -551,34 +564,27 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		);
 	};
 
-	/** Where the highlighted span shows its result, unless asked for its start */
-	const highlightedSpanResult = createMemo(() => {
-		const span = highlightedSpan();
-		if (!span || props.highlight?.at === "start") return null;
-		return resultStopOf(span);
-	});
+	/** Where a highlighted span shows its result, unless asked for its start */
+	const highlightResultStop = (highlight: ResolvedViewerHighlight) =>
+		highlight.at === "start" ? null : resultStopOf(highlight.span);
 
-	// The marker covers the span from its start to the result the viewer
+	// Each marker covers its span from its start to the result the viewer
 	// opens on, so the playhead lands on its edge rather than beside a line.
-	const rulerMarkers = createMemo(() => {
-		const span = highlightedSpan();
-		if (!span || !props.highlight) return [];
-
-		return [
-			{
-				timeMs: span.startOffsetMs,
-				endMs: highlightedSpanResult()?.timeMs,
-				label: props.highlight.label,
-			},
-		];
-	});
+	const rulerMarkers = createMemo((): RulerMarker[] =>
+		highlights().map((highlight) => ({
+			timeMs: highlight.span.startOffsetMs,
+			endMs: highlightResultStop(highlight)?.timeMs,
+			label: highlight.label,
+		})),
+	);
 
 	/**
-	 * Opens on the highlighted span: by default on its result, since its start
+	 * Opens on a highlight: by default on its span's result, since its start
 	 * shows the page before it acted.
 	 */
-	const openOnHighlight = (span: Span) => {
-		const result = highlightedSpanResult();
+	const openOnHighlight = (highlight: ResolvedViewerHighlight) => {
+		const { span } = highlight;
+		const result = highlightResultStop(highlight);
 		if (result) {
 			handleRulerSeek(result.timeMs, result.stepId);
 			return;
@@ -605,7 +611,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		else handleRulerSeek(step.startOffsetMs + step.durationMs, step.id);
 	};
 
-	// Once loaded, open on the highlighted span, else on where a test that
+	// Once loaded, open on the first highlight, else on where a test that
 	// didn't pass failed. Locking first keeps the step viewer from opening on
 	// the first screenshot instead.
 	let opened = false;
@@ -613,9 +619,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		if (opened || props.traceData.status() !== "loaded") return;
 		opened = true;
 		untrack(() => {
-			const highlighted = highlightedSpan();
-			if (highlighted) {
-				openOnHighlight(highlighted);
+			const [first] = highlights();
+			if (first) {
+				openOnHighlight(first);
 				return;
 			}
 			const failing = failingStep();
@@ -869,7 +875,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			comparison={stepViewerComparison()}
 			comparisonShown={comparisonShown()}
 			onToggleComparison={() => setComparisonToggledOn((on) => !on)}
-			highlightedSpanId={highlightedSpan()?.id ?? null}
+			highlightedSpanIds={highlightedSpanIds()}
 			stopCount={stepViewer.stops().length}
 			stopIndex={stepViewer.shownIndex()}
 			stepAncestry={stepViewerStepAncestry()}

@@ -37,8 +37,8 @@ export interface PlayerControlBarProps {
 	onPinPage: (pageId: string | null) => void;
 	/** The embedding page's action, a button at the end of the bar */
 	action: ViewerAction | null;
-	/** The span the embedding page highlights, named before any step inside it */
-	highlightedSpanId: string | null;
+	/** The spans the embedding page highlights, named before any step inside them */
+	highlightedSpanIds: ReadonlySet<string>;
 	/**
 	 * Whether the comparison trace is shown beside this one, or null without a
 	 * comparison to show, when there is no button for it
@@ -163,7 +163,7 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 							parents={props.stepAncestry
 								.slice(0, -1)
 								.filter((span) => span.name === "playwright.test.step")}
-							highlightedSpanId={props.highlightedSpanId}
+							highlightedSpanIds={props.highlightedSpanIds}
 						/>
 					)}
 				</Show>
@@ -262,12 +262,14 @@ function StepLine(props: {
 	step: Span;
 	depth: number;
 	parents: Span[];
-	highlightedSpanId: string | null;
+	highlightedSpanIds: ReadonlySet<string>;
 }) {
 	// The caption names only the innermost step, which alone doesn't show that
-	// it is part of the highlighted one.
+	// it is part of a highlighted one: the innermost such parent is named.
 	const highlightedParent = () =>
-		props.parents.find((parent) => parent.id === props.highlightedSpanId);
+		[...props.parents]
+			.reverse()
+			.find((parent) => props.highlightedSpanIds.has(parent.id));
 	const color = () =>
 		isErrorSpan(props.step)
 			? "#dc2626"
