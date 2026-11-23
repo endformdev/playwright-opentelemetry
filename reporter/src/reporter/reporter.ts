@@ -50,6 +50,7 @@ import {
 	type ScreenshotResource,
 } from "../shared/screenshots-zip";
 import {
+	ATTR_CODE_COLUMN_NUMBER,
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
 	ATTR_TEST_CASE_NAME,
@@ -215,13 +216,14 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		attributes["playwright.test.describes"] = describes;
 
 		if (test.location) {
-			const { file, line } = test.location;
+			const { file, line, column } = test.location;
 			const relativePath = this.rootDir
 				? path.relative(this.rootDir, file)
 				: file;
 
 			attributes[ATTR_CODE_FILE_PATH] = relativePath;
 			attributes[ATTR_CODE_LINE_NUMBER] = line;
+			attributes[ATTR_CODE_COLUMN_NUMBER] = column;
 		}
 
 		// Process test steps recursively first to collect all child spans.
@@ -511,9 +513,11 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 		attributes[ATTR_TEST_STEP_CATEGORY] = step.category;
 		if (phase) attributes[ATTR_TEST_PHASE] = phase;
 
-		// Add code location attributes if available
+		// Add code location attributes if available. The column tells apart
+		// the steps one line runs, such as the `Query count` and the
+		// `Expect "toBe"` of `expect(await rows.count()).toBe(3)`.
 		if (step.location) {
-			const { file, line } = step.location;
+			const { file, line, column } = step.location;
 
 			// Calculate relative path from rootDir
 			const relativePath = this.rootDir
@@ -522,6 +526,7 @@ export class PlaywrightOpentelemetryReporter implements Reporter {
 
 			attributes[ATTR_CODE_FILE_PATH] = relativePath;
 			attributes[ATTR_CODE_LINE_NUMBER] = line;
+			attributes[ATTR_CODE_COLUMN_NUMBER] = column;
 		}
 
 		const stepSpan: Span = {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	ATTR_CODE_COLUMN_NUMBER,
 	ATTR_CODE_FILE_PATH,
 	ATTR_CODE_LINE_NUMBER,
 	ATTR_TEST_CASE_TITLE,
@@ -93,6 +94,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 				location: {
 					file: "/Users/test/project/test-e2e/auth.spec.ts",
 					line: 8,
+					column: 2,
 				},
 			},
 			result: {
@@ -105,6 +107,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 						location: {
 							file: "/Users/test/project/test-e2e/auth.spec.ts",
 							line: 10,
+							column: 14,
 						},
 					},
 				],
@@ -118,6 +121,8 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 					name: TEST_SPAN_NAME,
 					attributes: expect.objectContaining({
 						[ATTR_TEST_CASE_TITLE]: "should login",
+						[ATTR_CODE_LINE_NUMBER]: 8,
+						[ATTR_CODE_COLUMN_NUMBER]: 2,
 					}),
 				}),
 				expect.objectContaining({
@@ -127,6 +132,7 @@ describe("PlaywrightOpentelemetryReporter - Test Steps", () => {
 					attributes: expect.objectContaining({
 						[ATTR_CODE_FILE_PATH]: "auth.spec.ts",
 						[ATTR_CODE_LINE_NUMBER]: 10,
+						[ATTR_CODE_COLUMN_NUMBER]: 14,
 						[ATTR_TEST_STEP_NAME]: "Login step",
 						[ATTR_TEST_STEP_TITLE]: "Login step",
 						[ATTR_TEST_STEP_CATEGORY]: "test.step",
