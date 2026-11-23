@@ -19,7 +19,7 @@ Playwright test
 ```
 
 - The **reporter** turns each retained test attempt into a root `playwright.test` span, with steps, hooks, fixtures, and actions as child `playwright.test.step` spans.
-- The **fixture** records page navigations, browser requests, `request` fixture activity, worker `fetch` activity, console messages, and uncaught page errors under a `playwright-browser` service, and injects the `traceparent` header that makes backend spans children of the test.
+- The **fixture** records page navigations, browser requests, worker `fetch` activity, console messages, and uncaught page errors under a `playwright-browser` service, adds the response of each `request`, `page.request` or other `APIRequestContext` call to the step of that call, and injects into all of those requests the `traceparent` header that makes backend spans children of the test.
 
 ## Quick start
 

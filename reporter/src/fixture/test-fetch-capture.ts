@@ -1,4 +1,4 @@
-import { generateSpanId } from "../shared/otel";
+import { generateSpanId, traceparentHeader } from "../shared/otel";
 import type { FixtureSpan, TestTraceContext } from "./trace-context";
 
 const SPAN_KIND_CLIENT = 3;
@@ -10,19 +10,22 @@ type FetchInit = Parameters<typeof fetch>[1];
 
 let originalFetch: typeof fetch | undefined;
 let activeTraceContext: TestTraceContext | undefined;
+let propagateTraceHeaders = false;
 
 export function runWithTestFetchCapture<T>(
 	traceContext: TestTraceContext,
 	callback: () => Promise<T>,
+	options: { propagateTraceHeaders?: boolean } = {},
 ): Promise<T> {
 	ensureFetchPatched();
-	const previousTraceContext = activeTraceContext;
+	const previous = { activeTraceContext, propagateTraceHeaders };
 	activeTraceContext = traceContext;
+	propagateTraceHeaders = options.propagateTraceHeaders === true;
 	return (async () => {
 		try {
 			return await callback();
 		} finally {
-			activeTraceContext = previousTraceContext;
+			({ activeTraceContext, propagateTraceHeaders } = previous);
 		}
 	})();
 }
@@ -33,6 +36,7 @@ export function resetTestFetchCaptureForTest(): void {
 	}
 	originalFetch = undefined;
 	activeTraceContext = undefined;
+	propagateTraceHeaders = false;
 }
 
 function ensureFetchPatched(): void {
@@ -56,11 +60,23 @@ const patchedFetch: typeof fetch = async (input, init) => {
 		return globalThis.fetch(input, init);
 	}
 
+	// The span's ID goes out with the request, so the spans of the service
+	// that answers become its children.
+	const spanId = generateSpanId();
+	const sentInit = propagateTraceHeaders
+		? withTraceparent(
+				input,
+				init,
+				traceparentHeader(traceContext.traceId, spanId),
+			)
+		: init;
+
 	const startTime = new Date();
 	try {
-		const response = await originalFetch(input, init);
+		const response = await originalFetch(input, sentInit);
 		traceContext.addSpan(
 			createFetchSpan({
+				spanId,
 				input,
 				init,
 				traceContext,
@@ -75,6 +91,7 @@ const patchedFetch: typeof fetch = async (input, init) => {
 	} catch (error) {
 		traceContext.addSpan(
 			createFetchSpan({
+				spanId,
 				input,
 				init,
 				traceContext,
@@ -87,7 +104,36 @@ const patchedFetch: typeof fetch = async (input, init) => {
 	}
 };
 
+/**
+ * Keeps the kind of headers the test passed. Leaves a `traceparent` the test
+ * set itself alone.
+ */
+function withTraceparent(
+	input: FetchInput,
+	init: FetchInit,
+	traceparent: string,
+): FetchInit {
+	// Without headers of its own, fetch() sends those of its Request.
+	const existing =
+		init?.headers ?? (input instanceof Request ? input.headers : undefined);
+	if (new Headers(existing).has("traceparent")) {
+		return init;
+	}
+
+	let headers: NonNullable<NonNullable<FetchInit>["headers"]>;
+	if (existing instanceof Headers) {
+		headers = new Headers(existing);
+		headers.set("traceparent", traceparent);
+	} else if (Array.isArray(existing)) {
+		headers = [...existing, ["traceparent", traceparent]];
+	} else {
+		headers = { ...existing, traceparent };
+	}
+	return { ...init, headers };
+}
+
 function createFetchSpan({
+	spanId,
 	input,
 	init,
 	traceContext,
@@ -98,6 +144,7 @@ function createFetchSpan({
 	cacheControl,
 	error,
 }: {
+	spanId: string;
 	input: FetchInput;
 	init: FetchInit;
 	traceContext: TestTraceContext;
@@ -123,7 +170,7 @@ function createFetchSpan({
 
 	return {
 		traceId: traceContext.traceId,
-		spanId: generateSpanId(),
+		spanId,
 		parentSpanId: traceContext.rootSpanId,
 		name: `HTTP ${method}`,
 		kind: SPAN_KIND_CLIENT,

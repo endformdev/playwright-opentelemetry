@@ -55,21 +55,60 @@ test("renders native Playwright request fixture spans from the reporter API flow
 	);
 	const getSpan = requiredNativeRequestSpan(spans, "GET", "source=get");
 	const postSpan = requiredNativeRequestSpan(spans, "POST", "source=post");
-	expect(duplicateNativeRequestStepSpans(spans, "GET", "source=get")).toEqual(
+	// The step is the request's span: there is no separate HTTP span.
+	expect(separateNativeRequestHttpSpans(spans, "GET", "source=get")).toEqual(
 		[],
 	);
-	expect(duplicateNativeRequestStepSpans(spans, "POST", "source=post")).toEqual(
+	expect(separateNativeRequestHttpSpans(spans, "POST", "source=post")).toEqual(
 		[],
+	);
+
+	const postStepSpan = requiredSpan(
+		spans,
+		"Post native request step span",
+		(span) =>
+			span.name === "playwright.test.step" &&
+			attributes(span)["test.step.title"] === "Post native request",
 	);
 
 	expect(getSpan.kind).toBe(3);
 	expect(postSpan.kind).toBe(3);
 	expect(getSpan.parentSpanId).toBe(testSpan.spanId);
-	expect(postSpan.parentSpanId).toBe(testSpan.spanId);
-	expect(getSpan.status).toEqual({ code: 0 });
-	expect(postSpan.status).toEqual({ code: 0 });
+	expect(postSpan.parentSpanId).toBe(postStepSpan.spanId);
+	// The service that answered a request was sent that request's span ID, so
+	// its spans become children of the request.
+	const tracedSpan = requiredNativeRequestSpan(
+		spans,
+		"GET",
+		"source=traceparent",
+	);
+	requiredNativeRequestSpan(spans, "GET", `source=saw-${tracedSpan.spanId}`);
+
+	// Every way to an APIRequestContext is recorded, and Playwright still
+	// locates each call on the test's own line.
+	const requestSpans = [
+		getSpan,
+		postSpan,
+		...["page", "context", "new-request", "new-context"].map((source) => {
+			const span = requiredNativeRequestSpan(spans, "GET", `source=${source}`);
+			expect(attributes(span)["http.response.status_code"]).toBe(200);
+			return span;
+		}),
+	];
+	for (const span of requestSpans) {
+		expect(attributes(span)["code.file.path"]).toMatch(
+			/native-api-request-spans\.spec\.ts$/,
+		);
+	}
+	expect(
+		new Set(requestSpans.map((span) => attributes(span)["code.line.number"]))
+			.size,
+	).toBe(requestSpans.length);
+	expect(getSpan.status?.code ?? 0).toBe(0);
+	expect(postSpan.status?.code ?? 0).toBe(0);
 	expect(attributes(getSpan)).toEqual(
 		expect.objectContaining({
+			"test.step.category": "pw:api",
 			"http.request.method": "GET",
 			"http.response.status_code": 203,
 			"http.resource.type": "fetch",
@@ -81,6 +120,7 @@ test("renders native Playwright request fixture spans from the reporter API flow
 	);
 	expect(attributes(postSpan)).toEqual(
 		expect.objectContaining({
+			"test.step.category": "pw:api",
 			"http.request.method": "POST",
 			"http.response.status_code": 201,
 			"http.resource.type": "fetch",
@@ -131,16 +171,18 @@ function flattenSpans(otlpExport: OtlpExport): SpanWithService[] {
 	});
 }
 
+/** The Playwright step for a request, which carries its HTTP attributes */
 function requiredNativeRequestSpan(
 	spans: SpanWithService[],
 	method: string,
 	query: string,
 ): SpanWithService {
-	return requiredSpan(spans, `native ${method} request span`, (span) => {
+	return requiredSpan(spans, `native ${method} request step span`, (span) => {
 		const attrs = attributes(span);
 		return (
-			span.name === `HTTP ${method}` &&
+			span.name === "playwright.test.step" &&
 			span.serviceName === "playwright-tests" &&
+			attrs["http.request.method"] === method &&
 			attrs["playwright.request.api"] === true &&
 			attrs["url.path"] === "/native-request" &&
 			attrs["url.query"] === query
@@ -148,7 +190,7 @@ function requiredNativeRequestSpan(
 	});
 }
 
-function duplicateNativeRequestStepSpans(
+function separateNativeRequestHttpSpans(
 	spans: SpanWithService[],
 	method: string,
 	query: string,
@@ -156,18 +198,9 @@ function duplicateNativeRequestStepSpans(
 	return spans.filter((span) => {
 		const attrs = attributes(span);
 		return (
-			span.name === "playwright.test.step" &&
-			span.serviceName === "playwright-tests" &&
-			attrs["test.step.category"] === "pw:api" &&
-			// Playwright 1.63+ reports params; older versions only a title.
-			((attrs["test.step.param.method"] === method &&
-				String(attrs["test.step.param.url"]).includes(
-					`/native-request?${query}`,
-				)) ||
-				(String(attrs["test.step.title"]).startsWith(`${method} "`) &&
-					String(attrs["test.step.title"]).includes(
-						`/native-request?${query}`,
-					)))
+			span.name === `HTTP ${method}` &&
+			attrs["url.path"] === "/native-request" &&
+			attrs["url.query"] === query
 		);
 	});
 }

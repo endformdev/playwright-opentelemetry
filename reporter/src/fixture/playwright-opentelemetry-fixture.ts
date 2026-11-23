@@ -5,6 +5,7 @@ import type {
 	Response,
 	test as base,
 } from "@playwright/test";
+import type { CapturedApiRequest } from "../shared/api-requests";
 import { supportsScreencastScreenshots } from "../shared/screencast-screenshots";
 import {
 	resolvePlaywrightOpentelemetryConfig,
@@ -15,7 +16,12 @@ import {
 	propagateRouteTraceHeaders,
 	storeRequestTraceContext,
 } from "./network-propagator";
-import { createCapturedApiRequestContext } from "./api-request-capture";
+import {
+	captureApiRequests,
+	captureNewApiRequestContexts,
+	handOffApiRequests,
+	startApiRequestRecording,
+} from "./api-request-capture";
 import {
 	hasPlaywrightOpentelemetryReporter,
 	MISSING_PLAYWRIGHT_OPENTELEMETRY_REPORTER_ERROR,
@@ -45,6 +51,7 @@ type PlaywrightOpentelemetryFixtures = {
 
 type PlaywrightOpentelemetryWorkerFixtures = {
 	_playwrightOpentelemetryReporterCheck: void;
+	_playwrightOpentelemetryApiRequests: void;
 	/** Listeners for contexts created from the worker's `browser` fixture. */
 	_playwrightOpentelemetryNewContexts: Set<(context: BrowserContext) => void>;
 };
@@ -72,6 +79,16 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ scope: "worker", auto: true },
 		],
+		// `request`, `page.request`, `context.request` and the contexts of
+		// `playwright.request.newContext()` are instances of one class, which
+		// is wrapped once per worker. Each test records its own calls.
+		_playwrightOpentelemetryApiRequests: [
+			async ({ playwright }, use) => {
+				captureNewApiRequestContexts(playwright.request);
+				await use();
+			},
+			{ scope: "worker", auto: true },
+		],
 		_playwrightOpentelemetryNewContexts: [
 			// oxlint-disable-next-line no-empty-pattern -- Playwright requires an object pattern for fixture dependencies
 			async ({}, use) => {
@@ -81,10 +98,12 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 		],
 		// Tests can create contexts with `browser.newContext()` instead of using
 		// the `context` fixture. Browser's "context" event (public since
-		// Playwright 1.60) reports them to the screenshot capture.
+		// Playwright 1.60) reports them to the screenshot capture, and makes
+		// sure calls on their `request` are recorded.
 		browser: [
 			async ({ browser, _playwrightOpentelemetryNewContexts }, use) => {
 				const onContext = (context: BrowserContext) => {
+					captureApiRequests(context.request);
 					for (const listener of _playwrightOpentelemetryNewContexts) {
 						listener(context);
 					}
@@ -113,18 +132,32 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 					playwrightOpentelemetry,
 				);
 				const traceContext = await createTestTraceContext(testInfo, config);
+				const apiRequests = startApiRequestRecording({
+					rootDir: testInfo.config.rootDir,
+					traceId: config.propagateTraceHeaders
+						? traceContext.traceId
+						: undefined,
+				});
 				// Downstream services batch their exports, so their spans reach the
 				// Trace API well after this marker. Don't make the test wait for it.
 				const registration = registerExpectedTrace(traceContext, config, {
 					trace,
 					testInfo,
 				});
-				await runWithTestFetchCapture(traceContext, () => use(traceContext));
+				let requests: CapturedApiRequest[];
+				try {
+					await runWithTestFetchCapture(traceContext, () => use(traceContext), {
+						propagateTraceHeaders: config.propagateTraceHeaders,
+					});
+				} finally {
+					requests = apiRequests.stop();
+				}
 				await registration;
 				await flushFixtureSpans(traceContext, config, {
 					trace,
 					testInfo,
 				});
+				await handOffApiRequests(requests, config, { trace, testInfo });
 			},
 			{ auto: true },
 		],
@@ -184,9 +217,6 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 			},
 			{ auto: true },
 		],
-		request: async ({ request, testTraceContext }, use) => {
-			await use(createCapturedApiRequestContext(request, testTraceContext));
-		},
 		context: async (
 			{
 				context,
@@ -201,6 +231,8 @@ export function createPlaywrightOtelTest<T extends typeof base>(testBase: T) {
 				playwrightOpentelemetry,
 			);
 			screencastCapture?.addContext(context);
+			// Before Playwright 1.60 the browser doesn't report its contexts.
+			captureApiRequests(context.request);
 			const captureRequest = (request: Request) => {
 				browserPageTracker.startDocumentNavigation(request);
 				const networkParent = browserPageTracker.getNetworkParent(request);

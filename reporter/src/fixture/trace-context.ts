@@ -123,8 +123,8 @@ export async function createTestTraceContext(
 
 /**
  * Writes the expected-trace marker that lets the Trace API admit spans from the
- * app under test. Only browser requests carry the test's traceparent, so the
- * marker is skipped when propagation is off; the fixture's own spans are
+ * app under test. Requests only carry the test's traceparent with propagation
+ * on, so the marker is skipped when it is off; the fixture's own spans are
  * trusted and stored without it. Never rejects, so callers can start it
  * without awaiting.
  */

@@ -19,7 +19,7 @@ This boots the trace viewer on `localhost:9294`. Then load your ZIP file or an A
 
 The viewer separates the trace into three views that match how you investigate a failure:
 
-- **Test steps** for the Playwright test, hooks, fixtures, and actions
+- **Test steps** for the Playwright test, hooks, fixtures, and actions. A call on `request`, `page.request` or another `APIRequestContext` is a step that also shows the response it got
 - **Browser spans** for navigation, routes, JavaScript, fonts, images, fetches, and other requests
 - **External spans** for your instrumented application and backend services
 

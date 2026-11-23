@@ -81,6 +81,7 @@ describe("expected trace registration", () => {
 				retry: 0,
 				testId: "file-0-test-0",
 				project: { outputDir: temporaryOutputDir() },
+				config: { rootDir: process.cwd() },
 			} as unknown as TestInfo,
 		).then(() => {
 			finished = true;

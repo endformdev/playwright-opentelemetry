@@ -59,6 +59,11 @@ export function generateSpanId(): string {
 	).join("");
 }
 
+/** A W3C `traceparent` header for a sampled span. */
+export function traceparentHeader(traceId: string, spanId: string): string {
+	return `00-${traceId}-${spanId}-01`;
+}
+
 export function parseOtlpHeaders(
 	headersString: string | undefined,
 ): Record<string, string> {

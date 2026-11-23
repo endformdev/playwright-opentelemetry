@@ -106,6 +106,67 @@ describe("test worker fetch capture", () => {
 		);
 	});
 
+	it("sends a traceparent header with the ID of the call's span when propagating", async () => {
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockImplementation(async () => new Response("ok"));
+		globalThis.fetch = fetchMock;
+		const traceContext = createTraceContext();
+		const request = new Request("https://api.example.com/request", {
+			headers: { "x-from": "request" },
+		});
+
+		await runWithTestFetchCapture(
+			traceContext,
+			async () => {
+				await fetch("https://api.example.com/none", { method: "POST" });
+				await fetch("https://api.example.com/object", {
+					headers: { accept: "*/*" },
+				});
+				await fetch("https://api.example.com/array", {
+					headers: [["accept", "*/*"]],
+				});
+				await fetch("https://api.example.com/headers", {
+					headers: new Headers({ accept: "*/*" }),
+				});
+				await fetch(request);
+				await fetch("https://api.example.com/own", {
+					headers: { Traceparent: "00-own-trace-01" },
+				});
+			},
+			{ propagateTraceHeaders: true },
+		);
+
+		const traceparents = traceContext.spans.map(
+			(span) => `00-${traceContext.traceId}-${span.spanId}-01`,
+		);
+		const sent = fetchMock.mock.calls.map(([, init]) => init);
+		expect(sent[0]).toEqual({
+			method: "POST",
+			headers: { traceparent: traceparents[0] },
+		});
+		expect(sent[1]?.headers).toEqual({
+			accept: "*/*",
+			traceparent: traceparents[1],
+		});
+		expect(sent[2]?.headers).toEqual([
+			["accept", "*/*"],
+			["traceparent", traceparents[2]],
+		]);
+		expect(sent[3]?.headers).toBeInstanceOf(Headers);
+		expect(Object.fromEntries(sent[3]!.headers as Headers)).toEqual({
+			accept: "*/*",
+			traceparent: traceparents[3],
+		});
+		// Headers in the options replace those of the Request.
+		expect(Object.fromEntries(sent[4]!.headers as Headers)).toEqual({
+			"x-from": "request",
+			traceparent: traceparents[4],
+		});
+		expect(sent[5]?.headers).toEqual({ Traceparent: "00-own-trace-01" });
+		expect(new Set(traceparents).size).toBe(6);
+	});
+
 	it("does not capture fetch calls outside the active test context", async () => {
 		const fetchMock = vi
 			.fn<typeof fetch>()
