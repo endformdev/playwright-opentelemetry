@@ -105,6 +105,38 @@ window.addEventListener("message", (event) => {
 
 Without `view` or `panels`, the viewer settings saved in the browser decide what is shown. With them, the URL decides instead: saved settings are ignored for that page, and changes made in the settings menu there are not saved. Unknown panel names are ignored. A `panels` list with no known names falls back to `view`, and an unknown `view` falls back to the saved settings. A listed panel is still hidden when the trace has no data for it. Sections with no data are disabled in the settings menu.
 
+## Highlight steps
+
+Add a `highlight` query parameter for each step to point out, for example every step that changed or failed. Each one is marked on the step ruler with its label, and the viewer opens on the first.
+
+Each `highlight` is a list of `key:value` fields separated by `~`:
+
+| Field                       | Meaning                                                                                        |
+| --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `span:<spanId>`             | The span's ID, 16 hex characters.                                                              |
+| `time:<ms>`                 | When the step started, in whole Unix epoch milliseconds.                                       |
+| `loc:<file>:<line>[:<col>]` | The step's source location: its `code.file.path`, `code.line.number` and `code.column.number`. |
+| `at:start` or `at:end`      | Open on the span's start, or on its result after the last step inside it (the default).        |
+| `label:<text>`              | Caption, at most 120 characters. It must come last, and runs to the end of the value.          |
+
+A highlight needs `span`, `time` or `loc`, or several of them; highlights with none are ignored. The viewer looks for the span in this trace only:
+
+1. `span` names the span exactly.
+2. `time` with `loc` finds the step that started in that millisecond at that location. The column only counts when both the highlight and the trace have one, and a path may have extra directories in front. When no step there matches, the step that started in that millisecond is used; when no step started then, the location alone is used.
+3. `time` alone finds the step that started in that millisecond. Of nested steps that started together, the outermost is used.
+4. `loc` alone finds the step at that location. When it ran several times, as in a loop, the first run that failed is used, or else the last run.
+
+Highlights the trace has no span for are left out, and at most 20 are read.
+
+```text
+https://trace.endform.dev/?traceSource=...&view=player
+  &highlight=span%3A0af7651916cd43dd%7Elabel%3AFailed+here
+  &highlight=time%3A1731234567890%7Eloc%3Atests%2Fcheckout.spec.ts%3A42%3A5%7Elabel%3AClicks+another+button
+  &highlight=loc%3Atests%2Fcheckout.spec.ts%3A57%7Eat%3Astart
+```
+
+`URLSearchParams.append("highlight", "time:1731234567890~loc:tests/checkout.spec.ts:42:5~label:Clicks another button")` encodes a highlight as above.
+
 ## Compare with another trace
 
 Add a second trace to show its screenshots beside this one's on the big screen, for example the last passing run of a test that just failed:

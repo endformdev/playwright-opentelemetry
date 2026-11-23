@@ -200,6 +200,8 @@ export class TimelineRulerComponent {
 	readonly playhead: Locator;
 	readonly zoomWindow: Locator;
 	readonly filmstrip: RulerFilmstrip;
+	/** One per highlight the viewer opened with, in their order */
+	readonly markers: Locator;
 
 	/** @param scope Where the viewer is, when that is in a frame of `page` */
 	constructor(page: Page, scope: Page | FrameLocator = page) {
@@ -218,6 +220,7 @@ export class TimelineRulerComponent {
 		this.playhead = this.root.getByTestId("step-ruler-playhead");
 		this.zoomWindow = this.root.getByTestId("ruler-zoom-window");
 		this.filmstrip = new RulerFilmstrip(scope);
+		this.markers = this.root.getByTestId("step-ruler-marker");
 	}
 
 	/** Where on screen a share of the whole test is, on the step bar */
@@ -546,12 +549,16 @@ export class TraceViewerPage {
 		await this.page.locator('input[type="file"]').setInputFiles(zipPath);
 	}
 
+	/** A list of values repeats the parameter, as `highlight` does. */
 	async loadTraceFromUrlParam(
 		traceIdHex: string,
-		extraParams: Record<string, string> = {},
+		extraParams: Record<string, string | string[]> = {},
 	): Promise<void> {
 		const apiUrl = `${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceIdHex}`;
-		const params = new URLSearchParams({ traceSource: apiUrl, ...extraParams });
+		const params = new URLSearchParams({ traceSource: apiUrl });
+		for (const [name, value] of Object.entries(extraParams)) {
+			for (const each of [value].flat()) params.append(name, each);
+		}
 		await this.page.goto(`/?${params.toString()}`);
 	}
 

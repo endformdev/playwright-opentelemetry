@@ -12,14 +12,14 @@ import {
 	readComparisonLabelFromQueryParams,
 	type ViewerComparison,
 } from "./trace-viewer/viewerComparison";
-import { readViewerHighlightFromQueryParams } from "./trace-viewer/viewerHighlight";
+import { readViewerHighlightsFromQueryParams } from "./trace-viewer/viewerHighlight";
 import { readViewerPanelsFromQueryParams } from "./trace-viewer/viewerPanels";
 
 export default function App() {
 	const [loadRequest, setLoadRequest] = createTraceLoadRequestSignal();
 	const viewerPanels = readViewerPanelsFromQueryParams();
 	const viewerAction = readViewerActionFromQueryParams();
-	const viewerHighlight = readViewerHighlightFromQueryParams();
+	const viewerHighlights = readViewerHighlightsFromQueryParams();
 	const { traceInfoData, traceInfo } = useTraceInfoLoader(
 		() => loadRequest()?.source ?? null,
 	);
@@ -104,7 +104,7 @@ export default function App() {
 								traceInfo={info()}
 								panels={viewerPanels}
 								action={viewerAction}
-								highlight={viewerHighlight}
+								highlights={viewerHighlights}
 								comparison={comparison()}
 							/>
 						)}

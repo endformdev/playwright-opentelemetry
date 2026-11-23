@@ -59,7 +59,7 @@ export interface TimelineRulerProps {
 	showFilmstrip: boolean;
 	/** Where the filmstrip opens while the pointer is on the ruler */
 	filmstripPlacement: "above" | "below";
-	/** Moments or ranges to point out, e.g. a highlighted span */
+	/** Moments or ranges to point out, e.g. the highlighted spans */
 	markers?: RulerMarker[];
 }
 
@@ -67,7 +67,8 @@ export interface RulerMarker {
 	timeMs: number;
 	/** Where a range ends; without it the marker is a line at timeMs */
 	endMs?: number;
-	label: string;
+	/** Shown below the marker; without one, the marker stands alone */
+	label: string | null;
 }
 
 /** Past this share of the ruler, a marker's label sits left of its line. */
@@ -527,17 +528,21 @@ export function TimelineRuler(props: TimelineRulerProps) {
 								>
 									<div class="absolute inset-x-0 top-0.5 h-6 min-w-[3px] rounded-sm border border-amber-500 bg-amber-400/30" />
 								</Show>
-								<span
-									class="absolute top-7 whitespace-nowrap rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-900"
-									classList={{
-										"left-1":
-											toPercent(marker.timeMs) <= MARKER_LABEL_FLIP_PERCENT,
-										"right-1":
-											toPercent(marker.timeMs) > MARKER_LABEL_FLIP_PERCENT,
-									}}
-								>
-									{marker.label}
-								</span>
+								<Show when={marker.label}>
+									{(label) => (
+										<span
+											class="absolute top-7 max-w-60 truncate whitespace-nowrap rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-900"
+											classList={{
+												"left-1":
+													toPercent(marker.timeMs) <= MARKER_LABEL_FLIP_PERCENT,
+												"right-1":
+													toPercent(marker.timeMs) > MARKER_LABEL_FLIP_PERCENT,
+											}}
+										>
+											{label()}
+										</span>
+									)}
+								</Show>
 							</div>
 						)}
 					</For>

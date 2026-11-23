@@ -907,8 +907,7 @@ test("opens on a highlighted span's result, marking the span up to it", async ({
 
 	await test.step("A highlighted step opens on its result, at its stop", async () => {
 		await viewer.loadTraceFromUrlParam(traceId, {
-			highlightSpanId: inner,
-			highlightSpanLabel: "Changed around here",
+			highlight: `span:${inner}~label:Changed around here`,
 		});
 		await expect(marker).toHaveText("Changed around here", { timeout: 10000 });
 		// The marker covers the step up to the result the playhead opens on
@@ -921,12 +920,11 @@ test("opens on a highlighted span's result, marking the span up to it", async ({
 		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "1500");
 	});
 
-	await test.step("highlightSpanAt=start opens on the step's start instead", async () => {
+	await test.step("at:start opens on the step's start instead", async () => {
 		await viewer.loadTraceFromUrlParam(traceId, {
-			highlightSpanId: inner,
-			highlightSpanAt: "start",
+			highlight: `span:${inner}~at:start~label:Starts here`,
 		});
-		await expect(marker).toHaveText("Highlighted step", { timeout: 10000 });
+		await expect(marker).toHaveText("Starts here", { timeout: 10000 });
 		await expect(stepViewer.position).toHaveText("2/3");
 		await expect(stepViewer.stepTitle).toHaveText("Inner");
 		await expect(ruler.playhead).toHaveAttribute("data-time-ms", "1000");
@@ -934,8 +932,9 @@ test("opens on a highlighted span's result, marking the span up to it", async ({
 	});
 
 	await test.step("A highlighted parent opens on the result of its last step", async () => {
-		await viewer.loadTraceFromUrlParam(traceId, { highlightSpanId: group });
-		await expect(marker).toHaveText("Highlighted step", { timeout: 10000 });
+		// Without a label, the marker has no caption.
+		await viewer.loadTraceFromUrlParam(traceId, { highlight: `span:${group}` });
+		await expect(marker).toHaveText("", { timeout: 10000 });
 		await expect(marker).toHaveAttribute("data-end-ms", "2000");
 		await expect(stepViewer.position).toHaveText("3/3");
 		await expect(highlightedParent).toHaveText("Group ›");
@@ -1020,7 +1019,7 @@ test("opens a failed test on the innermost step it failed at", async ({
 	});
 
 	await test.step("A highlighted span still comes first", async () => {
-		await viewer.loadTraceFromUrlParam(traceId, { highlightSpanId: first });
+		await viewer.loadTraceFromUrlParam(traceId, { highlight: `span:${first}` });
 		await expect(stepViewer.position).toHaveText("1/4", { timeout: 10000 });
 		await expect(stepViewer.stepTitle).toHaveText("First");
 	});
