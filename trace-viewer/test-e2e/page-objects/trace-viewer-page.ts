@@ -202,6 +202,8 @@ export class TimelineRulerComponent {
 	readonly filmstrip: RulerFilmstrip;
 	/** One per highlight the viewer opened with, in their order */
 	readonly markers: Locator;
+	/** The markers' labels drawn on the ruler, where there is room or hovered */
+	readonly markerLabels: Locator;
 
 	/** @param scope Where the viewer is, when that is in a frame of `page` */
 	constructor(page: Page, scope: Page | FrameLocator = page) {
@@ -221,6 +223,7 @@ export class TimelineRulerComponent {
 		this.zoomWindow = this.root.getByTestId("ruler-zoom-window");
 		this.filmstrip = new RulerFilmstrip(scope);
 		this.markers = this.root.getByTestId("step-ruler-marker");
+		this.markerLabels = this.root.getByTestId("step-ruler-marker-label");
 	}
 
 	/** Where on screen a share of the whole test is, on the step bar */
