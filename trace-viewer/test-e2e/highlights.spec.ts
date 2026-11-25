@@ -131,3 +131,54 @@ for (const view of ["full", "player"] as const) {
 		await expect(ruler.markers).toHaveCount(0);
 	});
 }
+
+test("labels crowded highlights where there is room, and the rest while hovered", async ({
+	page,
+	request,
+}) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const traceId = randomUUID().replaceAll("-", "");
+	const builder = new TraceDataBuilder(traceId, Date.now()).addTestSpan(
+		"Shop",
+		4000,
+	);
+	const steps = [1000, 1060, 1120, 3000].map((startOffsetMs, index) =>
+		builder.addStepSpanAndGetId(`Step ${index + 1}`, 50, {
+			startOffsetMs,
+			attributes: at(5 + index, 3),
+		}),
+	);
+	await builder.send(request);
+	const viewer = new TraceViewerPage(page);
+	const { ruler } = viewer;
+
+	await viewer.loadTraceFromUrlParam(traceId, {
+		view: "player",
+		highlight: [
+			`span:${steps[0]}~label:Opens the shop`,
+			`span:${steps[1]}~label:Adds a bike to the cart`,
+			`span:${steps[2]}~label:Adds another bike to the cart`,
+			`span:${steps[3]}~label:Sees the receipt`,
+		],
+	});
+
+	// Too close to the first to be labelled, the middle two are left out
+	await expect(ruler.markers).toHaveCount(4, { timeout: 10000 });
+	await expect(ruler.markerLabels).toHaveText([
+		"Opens the shop",
+		"Sees the receipt",
+	]);
+
+	// Hovering a marker on the step bar shows its label whole
+	const box = await ruler.markers.nth(2).boundingBox();
+	if (!box) throw new Error("Marker is not visible");
+	await page.mouse.move(box.x + box.width / 2, box.y + 12);
+	await expect(ruler.markers.nth(2)).toHaveAttribute("data-hovered", "true");
+	await expect(ruler.markers.nth(2)).toHaveText(
+		"Adds another bike to the cart",
+	);
+	await expect(ruler.markerLabels).toHaveCount(3);
+
+	await page.mouse.move(box.x + box.width / 2, box.y + 300);
+	await expect(ruler.markerLabels).toHaveCount(2);
+});

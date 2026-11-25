@@ -12,6 +12,11 @@ import type { ScreenshotInfo } from "../trace-info-loader";
 import { useViewportContext } from "./contexts/ViewportContext";
 import { RulerFilmstrip } from "./RulerFilmstrip";
 import {
+	layoutMarkerLabels,
+	type MarkerLabelInput,
+	markerAtPx,
+} from "./rulerMarkerLabels";
+import {
 	describeStepRulerTime,
 	getStepRulerItemAtTime,
 	type StepRulerHooks,
@@ -67,12 +72,19 @@ export interface RulerMarker {
 	timeMs: number;
 	/** Where a range ends; without it the marker is a line at timeMs */
 	endMs?: number;
-	/** Shown below the marker; without one, the marker stands alone */
+	/**
+	 * Shown below the marker where there is room, and otherwise while it is
+	 * hovered; without one, the marker stands alone
+	 */
 	label: string | null;
 }
 
-/** Past this share of the ruler, a marker's label sits left of its line. */
-const MARKER_LABEL_FLIP_PERCENT = 70;
+/** The widest a label is drawn, unless its marker is hovered */
+const MAX_LABEL_WIDTH_PX = 240;
+/** The labels' font, as their classes set it: text-[10px] font-medium */
+const LABEL_FONT_SIZE_AND_WEIGHT = "500 10px";
+/** The labels' horizontal padding (px-1 each side), plus a pixel for rounding */
+const LABEL_PADDING_PX = 9;
 
 /** Aligns ruler content with the shared timeline plot box. */
 const PLOT_STYLE = {
@@ -121,8 +133,10 @@ export function TimelineRuler(props: TimelineRulerProps) {
 		item: StepRulerItem | null;
 	} | null>(null);
 
+	const [plotWidthPx, setPlotWidthPx] = createSignal(0);
 	const updateTicks = () => {
 		const width = plotRef?.getBoundingClientRect().width ?? 0;
+		setPlotWidthPx(width);
 		if (width > 0)
 			setTicks(calculateTimelineScale(props.durationMs, width).ticks);
 	};
@@ -131,6 +145,30 @@ export function TimelineRuler(props: TimelineRulerProps) {
 		const resizeObserver = new ResizeObserver(updateTicks);
 		resizeObserver.observe(plotRef);
 		onCleanup(() => resizeObserver.disconnect());
+	});
+
+	// Labels are measured in the page's font, again once its web fonts load.
+	const [fontsVersion, setFontsVersion] = createSignal(0);
+	onMount(() => {
+		let disposed = false;
+		onCleanup(() => {
+			disposed = true;
+		});
+		void document.fonts?.ready.then(() => {
+			if (!disposed) setFontsVersion((version) => version + 1);
+		});
+	});
+	/** Whether the ruler is laid out, so its font can be read */
+	const plotLaidOut = createMemo(() => plotWidthPx() > 0);
+	const measureLabel = createMemo(() => {
+		fontsVersion();
+		if (!plotLaidOut()) return null;
+		const context = document.createElement("canvas").getContext("2d");
+		const family = plotRef ? getComputedStyle(plotRef).fontFamily : "";
+		if (!context || !family) return null;
+		context.font = `${LABEL_FONT_SIZE_AND_WEIGHT} ${family}`;
+		return (label: string) =>
+			Math.ceil(context.measureText(label).width) + LABEL_PADDING_PX;
 	});
 	createEffect(on(() => props.durationMs, updateTicks));
 
@@ -308,6 +346,57 @@ export function TimelineRuler(props: TimelineRulerProps) {
 	// While the pointer is on the ruler it marks the time; otherwise the
 	// time hovered in the span panels does.
 	const hoverLineTimeMs = () => pointer()?.timeMs ?? props.hoverTimeMs;
+
+	/** The markers in pixels, with their labels' full widths */
+	const markerInputs = createMemo((): MarkerLabelInput[] => {
+		const measure = measureLabel();
+		const width = plotWidthPx();
+		return (props.markers ?? []).map((marker) => {
+			const startPx = (toPercent(marker.timeMs) / 100) * width;
+			return {
+				startPx,
+				endPx:
+					marker.endMs === undefined
+						? startPx
+						: (toPercent(marker.endMs) / 100) * width,
+				labelWidthPx: marker.label && measure ? measure(marker.label) : null,
+			};
+		});
+	});
+	const labelPlacements = createMemo(() =>
+		layoutMarkerLabels(
+			markerInputs().map((marker) => ({
+				...marker,
+				labelWidthPx:
+					marker.labelWidthPx === null
+						? null
+						: Math.min(marker.labelWidthPx, MAX_LABEL_WIDTH_PX),
+			})),
+			plotWidthPx(),
+		),
+	);
+	/** A label the pointer is on, which may reach past its marker */
+	const [labelHoverIndex, setLabelHoverIndex] = createSignal<number | null>(
+		null,
+	);
+	/** The marker whose label shows whole: the one hovered on the ruler */
+	const hoveredMarkerIndex = createMemo(() => {
+		const current = pointer();
+		if (!current) return null;
+		const onLabel = labelHoverIndex();
+		if (onLabel !== null) return onLabel;
+		const pointerPx = (toPercent(current.timeMs) / 100) * plotWidthPx();
+		return markerAtPx(markerInputs(), pointerPx);
+	});
+	/** Where a hovered marker's label goes, whole, kept on the ruler */
+	const hoveredLabelPlacement = (index: number) => {
+		const marker = markerInputs()[index];
+		const width = plotWidthPx();
+		if (!marker || marker.labelWidthPx === null) return null;
+		const widthPx = Math.min(marker.labelWidthPx, width);
+		const leftPx = Math.max(0, Math.min(marker.startPx, width - widthPx));
+		return { leftPx, widthPx };
+	};
 
 	const filmstripLabel = createMemo(() => {
 		const current = pointer();
@@ -504,12 +593,15 @@ export function TimelineRuler(props: TimelineRulerProps) {
 						</Show>
 					</div>
 
-					{/* Markers: a line or a range over the step bar, labelled below it */}
+					{/* Markers: a line or a range over the step bar, labelled below it
+					    where there is room, and in full while hovered */}
 					<For each={props.markers ?? []}>
-						{(marker) => (
+						{(marker, index) => (
 							<div
-								class="pointer-events-none absolute inset-y-0 z-30"
+								class="pointer-events-none absolute inset-y-0"
 								style={{
+									// Above the others while hovered, its whole label on top
+									"z-index": hoveredMarkerIndex() === index() ? 35 : 30,
 									left: `${toPercent(marker.timeMs)}%`,
 									width:
 										marker.endMs === undefined
@@ -519,6 +611,8 @@ export function TimelineRuler(props: TimelineRulerProps) {
 								data-testid="step-ruler-marker"
 								data-time-ms={marker.timeMs}
 								data-end-ms={marker.endMs}
+								data-label={marker.label ?? undefined}
+								data-hovered={hoveredMarkerIndex() === index() || undefined}
 							>
 								<Show
 									when={marker.endMs !== undefined}
@@ -529,19 +623,34 @@ export function TimelineRuler(props: TimelineRulerProps) {
 									<div class="absolute inset-x-0 top-0.5 h-6 min-w-[3px] rounded-sm border border-amber-500 bg-amber-400/30" />
 								</Show>
 								<Show when={marker.label}>
-									{(label) => (
-										<span
-											class="absolute top-7 max-w-60 truncate whitespace-nowrap rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-900"
-											classList={{
-												"left-1":
-													toPercent(marker.timeMs) <= MARKER_LABEL_FLIP_PERCENT,
-												"right-1":
-													toPercent(marker.timeMs) > MARKER_LABEL_FLIP_PERCENT,
-											}}
-										>
-											{label()}
-										</span>
-									)}
+									{(label) => {
+										const hovered = () => hoveredMarkerIndex() === index();
+										const placement = () =>
+											hovered()
+												? hoveredLabelPlacement(index())
+												: labelPlacements()[index()];
+										return (
+											<Show when={placement()}>
+												{(at) => (
+													<span
+														class="pointer-events-auto absolute top-7 truncate whitespace-nowrap rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-900"
+														classList={{
+															"z-10 shadow-sm ring-1 ring-amber-500": hovered(),
+														}}
+														style={{
+															left: `${at().leftPx - (markerInputs()[index()]?.startPx ?? 0)}px`,
+															width: `${at().widthPx}px`,
+														}}
+														data-testid="step-ruler-marker-label"
+														onPointerEnter={() => setLabelHoverIndex(index())}
+														onPointerLeave={() => setLabelHoverIndex(null)}
+													>
+														{label()}
+													</span>
+												)}
+											</Show>
+										);
+									}}
 								</Show>
 							</div>
 						)}
