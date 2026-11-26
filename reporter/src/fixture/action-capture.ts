@@ -18,6 +18,12 @@ export const ACTION_WATCH_MS = 500;
 export const ACTION_MIN_CHECK_GAP_MS = 10;
 /** A call can wait a long time after its input, for a navigation say. */
 export const ACTION_MAX_CHECKS = 60;
+/**
+ * How far ahead of the fixture's clock a frame's timestamp can be. Chromium
+ * in Playwright 1.65 stamps frames up to ~13 ms after they reach the
+ * fixture; a stamp further ahead than this isn't vouched for.
+ */
+const MAX_FRAME_CLOCK_LEAD_MS = 50;
 /** Boxes this close are the same place: layout rounds differently per frame. */
 const SAME_PLACE_TOLERANCE_PX = 1;
 /** How long stopping waits for measurements still on their way */
@@ -94,6 +100,8 @@ class ElementWatch {
 	private over = false;
 	private checks = 0;
 	private lastCheckAt = Number.NEGATIVE_INFINITY;
+	/** The timestamp of the latest frame the next check vouches for */
+	private frameDue = Number.NEGATIVE_INFINITY;
 	/** Measurements are handled in the order they were asked for */
 	private handled: Promise<void> = Promise.resolve();
 
@@ -147,10 +155,17 @@ class ElementWatch {
 	 * Sees whether the element is still in its place. Asked for as often as
 	 * the page takes frames, so unless it's `due` it only measures every so
 	 * often.
+	 *
+	 * @param frameAt The timestamp of the frame this check is for. The frame
+	 * was shown before it reached the fixture, so a measurement taken after
+	 * vouches for it, even when its stamp runs ahead of the fixture's clock.
 	 */
-	check(due = false, at = this.now()): void {
+	check(due = false, at = this.now(), frameAt?: number): void {
 		if (!this.watching) {
 			return;
+		}
+		if (frameAt !== undefined && frameAt <= at + MAX_FRAME_CLOCK_LEAD_MS) {
+			this.frameDue = Math.max(this.frameDue, frameAt);
 		}
 		if (!due) {
 			if (this.checks >= ACTION_MAX_CHECKS) {
@@ -171,9 +186,11 @@ class ElementWatch {
 		clearTimeout(this.later);
 		this.later = undefined;
 		this.checks += 1;
+		const vouchedUntil = Math.max(at, this.frameDue);
+		this.frameDue = Number.NEGATIVE_INFINITY;
 		this.measure(at, (box) => {
 			if (box && this.place && samePlace(box, this.place)) {
-				this.steadyUntil = at;
+				this.steadyUntil = Math.max(this.steadyUntil, vouchedUntil);
 			} else {
 				this.end();
 			}
@@ -353,7 +370,7 @@ export class ActionRecorder {
 	 * for every recent action on the page, not only the last: the frame
 	 * showing what one did often arrives after the next has begun.
 	 */
-	frameTaken(pageId: string): void {
+	frameTaken(pageId: string, frameAt?: number): void {
 		for (const call of this.watched) {
 			if (call.pageId !== pageId || !call.watch) {
 				continue;
@@ -363,7 +380,7 @@ export class ActionRecorder {
 			if (call.end === undefined && !call.inputs.at(-1)?.point) {
 				continue;
 			}
-			call.watch.check();
+			call.watch.check(false, this.now(), frameAt);
 		}
 	}
 
@@ -633,8 +650,8 @@ export class ActionCapture {
 	) {}
 
 	/** A frame of a page was captured for the trace. */
-	frameTaken(pageId: string): void {
-		this.recorder.frameTaken(pageId);
+	frameTaken(pageId: string, frameAt: number): void {
+		this.recorder.frameTaken(pageId, frameAt);
 	}
 
 	/** A page went to another document, or changed its URL. */
@@ -851,7 +868,8 @@ async function measureBefore(call: ServerCall): Promise<ActionBox | undefined> {
 			return undefined;
 		}
 		const strict = params.strict === true;
-		// Playwright 1.65 folded the arguments into one.
+		// Playwright 1.63 takes the selector and its options apart; 1.65 takes
+		// one object.
 		const handle = (await (query.length > 1
 			? query.call(sdkObject.selectors, selector, { strict })
 			: query.call(sdkObject.selectors, {

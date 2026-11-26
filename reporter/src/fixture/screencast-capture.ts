@@ -272,11 +272,10 @@ export class ScreencastCapture {
 		if (this.stopped) {
 			return;
 		}
-		this.actionCapture.frameTaken(pageId);
-
 		const timestamp = Math.round(
 			Number.isFinite(frame.timestamp) ? frame.timestamp : Date.now(),
 		);
+		this.actionCapture.frameTaken(pageId, timestamp);
 		const file = this.uniqueFileName(pageId, timestamp);
 		const framePath = path.join(this.dir, file);
 		const write = fs.writeFile(framePath, frame.data).then(

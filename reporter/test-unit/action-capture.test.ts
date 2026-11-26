@@ -282,6 +282,37 @@ describe("ActionRecorder", () => {
 		});
 	});
 
+	it("vouches for a frame stamped a little ahead of the fixture's clock", async () => {
+		// Chromium in Playwright 1.65 stamps a frame several milliseconds
+		// after it reaches the fixture.
+		const recorder = new ActionRecorder();
+		recorder.input({ ...click("call@1"), element: fakeElement() });
+		recorder.callEnded("call@1", false);
+		await advance(30);
+
+		recorder.frameTaken("page-0", START + 42);
+		await advance(30);
+		recorder.frameTaken("page-0", START + 60 + 500);
+
+		const [action] = await recorder.finish();
+		// The second stamp is too far ahead to be believed.
+		expect(action.steadyUntil).toBe(START + 60);
+	});
+
+	it("doesn't vouch for a frame's stamp when the element had moved", async () => {
+		const recorder = new ActionRecorder();
+		const element = fakeElement();
+		recorder.input({ ...click("call@1"), element });
+		recorder.callEnded("call@1", false);
+		await advance(30);
+		element.box = { ...BOX, y: -400 };
+
+		recorder.frameTaken("page-0", START + 42);
+
+		const [action] = await recorder.finish();
+		expect(action.steadyUntil).toBe(START);
+	});
+
 	it("only looks at frames of the action's own page", async () => {
 		const recorder = new ActionRecorder();
 		const element = fakeElement();
@@ -870,7 +901,7 @@ describe("ActionCapture", () => {
 			expect(action?.steadySince).toBe(START);
 		});
 
-		it("finds the element the way Playwright before 1.65 wants it asked", async () => {
+		it("finds the element the way Playwright 1.63 wants it asked", async () => {
 			const query = vi.fn(async (_selector: string, _options: unknown) =>
 				found({ ...BOX, y: 1800 }),
 			);

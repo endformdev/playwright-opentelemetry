@@ -445,13 +445,14 @@ describe("placeActionOverlay", () => {
 		});
 	});
 
-	it("scales each axis by its own ratio", () => {
-		expect(
-			placeActionOverlay(overlay, viewport, { width: 1280, height: 360 }),
-		).toMatchObject({
-			point: { x: 640, y: 180 },
-			box: { x: 600, y: 170, width: 80, height: 20 },
+	it("scales each axis by its own ratio, for an image rounded to whole pixels", () => {
+		const placed = placeActionOverlay(overlay, viewport, {
+			width: 641,
+			height: 360,
 		});
+
+		expect(placed?.point?.x).toBeCloseTo(320.5);
+		expect(placed?.point?.y).toBeCloseTo(180);
 	});
 
 	it("keeps a box that is partly in the frame", () => {
@@ -511,6 +512,25 @@ describe("placeActionOverlay", () => {
 				image,
 			),
 		).not.toHaveProperty("dragFrom");
+	});
+
+	it("has no place on an image that isn't the shape of its viewport", () => {
+		// A popup's first frame, before its window took its final size.
+		expect(
+			placeActionOverlay(
+				overlay,
+				{ width: 1000, height: 700 },
+				{ width: 747, height: 560 },
+			),
+		).toBeNull();
+		// Rounding to whole pixels is no mismatch.
+		expect(
+			placeActionOverlay(
+				overlay,
+				{ width: 1000, height: 700 },
+				{ width: 801, height: 560 },
+			),
+		).not.toBeNull();
 	});
 
 	it("has no place without a viewport", () => {

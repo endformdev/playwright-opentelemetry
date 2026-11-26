@@ -185,9 +185,19 @@ export function placeContainedImage(box: Size, image: Size): Rect | null {
 }
 
 /**
+ * How far an image's shape may stray from its viewport's before the two are
+ * taken not to belong together: frames are scaled to whole pixels.
+ */
+const MAX_ASPECT_MISMATCH = 0.02;
+
+/**
  * An overlay in the pixels of the image as it's shown, from the top left of
  * the image. What falls wholly outside the frame is left out, like an element
  * the page had yet to scroll to; null when nothing is left.
+ *
+ * Also null when the image isn't the shape of the viewport it says it shows:
+ * a popup's first frames can come before its window has its final size, still
+ * labelled with the size it's about to have.
  */
 export function placeActionOverlay(
 	overlay: ActionOverlay,
@@ -195,6 +205,11 @@ export function placeActionOverlay(
 	image: Size,
 ): ActionOverlay | null {
 	if (!(viewport.width > 0) || !(viewport.height > 0)) return null;
+	const imageAspect = image.width / image.height;
+	const viewportAspect = viewport.width / viewport.height;
+	if (Math.abs(imageAspect / viewportAspect - 1) > MAX_ASPECT_MISMATCH) {
+		return null;
+	}
 	const scaleX = image.width / viewport.width;
 	const scaleY = image.height / viewport.height;
 	const place = (point: Point): Point => ({
