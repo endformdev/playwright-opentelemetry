@@ -64,58 +64,44 @@ export interface ActionBox {
 	height: number;
 }
 
-/** A moment Playwright was about to send input to the page. */
-export interface ActionInput {
-	/** Epoch ms */
-	time: number;
-	/** Where pointer input landed */
-	point?: ActionPoint;
-	/** The element the input was for */
-	box?: ActionBox;
+/** The frames of a page that show an action in place, by their timestamps. */
+export interface ActionFrames {
+	/** Timestamp of the first such frame */
+	from: number;
+	/** Timestamp of the last such frame */
+	until: number;
 }
 
 /**
- * A Playwright call that sent input to a page, such as a click or a fill, and
- * where on the page it landed.
+ * Something the test did to a page, such as a click or a fill, where on the
+ * page it landed, and which of the page's frames show it there.
  */
 export interface RecordedAction {
 	/** Same as the screenshots' pageId and the browser.page.id span attribute */
 	pageId: string;
-	/** Epoch ms when the call ended */
-	end: number;
-	/** The call failed */
-	failed?: true;
+	/** Epoch ms when the action started: it's current from then on */
+	time: number;
+	/**
+	 * The frames of the page that show the action in place: every frame with
+	 * a timestamp from `from` to `until`, and no other
+	 */
+	frames: ActionFrames;
 	/** Playwright's call name: "click", "fill", "hover", "mouseClick", ... */
 	method: string;
-	/** In order; never empty */
-	inputs: ActionInput[];
-	/**
-	 * Epoch ms. The element of the last input was measured where that input
-	 * has it at this time already, before the action could have moved it: as
-	 * the call began for pointer input, at the input otherwise. So the action
-	 * didn't scroll to it. Absent when it did, or when that isn't known. Only
-	 * recorded in Chromium, where a frame's timestamp is when it was shown:
-	 * it's what lets a frame from just after the input be trusted.
-	 */
-	steadySince?: number;
-	/**
-	 * Epoch ms. The element of the last input can't be taken to have been
-	 * where that input has it any earlier than this: the action scrolled to
-	 * it, or the page navigated.
-	 */
-	steadyFrom?: number;
-	/**
-	 * Epoch ms. The element of the last input was measured again up to this
-	 * time and was still where that input has it. Absent for input without an
-	 * element, such as `page.mouse`.
-	 */
-	steadyUntil?: number;
+	/** Where pointer input landed */
+	point?: ActionPoint;
+	/** The element the action was for */
+	box?: ActionBox;
+	/** Where a drag started */
+	dragFrom?: ActionPoint;
+	/** The call failed */
+	failed?: true;
 }
 
 /** `actions.json` in a screenshots ZIP: what the test did to its pages. */
 export interface ActionsFile {
 	version: 1;
-	/** Ordered by the time of their first input */
+	/** Ordered by their time */
 	actions: RecordedAction[];
 }
 
@@ -265,56 +251,40 @@ function parseAction(value: unknown): RecordedAction | undefined {
 		!isRecord(value) ||
 		typeof value.pageId !== "string" ||
 		typeof value.method !== "string" ||
-		!isFiniteNumber(value.end) ||
-		!Array.isArray(value.inputs)
+		!isFiniteNumber(value.time) ||
+		!isNumbers(value.frames, ["from", "until"]) ||
+		value.frames.from > value.frames.until
 	) {
 		return undefined;
 	}
-	const inputs = value.inputs.flatMap((input) => parseInput(input) ?? []);
-	if (inputs.length === 0 || inputs.length !== value.inputs.length) {
-		return undefined;
-	}
-	return {
-		pageId: value.pageId,
-		end: value.end,
-		...(value.failed === true ? { failed: true } : {}),
-		method: value.method,
-		inputs,
-		...(isFiniteNumber(value.steadySince)
-			? { steadySince: value.steadySince }
-			: {}),
-		...(isFiniteNumber(value.steadyFrom)
-			? { steadyFrom: value.steadyFrom }
-			: {}),
-		...(isFiniteNumber(value.steadyUntil)
-			? { steadyUntil: value.steadyUntil }
-			: {}),
-	};
-}
-
-function parseInput(value: unknown): ActionInput | undefined {
-	if (!isRecord(value) || !isFiniteNumber(value.time)) {
-		return undefined;
-	}
-	const point = isNumbers(value.point, ["x", "y"])
-		? { x: value.point.x, y: value.point.y }
-		: undefined;
-	const box = isNumbers(value.box, ["x", "y", "width", "height"])
-		? {
-				x: value.box.x,
-				y: value.box.y,
-				width: value.box.width,
-				height: value.box.height,
-			}
-		: undefined;
+	const point = parsePoint(value.point);
+	const box = parseBox(value.box);
 	if (!point && !box) {
 		return undefined;
 	}
+	const dragFrom = parsePoint(value.dragFrom);
 	return {
+		pageId: value.pageId,
 		time: value.time,
+		frames: { from: value.frames.from, until: value.frames.until },
+		method: value.method,
 		...(point ? { point } : {}),
 		...(box ? { box } : {}),
+		...(dragFrom ? { dragFrom } : {}),
+		...(value.failed === true ? { failed: true } : {}),
 	};
+}
+
+function parsePoint(value: unknown): ActionPoint | undefined {
+	return isNumbers(value, ["x", "y"]) ? { x: value.x, y: value.y } : undefined;
+}
+
+function parseBox(value: unknown): ActionBox | undefined {
+	return isNumbers(value, ["x", "y", "width", "height"]) &&
+		value.width >= 0 &&
+		value.height >= 0
+		? { x: value.x, y: value.y, width: value.width, height: value.height }
+		: undefined;
 }
 
 function isNumbers<Key extends string>(

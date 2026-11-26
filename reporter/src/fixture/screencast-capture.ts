@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import type { BrowserContext, Page } from "@playwright/test";
 import type { ActionsFile } from "../shared/screenshots-zip";
-import { ActionCapture } from "./action-capture";
+import {
+	ActionCapture,
+	type MeasuredAction,
+	placeActionsOnFrames,
+} from "./action-capture";
 import { warnOnce } from "./warn-once";
 
 // Same rhythm as Playwright's own trace recorder (ScreencastTracingRecorder):
@@ -128,6 +132,7 @@ export class ScreencastCapture {
 	private readonly actionCapture = new ActionCapture((guid) =>
 		this.pageIdsByGuid.get(guid),
 	);
+	private measuredActions: MeasuredAction[] | undefined;
 	private recordedActions: ActionsFile | undefined;
 	private stopped = false;
 
@@ -223,7 +228,7 @@ export class ScreencastCapture {
 		if (!this.stopped) {
 			this.stopped = true;
 			this.apiCalls?.uninstall();
-			this.recordedActions = await this.actionCapture
+			this.measuredActions = await this.actionCapture
 				.stop()
 				.catch(() => undefined);
 			for (const [context, onPage] of this.contexts) {
@@ -242,7 +247,15 @@ export class ScreencastCapture {
 		}
 
 		await Promise.all(this.writes);
-		return [...this.frames].sort((a, b) => a.timestamp - b.timestamp);
+		const frames = [...this.frames].sort((a, b) => a.timestamp - b.timestamp);
+		// Which frames show an action depends on every frame of its page.
+		if (this.measuredActions && !this.recordedActions) {
+			this.recordedActions = {
+				version: 1,
+				actions: placeActionsOnFrames(this.measuredActions, frames),
+			};
+		}
+		return frames;
 	}
 
 	/**

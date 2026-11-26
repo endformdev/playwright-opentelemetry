@@ -432,7 +432,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						: "loading",
 			testStatus: info?.testInfo.status ?? null,
 			frame: comparison.frame(stepViewer.shownTimeMs(), shownPage),
-			screenshots: info?.screenshots() ?? [],
 			actions: info?.actions?.() ?? [],
 			noScreenshots: ready && (info?.screenshots() ?? []).length === 0,
 			note: ready ? comparison.note(frameStepId) : null,
@@ -876,7 +875,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			ref={stepViewer.ref}
 			screenshot={stepViewer.screenshot()}
 			screenshotAtMs={screenshotAtMs()}
-			screenshots={props.traceInfo.screenshots() ?? []}
 			actions={props.traceInfo.actions?.() ?? []}
 			screenshotsLoading={
 				props.traceInfo.screenshots.loading || stepViewer.screenshotPending()

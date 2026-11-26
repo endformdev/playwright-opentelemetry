@@ -7,7 +7,11 @@ import {
 	ActionCapture,
 	type ActionElement,
 	ActionRecorder,
+	FRAME_SETTLE_MS,
+	type MeasuredAction,
 	parseServerCall,
+	placeActionsOnFrames,
+	SCROLL_SETTLE_MS,
 } from "../src/fixture/action-capture";
 import type { ActionBox } from "../src/shared/screenshots-zip";
 
@@ -58,6 +62,7 @@ describe("ActionRecorder", () => {
 			point: { x: 60, y: 40 },
 			box: BOX,
 			element: fakeElement(),
+			promptFrames: true,
 		});
 		// Sooner than it would measure again for a frame.
 		await advance(3);
@@ -570,6 +575,7 @@ describe("ActionRecorder", () => {
 			pageId: "page-0",
 			method: "mouseClick",
 			point: { x: 300, y: 200 },
+			promptFrames: true,
 		});
 		recorder.callEnded("call@1", false);
 
@@ -654,6 +660,239 @@ describe("ActionRecorder", () => {
 
 		const [action] = await recorder.finish();
 		expect(action.steadyUntil).toBe(START);
+	});
+});
+
+describe("placeActionsOnFrames", () => {
+	/** A click at 1000 ms whose element was last seen in place at 1600 ms. */
+	function measured(overrides: Partial<MeasuredAction> = {}): MeasuredAction {
+		return {
+			pageId: "page-0",
+			end: 1020,
+			method: "click",
+			inputs: [{ time: 1000, point: { x: 60, y: 40 }, box: BOX }],
+			steadyUntil: 1600,
+			...overrides,
+		};
+	}
+
+	/** The window of the one action, given its page's frames. */
+	function framesOf(action: MeasuredAction, times: number[]) {
+		const frames = times.map((timestamp) => ({ pageId: "page-0", timestamp }));
+		return placeActionsOnFrames([action], frames)[0]?.frames;
+	}
+
+	it("gives what to draw, when it started and the frames that show it", () => {
+		const frames = [900, 1300].map((timestamp) => ({
+			pageId: "page-0",
+			timestamp,
+		}));
+
+		expect(placeActionsOnFrames([measured()], frames)).toEqual([
+			{
+				pageId: "page-0",
+				time: 1000,
+				frames: { from: 900, until: 1300 },
+				method: "click",
+				point: { x: 60, y: 40 },
+				box: BOX,
+			},
+		]);
+	});
+
+	it("only counts frames of the action's own page", () => {
+		const frames = [
+			{ pageId: "page-0", timestamp: 900 },
+			{ pageId: "page-1", timestamp: 1040 },
+		];
+
+		expect(placeActionsOnFrames([measured()], frames)[0]?.frames).toEqual({
+			from: 900,
+			until: 900,
+		});
+	});
+
+	it("stops at the last frame from while the element was seen in place", () => {
+		expect(framesOf(measured(), [900, 1300, 1600, 1601, 2000])).toEqual({
+			from: 900,
+			until: 1600,
+		});
+	});
+
+	it("goes up to the end of the call when there was nothing to watch", () => {
+		const mouse = measured({
+			method: "mouseClick",
+			inputs: [{ time: 1000, point: { x: 60, y: 40 } }],
+			steadyUntil: undefined,
+		});
+
+		expect(framesOf(mouse, [900, 1300])).toEqual({ from: 900, until: 900 });
+		// A frame soon after the input is the page as the input found it, up to
+		// the end of the call.
+		expect(framesOf(mouse, [900, 1015, 1300])).toEqual({
+			from: 1015,
+			until: 1015,
+		});
+	});
+
+	describe("a frame from before the input", () => {
+		// Playwright scrolls to an element just before it clicks, and the frame
+		// showing that is stamped a little later.
+		it("counts when no newer frame came soon after the input", () => {
+			expect(framesOf(measured(), [900, 1000 + FRAME_SETTLE_MS + 1])).toEqual({
+				from: 900,
+				until: 1101,
+			});
+		});
+
+		it("gives way to the last frame that came soon after the input", () => {
+			expect(framesOf(measured(), [900, 1040])).toEqual({
+				from: 1040,
+				until: 1040,
+			});
+			expect(framesOf(measured(), [900, 1040, 1080, 1300])).toEqual({
+				from: 1080,
+				until: 1300,
+			});
+		});
+
+		it("counts sooner when the element was already in place as the call began", () => {
+			// Measured there 80 ms before the input.
+			const unmoved = measured({ steadySince: 920 });
+
+			expect(framesOf(unmoved, [900, 1040])).toEqual({
+				from: 900,
+				until: 1040,
+			});
+			// A frame soon after it was measured may still not show the page
+			// as it was then.
+			expect(framesOf(unmoved, [900, 1010])).toEqual({
+				from: 1010,
+				until: 1010,
+			});
+		});
+
+		it("never counts for an action that scrolled to its element", () => {
+			const scrolled = measured({ steadyFrom: 1000 });
+
+			expect(framesOf(scrolled, [900, 1400])).toEqual({
+				from: 1400,
+				until: 1400,
+			});
+		});
+
+		it("never counts from before the page navigated", () => {
+			const afterNavigation = measured({ steadyFrom: 950, steadySince: 980 });
+
+			expect(framesOf(afterNavigation, [900, 960, 1200])).toEqual({
+				from: 960,
+				until: 1200,
+			});
+		});
+	});
+
+	describe("an action that scrolled to its element", () => {
+		it("waits longer for the frame that shows the scroll", () => {
+			const scrolled = measured({ steadyFrom: 1000 });
+			const late = 1000 + FRAME_SETTLE_MS + 50;
+
+			expect(framesOf(scrolled, [1003, late])).toEqual({
+				from: late,
+				until: late,
+			});
+			expect(framesOf(scrolled, [1003, 1000 + SCROLL_SETTLE_MS + 1])).toEqual({
+				from: 1003,
+				until: 1301,
+			});
+		});
+
+		it("is shown for a fill from the end of its call, where it ended up", () => {
+			const fill = measured({
+				method: "fill",
+				inputs: [{ time: 1000, box: BOX }],
+				end: 1012,
+				steadyFrom: 1012,
+				steadyUntil: 1400,
+			});
+
+			expect(framesOf(fill, [990, 1011, 1400])).toEqual({
+				from: 1400,
+				until: 1400,
+			});
+		});
+	});
+
+	it("leaves out an action that no frame shows", () => {
+		// The click took its element away at once.
+		const removed = measured({ end: 1300, steadyUntil: 1000 });
+
+		expect(framesOf(removed, [900, 1020])).toBeUndefined();
+		expect(framesOf(measured(), [])).toBeUndefined();
+	});
+
+	it("draws the last attempt of a call that retried", () => {
+		const second = { x: 300, y: 300 };
+		const [action] = placeActionsOnFrames(
+			[
+				measured({
+					failed: true,
+					end: 1900,
+					inputs: [
+						{ time: 1000, point: { x: 60, y: 40 }, box: BOX },
+						{ time: 1500, point: second, box: BOX },
+					],
+					steadyUntil: 1900,
+				}),
+			],
+			[{ pageId: "page-0", timestamp: 1700 }],
+		);
+
+		expect(action).toMatchObject({
+			time: 1000,
+			point: second,
+			failed: true,
+			frames: { from: 1700, until: 1700 },
+		});
+	});
+
+	it("draws a drag from where it started to where it ended", () => {
+		const target = { x: 400, y: 300, width: 200, height: 120 };
+		const [action] = placeActionsOnFrames(
+			[
+				measured({
+					method: "dragAndDrop",
+					inputs: [
+						{ time: 1000, point: { x: 60, y: 40 }, box: BOX },
+						{ time: 1080, point: { x: 500, y: 360 }, box: target },
+					],
+				}),
+			],
+			[{ pageId: "page-0", timestamp: 1200 }],
+		);
+
+		expect(action).toMatchObject({
+			time: 1000,
+			point: { x: 500, y: 360 },
+			box: target,
+			dragFrom: { x: 60, y: 40 },
+		});
+	});
+
+	it("orders the actions by when they started", () => {
+		const frames = [{ pageId: "page-0", timestamp: 2500 }];
+		const actions = placeActionsOnFrames(
+			[
+				measured({
+					inputs: [{ time: 2000, point: { x: 1, y: 1 } }],
+					end: 2010,
+					steadyUntil: 2500,
+				}),
+				measured({ steadyUntil: 2500 }),
+			],
+			frames,
+		);
+
+		expect(actions.map((action) => action.time)).toEqual([1000, 2000]);
 	});
 });
 
@@ -772,17 +1011,14 @@ describe("ActionCapture", () => {
 		);
 		await listener.onAfterCall(progress, server.onPage());
 
-		expect(await actions.stop()).toEqual({
-			version: 1,
-			actions: [
-				{
-					pageId: "page-0",
-					end: START,
-					method: "click",
-					inputs: [{ time: START, point: { x: 60, y: 40 }, box: BOX }],
-				},
-			],
-		});
+		expect(await actions.stop()).toEqual([
+			{
+				pageId: "page-0",
+				end: START,
+				method: "click",
+				inputs: [{ time: START, point: { x: 60, y: 40 }, box: BOX }],
+			},
+		]);
 	});
 
 	it("never makes Playwright wait: every listener returns a promise that's already done", () => {
@@ -836,19 +1072,16 @@ describe("ActionCapture", () => {
 		await vi.advanceTimersByTimeAsync(8);
 		await listener.onAfterCall(progress, server.onPage());
 
-		expect(await actions.stop()).toEqual({
-			version: 1,
-			actions: [
-				{
-					pageId: "page-0",
-					end: START + 8,
-					method: "fill",
-					inputs: [{ time: START, box: { ...BOX, y: 582 } }],
-					steadyFrom: START + 8,
-					steadyUntil: START + 8,
-				},
-			],
-		});
+		expect(await actions.stop()).toEqual([
+			{
+				pageId: "page-0",
+				end: START + 8,
+				method: "fill",
+				inputs: [{ time: START, box: { ...BOX, y: 582 } }],
+				steadyFrom: START + 8,
+				steadyUntil: START + 8,
+			},
+		]);
 		expect(element.boundingBox).toHaveBeenCalledOnce();
 		expect(kept.dispose).toHaveBeenCalled();
 	});
@@ -880,7 +1113,7 @@ describe("ActionCapture", () => {
 				BOX,
 			);
 			await listener.onAfterCall(progress, server.onPage());
-			return (await actions.stop())?.actions[0];
+			return (await actions.stop())?.[0];
 		}
 
 		function found(box: ActionBox | null) {
@@ -991,8 +1224,8 @@ describe("ActionCapture", () => {
 			await listener.onAfterCall(progress, server.onPage());
 
 			const file = await actions.stop();
-			expect(file?.actions[0]).toMatchObject({ steadyUntil: START });
-			expect(file?.actions[0]).not.toHaveProperty("steadySince");
+			expect(file?.[0]).toMatchObject({ steadyUntil: START });
+			expect(file?.[0]).not.toHaveProperty("steadySince");
 		},
 	);
 
@@ -1015,7 +1248,7 @@ describe("ActionCapture", () => {
 		await listener.onAfterCall(progress, server.onPage());
 
 		const file = await actions.stop();
-		expect(file?.actions[0].steadyFrom).toBe(START);
+		expect(file?.[0].steadyFrom).toBe(START);
 	});
 
 	it("takes a navigation as a page that changed as a whole", async () => {
@@ -1034,7 +1267,7 @@ describe("ActionCapture", () => {
 		await listener.onAfterCall(progress, server.onPage());
 
 		const file = await actions.stop();
-		expect(file?.actions[0].steadyFrom).toBe(START);
+		expect(file?.[0].steadyFrom).toBe(START);
 	});
 
 	it("leaves out an iframe's box it can't measure in the page", async () => {
@@ -1053,7 +1286,7 @@ describe("ActionCapture", () => {
 		await listener.onBeforeInputAction(progress, inFrame, undefined, BOX);
 		await listener.onAfterCall(progress, inFrame);
 
-		expect(await actions.stop()).toEqual({ version: 1, actions: [] });
+		expect(await actions.stop()).toEqual([]);
 	});
 
 	it("leaves out keyboard input, internal calls and pages it doesn't capture", async () => {
@@ -1085,7 +1318,7 @@ describe("ActionCapture", () => {
 			BOX,
 		);
 
-		expect(await actions.stop()).toEqual({ version: 1, actions: [] });
+		expect(await actions.stop()).toEqual([]);
 	});
 
 	it("never records what was typed", async () => {
@@ -1157,7 +1390,7 @@ describe("ActionCapture", () => {
 		await expect(
 			listener.onBeforeInputAction(server.progress("call@1", "click"), broken),
 		).resolves.toBeUndefined();
-		expect(await actions.stop()).toEqual({ version: 1, actions: [] });
+		expect(await actions.stop()).toEqual([]);
 	});
 });
 

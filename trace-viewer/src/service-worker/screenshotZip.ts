@@ -32,52 +32,35 @@ export interface ActionBox {
 	height: number;
 }
 
-/** A moment Playwright was about to send input to the page. */
-export interface TraceActionInput {
-	/** Epoch ms */
-	time: number;
-	/** Where pointer input landed */
-	point?: ActionPoint;
-	/** The element the input was for */
-	box?: ActionBox;
-}
-
 /**
- * Something the test did to a page, such as a click or a fill, and where on
- * the page it landed: an entry of the ZIP's actions.json.
+ * Something the test did to a page, such as a click or a fill, where on the
+ * page it landed, and which of the page's frames show it there: an entry of
+ * the ZIP's actions.json.
  */
 export interface TraceAction {
 	pageId: string;
-	/** Epoch ms when the call ended */
-	end: number;
-	failed: boolean;
+	/** Epoch ms when the action started: it's current from then on */
+	time: number;
+	/**
+	 * Timestamps of the first and last of the page's frames that show the
+	 * action in place. Every frame between them does, and no other.
+	 */
+	frames: { from: number; until: number };
 	/** Playwright's call name: "click", "fill", "dragAndDrop", ... */
 	method: string;
-	/** In time order; never empty */
-	inputs: TraceActionInput[];
-	/**
-	 * Epoch ms at which the last input's element was already measured where
-	 * that input has it, before the action could have moved it: the action
-	 * didn't scroll to it. Undefined when it did, or when that isn't known.
-	 */
-	steadySince?: number;
-	/**
-	 * Epoch ms before which the last input's element can't be taken to have
-	 * been where that input has it: the action scrolled to it, or the page
-	 * navigated. Undefined when there is no such time.
-	 */
-	steadyFrom?: number;
-	/**
-	 * Epoch ms up to which the last input's element was seen to still be where
-	 * that input has it; undefined when nothing was measured.
-	 */
-	steadyUntil?: number;
+	/** Where pointer input landed */
+	point?: ActionPoint;
+	/** The element the action was for */
+	box?: ActionBox;
+	/** Where a drag started */
+	dragFrom?: ActionPoint;
+	failed: boolean;
 }
 
 /** What a screenshots ZIP says it holds, without the images themselves. */
 export interface ScreenshotsIndex {
 	screenshotMetas: ScreenshotMeta[];
-	/** Ordered by first input; empty when the ZIP has none */
+	/** In time order; empty when the ZIP has none */
 	actions: TraceAction[];
 }
 
@@ -146,8 +129,8 @@ async function parseActions(entries: Entry[]): Promise<TraceAction[]> {
 }
 
 /**
- * The actions of a parsed actions.json, ordered by first input, without any
- * that aren't in the shape of version 1. Nothing from any other file.
+ * The actions of a parsed actions.json, in time order, without any that
+ * aren't in the shape of version 1. Nothing from any other file.
  */
 export function parseActionsJson(value: unknown): TraceAction[] {
 	if (
@@ -159,7 +142,7 @@ export function parseActionsJson(value: unknown): TraceAction[] {
 	}
 	return value.actions
 		.flatMap((action) => parseAction(action) ?? [])
-		.sort((a, b) => a.inputs[0].time - b.inputs[0].time);
+		.sort((a, b) => a.time - b.time);
 }
 
 function parseAction(value: unknown): TraceAction | undefined {
@@ -167,55 +150,38 @@ function parseAction(value: unknown): TraceAction | undefined {
 		!isObject(value) ||
 		typeof value.pageId !== "string" ||
 		typeof value.method !== "string" ||
-		!isFiniteNumber(value.end) ||
-		!Array.isArray(value.inputs)
+		!isFiniteNumber(value.time) ||
+		!hasNumbers(value.frames, ["from", "until"]) ||
+		value.frames.from > value.frames.until
 	) {
 		return undefined;
 	}
-	const inputs = value.inputs.flatMap((input) => parseActionInput(input) ?? []);
-	if (inputs.length === 0 || inputs.length !== value.inputs.length) {
-		return undefined;
-	}
+	const point = parsePoint(value.point);
+	const box = parseBox(value.box);
+	if (!point && !box) return undefined;
+	const dragFrom = parsePoint(value.dragFrom);
 	return {
 		pageId: value.pageId,
-		end: value.end,
-		failed: value.failed === true,
+		time: value.time,
+		frames: { from: value.frames.from, until: value.frames.until },
 		method: value.method,
-		inputs: inputs.sort((a, b) => a.time - b.time),
-		...(isFiniteNumber(value.steadySince)
-			? { steadySince: value.steadySince }
-			: {}),
-		...(isFiniteNumber(value.steadyFrom)
-			? { steadyFrom: value.steadyFrom }
-			: {}),
-		...(isFiniteNumber(value.steadyUntil)
-			? { steadyUntil: value.steadyUntil }
-			: {}),
+		...(point ? { point } : {}),
+		...(box ? { box } : {}),
+		...(dragFrom ? { dragFrom } : {}),
+		failed: value.failed === true,
 	};
 }
 
-function parseActionInput(value: unknown): TraceActionInput | undefined {
-	if (!isObject(value) || !isFiniteNumber(value.time)) return undefined;
-	const point = hasNumbers(value.point, ["x", "y"])
-		? { x: value.point.x, y: value.point.y }
+function parsePoint(value: unknown): ActionPoint | undefined {
+	return hasNumbers(value, ["x", "y"]) ? { x: value.x, y: value.y } : undefined;
+}
+
+function parseBox(value: unknown): ActionBox | undefined {
+	return hasNumbers(value, ["x", "y", "width", "height"]) &&
+		value.width >= 0 &&
+		value.height >= 0
+		? { x: value.x, y: value.y, width: value.width, height: value.height }
 		: undefined;
-	const box =
-		hasNumbers(value.box, ["x", "y", "width", "height"]) &&
-		value.box.width >= 0 &&
-		value.box.height >= 0
-			? {
-					x: value.box.x,
-					y: value.box.y,
-					width: value.box.width,
-					height: value.box.height,
-				}
-			: undefined;
-	if (!point && !box) return undefined;
-	return {
-		time: value.time,
-		...(point ? { point } : {}),
-		...(box ? { box } : {}),
-	};
 }
 
 function hasNumbers<Key extends string>(

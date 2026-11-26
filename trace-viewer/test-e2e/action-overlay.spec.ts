@@ -21,12 +21,11 @@ const NAME = { x: 100, y: 100, width: 200, height: 40 };
 interface Action {
 	method: string;
 	atMs: number;
-	endMs: number;
+	/** The first and last frame that show it in place */
+	framesMs: [number, number];
 	point?: { x: number; y: number };
 	box?: typeof SAVE;
 	failed?: true;
-	/** How long after the input the element was last seen in place */
-	steadyForMs: number;
 }
 
 /**
@@ -70,20 +69,19 @@ async function createRun(
 		{
 			method: "click",
 			atMs: 1010,
-			endMs: 1090,
+			framesMs: [900, 1300],
 			point: { x: 640, y: 360 },
 			box: SAVE,
-			steadyForMs: 500,
 		},
-		{ method: "fill", atMs: 2010, endMs: 2090, box: NAME, steadyForMs: 400 },
+		{ method: "fill", atMs: 2010, framesMs: [2300, 2300], box: NAME },
+		// Shown on the frame from before it: nothing changed in between.
 		{
 			method: "click",
 			atMs: 3010,
-			endMs: 3090,
+			framesMs: [2300, 2300],
 			point: { x: 640, y: 360 },
 			box: SAVE,
 			failed: true,
-			steadyForMs: 80,
 		},
 	];
 	const zip = await createScreenshotsZipFromOffsets({
@@ -95,18 +93,15 @@ async function createRun(
 			: { viewport: options.viewport ?? VIEWPORT }),
 		actions: actions.map((action) => ({
 			pageId: "page-0",
+			time: testStartTime + action.atMs,
+			frames: {
+				from: testStartTime + action.framesMs[0],
+				until: testStartTime + action.framesMs[1],
+			},
 			method: action.method,
-			end: testStartTime + action.endMs,
+			...(action.point ? { point: action.point } : {}),
+			...(action.box ? { box: action.box } : {}),
 			...(action.failed ? { failed: true } : {}),
-			inputs: [
-				{
-					time: testStartTime + action.atMs,
-					...(action.point ? { point: action.point } : {}),
-					...(action.box ? { box: action.box } : {}),
-				},
-			],
-			steadySince: testStartTime + action.atMs - 5,
-			steadyUntil: testStartTime + action.atMs + action.steadyForMs,
 		})),
 	});
 	const upload = await request.put(
@@ -260,10 +255,9 @@ test("marks a comparison's own actions on its own screenshots", async ({
 			{
 				method: "hover",
 				atMs: 1010,
-				endMs: 1090,
+				framesMs: [900, 1300],
 				point: { x: 1060, y: 630 },
 				box: elsewhere,
-				steadyForMs: 500,
 			},
 		],
 	});

@@ -102,38 +102,42 @@ describe("reading a frame's viewport", () => {
 describe("reading actions", () => {
 	const click = {
 		pageId: "page-0",
-		end: 1020,
+		time: 1000,
+		frames: { from: 980, until: 1500 },
 		method: "click",
-		inputs: [
-			{
-				time: 1000,
-				point: { x: 50, y: 60 },
-				box: { x: 10, y: 20, width: 100, height: 80 },
-			},
-		],
-		steadySince: 960,
-		steadyUntil: 1500,
+		point: { x: 50, y: 60 },
+		box: { x: 10, y: 20, width: 100, height: 80 },
 	};
 	const fill = {
 		pageId: "page-0",
-		end: 900,
-		failed: true,
+		time: 800,
+		frames: { from: 820, until: 950 },
 		method: "fill",
-		inputs: [{ time: 800, box: { x: 1, y: 2, width: 3, height: 4 } }],
-		steadyFrom: 900,
-		steadyUntil: 950,
+		box: { x: 1, y: 2, width: 3, height: 4 },
+		failed: true,
+	};
+	const drag = {
+		pageId: "page-1",
+		time: 1200,
+		frames: { from: 1250, until: 1300 },
+		method: "dragAndDrop",
+		point: { x: 500, y: 400 },
+		dragFrom: { x: 50, y: 60 },
 	};
 	const manifest = JSON.stringify({ version: 3, screenshots: [screenshot] });
 
 	it("reads actions.json beside the manifest, in time order", async () => {
 		const zip = await zipOf({
 			"manifest.json": manifest,
-			"actions.json": JSON.stringify({ version: 1, actions: [click, fill] }),
+			"actions.json": JSON.stringify({
+				version: 1,
+				actions: [click, drag, fill],
+			}),
 		});
 
 		expect(await loadScreenshotsIndex(zip)).toEqual({
 			screenshotMetas: [screenshot],
-			actions: [fill, { ...click, failed: false }],
+			actions: [fill, { ...click, failed: false }, { ...drag, failed: false }],
 		});
 	});
 
@@ -168,14 +172,11 @@ describe("reading actions", () => {
 			actions: [
 				click,
 				{ ...click, pageId: undefined },
-				{ ...click, inputs: [] },
-				{ ...click, inputs: [{ time: 1000 }] },
-				{ ...click, inputs: [{ point: { x: 1, y: 2 } }] },
-				{
-					...click,
-					inputs: [{ time: 1, box: { x: 1, y: 2, width: -3, height: 4 } }],
-				},
-				{ ...click, end: "later" },
+				{ ...click, time: "soon" },
+				{ ...click, frames: undefined },
+				{ ...click, frames: { from: 1500, until: 980 } },
+				{ ...click, point: undefined, box: undefined },
+				{ ...click, point: undefined, box: { ...click.box, width: -3 } },
 				null,
 			],
 		});
@@ -183,21 +184,13 @@ describe("reading actions", () => {
 		expect(actions).toEqual([{ ...click, failed: false }]);
 	});
 
-	it("puts an action's inputs in time order", () => {
+	it("drops fields it doesn't know", () => {
 		const [action] = parseActionsJson({
 			version: 1,
-			actions: [
-				{
-					...click,
-					inputs: [
-						{ time: 30, point: { x: 3, y: 3 } },
-						{ time: 10, point: { x: 1, y: 1 } },
-					],
-				},
-			],
+			actions: [{ ...click, value: "hunter2", steadyUntil: 1500 }],
 		});
 
-		expect(action.inputs.map((input) => input.time)).toEqual([10, 30]);
+		expect(action).toEqual({ ...click, failed: false });
 	});
 });
 

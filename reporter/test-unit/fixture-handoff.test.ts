@@ -129,16 +129,11 @@ describe("fixture handoff files", () => {
 			actions: [
 				{
 					pageId: "page-0",
-					end: 1010,
+					time: 1000,
+					frames: { from: 1000, until: 1000 },
 					method: "click",
-					inputs: [
-						{
-							time: 1000,
-							point: { x: 5, y: 6 },
-							box: { x: 1, y: 2, width: 30, height: 40 },
-						},
-					],
-					steadyUntil: 1400,
+					point: { x: 5, y: 6 },
+					box: { x: 1, y: 2, width: 30, height: 40 },
 				},
 			],
 		};

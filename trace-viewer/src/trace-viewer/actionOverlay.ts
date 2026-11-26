@@ -33,129 +33,47 @@ export interface ActionOverlay {
 	dragFrom?: Point;
 }
 
-const DRAG_METHOD = "dragAndDrop";
-
 /**
- * How long after the page changes the frame showing it can be stamped. Frames
- * are taken in the background: a few milliseconds behind on a quiet machine,
- * tens under load.
- */
-export const FRAME_SETTLE_MS = 100;
-
-/**
- * The same for an action known to have scrolled to its element. What the
- * click sets off can keep the page from painting the scroll for a while, and
- * the frame from just before it would have the mark in the wrong place
- * altogether, so this waits longer.
- */
-export const SCROLL_SETTLE_MS = 300;
-
-/**
- * The action to draw over a frame, and the input of it that has been reached.
+ * What to draw over a frame: the latest action on the frame's page that the
+ * time on display has reached, if the frame is one that shows it in place.
+ * The next action on a page ends the one before it.
  *
- * Which action: the latest on the frame's page whose first input the time on
- * display has reached. The next action on a page ends the one before it.
- *
- * Whether it's drawn depends on the frame: the mark has to belong to the
- * picture under it, so it's only drawn on a frame known to show the input's
- * element where the mark goes.
- *
- * The element is known to be there from the input until the call ended and,
- * after that, for as long as it was seen to stay put (`steadyUntil`). A frame
- * taken later may show a page that has scrolled or moved on, and gets no
- * mark.
- *
- * A frame from before the input shows the element there too, as long as
- * nothing changed in between: a page that doesn't change takes no new frames.
- * But a change takes a while to show up in a frame. So a frame from before
- * the element was first measured in place only counts when no other frame
- * was stamped within FRAME_SETTLE_MS after that.
- *
- * When the element was first measured matters most. If that was before the
- * action could have moved it (`steadySince`), frames from then on show it in
- * place. If not, Playwright may have scrolled to it a moment before the
- * input, and the frame showing that scroll trails behind: then even of the
- * frames stamped soon after the input, only the last counts. An action known
- * to have scrolled to its element (`steadyFrom`) is never drawn on a frame
- * from before it did, and gets longer for the scroll to show.
+ * Which frames show an action is worked out when the test runs, from where
+ * its element was measured and when each frame was taken (see the reporter's
+ * `placeActionsOnFrames`). An action can be drawn on a frame from just before
+ * it, as a page that doesn't change takes no new frames; the time on display
+ * keeps it from showing before it happened.
  *
  * @param atMs The moment the frame is on show for, in the frames' clock
- * @param pageFrameTimes When each frame of the frame's page was taken
  */
 export function findActionOverlay(
 	actions: TraceAction[],
 	frame: Pick<ScreenshotInfo, "pageId" | "timestamp">,
 	atMs: number,
-	pageFrameTimes: number[],
 ): ActionOverlay | null {
 	let action: TraceAction | undefined;
 	for (const candidate of actions) {
 		if (
 			candidate.pageId === frame.pageId &&
-			candidate.inputs[0].time <= atMs &&
-			(!action || candidate.inputs[0].time >= action.inputs[0].time)
+			candidate.time <= atMs &&
+			(!action || candidate.time >= action.time)
 		) {
 			action = candidate;
 		}
 	}
-	if (!action) return null;
-
-	let input = action.inputs[0];
-	for (const candidate of action.inputs) {
-		if (candidate.time <= atMs) input = candidate;
+	if (
+		!action ||
+		frame.timestamp < action.frames.from ||
+		frame.timestamp > action.frames.until
+	) {
+		return null;
 	}
-
-	// An earlier attempt is only known to be in place at its own moment: what
-	// was measured afterwards is the last attempt's element.
-	let inPlaceFromMs = input.time;
-	let inPlaceUntilMs = input.time;
-	let settleMs = FRAME_SETTLE_MS;
-	// Whether the action may have moved the element just before it was
-	// measured, so that frames from just after may not show that yet.
-	let mayHaveMoved = true;
-	if (input === action.inputs[action.inputs.length - 1]) {
-		// With nothing measured, the call's own end is all there is to go by.
-		inPlaceUntilMs = Math.max(input.time, action.steadyUntil ?? action.end);
-		if (action.steadySince !== undefined) {
-			inPlaceFromMs = Math.min(inPlaceFromMs, action.steadySince);
-			mayHaveMoved = false;
-		}
-		if (action.steadyFrom !== undefined) {
-			if (atMs < action.steadyFrom || frame.timestamp < action.steadyFrom) {
-				return null;
-			}
-			// From the input on, it's the action that moved the element.
-			if (action.steadyFrom >= input.time) {
-				inPlaceFromMs = action.steadyFrom;
-				settleMs = SCROLL_SETTLE_MS;
-				mayHaveMoved = true;
-			}
-		}
-	}
-	if (frame.timestamp > inPlaceUntilMs) return null;
-
-	if (mayHaveMoved || frame.timestamp < inPlaceFromMs) {
-		// The page as the element was found is on the last frame that could
-		// still be showing a change from before then.
-		for (const time of pageFrameTimes) {
-			if (time > frame.timestamp && time <= inPlaceFromMs + settleMs) {
-				return null;
-			}
-		}
-	}
-
-	const start = action.inputs[0].point;
-	const dragged =
-		action.method === DRAG_METHOD &&
-		input !== action.inputs[0] &&
-		!!start &&
-		!!input.point;
 	return {
 		method: action.method,
 		failed: action.failed,
-		...(input.point ? { point: input.point } : {}),
-		...(input.box ? { box: input.box } : {}),
-		...(dragged ? { dragFrom: start } : {}),
+		...(action.point ? { point: action.point } : {}),
+		...(action.box ? { box: action.box } : {}),
+		...(action.dragFrom && action.point ? { dragFrom: action.dragFrom } : {}),
 	};
 }
 

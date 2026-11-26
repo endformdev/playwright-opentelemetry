@@ -1,9 +1,8 @@
 import type { BrowserContext } from "@playwright/test";
 import type {
 	ActionBox,
-	ActionInput,
+	ActionFrames,
 	ActionPoint,
-	ActionsFile,
 	RecordedAction,
 } from "../shared/screenshots-zip";
 import { warnOnce } from "./warn-once";
@@ -52,8 +51,46 @@ export interface ActionInputEvent {
 	promptFrames?: boolean;
 }
 
+/** A moment Playwright was about to send input to the page. */
+export interface ActionInput {
+	/** Epoch ms */
+	time: number;
+	/** Where pointer input landed, in the page's main viewport */
+	point?: ActionPoint;
+	/** The element the input was for, in the page's main viewport */
+	box?: ActionBox;
+}
+
 interface RecordedInput extends ActionInput {
 	boxInChildFrame?: boolean;
+}
+
+/**
+ * An action as recorded, with what was measured of its element: what
+ * decides which frames show it. See `placeActionsOnFrames`.
+ */
+export interface MeasuredAction {
+	pageId: string;
+	/** Epoch ms when the call ended */
+	end: number;
+	failed?: true;
+	method: string;
+	/** Each attempt at sending input, in order; never empty */
+	inputs: ActionInput[];
+	/**
+	 * Epoch ms. The element of the last input was already where that input
+	 * has it at this time, before the action could have moved it. Only
+	 * recorded in Chromium, where a frame's timestamp is when it was shown.
+	 */
+	steadySince?: number;
+	/**
+	 * Epoch ms. The element can't have been where the last input has it any
+	 * earlier: the action scrolled to it, or the page navigated or was
+	 * resized.
+	 */
+	steadyFrom?: number;
+	/** Epoch ms. The element was last seen where the last input has it. */
+	steadyUntil?: number;
 }
 
 interface Call {
@@ -421,7 +458,7 @@ export class ActionRecorder {
 	 * Stops recording and returns the actions of the calls that ended, ordered
 	 * by their first input.
 	 */
-	async finish(): Promise<RecordedAction[]> {
+	async finish(): Promise<MeasuredAction[]> {
 		this.stopped = true;
 		const watches = [...this.open.values(), ...this.ended].flatMap(
 			(call) => call.watch ?? [],
@@ -450,7 +487,7 @@ export class ActionRecorder {
 	}
 }
 
-function toAction(call: Call): RecordedAction | undefined {
+function toAction(call: Call): MeasuredAction | undefined {
 	if (call.end === undefined) {
 		return undefined;
 	}
@@ -493,6 +530,135 @@ function toAction(call: Call): RecordedAction | undefined {
 		...(Number.isFinite(steadyFrom) ? { steadyFrom } : {}),
 		...(watch ? { steadyUntil: watch.steadyUntil } : {}),
 	};
+}
+
+/**
+ * How long after the page changes the frame showing it can be stamped. Frames
+ * are taken in the background: a few milliseconds behind on a quiet machine,
+ * tens under load.
+ */
+export const FRAME_SETTLE_MS = 100;
+
+/**
+ * The same for an action known to have scrolled to its element. What the
+ * action sets off can keep the page from painting the scroll for a while,
+ * and a frame from before it would have the mark in the wrong place
+ * altogether, so this waits longer.
+ */
+export const SCROLL_SETTLE_MS = 300;
+
+/**
+ * The actions as the trace viewer draws them: each with the frames of its
+ * page that are known to show its element where it's drawn, and without the
+ * actions no frame shows. Ordered by time.
+ *
+ * What's drawn is the last attempt at input, with where a drag started.
+ *
+ * A frame shows the element in place up to when it was last seen there
+ * (`steadyUntil`), or up to the end of the call when there was no element to
+ * watch. A later frame may show a page that has scrolled or moved on.
+ *
+ * A frame from before the input shows it in place too, as long as nothing
+ * changed in between: a page that doesn't change takes no new frames. But a
+ * change takes a while to reach a frame, so such a frame only counts when no
+ * newer frame was stamped within FRAME_SETTLE_MS after the element was first
+ * known to be in place. That is the input, or earlier when the element was
+ * already there before the action could move it (`steadySince`); and then,
+ * frames from after it count too. A frame from before the element got to its
+ * place (`steadyFrom`) never counts; when the action itself moved it there,
+ * the frame showing that gets SCROLL_SETTLE_MS to arrive.
+ */
+export function placeActionsOnFrames(
+	actions: MeasuredAction[],
+	frames: Array<{ pageId: string; timestamp: number }>,
+): RecordedAction[] {
+	const frameTimes = new Map<string, number[]>();
+	for (const { pageId, timestamp } of frames) {
+		const times = frameTimes.get(pageId);
+		if (times) times.push(timestamp);
+		else frameTimes.set(pageId, [timestamp]);
+	}
+	for (const times of frameTimes.values()) {
+		times.sort((a, b) => a - b);
+	}
+
+	return actions
+		.flatMap((action): RecordedAction[] => {
+			const first = action.inputs[0];
+			const last = action.inputs.at(-1);
+			if (!first || !last || (!last.point && !last.box)) {
+				return [];
+			}
+			const shown = framesShowing(
+				action,
+				last,
+				frameTimes.get(action.pageId) ?? [],
+			);
+			if (!shown) {
+				return [];
+			}
+			const dragFrom =
+				action.method === "dragAndDrop" && action.inputs.length > 1
+					? first.point
+					: undefined;
+			return [
+				{
+					pageId: action.pageId,
+					time: first.time,
+					frames: shown,
+					method: action.method,
+					...(last.point ? { point: last.point } : {}),
+					...(last.box ? { box: last.box } : {}),
+					...(dragFrom ? { dragFrom } : {}),
+					...(action.failed ? { failed: true } : {}),
+				},
+			];
+		})
+		.sort((a, b) => a.time - b.time);
+}
+
+/** The frames that show an action's last input in place; see above. */
+function framesShowing(
+	action: MeasuredAction,
+	last: ActionInput,
+	times: number[],
+): ActionFrames | undefined {
+	const until = Math.max(last.time, action.steadyUntil ?? action.end);
+	let inPlaceFrom = last.time;
+	let settleMs = FRAME_SETTLE_MS;
+	// Whether the action may have moved the element just before it was first
+	// measured, so that a frame from just after may not show that yet.
+	let mayHaveMoved = true;
+	let earliest = Number.NEGATIVE_INFINITY;
+	if (action.steadySince !== undefined) {
+		inPlaceFrom = Math.min(inPlaceFrom, action.steadySince);
+		mayHaveMoved = false;
+	}
+	if (action.steadyFrom !== undefined) {
+		earliest = action.steadyFrom;
+		// From the input on, it's the action that moved the element.
+		if (action.steadyFrom >= last.time) {
+			inPlaceFrom = action.steadyFrom;
+			settleMs = SCROLL_SETTLE_MS;
+			mayHaveMoved = true;
+		}
+	}
+	const settledBy = inPlaceFrom + settleMs;
+	const shown = times.filter(
+		(time) =>
+			time >= earliest &&
+			time <= until &&
+			// The page as the element was found is on the last frame that could
+			// still be showing a change from before then.
+			((!mayHaveMoved && time >= inPlaceFrom) ||
+				!times.some((other) => other > time && other <= settledBy)),
+	);
+	// Those frames are all that lie between the first and the last of them.
+	const from = shown[0];
+	const latest = shown.at(-1);
+	return from === undefined || latest === undefined
+		? undefined
+		: { from, until: latest };
 }
 
 function samePlace(a: ActionBox, b: ActionBox): boolean {
@@ -687,12 +853,12 @@ export class ActionCapture {
 	 * Stops recording. Undefined when nothing could be recorded, as opposed to
 	 * a test that did nothing to its pages.
 	 */
-	async stop(): Promise<ActionsFile | undefined> {
+	async stop(): Promise<MeasuredAction[] | undefined> {
 		this.stopped = true;
 		const listened = this.listeners.length > 0;
 		this.removeListeners();
 		const actions = await this.recorder.finish();
-		return listened && !this.unsupported ? { version: 1, actions } : undefined;
+		return listened && !this.unsupported ? actions : undefined;
 	}
 
 	private removeListeners(): void {

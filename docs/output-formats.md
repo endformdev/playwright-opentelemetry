@@ -23,55 +23,51 @@ When `storeTraceZip: true` and Playwright retained a trace for the test, a local
 
 ### `actions.json`
 
-`actions.json` says where on the page each of the test's actions landed: the point a click hit and the element it was for, the element a fill typed into. The trace viewer draws this over the screenshots. The file sits beside `manifest.json`, whose version it doesn't change, and readers that don't know it ignore it.
+`actions.json` says where on the page each of the test's actions landed, such as the point a click hit and the element it was for, or the element a fill typed into, and which screenshots show it there. The trace viewer draws this over the screenshots. The file sits beside `manifest.json`, whose version it doesn't change, and readers that don't know it ignore it.
 
 ```ts
 interface ActionsFile {
 	version: 1;
-	/** Ordered by the time of their first input */
+	/** Ordered by time */
 	actions: Array<{
 		/** The page's id, as in the manifest and the browser.page.id span attribute */
 		pageId: string;
-		/** Epoch ms when the call ended */
-		end: number;
-		/** The call failed */
-		failed?: true;
+		/** Epoch ms when the action started */
+		time: number;
+		/** Timestamps of the first and last of the page's screenshots that show the action in place */
+		frames: { from: number; until: number };
 		/** Playwright's name for the call: "click", "fill", "hover", "mouseClick", "dragAndDrop", ... */
 		method: string;
-		/** Every moment Playwright was about to send input, in order; never empty */
-		inputs: Array<{
-			/** Epoch ms */
-			time: number;
-			/** Where pointer input landed */
-			point?: { x: number; y: number };
-			/** The element the input was for */
-			box?: { x: number; y: number; width: number; height: number };
-		}>;
-		/** See "Which frames show an action" */
-		steadySince?: number;
-		steadyFrom?: number;
-		steadyUntil?: number;
+		/** Where pointer input landed */
+		point?: { x: number; y: number };
+		/** The element the action was for */
+		box?: { x: number; y: number; width: number; height: number };
+		/** Where a drag started; `point` is where it ended */
+		dragFrom?: { x: number; y: number };
+		/** The call failed */
+		failed?: true;
 	}>;
 }
 ```
 
+To draw an action, take the latest one on a screenshot's page whose `time` has been reached, and draw its `point` and `box` if the screenshot's timestamp is from `frames.from` to `frames.until`. Every screenshot of the page in that range shows the action's element where it's drawn, and no other does. The range can begin with a screenshot from before the action, as a page that doesn't change takes no new screenshots, which is why `time` decides when the action starts to be drawn.
+
 - Points and boxes are in CSS pixels in the page's main viewport, like the `viewportWidth` and `viewportHeight` of the manifest's screenshots. That holds for elements inside iframes too.
 - Times are on the clock of the step spans and the screenshot timestamps.
-- A call has several inputs when Playwright retried it, such as a click on a covered element, and when it is a drag, whose first input is where it started and whose last is where it ended.
-- Input without a point or an element isn't recorded: keyboard input sent to the page has nowhere to be drawn. Neither are assertions, calls that sent no input, or calls still running when the test ended.
+- An action has at least a `point` or a `box`. A click has both, a fill only a `box`, and `page.mouse` only a `point`.
+- When Playwright retried a call, such as a click on a covered element, it's the last attempt that is drawn, from when the first began.
+- Actions no screenshot is known to show are left out, as are keyboard input sent to the page, assertions, calls that sent no input, and calls still running when the test ended.
 - What was typed is never recorded.
 
-The file is written when the fixture captures screenshots and could listen to Playwright as it sent input, even if the test did nothing to its pages. It's missing with a browser that this process's Playwright doesn't run itself, such as one reached through `connectOptions`, and on Playwright versions before 1.63.
+The file is written when the fixture captures screenshots and could listen to Playwright as it sent input, even if no action is in it. It's missing with a browser that this process's Playwright doesn't run itself, such as one reached through `connectOptions`, and on Playwright versions before 1.63.
 
-#### Which frames show an action
+#### Which screenshots show an action
 
-A frame doesn't always show the page as an action found it. Playwright scrolls to an element before it clicks, what the click does can move the element or take it away, and frames trail the page by a few milliseconds. So the fixture measures the element of an action's last input again, as the call begins and ends and each time a frame is captured for up to half a second after, and records what it saw:
+A screenshot doesn't always show the page as an action found it. Playwright scrolls to an element before it clicks, what the click does can move the element or take it away, and screenshots trail the page by a few milliseconds. So the fixture measures the action's element again as the call begins and ends, and each time a screenshot is captured for up to half a second after. A screenshot is counted when:
 
-- `steadyUntil`: the element was last seen where the input has it at this time. A frame taken later may show it somewhere else. Absent for input without an element, such as `page.mouse`.
-- `steadySince`: the element was already there at this time, before the action could have moved it: as the call began for pointer input, at the input otherwise. So the action didn't scroll to it. Only recorded in Chromium, the one browser whose frame timestamps say when the frame was shown.
-- `steadyFrom`: the element can't be taken to have been there any earlier than this. Either the action scrolled to it, in which case this is the input's time, or the call's end for input without a point. Or the page navigated or changed size at this time, before the input.
-
-The trace viewer draws an action on a frame only when these say the frame shows the element in that place.
+- it was taken no later than when the element was last seen in place, or than the end of the call for input without an element;
+- it isn't from before the element got to its place, when the action scrolled to it or the page navigated or was resized first;
+- if it's from before the element was known to be in place, no newer screenshot was taken soon enough after to still be on its way: 100 ms, or 300 ms after the action scrolled.
 
 ## Trace API
 

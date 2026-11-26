@@ -25,10 +25,11 @@ describe("loading a trace from the remote trace API", () => {
 		const traceId = "7709187832dca84f02f413a312421586";
 		const action = {
 			pageId: "page@abc",
-			end: 1766927492120,
-			failed: false,
+			time: 1766927492110,
+			frames: { from: 1766927492100, until: 1766927492300 },
 			method: "click",
-			inputs: [{ time: 1766927492110, point: { x: 10, y: 20 } }],
+			point: { x: 10, y: 20 },
+			failed: false,
 		};
 		vi.mocked(loadScreenshotsForTrace).mockResolvedValueOnce({
 			screenshots: [

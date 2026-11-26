@@ -24,27 +24,18 @@ export interface ExpectedAction {
 	/** `page-0` when left out */
 	pageId?: string;
 	failed?: true;
-	/** One when left out */
-	inputs?: number | "several";
-	/** Of the last input: the box, or null for none. Unchecked when left out. */
+	/** The box drawn, or null for none. Unchecked when left out. */
 	box?: ActionBox | null;
-	/** Of the first input */
-	firstBox?: ActionBox;
-	/** Of the last input: the point, or null for none. Unchecked when left out. */
+	/** The point drawn, or null for none. Unchecked when left out. */
 	point?: ActionPoint | null;
-	/**
-	 * `held`: the element was seen in place when the call ended or later.
-	 * `lost`: only before. `until-next-action`: at the call's end, and no later
-	 * than the next action's input. `none`: nothing was measured.
-	 */
-	steady?: "held" | "lost" | "until-next-action" | "none";
-	/**
-	 * Whether the action moved its element, by scrolling to it. Moved: it's
-	 * only taken to be in its place from the input, or from the call's end for
-	 * input without a point. Not moved: it was measured there beforehand.
-	 * Unchecked when left out.
-	 */
-	moved?: boolean;
+	/** Where a drag started: a point inside this box */
+	dragFromIn?: ActionBox;
+	/** The action scrolled to its element: no frame from before it shows it */
+	scrolled?: true;
+	/** The action took its element away: no frame from after it shows it */
+	removed?: true;
+	/** It may be left out, as no frame was known to show it */
+	optional?: true;
 }
 
 interface Check {
@@ -91,9 +82,7 @@ export default class ActionHighlightsReporter implements Reporter {
 				const problems = actions
 					? [
 							...compareActions(actions, check.expected),
-							...checkFile(actions, check.forbidden, [
-								...new Set(screenshots.map((screenshot) => screenshot.pageId)),
-							]),
+							...checkFile(actions, check.forbidden, frameTimesOf(screenshots)),
 						]
 					: ["the trace ZIP has no actions.json"];
 				this.problems.push(
@@ -122,106 +111,78 @@ function compareActions(
 	expected: ExpectedAction[],
 ): string[] {
 	const summary = file.actions.map((action) => action.method).join(", ");
-	if (file.actions.length !== expected.length) {
-		return [
-			`expected ${expected.length} actions, found ${file.actions.length} (${summary})`,
-		];
+	const problems: string[] = [];
+	let next = 0;
+	for (const [index, want] of expected.entries()) {
+		const action = file.actions[next];
+		if (
+			!action ||
+			action.method !== want.method ||
+			action.pageId !== (want.pageId ?? "page-0")
+		) {
+			if (!want.optional) {
+				problems.push(
+					`action ${index} (${want.method}) is missing; recorded ${summary || "none"}`,
+				);
+			}
+			continue;
+		}
+		next += 1;
+		problems.push(
+			...compareAction(action, want).map(
+				(problem) => `action ${index} (${want.method}): ${problem}`,
+			),
+		);
 	}
-	return expected.flatMap((want, index) =>
-		compareAction(file.actions[index], want, file.actions[index + 1]).map(
-			(problem) => `action ${index} (${want.method}): ${problem}`,
-		),
-	);
+	if (next < file.actions.length) {
+		problems.push(
+			`expected ${expected.length} actions, found ${file.actions.length} (${summary})`,
+		);
+	}
+	return problems;
 }
 
-function compareAction(
-	action: RecordedAction,
-	want: ExpectedAction,
-	next: RecordedAction | undefined,
-): string[] {
+function compareAction(action: RecordedAction, want: ExpectedAction): string[] {
 	const problems: string[] = [];
-	const first = action.inputs[0];
-	const last = action.inputs[action.inputs.length - 1];
 	const expect = (ok: boolean, problem: string) => {
 		if (!ok) problems.push(`${problem}; recorded ${JSON.stringify(action)}`);
 	};
 
-	expect(action.method === want.method, `method is ${action.method}`);
-	expect(
-		action.pageId === (want.pageId ?? "page-0"),
-		`pageId is ${action.pageId}`,
-	);
 	expect(action.failed === want.failed, `failed is ${action.failed}`);
-	const inputs = want.inputs ?? 1;
-	expect(
-		inputs === "several"
-			? action.inputs.length > 1
-			: action.inputs.length === inputs,
-		`has ${action.inputs.length} inputs`,
-	);
 	if (want.box !== undefined) {
 		expect(
-			sameBox(last.box, want.box),
+			sameBox(action.box, want.box),
 			`box isn't ${JSON.stringify(want.box)}`,
-		);
-	}
-	if (want.firstBox) {
-		expect(
-			sameBox(first.box, want.firstBox),
-			`first box isn't ${JSON.stringify(want.firstBox)}`,
 		);
 	}
 	if (want.point !== undefined) {
 		expect(
-			samePoint(last.point, want.point),
+			samePoint(action.point, want.point),
 			`point isn't ${JSON.stringify(want.point)}`,
 		);
 	}
-	if (last.point && last.box) {
-		expect(inside(last.point, last.box), "point is outside its box");
+	if (action.point && action.box) {
+		expect(inside(action.point, action.box), "point is outside its box");
 	}
-
-	if (want.moved === true) {
+	if (want.dragFromIn) {
 		expect(
-			action.steadySince === undefined &&
-				action.steadyFrom === (last.point ? last.time : action.end),
-			"isn't known to have moved its element",
+			!!action.dragFrom && inside(action.dragFrom, want.dragFromIn),
+			`drag doesn't start inside ${JSON.stringify(want.dragFromIn)}`,
 		);
-	} else if (want.moved === false) {
+	} else {
+		expect(action.dragFrom === undefined, "has a drag start");
+	}
+	if (want.scrolled) {
 		expect(
-			last.point
-				? action.steadySince !== undefined && action.steadySince <= last.time
-				: action.steadyFrom === undefined || action.steadyFrom < last.time,
-			"isn't known to have left its element where it was",
+			action.frames.from >= action.time,
+			"is drawn on a frame from before it scrolled",
 		);
 	}
-
-	const steady = action.steadyUntil;
-	switch (want.steady) {
-		case "held":
-			expect(
-				steady !== undefined && steady >= action.end,
-				"element wasn't seen in place after the call",
-			);
-			break;
-		case "lost":
-			expect(
-				steady !== undefined && steady >= last.time && steady < action.end,
-				"element was seen in place after the call",
-			);
-			break;
-		case "until-next-action":
-			expect(
-				steady !== undefined &&
-					steady >= action.end &&
-					next !== undefined &&
-					steady <= next.inputs[0].time,
-				"element wasn't seen in place from the call's end to no later than the next input",
-			);
-			break;
-		case "none":
-			expect(steady === undefined, "steadyUntil is set");
-			break;
+	if (want.removed) {
+		expect(
+			action.frames.until <= action.time,
+			"is drawn on a frame from after it removed its element",
+		);
 	}
 	return problems;
 }
@@ -230,7 +191,7 @@ function compareAction(
 function checkFile(
 	file: ActionsFile,
 	forbidden: string[],
-	pageIds: string[],
+	frameTimes: Map<string, number[]>,
 ): string[] {
 	const problems: string[] = [];
 	const text = JSON.stringify(file);
@@ -239,24 +200,34 @@ function checkFile(
 			problems.push(`holds the input value "${secret}"`);
 		}
 	}
-	let previousStart = Number.NEGATIVE_INFINITY;
+	let previousTime = Number.NEGATIVE_INFINITY;
 	for (const action of file.actions) {
-		const times = action.inputs.map((input) => input.time);
-		if (times[0] < previousStart) {
-			problems.push("actions aren't ordered by their first input");
+		if (action.time < previousTime) {
+			problems.push("actions aren't ordered by time");
 		}
-		previousStart = times[0];
-		if (times.some((time, index) => index > 0 && time < times[index - 1])) {
-			problems.push(`${action.method}: inputs aren't in order`);
-		}
-		if (action.end < times[times.length - 1]) {
-			problems.push(`${action.method}: ends before its last input`);
-		}
-		if (!pageIds.includes(action.pageId)) {
-			problems.push(`${action.method}: no screenshots of ${action.pageId}`);
+		previousTime = action.time;
+		// The window names the first and last frame that show the action.
+		const times = frameTimes.get(action.pageId) ?? [];
+		if (
+			!times.includes(action.frames.from) ||
+			!times.includes(action.frames.until)
+		) {
+			problems.push(
+				`${action.method}: its frames aren't frames of ${action.pageId}`,
+			);
 		}
 	}
 	return problems;
+}
+
+function frameTimesOf(
+	screenshots: Array<{ pageId: string; timestamp: number }>,
+): Map<string, number[]> {
+	const times = new Map<string, number[]>();
+	for (const { pageId, timestamp } of screenshots) {
+		times.set(pageId, [...(times.get(pageId) ?? []), timestamp]);
+	}
+	return times;
 }
 
 function sameBox(box: ActionBox | undefined, want: ActionBox | null): boolean {

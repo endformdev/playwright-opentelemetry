@@ -21,8 +21,6 @@ const HALO_COLOR = "#ffffff";
  */
 export function ScreenshotWithActions(props: {
 	screenshot: ScreenshotInfo;
-	/** Every screenshot of the trace: which frames exist says which to trust */
-	screenshots: ScreenshotInfo[];
 	actions: TraceAction[];
 	/** The moment the screenshot is on show for, in the screenshots' clock */
 	atMs: number;
@@ -44,16 +42,6 @@ export function ScreenshotWithActions(props: {
 		size: Size;
 	} | null>(null);
 
-	const frameTimesByPage = createMemo(() => {
-		const times = new Map<string, number[]>();
-		for (const { pageId, timestamp } of props.screenshots) {
-			const pageTimes = times.get(pageId);
-			if (pageTimes) pageTimes.push(timestamp);
-			else times.set(pageId, [timestamp]);
-		}
-		return times;
-	});
-
 	const drawing = createMemo(() => {
 		const shown = loaded();
 		if (!shown) return null;
@@ -62,12 +50,7 @@ export function ScreenshotWithActions(props: {
 		if (viewportWidth === undefined || viewportHeight === undefined) {
 			return null;
 		}
-		const overlay = findActionOverlay(
-			props.actions,
-			screenshot,
-			props.atMs,
-			frameTimesByPage().get(screenshot.pageId) ?? [],
-		);
+		const overlay = findActionOverlay(props.actions, screenshot, props.atMs);
 		const image = placeContainedImage(boxSize(), size);
 		if (!overlay || !image) return null;
 		const placed = placeActionOverlay(

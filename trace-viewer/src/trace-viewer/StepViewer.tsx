@@ -27,8 +27,6 @@ export interface StepViewerComparison {
 	status: "loading" | "failed" | "ready";
 	testStatus: TestStatus | null;
 	frame: ComparisonFrame;
-	/** Every screenshot of the comparison */
-	screenshots: ScreenshotInfo[];
 	/** Where the comparison's own actions landed, drawn over its own frames */
 	actions: TraceAction[];
 	/** The comparison has loaded and took no screenshots */
@@ -46,8 +44,6 @@ export interface StepViewerProps extends Omit<
 	 * null with no screenshot
 	 */
 	screenshotAtMs: number | null;
-	/** Every screenshot of the test */
-	screenshots: ScreenshotInfo[];
 	/** Where the test's actions landed, drawn over the frames that show them */
 	actions: TraceAction[];
 	screenshotsLoading: boolean;
@@ -98,7 +94,6 @@ export function StepViewer(props: StepViewerProps) {
 	const [, controlBarProps] = splitProps(props, [
 		"screenshot",
 		"screenshotAtMs",
-		"screenshots",
 		"actions",
 		"screenshotsLoading",
 		"noScreenshots",
@@ -112,7 +107,6 @@ export function StepViewer(props: StepViewerProps) {
 		<PrimaryScreen
 			screenshot={props.screenshot}
 			screenshotAtMs={props.screenshotAtMs}
-			screenshots={props.screenshots}
 			actions={props.actions}
 			screenshotsLoading={props.screenshotsLoading}
 			noScreenshots={props.noScreenshots}
@@ -163,7 +157,6 @@ export function StepViewer(props: StepViewerProps) {
 function PrimaryScreen(props: {
 	screenshot: ScreenshotInfo | null;
 	screenshotAtMs: number | null;
-	screenshots: ScreenshotInfo[];
 	actions: TraceAction[];
 	screenshotsLoading: boolean;
 	noScreenshots: boolean;
@@ -201,7 +194,6 @@ function PrimaryScreen(props: {
 			{(screenshot) => (
 				<ScreenshotWithActions
 					screenshot={screenshot()}
-					screenshots={props.screenshots}
 					actions={props.actions}
 					atMs={props.screenshotAtMs ?? screenshot().timestamp}
 					alt={`Step viewer screenshot at ${screenshot().timestamp}`}
@@ -296,7 +288,6 @@ export function ComparisonScreens(props: {
 								{(screenshot) => (
 									<ScreenshotWithActions
 										screenshot={screenshot()}
-										screenshots={props.comparison.screenshots}
 										actions={props.comparison.actions}
 										atMs={frame().atMs ?? screenshot().timestamp}
 										alt={`Comparison screenshot at ${screenshot().timestamp}`}

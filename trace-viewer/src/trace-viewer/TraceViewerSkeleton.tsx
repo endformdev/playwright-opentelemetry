@@ -91,7 +91,6 @@ export function TraceViewerSkeleton(props: TraceViewerSkeletonProps) {
 								status: "loading",
 								testStatus: null,
 								frame: { timeMs: null, atMs: null, screenshot: null },
-								screenshots: [],
 								actions: [],
 								noScreenshots: false,
 								note: null,

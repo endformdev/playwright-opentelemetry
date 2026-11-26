@@ -23,29 +23,20 @@ const ACTIONS: ActionsFile = {
 	actions: [
 		{
 			pageId: "page-0",
-			end: 1020,
+			time: 1000,
+			frames: { from: 980, until: 1500 },
 			method: "click",
-			inputs: [
-				{
-					time: 1000,
-					point: { x: 50, y: 60 },
-					box: { x: 10, y: 20, width: 100, height: 80 },
-				},
-			],
-			steadySince: 980,
-			steadyUntil: 1500,
+			point: { x: 50, y: 60 },
+			box: { x: 10, y: 20, width: 100, height: 80 },
 		},
 		{
 			pageId: "page-0",
-			end: 2100,
+			time: 2000,
+			frames: { from: 2100, until: 2300 },
+			method: "dragAndDrop",
+			point: { x: 400, y: 300 },
+			dragFrom: { x: 50, y: 60 },
 			failed: true,
-			method: "fill",
-			inputs: [
-				{ time: 2000, box: { x: 1, y: 2, width: 3, height: 4 } },
-				{ time: 2050, box: { x: 1, y: 2, width: 3, height: 4 } },
-			],
-			steadyFrom: 2100,
-			steadyUntil: 2300,
 		},
 	],
 };
@@ -125,10 +116,10 @@ describe("parseActionsFile", () => {
 			actions: [
 				click,
 				{ ...click, pageId: 7 },
-				{ ...click, inputs: [] },
-				{ ...click, inputs: [{ time: 1000 }] },
-				{ ...click, inputs: [{ time: "soon", point: { x: 1, y: 2 } }] },
-				{ ...click, end: Number.NaN },
+				{ ...click, time: "soon" },
+				{ ...click, frames: { from: 1500, until: 980 } },
+				{ ...click, frames: undefined },
+				{ ...click, point: undefined, box: undefined },
 				"click",
 			],
 		});
@@ -140,13 +131,7 @@ describe("parseActionsFile", () => {
 		const [click] = ACTIONS.actions;
 		const file = parseActionsFile({
 			version: 1,
-			actions: [
-				{
-					...click,
-					value: "hunter2",
-					inputs: [{ ...click.inputs[0], value: "hunter2" }],
-				},
-			],
+			actions: [{ ...click, value: "hunter2" }],
 		});
 
 		expect(JSON.stringify(file)).not.toContain("hunter2");
