@@ -65,9 +65,13 @@ describe("loading screenshots in the page", () => {
 		const zip = await screenshotsZip(["a.jpeg", "b.jpeg"]);
 		stubZipResponse(zip);
 
-		const screenshots = await loadScreenshotsInPage(ZIP_URL, "primary");
+		const { screenshots, actions } = await loadScreenshotsInPage(
+			ZIP_URL,
+			"primary",
+		);
 
 		expect(fetch).toHaveBeenCalledWith(ZIP_URL);
+		expect(actions).toEqual([]);
 		expect(screenshots).toEqual([
 			{
 				timestamp: 0,
@@ -91,7 +95,10 @@ describe("loading screenshots in the page", () => {
 			vi.fn(async () => new Response(null, { status: 404 })),
 		);
 
-		expect(await loadScreenshotsInPage(ZIP_URL, "primary")).toEqual([]);
+		expect(await loadScreenshotsInPage(ZIP_URL, "primary")).toEqual({
+			screenshots: [],
+			actions: [],
+		});
 	});
 
 	it("fails on other errors, without the URL and its token", async () => {
@@ -113,7 +120,7 @@ describe("loading screenshots in the page", () => {
 
 	it("revokes the blob URLs on unload", async () => {
 		stubZipResponse(await screenshotsZip(["a.jpeg", "b.jpeg"]));
-		const screenshots = await loadScreenshotsInPage(ZIP_URL, "primary");
+		const { screenshots } = await loadScreenshotsInPage(ZIP_URL, "primary");
 
 		unloadPageScreenshots();
 
@@ -122,12 +129,13 @@ describe("loading screenshots in the page", () => {
 
 	it("revokes the previous trace's URLs only once the next one is ready", async () => {
 		stubZipResponse(await screenshotsZip(["a.jpeg"]));
-		const [first] = await loadScreenshotsInPage(ZIP_URL, "primary");
+		const [first] = (await loadScreenshotsInPage(ZIP_URL, "primary"))
+			.screenshots;
 
 		stubZipResponse(await screenshotsZip(["b.jpeg"]));
 		const loading = loadScreenshotsInPage(ZIP_URL, "primary");
 		expect(revoked).toEqual([]);
-		const [second] = await loading;
+		const [second] = (await loading).screenshots;
 
 		expect(revoked).toEqual([first.url]);
 		expect(revoked).not.toContain(second.url);
@@ -148,19 +156,22 @@ describe("loading screenshots in the page", () => {
 		const slow = loadScreenshotsInPage(ZIP_URL, "primary");
 
 		stubZipResponse(await screenshotsZip(["latest.jpeg"]));
-		const [latest] = await loadScreenshotsInPage(ZIP_URL, "primary");
+		const [latest] = (await loadScreenshotsInPage(ZIP_URL, "primary"))
+			.screenshots;
 		finishSlowFetch(new Response(slowZip));
 
-		expect(await slow).toEqual([]);
+		expect(await slow).toEqual({ screenshots: [], actions: [] });
 		expect(blobsByUrl.size).toBe(1);
 		expect(revoked).not.toContain(latest.url);
 	});
 
 	it("keeps each slot's URLs apart", async () => {
 		stubZipResponse(await screenshotsZip(["a.jpeg"]));
-		const [primary] = await loadScreenshotsInPage(ZIP_URL, "primary");
+		const [primary] = (await loadScreenshotsInPage(ZIP_URL, "primary"))
+			.screenshots;
 		stubZipResponse(await screenshotsZip(["b.jpeg"]));
-		const [comparison] = await loadScreenshotsInPage(ZIP_URL, "comparison");
+		const [comparison] = (await loadScreenshotsInPage(ZIP_URL, "comparison"))
+			.screenshots;
 		stubZipResponse(await screenshotsZip(["c.jpeg"]));
 		await loadScreenshotsInPage(ZIP_URL, "comparison");
 
@@ -190,7 +201,7 @@ describe("loading screenshots in the page", () => {
 		unloadPageScreenshots();
 		finishFetch(new Response(zip));
 
-		expect(await loading).toEqual([]);
+		expect(await loading).toEqual({ screenshots: [], actions: [] });
 		expect(blobsByUrl.size).toBe(0);
 	});
 });

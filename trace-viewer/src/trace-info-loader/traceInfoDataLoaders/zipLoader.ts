@@ -7,7 +7,12 @@ import {
 	registerServiceWorker,
 	unloadTraceFromServiceWorker,
 } from "../../service-worker/register";
-import type { ScreenshotInfo, TraceInfoData } from "../TraceInfoLoader";
+import type { ScreenshotMeta } from "../../service-worker/screenshotZip";
+import type {
+	ScreenshotInfo,
+	TraceAction,
+	TraceInfoData,
+} from "../TraceInfoLoader";
 import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
 import { type TraceSlot, unloadPageScreenshots } from "./pageScreenshots";
 
@@ -47,51 +52,78 @@ function traceInfoFromLoadedTrace(
 	source: { traceZip: string } | { traceSource: string },
 ): TraceInfoData {
 	const baseUrl = getTraceViewerApiUrl(loadedTrace.traceId);
-	const screenshots = loadedTrace.screenshotMetas.map((screenshot) => ({
-		timestamp: screenshot.timestamp,
-		url: screenshotUrl(baseUrl, screenshot.file, source),
-		pageId: screenshot.pageId,
-	}));
+	const screenshots = loadedTrace.screenshotMetas.map((screenshot) =>
+		screenshotInfo(screenshot, screenshotUrl(baseUrl, screenshot.file, source)),
+	);
 
 	return {
 		testInfo: deriveTestInfoFromOtlpExport(loadedTrace.traceData),
 		traceData: loadedTrace.traceData,
 		loadScreenshots: async () => screenshots,
+		loadActions: async () => loadedTrace.actions,
+	};
+}
+
+/** A trace's screenshots, with the actions recorded alongside them. */
+export interface LoadedScreenshots {
+	screenshots: ScreenshotInfo[];
+	actions: TraceAction[];
+}
+
+/** A screenshot as the viewer shows it: where to get it and what it's of. */
+export function screenshotInfo(
+	screenshot: ScreenshotMeta,
+	url: string,
+): ScreenshotInfo {
+	const { viewportWidth, viewportHeight } = screenshot;
+	return {
+		timestamp: screenshot.timestamp,
+		url,
+		pageId: screenshot.pageId,
+		...(viewportWidth !== undefined && viewportHeight !== undefined
+			? { viewportWidth, viewportHeight }
+			: {}),
 	};
 }
 
 export async function loadScreenshotsForTrace(
 	traceId: string,
 	screenshotsZipUrl: string,
-): Promise<ScreenshotInfo[]> {
-	const screenshotMetas = await loadScreenshotsForTraceInServiceWorker({
-		traceId,
-		screenshotsZipUrl,
-	});
+): Promise<LoadedScreenshots> {
+	const { screenshotMetas, actions } =
+		await loadScreenshotsForTraceInServiceWorker({
+			traceId,
+			screenshotsZipUrl,
+		});
 	const baseUrl = getTraceViewerApiUrl(traceId);
-	return screenshotMetas.map((screenshot) => ({
-		timestamp: screenshot.timestamp,
-		url: screenshotUrl(baseUrl, screenshot.file, {
-			screenshotsZip: screenshotsZipUrl,
-		}),
-		pageId: screenshot.pageId,
-	}));
+	return {
+		screenshots: screenshotMetas.map((screenshot) =>
+			screenshotInfo(
+				screenshot,
+				screenshotUrl(baseUrl, screenshot.file, {
+					screenshotsZip: screenshotsZipUrl,
+				}),
+			),
+		),
+		actions,
+	};
 }
 
 export async function loadScreenshotsZipForTrace(
 	traceId: string,
 	zip: Blob,
-): Promise<ScreenshotInfo[]> {
-	const screenshotMetas = await loadScreenshotsZipInServiceWorker({
+): Promise<LoadedScreenshots> {
+	const { screenshotMetas, actions } = await loadScreenshotsZipInServiceWorker({
 		traceId,
 		zip,
 	});
 	const baseUrl = getTraceViewerApiUrl(traceId);
-	return screenshotMetas.map((screenshot) => ({
-		timestamp: screenshot.timestamp,
-		url: screenshotUrl(baseUrl, screenshot.file),
-		pageId: screenshot.pageId,
-	}));
+	return {
+		screenshots: screenshotMetas.map((screenshot) =>
+			screenshotInfo(screenshot, screenshotUrl(baseUrl, screenshot.file)),
+		),
+		actions,
+	};
 }
 
 function screenshotUrl(

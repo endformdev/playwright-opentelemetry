@@ -13,6 +13,10 @@ interface CreateScreenshotsZipFromOffsetsOptions {
 	pageId?: string;
 	/** Offsets whose frames are plain white, like a page yet to paint */
 	blankOffsetsMs?: number[];
+	/** The page's viewport as the frames were taken; left out of the manifest when absent */
+	viewport?: { width: number; height: number };
+	/** The entries of an actions.json to put in the ZIP */
+	actions?: unknown[];
 }
 
 interface ScreenshotManifestEntry {
@@ -21,6 +25,8 @@ interface ScreenshotManifestEntry {
 	path: string;
 	contentType: string;
 	pageId: string;
+	viewportWidth?: number;
+	viewportHeight?: number;
 }
 
 export async function createScreenshotsZip({
@@ -74,6 +80,8 @@ export async function createScreenshotsZipFromOffsets({
 	screenshotOffsetsMs,
 	pageId: defaultPageId = "context-1-page-1",
 	blankOffsetsMs = [],
+	viewport,
+	actions,
 }: CreateScreenshotsZipFromOffsetsOptions): Promise<Blob> {
 	const blobWriter = new BlobWriter("application/zip");
 	const zipWriter = new ZipWriter(blobWriter);
@@ -93,6 +101,9 @@ export async function createScreenshotsZipFromOffsets({
 			path,
 			contentType: "image/svg+xml",
 			pageId,
+			...(viewport
+				? { viewportWidth: viewport.width, viewportHeight: viewport.height }
+				: {}),
 		});
 		await zipWriter.add(
 			path,
@@ -116,6 +127,13 @@ export async function createScreenshotsZipFromOffsets({
 			}),
 		]).stream(),
 	);
+
+	if (actions) {
+		await zipWriter.add(
+			"actions.json",
+			new Blob([JSON.stringify({ version: 1, actions })]).stream(),
+		);
+	}
 
 	return zipWriter.close();
 }

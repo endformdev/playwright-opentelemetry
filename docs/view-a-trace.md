@@ -23,6 +23,8 @@ The viewer separates the trace into three views that match how you investigate a
 - **Browser spans** for navigation, routes, JavaScript, fonts, images, fetches, and other requests
 - **External spans** for your instrumented application and backend services
 
+The big screenshot marks what the test did at that moment: a dot where a click landed and an outline around the element it was for, an outline around a field that was filled, a line for a drag, and the same in red for an action that failed. A mark is only drawn on a screenshot known to show the element in that place. Once the page has scrolled or moved on, the screenshots that follow carry none.
+
 Console messages and uncaught browser errors appear as span events on the timeline, and the error navigator jumps straight to failing spans and their recorded exceptions.
 
 ![The error navigator jumps straight to the failing span and its recorded exception](assets/error-navigator.png)

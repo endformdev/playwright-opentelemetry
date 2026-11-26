@@ -23,18 +23,28 @@ describe("loading a trace from the remote trace API", () => {
 
 	it("loads trace data, derives test header metadata, and builds screenshot URLs", async () => {
 		const traceId = "7709187832dca84f02f413a312421586";
-		vi.mocked(loadScreenshotsForTrace).mockResolvedValueOnce([
-			{
-				timestamp: 1766927492100,
-				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
-				pageId: "page@abc",
-			},
-			{
-				timestamp: 1766927492300,
-				url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
-				pageId: "page@abc",
-			},
-		]);
+		const action = {
+			pageId: "page@abc",
+			end: 1766927492120,
+			failed: false,
+			method: "click",
+			inputs: [{ time: 1766927492110, point: { x: 10, y: 20 } }],
+		};
+		vi.mocked(loadScreenshotsForTrace).mockResolvedValueOnce({
+			screenshots: [
+				{
+					timestamp: 1766927492100,
+					url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492100.jpeg`,
+					pageId: "page@abc",
+				},
+				{
+					timestamp: 1766927492300,
+					url: `/playwright-otel-trace-viewer/v1/${traceId}/screenshots/page@abc-1766927492300.jpeg`,
+					pageId: "page@abc",
+				},
+			],
+			actions: [action],
+		});
 		const fetchMock = vi.fn(async (url: string) => {
 			if (url === `https://traces.example.com/${traceId}/traces`) {
 				return jsonResponse(otlpExport(traceId));
@@ -78,6 +88,9 @@ describe("loading a trace from the remote trace API", () => {
 				pageId: "page@abc",
 			},
 		]);
+		// The actions come out of the same ZIP, downloaded once.
+		expect(await traceInfo.loadActions()).toEqual([action]);
+		expect(loadScreenshotsForTrace).toHaveBeenCalledTimes(1);
 		expect(loadScreenshotsForTrace).toHaveBeenCalledWith(
 			traceId,
 			`https://traces.example.com/${traceId}/screenshots.zip`,
@@ -106,6 +119,10 @@ describe("loading a trace from the remote trace API", () => {
 		expect(fetchMock).toHaveBeenCalledWith(
 			`https://traces.example.com/${traceId}/traces?traceToken=token%20123`,
 		);
+		vi.mocked(loadScreenshotsForTrace).mockResolvedValueOnce({
+			screenshots: [],
+			actions: [],
+		});
 		await traceInfo.loadScreenshots();
 		expect(loadScreenshotsForTrace).toHaveBeenCalledWith(
 			traceId,
@@ -207,7 +224,10 @@ describe("loading a trace from the remote trace API", () => {
 			vi.mocked(ensureServiceWorker).mockRejectedValueOnce(
 				new Error("Service workers are not available in this page"),
 			);
-			vi.mocked(loadScreenshotsInPage).mockResolvedValueOnce(screenshots);
+			vi.mocked(loadScreenshotsInPage).mockResolvedValueOnce({
+				screenshots,
+				actions: [],
+			});
 			const traceInfo = await loadTrace("comparison");
 
 			await traceInfo.loadScreenshots();
@@ -222,7 +242,10 @@ describe("loading a trace from the remote trace API", () => {
 			vi.mocked(ensureServiceWorker).mockRejectedValueOnce(
 				new Error("Service workers are not available in this page"),
 			);
-			vi.mocked(loadScreenshotsInPage).mockResolvedValueOnce(screenshots);
+			vi.mocked(loadScreenshotsInPage).mockResolvedValueOnce({
+				screenshots,
+				actions: [],
+			});
 			const traceInfo = await loadTrace();
 
 			expect(await traceInfo.loadScreenshots()).toEqual(screenshots);
@@ -239,7 +262,10 @@ describe("loading a trace from the remote trace API", () => {
 			vi.mocked(ensureServiceWorker).mockReturnValueOnce(
 				new Promise(() => undefined),
 			);
-			vi.mocked(loadScreenshotsInPage).mockResolvedValueOnce(screenshots);
+			vi.mocked(loadScreenshotsInPage).mockResolvedValueOnce({
+				screenshots,
+				actions: [],
+			});
 			const traceInfo = await loadTrace();
 
 			const loading = traceInfo.loadScreenshots();

@@ -27,6 +27,8 @@ export interface TraceComparisonOptions {
 export interface ComparisonFrame {
 	/** The same moment in the comparison, relative to its test start */
 	timeMs: number | null;
+	/** That moment in the clock of the comparison's screenshots */
+	atMs: number | null;
 	/** Its frame at that moment, or null without one */
 	screenshot: ScreenshotInfo | null;
 }
@@ -117,15 +119,17 @@ export function useTraceComparison(
 		frame: (primaryTimeMs, primaryPage) => {
 			const mapping = alignment()?.mapping;
 			if (!mapping || primaryTimeMs === null) {
-				return { timeMs: null, screenshot: null };
+				return { timeMs: null, atMs: null, screenshot: null };
 			}
 			const timeMs = mapping.comparisonTimeAt(primaryTimeMs);
 			const page = findCounterpartPage(pages(), primaryPage);
+			const atMs = testStartTimeMs() + timeMs;
 			return {
 				timeMs,
+				atMs,
 				screenshot: findScreenshotAtTime(
 					page?.screenshots ?? screenshots(),
-					testStartTimeMs() + timeMs,
+					atMs,
 				),
 			};
 		},

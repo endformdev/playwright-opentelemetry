@@ -4,6 +4,7 @@ import {
 	onCleanup,
 	type Resource,
 } from "solid-js";
+import type { TraceAction } from "../service-worker/screenshotZip";
 import type { TraceSource } from "../trace-source";
 import type { OtlpExport } from "../trace-data-loader";
 import { loadRemoteApi } from "./traceInfoDataLoaders/apiLoader";
@@ -14,18 +15,25 @@ import {
 	unloadTrace,
 } from "./traceInfoDataLoaders/zipLoader";
 
-export type { TraceSlot };
+export type { TraceAction, TraceSlot };
 
 export interface TraceInfo {
 	testInfo: TestInfo;
 	traceData: OtlpExport;
 	screenshots: Resource<ScreenshotInfo[]>;
+	/**
+	 * Where the test's actions landed on its pages, for highlighting on the
+	 * screenshots. Empty while loading and for traces without any.
+	 */
+	actions?: Resource<TraceAction[]>;
 }
 
 export interface TraceInfoData {
 	testInfo: TestInfo;
 	traceData: OtlpExport;
 	loadScreenshots: () => Promise<ScreenshotInfo[]>;
+	/** Comes with the screenshots; never rejects */
+	loadActions: () => Promise<TraceAction[]>;
 }
 
 export interface TestInfo {
@@ -51,6 +59,12 @@ export interface ScreenshotInfo {
 	timestamp: number;
 	url: string;
 	pageId: string;
+	/**
+	 * The page's viewport in CSS pixels when the frame was taken, if known:
+	 * what maps a place on the page onto the image
+	 */
+	viewportWidth?: number;
+	viewportHeight?: number;
 }
 
 export interface TraceInfoLoaderResult {
@@ -78,6 +92,14 @@ export function useTraceInfoLoader(
 		(loadScreenshots) => loadScreenshots(),
 		{ initialValue: [] },
 	);
+	const [actions] = createResource(
+		() =>
+			traceInfoData.state === "ready"
+				? traceInfoData()?.loadActions
+				: undefined,
+		(loadActions) => loadActions().catch(() => []),
+		{ initialValue: [] },
+	);
 
 	const traceInfo = (): TraceInfo | undefined => {
 		if (traceInfoData.state !== "ready") return undefined;
@@ -87,6 +109,7 @@ export function useTraceInfoLoader(
 			testInfo: data.testInfo,
 			traceData: data.traceData,
 			screenshots,
+			actions,
 		};
 	};
 

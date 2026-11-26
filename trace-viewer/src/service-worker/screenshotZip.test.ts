@@ -1,6 +1,14 @@
 import { BlobWriter, TextReader, ZipWriter } from "@zip.js/zip.js";
 import { describe, expect, it } from "vitest";
-import { extractScreenshots, loadScreenshotMetas } from "./screenshotZip";
+import {
+	extractScreenshots,
+	loadScreenshotsIndex,
+	parseActionsJson,
+} from "./screenshotZip";
+
+async function loadScreenshotMetas(zip: Blob) {
+	return (await loadScreenshotsIndex(zip)).screenshotMetas;
+}
 
 async function zipOf(files: Record<string, string>): Promise<Blob> {
 	const writer = new ZipWriter(new BlobWriter("application/zip"));
@@ -66,6 +74,130 @@ describe("reading screenshot manifests", () => {
 		await expect(loadScreenshotMetas(zip)).rejects.toThrow(
 			"Unsupported screenshot manifest version: 4",
 		);
+	});
+});
+
+describe("reading a frame's viewport", () => {
+	it("keeps the viewport size a frame was taken at", async () => {
+		const sized = { ...screenshot, viewportWidth: 1280, viewportHeight: 720 };
+		const zip = await zipWithManifest({ version: 3, screenshots: [sized] });
+
+		expect(await loadScreenshotMetas(zip)).toEqual([sized]);
+	});
+
+	it.each([
+		["only a width", { viewportWidth: 1280 }],
+		["no area", { viewportWidth: 0, viewportHeight: 720 }],
+		["text", { viewportWidth: "1280", viewportHeight: "720" }],
+	])("leaves out a viewport with %s", async (_, viewport) => {
+		const zip = await zipWithManifest({
+			version: 3,
+			screenshots: [{ ...screenshot, ...viewport }],
+		});
+
+		expect(await loadScreenshotMetas(zip)).toEqual([screenshot]);
+	});
+});
+
+describe("reading actions", () => {
+	const click = {
+		pageId: "page-0",
+		end: 1020,
+		method: "click",
+		inputs: [
+			{
+				time: 1000,
+				point: { x: 50, y: 60 },
+				box: { x: 10, y: 20, width: 100, height: 80 },
+			},
+		],
+		steadySince: 960,
+		steadyUntil: 1500,
+	};
+	const fill = {
+		pageId: "page-0",
+		end: 900,
+		failed: true,
+		method: "fill",
+		inputs: [{ time: 800, box: { x: 1, y: 2, width: 3, height: 4 } }],
+		steadyFrom: 900,
+		steadyUntil: 950,
+	};
+	const manifest = JSON.stringify({ version: 3, screenshots: [screenshot] });
+
+	it("reads actions.json beside the manifest, in time order", async () => {
+		const zip = await zipOf({
+			"manifest.json": manifest,
+			"actions.json": JSON.stringify({ version: 1, actions: [click, fill] }),
+		});
+
+		expect(await loadScreenshotsIndex(zip)).toEqual({
+			screenshotMetas: [screenshot],
+			actions: [fill, { ...click, failed: false }],
+		});
+	});
+
+	it("has no actions without the file", async () => {
+		const zip = await zipOf({ "manifest.json": manifest });
+
+		expect((await loadScreenshotsIndex(zip)).actions).toEqual([]);
+	});
+
+	it.each([
+		["text that isn't JSON", "{ not json"],
+		[
+			"a version it doesn't know",
+			JSON.stringify({ version: 2, actions: [click] }),
+		],
+		["no list of actions", JSON.stringify({ version: 1 })],
+	])("has no actions, and still the screenshots, with %s", async (_, file) => {
+		const zip = await zipOf({
+			"manifest.json": manifest,
+			"actions.json": file,
+		});
+
+		expect(await loadScreenshotsIndex(zip)).toEqual({
+			screenshotMetas: [screenshot],
+			actions: [],
+		});
+	});
+
+	it("leaves out the actions it can't draw and keeps the rest", () => {
+		const actions = parseActionsJson({
+			version: 1,
+			actions: [
+				click,
+				{ ...click, pageId: undefined },
+				{ ...click, inputs: [] },
+				{ ...click, inputs: [{ time: 1000 }] },
+				{ ...click, inputs: [{ point: { x: 1, y: 2 } }] },
+				{
+					...click,
+					inputs: [{ time: 1, box: { x: 1, y: 2, width: -3, height: 4 } }],
+				},
+				{ ...click, end: "later" },
+				null,
+			],
+		});
+
+		expect(actions).toEqual([{ ...click, failed: false }]);
+	});
+
+	it("puts an action's inputs in time order", () => {
+		const [action] = parseActionsJson({
+			version: 1,
+			actions: [
+				{
+					...click,
+					inputs: [
+						{ time: 30, point: { x: 3, y: 3 } },
+						{ time: 10, point: { x: 1, y: 1 } },
+					],
+				},
+			],
+		});
+
+		expect(action.inputs.map((input) => input.time)).toEqual([10, 30]);
 	});
 });
 
