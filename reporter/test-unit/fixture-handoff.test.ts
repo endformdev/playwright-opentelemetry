@@ -72,7 +72,7 @@ describe("fixture handoff files", () => {
 			String(url).endsWith("/screenshots.zip"),
 		)!;
 		expect(upload.headers["x-trace-id"]).toBe(traceContext.traceId);
-		expect(await readScreenshotsZip(upload.body)).toEqual([
+		expect((await readScreenshotsZip(upload.body)).screenshots).toEqual([
 			expect.objectContaining({ pageId: "page-0", timestamp: 1000 }),
 		]);
 		expect(existsSync(fixtureHandoffRoot(outputDir))).toBe(false);
@@ -119,6 +119,72 @@ describe("fixture handoff files", () => {
 		);
 		expect(await zipText(traceZip)).toContain('"name": "browser.page"');
 		expect(existsSync(fixtureHandoffRoot(outputDir))).toBe(false);
+	});
+
+	it("carries the actions the fixture recorded into the upload and the local trace ZIP", async () => {
+		const outputDir = temporaryOutputDir();
+		await leaveTraceContext(outputDir);
+		const actions = {
+			version: 1 as const,
+			actions: [
+				{
+					pageId: "page-0",
+					end: 1010,
+					method: "click",
+					inputs: [
+						{
+							time: 1000,
+							point: { x: 5, y: 6 },
+							box: { x: 1, y: 2, width: 30, height: 40 },
+						},
+					],
+					steadyUntil: 1400,
+				},
+			],
+		};
+		const zip = await createScreenshotsZip(
+			[
+				{
+					pageId: "page-0",
+					timestamp: 1000,
+					file: "page-0-1000.jpeg",
+					contentType: "image/jpeg",
+					blob: new Blob(["frame"]),
+				},
+			],
+			actions,
+		);
+		await leaveFile(
+			outputDir,
+			SCREENSHOTS_HANDOFF_FILE,
+			new Uint8Array(await zip.arrayBuffer()),
+		);
+
+		await runReporterTest({
+			config: { outputDir },
+			playwrightOpentelemetry: {
+				storeTraceZip: true,
+				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+			},
+			test: {
+				id: TEST_ID,
+				title: "handoff test",
+				location: { file: "/tests/handoff.spec.ts", line: 3 },
+			},
+			result: { attachments: [retainedTraceAttachment()] },
+			includeTraceContextAttachment: false,
+		});
+
+		const [, upload] = mockFetch.mock.calls.find(([url]) =>
+			String(url).endsWith("/screenshots.zip"),
+		)!;
+		expect((await readScreenshotsZip(upload.body)).actions).toEqual(actions);
+		const traceZip = new Blob([
+			await fs.readFile(
+				path.join(outputDir, `handoff.spec.ts:3-${TEST_ID}-pw-otel.zip`),
+			),
+		]);
+		expect((await readScreenshotsZip(traceZip)).actions).toEqual(actions);
 	});
 
 	it("deletes what the fixture left for a test it doesn't report", async () => {

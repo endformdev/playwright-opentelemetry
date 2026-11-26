@@ -43,6 +43,7 @@ export default defineConfig<PlaywrightOpentelemetryUseOptions>({
 	reporter: [
 		["./dist/reporter.mjs"],
 		["./test-e2e/request-step-location-reporter.ts"],
+		["./test-e2e/action-highlights-reporter.ts"],
 		...(browserPageSpansTraceIdFile ||
 		browserPageSpansTraceZipPathFile ||
 		errorSpansTraceIdFile ||

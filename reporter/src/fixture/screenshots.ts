@@ -72,6 +72,7 @@ export async function handOffScreenshots(
 					blob: new Blob([await fs.readFile(frame.path)]),
 				})),
 			),
+			capture.actions(),
 		);
 		const zipBytes = new Uint8Array(await zip.arrayBuffer());
 		if (!config.attachFixtureData) {
