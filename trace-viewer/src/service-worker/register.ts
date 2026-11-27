@@ -208,62 +208,45 @@ async function pingServiceWorker(worker: ServiceWorker): Promise<void> {
 export async function loadTraceInServiceWorker(
 	data: TraceLoadData,
 ): Promise<TraceLoadedData> {
-	return withActions(
-		await postServiceWorkerMessage<TraceLoadedData>(
-			{ type: "LOAD_TRACE", data },
-			"TRACE_LOADED",
-			"TRACE_LOAD_ERROR",
-			"Timeout loading trace in service worker",
-		),
+	return postServiceWorkerMessage<TraceLoadedData>(
+		{ type: "LOAD_TRACE", data },
+		"TRACE_LOADED",
+		"TRACE_LOAD_ERROR",
+		"Timeout loading trace in service worker",
 	);
 }
 
 export async function loadTraceZipUrlInServiceWorker(
 	data: TraceZipUrlLoadData,
 ): Promise<TraceLoadedData> {
-	return withActions(
-		await postServiceWorkerMessage<TraceLoadedData>(
-			{ type: "LOAD_TRACE_ZIP_URL", data },
-			"TRACE_LOADED",
-			"TRACE_LOAD_ERROR",
-			"Timeout loading trace ZIP in service worker",
-		),
+	return postServiceWorkerMessage<TraceLoadedData>(
+		{ type: "LOAD_TRACE_ZIP_URL", data },
+		"TRACE_LOADED",
+		"TRACE_LOAD_ERROR",
+		"Timeout loading trace ZIP in service worker",
 	);
 }
 
 export async function loadScreenshotsForTraceInServiceWorker(
 	data: ScreenshotsLoadData,
 ): Promise<ScreenshotsIndex> {
-	return withActions(
-		await postServiceWorkerMessage<ScreenshotsIndex>(
-			{ type: "LOAD_SCREENSHOTS", data },
-			"SCREENSHOTS_LOADED",
-			"SCREENSHOTS_LOAD_ERROR",
-			"Timeout loading screenshots in service worker",
-		),
+	return postServiceWorkerMessage<ScreenshotsIndex>(
+		{ type: "LOAD_SCREENSHOTS", data },
+		"SCREENSHOTS_LOADED",
+		"SCREENSHOTS_LOAD_ERROR",
+		"Timeout loading screenshots in service worker",
 	);
 }
 
 export async function loadScreenshotsZipInServiceWorker(
 	data: ScreenshotsZipLoadData,
 ): Promise<ScreenshotsIndex> {
-	return withActions(
-		await postServiceWorkerMessage<ScreenshotsIndex>(
-			{ type: "LOAD_SCREENSHOTS_ZIP", data },
-			"SCREENSHOTS_LOADED",
-			"SCREENSHOTS_LOAD_ERROR",
-			"Timeout loading screenshots ZIP in service worker",
-		),
+	return postServiceWorkerMessage<ScreenshotsIndex>(
+		{ type: "LOAD_SCREENSHOTS_ZIP", data },
+		"SCREENSHOTS_LOADED",
+		"SCREENSHOTS_LOAD_ERROR",
+		"Timeout loading screenshots ZIP in service worker",
 	);
-}
-
-/**
- * A service worker from before actions were read can still be the one in
- * control: the first load after a deploy is answered by the worker already
- * controlling the page, while the new one installs. It answers without any.
- */
-function withActions<Loaded extends ScreenshotsIndex>(loaded: Loaded): Loaded {
-	return { ...loaded, actions: loaded.actions ?? [] };
 }
 
 async function postServiceWorkerMessage<Data>(
