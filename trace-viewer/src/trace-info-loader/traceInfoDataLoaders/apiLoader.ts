@@ -1,9 +1,13 @@
 import { parseOtlpExport } from "../../trace-data-loader";
 import { deriveTestInfoFromOtlpExport } from "../deriveTestInfo";
-import type { ScreenshotInfo, TraceInfoData } from "../TraceInfoLoader";
+import type { TraceInfoData } from "../TraceInfoLoader";
 import { parseTraceAccessFailure, TraceAccessError } from "../traceAccessError";
 import { loadScreenshotsInPage, type TraceSlot } from "./pageScreenshots";
-import { ensureServiceWorker, loadScreenshotsForTrace } from "./zipLoader";
+import {
+	ensureServiceWorker,
+	type LoadedScreenshots,
+	loadScreenshotsForTrace,
+} from "./zipLoader";
 
 const TRACES_PATH = "traces";
 const SCREENSHOTS_ZIP_PATH = "screenshots.zip";
@@ -39,15 +43,22 @@ export async function loadRemoteApi(
 		traceToken,
 	);
 
+	// The actions come in the screenshots ZIP: one download serves both.
+	let loaded: Promise<LoadedScreenshots> | undefined;
+	const load = () => {
+		loaded ??= loadScreenshotsFromApi({
+			traceId: testInfo.traceId,
+			screenshotsZipUrl,
+			slot,
+		});
+		return loaded;
+	};
+
 	return {
 		testInfo,
 		traceData,
-		loadScreenshots: () =>
-			loadScreenshotsFromApi({
-				traceId: testInfo.traceId,
-				screenshotsZipUrl,
-				slot,
-			}),
+		loadScreenshots: async () => (await load()).screenshots,
+		loadActions: async () => (await load()).actions,
 	};
 }
 
@@ -64,7 +75,7 @@ async function loadScreenshotsFromApi({
 	traceId: string;
 	screenshotsZipUrl: string;
 	slot: TraceSlot;
-}): Promise<ScreenshotInfo[]> {
+}): Promise<LoadedScreenshots> {
 	try {
 		if (await canUseServiceWorker()) {
 			return await loadScreenshotsForTrace(traceId, screenshotsZipUrl);
@@ -74,7 +85,7 @@ async function loadScreenshotsFromApi({
 		console.warn(
 			`Failed to load screenshots ZIP: ${error instanceof Error ? error.message : String(error)}`,
 		);
-		return [];
+		return { screenshots: [], actions: [] };
 	}
 }
 

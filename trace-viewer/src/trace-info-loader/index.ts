@@ -3,6 +3,7 @@ export {
 	type ScreenshotInfo,
 	type TestInfo,
 	type TestStatus,
+	type TraceAction,
 	type TraceInfo,
 	type TraceInfoData,
 	type TraceInfoLoaderResult,

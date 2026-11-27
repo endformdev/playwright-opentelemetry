@@ -266,7 +266,9 @@ describe("Trace API Integration", () => {
 				PLAYWRIGHT_TRACE_API_SOURCE_REPORTER,
 			Authorization: "Bearer test-token",
 		});
-		expect(await readScreenshotsZip(screenshotsCall[1].body)).toEqual([
+		expect(
+			(await readScreenshotsZip(screenshotsCall[1].body)).screenshots,
+		).toEqual([
 			expect.objectContaining({
 				pageId: "page-0",
 				timestamp: 1000,

@@ -6,8 +6,13 @@ import {
 	Show,
 	splitProps,
 } from "solid-js";
-import type { ScreenshotInfo, TestStatus } from "../trace-info-loader";
+import type {
+	ScreenshotInfo,
+	TestStatus,
+	TraceAction,
+} from "../trace-info-loader";
 import { layOutComparison, type ScreenshotSize } from "./comparisonLayout";
+import { ScreenshotWithActions } from "./ScreenshotWithActions";
 import { ScreenshotSkeleton, skeletonPhaseStyle } from "./TraceViewerSkeleton";
 import {
 	PlayerControlBar,
@@ -22,6 +27,8 @@ export interface StepViewerComparison {
 	status: "loading" | "failed" | "ready";
 	testStatus: TestStatus | null;
 	frame: ComparisonFrame;
+	/** Where the comparison's own actions landed, drawn over its own frames */
+	actions: TraceAction[];
 	/** The comparison has loaded and took no screenshots */
 	noScreenshots: boolean;
 	note: ComparisonNote | null;
@@ -32,6 +39,13 @@ export interface StepViewerProps extends Omit<
 	"shownPageId"
 > {
 	screenshot: ScreenshotInfo | null;
+	/**
+	 * The moment the screenshot is on show for, in the screenshots' clock;
+	 * null with no screenshot
+	 */
+	screenshotAtMs: number | null;
+	/** Where the test's actions landed, drawn over its screenshots */
+	actions: TraceAction[];
 	screenshotsLoading: boolean;
 	/** The screenshots have loaded and the test took none */
 	noScreenshots: boolean;
@@ -64,11 +78,11 @@ const COMPARISON_SCALE = 0.85;
 
 /**
  * The player: the big screen, one large screenshot of the current moment in
- * the test with nothing over it, or else a filmstrip of every page; then one
- * bar of controls and the step ruler. Left/Right step through the test body's
- * steps, showing each once it has finished; Home/End jump to the first and
- * last step (see useStepViewer for when the keys apply). Clicking the big
- * screen plays and pauses, as in a video player.
+ * the test with what the test did then marked on it, or else a filmstrip of
+ * every page; then one bar of controls and the step ruler. Left/Right step
+ * through the test body's steps, showing each once it has finished; Home/End
+ * jump to the first and last step (see useStepViewer for when the keys apply).
+ * Clicking the big screen plays and pauses, as in a video player.
  *
  * With a comparison, the big screen shows its screenshot of the same moment
  * on the left, a little smaller, before this run's on the right, each under a
@@ -79,6 +93,8 @@ export function StepViewer(props: StepViewerProps) {
 	const filmstrip = children(() => props.filmstrip);
 	const [, controlBarProps] = splitProps(props, [
 		"screenshot",
+		"screenshotAtMs",
+		"actions",
 		"screenshotsLoading",
 		"noScreenshots",
 		"testStatus",
@@ -90,6 +106,8 @@ export function StepViewer(props: StepViewerProps) {
 	const primaryScreen = (onImageLoad?: (image: HTMLImageElement) => void) => (
 		<PrimaryScreen
 			screenshot={props.screenshot}
+			screenshotAtMs={props.screenshotAtMs}
+			actions={props.actions}
 			screenshotsLoading={props.screenshotsLoading}
 			noScreenshots={props.noScreenshots}
 			onImageLoad={onImageLoad}
@@ -138,6 +156,8 @@ export function StepViewer(props: StepViewerProps) {
 /** This run's screenshot, or what stands in for it while there is none. */
 function PrimaryScreen(props: {
 	screenshot: ScreenshotInfo | null;
+	screenshotAtMs: number | null;
+	actions: TraceAction[];
 	screenshotsLoading: boolean;
 	noScreenshots: boolean;
 	onImageLoad?: (image: HTMLImageElement) => void;
@@ -172,14 +192,12 @@ function PrimaryScreen(props: {
 			}
 		>
 			{(screenshot) => (
-				<img
-					src={screenshot().url}
+				<ScreenshotWithActions
+					screenshot={screenshot()}
+					actions={props.actions}
+					atMs={props.screenshotAtMs ?? screenshot().timestamp}
 					alt={`Step viewer screenshot at ${screenshot().timestamp}`}
-					data-screenshot-timestamp={screenshot().timestamp}
-					data-page-id={screenshot().pageId}
-					class="h-full w-full select-none object-contain drop-shadow-md"
-					draggable={false}
-					onLoad={(event) => props.onImageLoad?.(event.currentTarget)}
+					onImageLoad={props.onImageLoad}
 				/>
 			)}
 		</Show>
@@ -268,13 +286,11 @@ export function ComparisonScreens(props: {
 								}
 							>
 								{(screenshot) => (
-									<img
-										src={screenshot().url}
+									<ScreenshotWithActions
+										screenshot={screenshot()}
+										actions={props.comparison.actions}
+										atMs={frame().atMs ?? screenshot().timestamp}
 										alt={`Comparison screenshot at ${screenshot().timestamp}`}
-										data-screenshot-timestamp={screenshot().timestamp}
-										data-page-id={screenshot().pageId}
-										class="h-full w-full select-none object-contain drop-shadow-md"
-										draggable={false}
 									/>
 								)}
 							</Show>

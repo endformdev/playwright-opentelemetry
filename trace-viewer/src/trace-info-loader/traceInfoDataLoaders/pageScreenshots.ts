@@ -1,4 +1,4 @@
-import type { ScreenshotInfo } from "../TraceInfoLoader";
+import { type LoadedScreenshots, screenshotInfo } from "./zipLoader";
 
 /** Which of the traces on show: the viewer's own, or one compared with it. */
 export type TraceSlot = "primary" | "comparison";
@@ -29,14 +29,14 @@ const slots: Record<TraceSlot, SlotState> = {
 export async function loadScreenshotsInPage(
 	screenshotsZipUrl: string,
 	slot: TraceSlot,
-): Promise<ScreenshotInfo[]> {
+): Promise<LoadedScreenshots> {
 	const state = slots[slot];
 	const generation = ++state.loadGeneration;
 
 	const response = await fetch(screenshotsZipUrl);
 	if (response.status === 404) {
 		publishScreenshotUrls(state, generation, []);
-		return [];
+		return NO_SCREENSHOTS;
 	}
 	if (!response.ok) {
 		// The URL isn't in this message because it can carry a trace token.
@@ -45,29 +45,27 @@ export async function loadScreenshotsInPage(
 
 	// Only this path needs the ZIP code in the page: the service worker has its
 	// own copy. The download carries on while this chunk loads.
-	const { extractScreenshots, loadScreenshotMetas } =
+	const { extractScreenshots, loadScreenshotsIndex } =
 		await import("../../service-worker/screenshotZip");
 	const zip = await response.blob();
-	const screenshotMetas = await loadScreenshotMetas(zip);
+	const { screenshotMetas, actions } = await loadScreenshotsIndex(zip);
 	const blobs = await extractScreenshots(zip, screenshotMetas);
-	if (generation !== state.loadGeneration) return [];
+	if (generation !== state.loadGeneration) return NO_SCREENSHOTS;
 
 	const screenshots = screenshotMetas.flatMap((screenshot) => {
 		const blob = blobs.get(screenshot.file);
 		if (!blob) return [];
-		return {
-			timestamp: screenshot.timestamp,
-			url: URL.createObjectURL(blob),
-			pageId: screenshot.pageId,
-		};
+		return screenshotInfo(screenshot, URL.createObjectURL(blob));
 	});
 	publishScreenshotUrls(
 		state,
 		generation,
 		screenshots.map((screenshot) => screenshot.url),
 	);
-	return screenshots;
+	return { screenshots, actions };
 }
+
+const NO_SCREENSHOTS: LoadedScreenshots = { screenshots: [], actions: [] };
 
 /**
  * Revokes a slot's blob URLs and abandons any load still in progress for it;

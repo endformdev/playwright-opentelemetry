@@ -319,7 +319,7 @@ describe("screenshots handoff", () => {
 				expect(attach).not.toHaveBeenCalled();
 				zip = new Blob([await fs.readFile(handoffFile)]);
 			}
-			expect(await readScreenshotsZip(zip)).toEqual([
+			expect((await readScreenshotsZip(zip)).screenshots).toEqual([
 				expect.objectContaining({
 					pageId: "page-0",
 					timestamp: 1000,
