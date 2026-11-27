@@ -19,14 +19,12 @@ const clickAction: TraceAction = {
 };
 
 describe("findActionOverlay", () => {
-	it("shows an action at full opacity during the call and fades it out over holdMs", () => {
+	it("shows an action at full opacity during the call and fades it out over the hold", () => {
 		expect(findActionOverlay([clickAction], "page-0", 999)).toBeNull();
 		expect(findActionOverlay([clickAction], "page-0", 1000)).toEqual({
 			method: "click",
 			failed: false,
 			opacity: 1,
-			boxOpacity: 1,
-			fadeProgress: 0,
 			point: { x: 100, y: 50 },
 			box: { x: 40, y: 30, width: 120, height: 40 },
 		});
@@ -43,15 +41,14 @@ describe("findActionOverlay", () => {
 		).toBeNull();
 	});
 
-	it("fades the element box out faster than the click point on successful pointer actions", () => {
-		const midBox = findActionOverlay(
+	it("drops the element box before the click point on successful pointer actions", () => {
+		const withBox = findActionOverlay(
 			[clickAction],
 			"page-0",
-			1050 + POINTER_BOX_HOLD_MS / 2,
+			1050 + POINTER_BOX_HOLD_MS - 1,
 		);
-		expect(midBox?.box).toEqual(clickAction.box);
-		expect(midBox?.boxOpacity).toBeCloseTo(0.25);
-		expect(midBox?.opacity).toBeGreaterThan(0.9);
+		expect(withBox?.box).toEqual(clickAction.box);
+		expect(withBox?.opacity).toBeGreaterThan(0.9);
 
 		const afterBox = findActionOverlay(
 			[clickAction],
@@ -59,7 +56,6 @@ describe("findActionOverlay", () => {
 			1050 + POINTER_BOX_HOLD_MS,
 		);
 		expect(afterBox?.box).toBeUndefined();
-		expect(afterBox?.boxOpacity).toBe(0);
 		expect(afterBox?.point).toEqual(clickAction.point);
 		expect(afterBox?.opacity).toBeGreaterThan(0.9);
 	});
@@ -78,11 +74,9 @@ describe("findActionOverlay", () => {
 
 		const fillOverlay = findActionOverlay([fill], "page-0", at);
 		expect(fillOverlay?.box).toEqual(fill.box);
-		expect(fillOverlay?.boxOpacity).toBe(fillOverlay?.opacity);
 
 		const failedOverlay = findActionOverlay([failedClick], "page-0", at);
 		expect(failedOverlay?.box).toEqual(clickAction.box);
-		expect(failedOverlay?.boxOpacity).toBe(failedOverlay?.opacity);
 	});
 
 	it("immediately replaces an earlier action when a newer one starts on the same page", () => {
@@ -104,8 +98,6 @@ describe("findActionOverlay", () => {
 			method: "fill",
 			failed: false,
 			opacity: 1,
-			boxOpacity: 1,
-			fadeProgress: 0,
 			box: { x: 10, y: 10, width: 200, height: 30 },
 		});
 	});
@@ -142,8 +134,6 @@ describe("findActionOverlay", () => {
 			method: "dragAndDrop",
 			failed: true,
 			opacity: 1,
-			boxOpacity: 0,
-			fadeProgress: 0,
 			point: { x: 200, y: 150 },
 			dragFrom: { x: 20, y: 30 },
 		});
@@ -196,8 +186,6 @@ describe("placeActionOverlay", () => {
 					method: "dragAndDrop",
 					failed: false,
 					opacity: 0.8,
-					boxOpacity: 0.4,
-					fadeProgress: 0.2,
 					point: { x: 400, y: 200 },
 					dragFrom: { x: 100, y: 50 },
 					box: { x: 300, y: 160, width: 200, height: 80 },
@@ -209,8 +197,6 @@ describe("placeActionOverlay", () => {
 			method: "dragAndDrop",
 			failed: false,
 			opacity: 0.8,
-			boxOpacity: 0.4,
-			fadeProgress: 0.2,
 			point: { x: 200, y: 100 },
 			dragFrom: { x: 50, y: 25 },
 			box: { x: 150, y: 80, width: 100, height: 40 },
@@ -224,8 +210,6 @@ describe("placeActionOverlay", () => {
 					method: "click",
 					failed: false,
 					opacity: 1,
-					boxOpacity: 0,
-					fadeProgress: 0,
 					point: { x: 100, y: 100 },
 				},
 				{ width: 1280, height: 720 },
@@ -241,8 +225,6 @@ describe("placeActionOverlay", () => {
 					method: "click",
 					failed: false,
 					opacity: 1,
-					boxOpacity: 1,
-					fadeProgress: 0,
 					point: { x: 1500, y: 100 },
 					box: { x: 1400, y: 50, width: 100, height: 40 },
 				},
@@ -257,8 +239,6 @@ describe("placeActionOverlay", () => {
 					method: "fill",
 					failed: false,
 					opacity: 1,
-					boxOpacity: 1,
-					fadeProgress: 0,
 					box: { x: -20, y: 100, width: 60, height: 40 },
 				},
 				viewport,
@@ -268,8 +248,6 @@ describe("placeActionOverlay", () => {
 			method: "fill",
 			failed: false,
 			opacity: 1,
-			boxOpacity: 1,
-			fadeProgress: 0,
 			box: { x: -10, y: 50, width: 30, height: 20 },
 		});
 	});

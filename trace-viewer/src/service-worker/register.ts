@@ -259,7 +259,8 @@ export async function loadScreenshotsZipInServiceWorker(
 
 /**
  * A service worker from before actions were read can still be the one in
- * control: it answers without any.
+ * control: the first load after a deploy is answered by the worker already
+ * controlling the page, while the new one installs. It answers without any.
  */
 function withActions<Loaded extends ScreenshotsIndex>(loaded: Loaded): Loaded {
 	return { ...loaded, actions: loaded.actions ?? [] };

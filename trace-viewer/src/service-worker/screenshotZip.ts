@@ -127,6 +127,9 @@ async function parseActions(entries: Entry[]): Promise<TraceAction[]> {
 /**
  * The actions of a parsed actions.json, ordered by start time, without any
  * that aren't in the shape of version 1. Nothing from any other file.
+ *
+ * The reporter reads the same file with `parseActionsFile` in
+ * reporter/src/shared/screenshots-zip.ts: change the two together.
  */
 export function parseActionsJson(value: unknown): TraceAction[] {
 	if (

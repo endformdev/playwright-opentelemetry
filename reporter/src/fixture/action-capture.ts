@@ -50,24 +50,17 @@ interface OpenCall {
 }
 
 /**
- * Records what each input action did and when it ran (`start`..`end`).
- * Nothing here blocks Playwright's calls.
+ * Records what each input action did and when it ran, from its first input
+ * (`start`) to the end of its call (`end`). Nothing here blocks Playwright's
+ * calls.
  */
 export class ActionRecorder {
-	private readonly callStarts = new Map<string, number>();
 	private readonly open = new Map<string, OpenCall>();
 	private readonly ended: OpenCall[] = [];
 	private readonly pending = new Set<Promise<void>>();
 	private stopped = false;
 
 	constructor(private readonly now: () => number = () => Date.now()) {}
-
-	/** Playwright has begun a call; recorded so actions span the full step. */
-	callStarted(callId: string): void {
-		if (!this.stopped && !this.callStarts.has(callId)) {
-			this.callStarts.set(callId, this.now());
-		}
-	}
 
 	/** Playwright is about to send input for a call; fires again on each retry. */
 	input(event: ActionInputEvent): void {
@@ -86,7 +79,9 @@ export class ActionRecorder {
 				id: event.callId,
 				pageId: event.pageId,
 				method: event.method,
-				start: this.callStarts.get(event.callId) ?? this.now(),
+				// Not when the call began: it may wait a long time for its element,
+				// and nothing has happened where its input lands until it's sent.
+				start: this.now(),
 				failed: false,
 				boxInChildFrame: false,
 				inputCount: 0,
@@ -111,7 +106,6 @@ export class ActionRecorder {
 	}
 
 	callEnded(callId: string, failed: boolean): void {
-		this.callStarts.delete(callId);
 		const call = this.open.get(callId);
 		if (!call || this.stopped) {
 			return;
@@ -155,7 +149,6 @@ export class ActionRecorder {
 	 */
 	async finish(): Promise<RecordedAction[]> {
 		this.stopped = true;
-		this.callStarts.clear();
 		for (const call of this.open.values()) {
 			call.element?.release();
 			call.element = undefined;
@@ -250,7 +243,7 @@ export function parseServerCall(args: unknown[]): ServerCall | undefined {
 }
 
 type ServerListener = Record<
-	"onBeforeCall" | "onBeforeInputAction" | "onAfterCall",
+	"onBeforeInputAction" | "onAfterCall",
 	(...args: unknown[]) => Promise<void>
 >;
 
@@ -367,11 +360,6 @@ export class ActionCapture {
 				return DONE;
 			};
 		return {
-			onBeforeCall: listen((call) => {
-				if (!call.internal && this.pageIdOf(call)) {
-					this.recorder.callStarted(call.id);
-				}
-			}),
 			onBeforeInputAction: listen((call, args) => {
 				this.recordInput(call, args[2], args[3]);
 			}),

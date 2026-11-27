@@ -92,10 +92,6 @@ export function ScreenshotWithActions(props: {
 						drawn().overlay.failed ? FAILED_COLOR : ACTION_COLOR;
 					const hasPointer = () =>
 						Boolean(drawn().overlay.point) && !drawn().overlay.failed;
-					const rippleRadius = () => {
-						const p = drawn().overlay.fadeProgress;
-						return 10 + (1 - (1 - p) * (1 - p)) * 6;
-					};
 					return (
 						<svg
 							class="pointer-events-none absolute overflow-hidden"
@@ -115,7 +111,7 @@ export function ScreenshotWithActions(props: {
 								{(box) => (
 									<g
 										data-testid="action-overlay-box"
-										opacity={drawn().overlay.boxOpacity}
+										opacity={drawn().overlay.opacity}
 									>
 										<rect
 											x={box().x}
@@ -184,28 +180,13 @@ export function ScreenshotWithActions(props: {
 											)}
 										</Show>
 										<g data-testid="action-overlay-point">
-											<Show
-												when={!drawn().overlay.failed}
-												fallback={
-													<circle
-														cx={point().x}
-														cy={point().y}
-														r="12"
-														fill={color()}
-														fill-opacity="0.18"
-													/>
-												}
-											>
-												<circle
-													cx={point().x}
-													cy={point().y}
-													r={rippleRadius()}
-													fill={color()}
-													fill-opacity={
-														0.18 * (1 - drawn().overlay.fadeProgress * 0.6)
-													}
-												/>
-											</Show>
+											<circle
+												cx={point().x}
+												cy={point().y}
+												r="12"
+												fill={color()}
+												fill-opacity="0.18"
+											/>
 											<Show
 												when={drawn().overlay.failed}
 												fallback={

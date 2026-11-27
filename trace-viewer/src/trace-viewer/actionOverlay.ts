@@ -18,18 +18,16 @@ export interface Size {
 }
 
 /**
- * How long an action's mark fades out after the call ends, unless another
- * action on the same page replaces it. Letting it fade smoothly keeps fast
- * clicks and fills legible during playback and reads naturally when the page
- * navigates or updates right after a click.
+ * How long an action's mark fades out after its call ends, unless a newer
+ * action on the same page replaces it. Long enough to read a fast click or
+ * fill during playback.
  */
-export const ACTION_HOLD_MS = 500;
+export const ACTION_HOLD_MS = 750;
 
 /**
- * How long the target element's box lingers after a successful pointer action
- * (click, drag, hover). Because a click often dismisses a modal or navigates
- * immediately, the box fades away quickly while the click ripple lingers a bit
- * longer to show where the click landed.
+ * How long the element's box stays after a pointer action (click, drag,
+ * hover) succeeds. A click often closes a dialog or navigates straight away,
+ * so the box goes quickly while the point stays to show where it landed.
  */
 export const POINTER_BOX_HOLD_MS = 120;
 
@@ -41,12 +39,8 @@ export interface ActionOverlay {
 	/** Playwright's call name, such as "click" or "fill" */
 	method: string;
 	failed: boolean;
-	/** Overall opacity (0..1): 1 during the call, fading out across the hold window */
+	/** 1 until the call ends, then fading to 0 over the hold */
 	opacity: number;
-	/** Element box opacity (0..1): fades faster than the point on successful pointer actions */
-	boxOpacity: number;
-	/** 0 during the call, rising linearly to 1 across the post-action hold window */
-	fadeProgress: number;
 	/** Where pointer input landed */
 	point?: Point;
 	/** The element the input was for */
@@ -57,59 +51,37 @@ export interface ActionOverlay {
 
 /**
  * Picks the action to draw for `pageId` at `atMs`: the latest action on that
- * page whose `start` has been reached, fading out over `holdMs` after `end`.
+ * page whose `start` has been reached, fading out over `ACTION_HOLD_MS` after
+ * its `end`.
  * Any newer action on the same page replaces the one before it.
  *
+ * @param actions Ordered by start time
  * @param atMs The moment on display, in the screenshots' clock
  */
 export function findActionOverlay(
 	actions: TraceAction[],
 	pageId: string,
 	atMs: number,
-	holdMs = ACTION_HOLD_MS,
 ): ActionOverlay | null {
 	let action: TraceAction | undefined;
 	for (const candidate of actions) {
-		if (
-			candidate.pageId === pageId &&
-			candidate.start <= atMs &&
-			(!action || candidate.start >= action.start)
-		) {
-			action = candidate;
-		}
+		if (candidate.start > atMs) break;
+		if (candidate.pageId === pageId) action = candidate;
 	}
 	if (!action) return null;
 	const afterMs = Math.max(0, atMs - action.end);
-	if (afterMs > 0 && afterMs >= holdMs) {
-		return null;
-	}
+	if (afterMs >= ACTION_HOLD_MS) return null;
 
-	// Ease-out fade: stays clear right after a fast call, then melts away.
-	const fadeProgress = afterMs > 0 && holdMs > 0 ? afterMs / holdMs : 0;
-	const opacity = 1 - fadeProgress * fadeProgress;
-
-	let box = action.box;
-	let boxOpacity = box ? opacity : 0;
-	if (box && action.point && !action.failed && afterMs > 0) {
-		const boxHoldMs = Math.min(holdMs, POINTER_BOX_HOLD_MS);
-		if (afterMs >= boxHoldMs) {
-			box = undefined;
-			boxOpacity = 0;
-		} else {
-			// Ease-in fade: steps back quickly once the click finishes.
-			const remaining = 1 - afterMs / boxHoldMs;
-			boxOpacity = remaining * remaining;
-		}
-	}
-
+	// Ease out: stays clear just after a fast call, then melts away.
+	const fade = afterMs / ACTION_HOLD_MS;
+	const keepBox =
+		!action.point || action.failed || afterMs < POINTER_BOX_HOLD_MS;
 	return {
 		method: action.method,
 		failed: action.failed,
-		opacity,
-		boxOpacity,
-		fadeProgress,
+		opacity: 1 - fade * fade,
 		...(action.point ? { point: action.point } : {}),
-		...(box ? { box } : {}),
+		...(action.box && keepBox ? { box: action.box } : {}),
 		...(action.dragFrom && action.point ? { dragFrom: action.dragFrom } : {}),
 	};
 }
@@ -198,8 +170,6 @@ export function placeActionOverlay(
 		method: overlay.method,
 		failed: overlay.failed,
 		opacity: overlay.opacity,
-		boxOpacity: box ? overlay.boxOpacity : 0,
-		fadeProgress: overlay.fadeProgress,
 		...(point ? { point } : {}),
 		...(box ? { box } : {}),
 		...(dragFrom ? { dragFrom } : {}),

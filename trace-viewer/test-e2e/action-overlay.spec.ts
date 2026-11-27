@@ -51,7 +51,7 @@ async function createRun(
 	//   1/4 @ 1149ms (59ms after click -> both box and point visible)
 	//   2/4 @ 1499ms (259ms after fill -> fill box visible)
 	//   3/4 @ 1799ms (209ms after failed click -> failed box + cross visible)
-	//   4/4 @ 2499ms (909ms after failed click -> past 500ms hold, no mark)
+	//   4/4 @ 2499ms (909ms after failed click -> past 750ms hold, no mark)
 	step("Click", 1000);
 	step("Fill", 1150);
 	step("Click", 1500);

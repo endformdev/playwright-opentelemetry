@@ -1,5 +1,6 @@
 import {
 	createResource,
+	type InitializedResource,
 	type Accessor,
 	onCleanup,
 	type Resource,
@@ -25,7 +26,7 @@ export interface TraceInfo {
 	 * Where the test's actions landed on its pages, for highlighting on the
 	 * screenshots. Empty while loading and for traces without any.
 	 */
-	actions?: Resource<TraceAction[]>;
+	actions: InitializedResource<TraceAction[]>;
 }
 
 export interface TraceInfoData {

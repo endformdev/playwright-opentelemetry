@@ -8,12 +8,10 @@ import {
 } from "../src/fixture/action-capture";
 
 describe("ActionRecorder", () => {
-	it("records a pointer click with start, end, point, and box", async () => {
-		let now = 960;
+	it("records a pointer click from its input to its end, with point and box", async () => {
+		let now = 1000;
 		const recorder = new ActionRecorder(() => now);
 
-		recorder.callStarted("call@1");
-		now = 1000;
 		recorder.input({
 			callId: "call@1",
 			pageId: "page-0",
@@ -27,7 +25,7 @@ describe("ActionRecorder", () => {
 		expect(await recorder.finish()).toEqual([
 			{
 				pageId: "page-0",
-				start: 960,
+				start: 1000,
 				end: 1035,
 				method: "click",
 				point: { x: 100.46, y: 50.12 },

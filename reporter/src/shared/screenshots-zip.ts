@@ -71,7 +71,7 @@ export interface ActionBox {
 export interface RecordedAction {
 	/** Same as the screenshots' pageId and the browser.page.id span attribute */
 	pageId: string;
-	/** Epoch ms when the action's input began (first attempt) */
+	/** Epoch ms when the action first sent input (its first attempt's) */
 	start: number;
 	/** Epoch ms when the action call ended */
 	end: number;
@@ -220,6 +220,9 @@ async function readActions(
 /**
  * The actions of a parsed `actions.json`, without any that aren't in the
  * shape this version writes; undefined for another version or shape of file.
+ *
+ * The trace viewer reads the same file with `parseActionsJson` in
+ * trace-viewer/src/service-worker/screenshotZip.ts: change the two together.
  */
 export function parseActionsFile(value: unknown): ActionsFile | undefined {
 	if (
