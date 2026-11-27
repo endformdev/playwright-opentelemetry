@@ -72,10 +72,72 @@ describe("fixture handoff files", () => {
 			String(url).endsWith("/screenshots.zip"),
 		)!;
 		expect(upload.headers["x-trace-id"]).toBe(traceContext.traceId);
-		expect(await readScreenshotsZip(upload.body)).toEqual([
+		expect((await readScreenshotsZip(upload.body)).screenshots).toEqual([
 			expect.objectContaining({ pageId: "page-0", timestamp: 1000 }),
 		]);
 		expect(existsSync(fixtureHandoffRoot(outputDir))).toBe(false);
+	});
+
+	it("forwards actions.json from the handoff ZIP to the Trace API and local trace ZIP", async () => {
+		const outputDir = temporaryOutputDir();
+		await leaveTraceContext(outputDir);
+		const actions = {
+			version: 1 as const,
+			actions: [
+				{
+					pageId: "page-0",
+					start: 1010,
+					end: 1040,
+					method: "click",
+					point: { x: 100, y: 50 },
+					box: { x: 40, y: 30, width: 120, height: 40 },
+				},
+			],
+		};
+		const screenshotsZip = await createScreenshotsZip(
+			[
+				{
+					pageId: "page-0",
+					timestamp: 1000,
+					file: "page-0-1000.jpeg",
+					contentType: "image/jpeg",
+					blob: new Blob(["jpeg-bytes"]),
+				},
+			],
+			actions,
+		);
+		await leaveFile(
+			outputDir,
+			SCREENSHOTS_HANDOFF_FILE,
+			new Uint8Array(await screenshotsZip.arrayBuffer()),
+		);
+
+		await runReporterTest({
+			config: { outputDir },
+			playwrightOpentelemetry: {
+				playwrightTraceApiEndpoint: { url: "https://traces.example.com" },
+				storeTraceZip: true,
+			},
+			test: {
+				id: TEST_ID,
+				title: "handoff test",
+				location: { file: "/tests/handoff.spec.ts", line: 3 },
+			},
+			result: { attachments: [retainedTraceAttachment()] },
+			includeTraceContextAttachment: false,
+		});
+
+		const [, upload] = mockFetch.mock.calls.find(([url]) =>
+			String(url).endsWith("/screenshots.zip"),
+		)!;
+		expect((await readScreenshotsZip(upload.body)).actions).toEqual(actions);
+
+		const localZip = new Blob([
+			await fs.readFile(
+				path.join(outputDir, `handoff.spec.ts:3-${TEST_ID}-pw-otel.zip`),
+			),
+		]);
+		expect((await readScreenshotsZip(localZip)).actions).toEqual(actions);
 	});
 
 	it("puts the fixture spans it left in the local trace ZIP", async () => {

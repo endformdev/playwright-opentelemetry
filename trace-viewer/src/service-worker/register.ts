@@ -1,6 +1,6 @@
 import { getBasePath, resolveBasePath } from "../basePath";
 import type { OtlpExport } from "../trace-data-loader";
-import type { ScreenshotMeta } from "./screenshotZip";
+import type { ScreenshotsIndex } from "./screenshotZip";
 
 export interface ServiceWorkerState {
 	registration: ServiceWorkerRegistration | null;
@@ -30,10 +30,9 @@ export interface ScreenshotsLoadData {
 	screenshotsZipUrl: string;
 }
 
-export interface TraceLoadedData {
+export interface TraceLoadedData extends ScreenshotsIndex {
 	traceId: string;
 	traceData: OtlpExport;
-	screenshotMetas: ScreenshotMeta[];
 }
 
 export type ServiceWorkerMessage =
@@ -60,7 +59,7 @@ export type ServiceWorkerMessage =
 
 export type ServiceWorkerResponse =
 	| { type: "TRACE_LOADED"; data: TraceLoadedData }
-	| { type: "SCREENSHOTS_LOADED"; data: { screenshotMetas: ScreenshotMeta[] } }
+	| { type: "SCREENSHOTS_LOADED"; data: ScreenshotsIndex }
 	| { type: "TRACE_LOAD_ERROR"; error: string }
 	| { type: "SCREENSHOTS_LOAD_ERROR"; error: string }
 	| { type: "PONG" };
@@ -230,30 +229,24 @@ export async function loadTraceZipUrlInServiceWorker(
 
 export async function loadScreenshotsForTraceInServiceWorker(
 	data: ScreenshotsLoadData,
-): Promise<ScreenshotMeta[]> {
-	const result = await postServiceWorkerMessage<{
-		screenshotMetas: ScreenshotMeta[];
-	}>(
+): Promise<ScreenshotsIndex> {
+	return postServiceWorkerMessage<ScreenshotsIndex>(
 		{ type: "LOAD_SCREENSHOTS", data },
 		"SCREENSHOTS_LOADED",
 		"SCREENSHOTS_LOAD_ERROR",
 		"Timeout loading screenshots in service worker",
 	);
-	return result.screenshotMetas;
 }
 
 export async function loadScreenshotsZipInServiceWorker(
 	data: ScreenshotsZipLoadData,
-): Promise<ScreenshotMeta[]> {
-	const result = await postServiceWorkerMessage<{
-		screenshotMetas: ScreenshotMeta[];
-	}>(
+): Promise<ScreenshotsIndex> {
+	return postServiceWorkerMessage<ScreenshotsIndex>(
 		{ type: "LOAD_SCREENSHOTS_ZIP", data },
 		"SCREENSHOTS_LOADED",
 		"SCREENSHOTS_LOAD_ERROR",
 		"Timeout loading screenshots ZIP in service worker",
 	);
-	return result.screenshotMetas;
 }
 
 async function postServiceWorkerMessage<Data>(

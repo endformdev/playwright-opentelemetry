@@ -15,7 +15,8 @@ When `storeTraceZip: true` and Playwright retained a trace for the test, a local
 {file.spec}:{linenumber}-{testId}-pw-otel.zip
 - traces/
   - playwright-opentelemetry.json <-- the OTLP request body of all trace data collected by the reporter related to this test. Test metadata is stored on the root `playwright.test` span.
-- manifest.json <-- screenshot metadata with timestamps and ZIP paths
+- manifest.json <-- screenshot metadata with timestamps, ZIP paths, and optional viewport CSS dimensions
+- actions.json <-- optional: version 1 list of recorded page actions (`pageId`, `start`, `end`, `method`, and viewport CSS `point`, `box`, `dragFrom`, `failed`)
 - screenshots/ <-- the screenshots captured during the test run
   - {pageId}-{timestamp}.jpeg <-- pageId matches the page's `browser.page.id` span attribute
 ```
@@ -27,7 +28,7 @@ The trace viewer can also load traces from a trace-specific API base URL, for ex
 - `GET {baseUrl}/traces` - merged OTLP trace export response
   - Response format `{ "resourceSpans": [...] }`
   - Returns `404` when the trace does not exist
-- `GET {baseUrl}/screenshots.zip` - ZIP containing root `manifest.json` and `screenshots/*`, or `404` when there are no screenshots
+- `GET {baseUrl}/screenshots.zip` - ZIP containing root `manifest.json`, optional `actions.json`, and `screenshots/*`, or `404` when there are no screenshots
 
 Reporter step spans in Before Hooks carry `playwright.test.phase: "before"`; spans in After Hooks and Worker Cleanup carry `playwright.test.phase: "after"`. This custom attribute is inherited by nested hooks, fixtures, and steps. Test-body steps and the root test span omit it.
 

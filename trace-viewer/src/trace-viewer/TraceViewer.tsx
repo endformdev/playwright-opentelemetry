@@ -432,6 +432,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 						: "loading",
 			testStatus: info?.testInfo.status ?? null,
 			frame: comparison.frame(stepViewer.shownTimeMs(), shownPage),
+			actions: info?.actions() ?? [],
 			noScreenshots: ready && (info?.screenshots() ?? []).length === 0,
 			note: ready ? comparison.note(frameStepId) : null,
 		};
@@ -863,10 +864,18 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 		</div>
 	);
 
+	/** The moment the big screenshot is on show for, in the screenshots' clock */
+	const screenshotAtMs = () => {
+		const shownTimeMs = stepViewer.shownTimeMs();
+		return shownTimeMs === null ? null : props.testStartTimeMs() + shownTimeMs;
+	};
+
 	const StepViewerContent = () => (
 		<StepViewer
 			ref={stepViewer.ref}
 			screenshot={stepViewer.screenshot()}
+			screenshotAtMs={screenshotAtMs()}
+			actions={props.traceInfo.actions()}
 			screenshotsLoading={
 				props.traceInfo.screenshots.loading || stepViewer.screenshotPending()
 			}

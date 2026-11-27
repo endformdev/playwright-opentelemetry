@@ -4,6 +4,7 @@ import type { TestCase } from "@playwright/test/reporter";
 import { BlobWriter, ZipWriter } from "@zip.js/zip.js";
 import type { Span } from "../shared/otel";
 import {
+	type ActionsFile,
 	addScreenshotsToZip,
 	type ScreenshotResource,
 } from "../shared/screenshots-zip";
@@ -30,6 +31,8 @@ export interface CreateTraceZipOptions {
 	playwrightVersion: string;
 	/** Screenshots the fixture captured for this test */
 	screenshots: ScreenshotResource[];
+	/** Where the test's actions landed on its pages, when recorded */
+	actions?: ActionsFile;
 }
 
 export type CreateTraceZipBlobOptions = Omit<
@@ -50,7 +53,8 @@ export async function createTraceZip(
 export async function createTraceZipBlob(
 	options: CreateTraceZipBlobOptions,
 ): Promise<Blob> {
-	const { spans, fixtureSpans, playwrightVersion, screenshots } = options;
+	const { spans, fixtureSpans, playwrightVersion, screenshots, actions } =
+		options;
 
 	// Build OTLP request JSON
 	const otlpRequest = buildOtlpRequest(spans, playwrightVersion);
@@ -77,7 +81,7 @@ export async function createTraceZipBlob(
 		);
 	}
 
-	await addScreenshotsToZip(zipWriter, screenshots);
+	await addScreenshotsToZip(zipWriter, screenshots, actions);
 
 	return zipWriter.close();
 }

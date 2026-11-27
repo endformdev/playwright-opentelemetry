@@ -414,7 +414,7 @@ describe("reporter screenshots before Playwright 1.61", () => {
 				"https://traces.example.com/playwright-otel-reporter/v1/screenshots.zip",
 		);
 		// No request means there were no screenshots to upload.
-		return call ? readScreenshotsZip(call[1].body) : null;
+		return call ? (await readScreenshotsZip(call[1].body)).screenshots : null;
 	}
 
 	it("reads screenshots from Playwright's trace", async () => {

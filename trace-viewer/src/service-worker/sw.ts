@@ -17,18 +17,19 @@ import {
 import {
 	extractScreenshots,
 	isFileEntry,
-	loadScreenshotMetas,
+	loadScreenshotsIndex,
 	openZip,
-	parseScreenshotManifest,
+	parseScreenshotsIndex,
 	type ScreenshotMeta,
+	type ScreenshotsIndex,
+	type TraceAction,
 } from "./screenshotZip";
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
-interface ZipLoadResult {
+interface ZipLoadResult extends ScreenshotsIndex {
 	traceId: string;
 	traceData: OtlpExport;
-	screenshotMetas: ScreenshotMeta[];
 }
 
 interface LoadedTrace {
@@ -38,6 +39,7 @@ interface LoadedTrace {
 	screenshotBlobs: Map<string, Blob>;
 	screenshotLoads: Map<string, Promise<Blob>>;
 	screenshotMetas: ScreenshotMeta[];
+	actions: TraceAction[];
 }
 
 type LoadedScreenshots = LoadedTrace;
@@ -127,14 +129,7 @@ async function loadTrace(
 ): Promise<void> {
 	try {
 		const result = await loadZip(zip);
-		const loadedTrace = {
-			traceId: result.traceId,
-			zip,
-			screenshotMetasByFile: metasByFile(result.screenshotMetas),
-			screenshotBlobs: new Map(),
-			screenshotLoads: new Map(),
-			screenshotMetas: result.screenshotMetas,
-		};
+		const loadedTrace = loadedScreenshotsFromIndex(result.traceId, zip, result);
 		currentTrace = loadedTrace;
 		if (sourceId) {
 			loadedScreenshotsBySource.set(
@@ -150,6 +145,7 @@ async function loadTrace(
 				traceId: result.traceId,
 				traceData: result.traceData,
 				screenshotMetas: result.screenshotMetas,
+				actions: result.actions,
 			},
 		});
 	} catch (error) {
@@ -177,6 +173,7 @@ async function loadTraceZipUrl(
 				traceId: result.traceId,
 				traceData: result.traceData,
 				screenshotMetas: loadedTrace.screenshotMetas,
+				actions: loadedTrace.actions,
 			},
 		});
 	} catch (error) {
@@ -203,7 +200,10 @@ async function loadScreenshotsUrl(
 		client?.postMessage({
 			requestId,
 			type: "SCREENSHOTS_LOADED",
-			data: { screenshotMetas: loadedScreenshots.screenshotMetas },
+			data: {
+				screenshotMetas: loadedScreenshots.screenshotMetas,
+				actions: loadedScreenshots.actions,
+			},
 		});
 	} catch (error) {
 		client?.postMessage({
@@ -222,15 +222,7 @@ async function loadScreenshotsZip(
 	requestId?: string,
 ): Promise<void> {
 	try {
-		const screenshotMetas = await loadScreenshotMetas(zip);
-		const loadedScreenshots = {
-			traceId,
-			zip,
-			screenshotMetasByFile: metasByFile(screenshotMetas),
-			screenshotBlobs: new Map(),
-			screenshotLoads: new Map(),
-			screenshotMetas,
-		};
+		const loadedScreenshots = await loadScreenshotsFromZip(traceId, zip);
 		currentTrace = loadedScreenshots;
 		if (sourceId) {
 			loadedScreenshotsBySource.set(
@@ -242,7 +234,10 @@ async function loadScreenshotsZip(
 		client?.postMessage({
 			requestId,
 			type: "SCREENSHOTS_LOADED",
-			data: { screenshotMetas },
+			data: {
+				screenshotMetas: loadedScreenshots.screenshotMetas,
+				actions: loadedScreenshots.actions,
+			},
 		});
 	} catch (error) {
 		client?.postMessage({
@@ -376,11 +371,7 @@ function getOrLoadZipScreenshots(zipUrl: string): Promise<LoadedScreenshots> {
 		.then(async (zip) => {
 			if (!zip) throw new Error(`Trace ZIP not found: ${zipUrl}`);
 			const result = await loadZip(zip);
-			return loadedScreenshotsFromMetas(
-				result.traceId,
-				zip,
-				result.screenshotMetas,
-			);
+			return loadedScreenshotsFromIndex(result.traceId, zip, result);
 		})
 		.catch((error) => {
 			loadedScreenshotsBySource.delete(key);
@@ -401,10 +392,10 @@ async function fetchZip(url: string): Promise<Blob | undefined> {
 }
 
 function missingScreenshots(traceId: string): LoadedScreenshots {
-	return loadedScreenshotsFromMetas(
+	return loadedScreenshotsFromIndex(
 		traceId,
 		new Blob([], { type: "application/zip" }),
-		[],
+		{ screenshotMetas: [], actions: [] },
 	);
 }
 
@@ -412,17 +403,17 @@ async function loadScreenshotsFromZip(
 	traceId: string,
 	zip: Blob,
 ): Promise<LoadedScreenshots> {
-	return loadedScreenshotsFromMetas(
+	return loadedScreenshotsFromIndex(
 		traceId,
 		zip,
-		await loadScreenshotMetas(zip),
+		await loadScreenshotsIndex(zip),
 	);
 }
 
-function loadedScreenshotsFromMetas(
+function loadedScreenshotsFromIndex(
 	traceId: string,
 	zip: Blob,
-	screenshotMetas: ScreenshotMeta[],
+	{ screenshotMetas, actions }: ScreenshotsIndex,
 ): LoadedScreenshots {
 	return {
 		traceId,
@@ -431,6 +422,7 @@ function loadedScreenshotsFromMetas(
 		screenshotBlobs: new Map(),
 		screenshotLoads: new Map(),
 		screenshotMetas,
+		actions,
 	};
 }
 
@@ -452,7 +444,7 @@ async function loadZip(zip: Blob): Promise<ZipLoadResult> {
 
 async function parseZipEntries(entries: Entry[]): Promise<ZipLoadResult> {
 	const traceExports: OtlpExport[] = [];
-	const screenshotMetas = await parseScreenshotManifest(entries);
+	const screenshotsIndex = await parseScreenshotsIndex(entries);
 
 	for (const entry of entries) {
 		if (!isFileEntry(entry)) continue;
@@ -483,7 +475,7 @@ async function parseZipEntries(entries: Entry[]): Promise<ZipLoadResult> {
 		);
 	}
 
-	return { traceId, traceData, screenshotMetas };
+	return { traceId, traceData, ...screenshotsIndex };
 }
 
 async function screenshotResponse(

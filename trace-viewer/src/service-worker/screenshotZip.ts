@@ -1,6 +1,7 @@
 /**
- * Reading screenshots.zip: its manifest and its images. Shared by the service
- * worker and the page, which unpacks the ZIP itself where there's no worker.
+ * Reading screenshots.zip: its manifest, its images and the actions recorded
+ * with them. Shared by the service worker and the page, which unpacks the ZIP
+ * itself where there's no worker.
  */
 
 import type { Entry, FileEntry } from "@zip.js/zip.js";
@@ -12,6 +13,51 @@ export interface ScreenshotMeta {
 	path: string;
 	contentType: string;
 	pageId: string;
+	/** The page's viewport in CSS pixels when the frame was taken, if known */
+	viewportWidth?: number;
+	viewportHeight?: number;
+}
+
+/** CSS pixels in the page's main viewport, like a frame's viewport size. */
+export interface ActionPoint {
+	x: number;
+	y: number;
+}
+
+/** CSS pixels in the page's main viewport, like a frame's viewport size. */
+export interface ActionBox {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+/**
+ * Something the test did to a page, such as a click or a fill: when it ran and
+ * where on the page it landed (an entry of the ZIP's actions.json).
+ */
+export interface TraceAction {
+	pageId: string;
+	/** Epoch ms when the action's input began */
+	start: number;
+	/** Epoch ms when the call ended */
+	end: number;
+	/** Playwright's call name: "click", "fill", "dragAndDrop", ... */
+	method: string;
+	/** Where pointer input landed */
+	point?: ActionPoint;
+	/** The element the action was for */
+	box?: ActionBox;
+	/** Where a drag started */
+	dragFrom?: ActionPoint;
+	failed: boolean;
+}
+
+/** What a screenshots ZIP says it holds, without the images themselves. */
+export interface ScreenshotsIndex {
+	screenshotMetas: ScreenshotMeta[];
+	/** Ordered by start time; empty when the ZIP has none */
+	actions: TraceAction[];
 }
 
 interface ScreenshotManifest {
@@ -39,15 +85,113 @@ export function openZip(zip: Blob): ZipReader<Blob> {
 	return new ZipReader(new BlobReader(zip), { useWebWorkers: false });
 }
 
-export async function loadScreenshotMetas(
+export async function loadScreenshotsIndex(
 	zip: Blob,
-): Promise<ScreenshotMeta[]> {
+): Promise<ScreenshotsIndex> {
 	const zipReader = openZip(zip);
 	try {
-		return await parseScreenshotManifest(await zipReader.getEntries());
+		return await parseScreenshotsIndex(await zipReader.getEntries());
 	} finally {
 		await zipReader.close();
 	}
+}
+
+export async function parseScreenshotsIndex(
+	entries: Entry[],
+): Promise<ScreenshotsIndex> {
+	return {
+		screenshotMetas: await parseScreenshotManifest(entries),
+		actions: await parseActions(entries),
+	};
+}
+
+/**
+ * The actions in a ZIP's actions.json. They are an extra: a missing file, or
+ * one that can't be read, means no actions rather than an error.
+ */
+async function parseActions(entries: Entry[]): Promise<TraceAction[]> {
+	const actionsEntry = entries.find(
+		(entry): entry is FileEntry =>
+			isFileEntry(entry) && entry.filename === "actions.json",
+	);
+	if (!actionsEntry) return [];
+	try {
+		return parseActionsJson(
+			JSON.parse(await actionsEntry.getData(new TextWriter())),
+		);
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * The actions of a parsed actions.json, ordered by start time, without any
+ * that aren't in the shape of version 1. Nothing from any other file.
+ *
+ * The reporter reads the same file with `parseActionsFile` in
+ * reporter/src/shared/screenshots-zip.ts: change the two together.
+ */
+export function parseActionsJson(value: unknown): TraceAction[] {
+	if (
+		!isObject(value) ||
+		value.version !== 1 ||
+		!Array.isArray(value.actions)
+	) {
+		return [];
+	}
+	return value.actions
+		.flatMap((action) => parseAction(action) ?? [])
+		.sort((a, b) => a.start - b.start);
+}
+
+function parseAction(value: unknown): TraceAction | undefined {
+	if (
+		!isObject(value) ||
+		typeof value.pageId !== "string" ||
+		typeof value.method !== "string" ||
+		!isFiniteNumber(value.start) ||
+		!isFiniteNumber(value.end) ||
+		value.start > value.end
+	) {
+		return undefined;
+	}
+	const point = parsePoint(value.point);
+	const box = parseBox(value.box);
+	if (!point && !box) return undefined;
+	const dragFrom = parsePoint(value.dragFrom);
+	return {
+		pageId: value.pageId,
+		start: value.start,
+		end: value.end,
+		method: value.method,
+		...(point ? { point } : {}),
+		...(box ? { box } : {}),
+		...(dragFrom ? { dragFrom } : {}),
+		failed: value.failed === true,
+	};
+}
+
+function parsePoint(value: unknown): ActionPoint | undefined {
+	return hasNumbers(value, ["x", "y"]) ? { x: value.x, y: value.y } : undefined;
+}
+
+function parseBox(value: unknown): ActionBox | undefined {
+	return hasNumbers(value, ["x", "y", "width", "height"]) &&
+		value.width >= 0 &&
+		value.height >= 0
+		? { x: value.x, y: value.y, width: value.width, height: value.height }
+		: undefined;
+}
+
+function hasNumbers<Key extends string>(
+	value: unknown,
+	keys: Key[],
+): value is Record<Key, number> {
+	return isObject(value) && keys.every((key) => isFiniteNumber(value[key]));
+}
+
+function isFiniteNumber(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value);
 }
 
 export async function parseScreenshotManifest(
@@ -116,7 +260,21 @@ function parseScreenshotManifestEntry(
 		path: requiredString(value.path, "path", index),
 		contentType: requiredString(value.contentType, "contentType", index),
 		pageId: requiredString(value.pageId, "pageId", index),
+		...viewportOf(value),
 	};
+}
+
+/** A frame's viewport, when the manifest has a usable one. */
+function viewportOf(
+	value: Record<string, unknown>,
+): Pick<ScreenshotMeta, "viewportWidth" | "viewportHeight"> {
+	const { viewportWidth, viewportHeight } = value;
+	return isFiniteNumber(viewportWidth) &&
+		isFiniteNumber(viewportHeight) &&
+		viewportWidth > 0 &&
+		viewportHeight > 0
+		? { viewportWidth, viewportHeight }
+		: {};
 }
 
 function upgradeScreenshotManifestV1(

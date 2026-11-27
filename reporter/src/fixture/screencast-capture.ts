@@ -2,6 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { BrowserContext, Page } from "@playwright/test";
+import type { ActionsFile } from "../shared/screenshots-zip";
+import { ActionCapture } from "./action-capture";
+import { warnOnce } from "./warn-once";
 
 // Same rhythm as Playwright's own trace recorder (ScreencastTracingRecorder):
 // about 5 frames per second, and every frame for a short while around each
@@ -118,6 +121,12 @@ export class ScreencastCapture {
 	private readonly writes = new Set<Promise<void>>();
 	private readonly files = new Set<string>();
 	private readonly apiCalls: PageApiCallHook | undefined;
+	/** Page ids by the guid Playwright's server knows the page by */
+	private readonly pageIdsByGuid = new Map<string, string>();
+	private readonly actionCapture = new ActionCapture((guid) =>
+		this.pageIdsByGuid.get(guid),
+	);
+	private recordedActions: ActionsFile | undefined;
 	private stopped = false;
 
 	private constructor(
@@ -160,6 +169,7 @@ export class ScreencastCapture {
 
 		const onPage = (page: Page) => this.addPage(page);
 		this.contexts.set(context, onPage);
+		this.actionCapture.addContext(context);
 		context.on("page", onPage);
 		for (const page of context.pages()) {
 			this.addPage(page);
@@ -174,6 +184,10 @@ export class ScreencastCapture {
 		let screencast: PageScreencast;
 		try {
 			const pageId = this.pageIdFor(page);
+			const guid = (page as unknown as { _guid?: unknown })._guid;
+			if (typeof guid === "string") {
+				this.pageIdsByGuid.set(guid, pageId);
+			}
 			screencast = new PageScreencast(
 				page,
 				(frame) => this.keepFrame(pageId, frame),
@@ -194,6 +208,9 @@ export class ScreencastCapture {
 		if (!this.stopped) {
 			this.stopped = true;
 			this.apiCalls?.uninstall();
+			this.recordedActions = await this.actionCapture
+				.stop()
+				.catch(() => undefined);
 			for (const [context, onPage] of this.contexts) {
 				context.off("page", onPage);
 			}
@@ -204,6 +221,14 @@ export class ScreencastCapture {
 
 		await Promise.all(this.writes);
 		return [...this.frames].sort((a, b) => a.timestamp - b.timestamp);
+	}
+
+	/**
+	 * Where the test's actions landed, once capture has stopped. Undefined
+	 * when they couldn't be recorded.
+	 */
+	actions(): ActionsFile | undefined {
+		return this.recordedActions;
 	}
 
 	async dispose(): Promise<void> {
@@ -514,15 +539,4 @@ function viewportOf(
 	return Number.isFinite(viewportWidth) && Number.isFinite(viewportHeight)
 		? { viewportWidth, viewportHeight }
 		: {};
-}
-
-const warnings = new Set<string>();
-
-/** Warns once per worker: the same fallback applies to every test. */
-function warnOnce(key: string, message: string): void {
-	if (warnings.has(key)) {
-		return;
-	}
-	warnings.add(key);
-	console.warn(message);
 }
