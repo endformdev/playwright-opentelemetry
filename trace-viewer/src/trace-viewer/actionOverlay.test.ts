@@ -41,6 +41,51 @@ describe("findActionOverlay", () => {
 		).toBeNull();
 	});
 
+	it("says which part of a playback hold the action is in", () => {
+		const aiming = {
+			action: clickAction,
+			phase: "aim",
+			progress: 0.5,
+		} as const;
+		expect(findActionOverlay([clickAction], "page-0", 1000, aiming)).toEqual({
+			method: "click",
+			failed: false,
+			opacity: 1,
+			point: { x: 100, y: 50 },
+			box: { x: 40, y: 30, width: 120, height: 40 },
+			hold: { phase: "aim", progress: 0.5 },
+		});
+	});
+
+	it("keeps the element box and full strength for all of a hold", () => {
+		const landed = {
+			action: clickAction,
+			phase: "landed",
+			progress: 0.9,
+		} as const;
+		const overlay = findActionOverlay(
+			[clickAction],
+			"page-0",
+			1050 + POINTER_BOX_HOLD_MS + 50,
+			landed,
+		);
+		expect(overlay?.box).toEqual(clickAction.box);
+		expect(overlay?.opacity).toBe(1);
+		expect(overlay?.hold).toEqual({ phase: "landed", progress: 0.9 });
+	});
+
+	it("ignores a hold on another action", () => {
+		const other: TraceAction = { ...clickAction, pageId: "page-1" };
+		const held = { action: other, phase: "aim", progress: 0.5 } as const;
+		const overlay = findActionOverlay(
+			[clickAction, other],
+			"page-0",
+			1000,
+			held,
+		);
+		expect(overlay?.hold).toBeUndefined();
+	});
+
 	it("drops the element box before the click point on successful pointer actions", () => {
 		const withBox = findActionOverlay(
 			[clickAction],

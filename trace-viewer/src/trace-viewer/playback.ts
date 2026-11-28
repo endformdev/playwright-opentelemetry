@@ -26,6 +26,14 @@ export function formatPlaybackSpeed(speed: PlaybackSpeed): string {
 }
 
 /**
+ * The speed playback has until one is chosen. With holds it spends its time
+ * on the actions, so it moves between them at double speed.
+ */
+export function getDefaultPlaybackSpeed(holding: boolean): PlaybackSpeed {
+	return holding ? 2 : 1;
+}
+
+/**
  * Where pressing play starts: the locked time, or with nothing locked the
  * start of what is in view. From the very end it starts over.
  */
@@ -39,15 +47,117 @@ export function getPlaybackStartMs(
 	return Math.max(0, startMs);
 }
 
-/** The playhead after `elapsedMs` of real time, stopping at the end. */
-export function advancePlayback(
+/** A moment playback waits at, so that what happens there can be seen. */
+export interface PlaybackHold {
+	/** Where playback waits, relative to test start */
+	timeMs: number;
+	/** How long it waits, in real time whatever the speed */
+	durationMs: number;
+}
+
+/** Where playback is: a time, and how far through the holds it has got. */
+export interface PlaybackPosition {
+	timeMs: number;
+	/** Index of the next hold to wait at; the ones before it are done with */
+	nextHold: number;
+	/** How long playback has waited at that hold, once it is there */
+	heldMs: number;
+}
+
+/** The hold a position is waiting at. */
+export interface HeldPlayback {
+	/** Index of the hold */
+	index: number;
+	/** How long playback has waited there so far */
+	heldMs: number;
+}
+
+/**
+ * Playback starting at a time. It waits at a hold at that very time, and
+ * leaves the ones before it behind.
+ */
+export function startPlayback(
 	timeMs: number,
+	holds: readonly PlaybackHold[] = [],
+): PlaybackPosition {
+	const next = holds.findIndex((hold) => hold.timeMs >= timeMs);
+	return { timeMs, nextHold: next === -1 ? holds.length : next, heldMs: 0 };
+}
+
+/**
+ * A position carried over to other holds, as when they are switched on while
+ * playing. It doesn't wait where it already is: only at the holds ahead.
+ */
+export function rejoinPlayback(
+	timeMs: number,
+	holds: readonly PlaybackHold[],
+): PlaybackPosition {
+	const next = holds.findIndex((hold) => hold.timeMs > timeMs);
+	return { timeMs, nextHold: next === -1 ? holds.length : next, heldMs: 0 };
+}
+
+/** The hold to wait at next, unless it lies past the end. */
+function pendingHold(
+	position: PlaybackPosition,
+	holds: readonly PlaybackHold[],
+	endMs: number,
+): PlaybackHold | null {
+	const hold = holds[position.nextHold];
+	return hold && hold.timeMs <= endMs ? hold : null;
+}
+
+/** The hold playback is waiting at, or null while it is moving. */
+export function getHeldPlayback(
+	position: PlaybackPosition,
+	holds: readonly PlaybackHold[],
+	endMs: number,
+): HeldPlayback | null {
+	const hold = pendingHold(position, holds, endMs);
+	return hold && hold.timeMs <= position.timeMs
+		? { index: position.nextHold, heldMs: position.heldMs }
+		: null;
+}
+
+/** Whether playback has reached the end, with no hold left to wait at. */
+export function isPlaybackOver(
+	position: PlaybackPosition,
+	holds: readonly PlaybackHold[],
+	endMs: number,
+): boolean {
+	return position.timeMs >= endMs && !pendingHold(position, holds, endMs);
+}
+
+/**
+ * Where playback is after `elapsedMs` of real time. The speed scales the time
+ * it moves through; at a hold it waits the hold's whole duration at any
+ * speed, then moves on. It stops at the end.
+ */
+export function advancePlayback(
+	position: PlaybackPosition,
 	elapsedMs: number,
 	speed: PlaybackSpeed,
 	endMs: number,
-): number {
-	const realMs = Math.min(Math.max(0, elapsedMs), MAX_PLAYBACK_FRAME_MS);
-	return Math.min(endMs, timeMs + realMs * speed);
+	holds: readonly PlaybackHold[] = [],
+): PlaybackPosition {
+	let realMs = Math.min(Math.max(0, elapsedMs), MAX_PLAYBACK_FRAME_MS);
+	let { timeMs, nextHold, heldMs } = position;
+	for (;;) {
+		const hold = pendingHold({ timeMs, nextHold, heldMs }, holds, endMs);
+		if (hold && hold.timeMs <= timeMs) {
+			const leftMs = hold.durationMs - heldMs;
+			if (realMs < leftMs) return { timeMs, nextHold, heldMs: heldMs + realMs };
+			realMs -= leftMs;
+			nextHold += 1;
+			heldMs = 0;
+			continue;
+		}
+		const untilMs = hold?.timeMs ?? endMs;
+		const reachedMs = timeMs + realMs * speed;
+		if (reachedMs < untilMs) return { timeMs: reachedMs, nextHold, heldMs: 0 };
+		realMs -= (untilMs - timeMs) / speed;
+		timeMs = untilMs;
+		if (!hold) return { timeMs, nextHold, heldMs: 0 };
+	}
 }
 
 /**

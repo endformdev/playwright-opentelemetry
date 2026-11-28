@@ -1,4 +1,5 @@
 import { type Accessor, createSignal } from "solid-js";
+import { PLAYBACK_SPEEDS, type PlaybackSpeed } from "./playback";
 
 /**
  * What the step viewer shows above its controls: one big screenshot of the
@@ -23,14 +24,19 @@ export interface ViewerSettings {
 	browser: boolean;
 	external: boolean;
 	playerScreen: PlayerScreen;
+	/**
+	 * Whether playback waits on each action for a moment. Only traces that
+	 * record their actions have any to wait on.
+	 */
+	playbackHolds: boolean;
+	/** The playback speed chosen; null goes by whether playback holds */
+	playbackSpeed: PlaybackSpeed | null;
 }
 
 export type ViewerSettingKey = keyof ViewerSettings;
 
 /** The settings that show or hide a section of the viewer */
-export type ViewerSectionKey = {
-	[Key in ViewerSettingKey]: ViewerSettings[Key] extends boolean ? Key : never;
-}[ViewerSettingKey];
+export type ViewerSectionKey = "stepViewer" | "steps" | "browser" | "external";
 
 export const DEFAULT_VIEWER_SETTINGS: ViewerSettings = {
 	stepViewer: true,
@@ -38,6 +44,8 @@ export const DEFAULT_VIEWER_SETTINGS: ViewerSettings = {
 	browser: true,
 	external: true,
 	playerScreen: "big-screen",
+	playbackHolds: true,
+	playbackSpeed: null,
 };
 
 export const VIEWER_SETTING_LABELS: Record<ViewerSectionKey, string> = {
@@ -66,6 +74,13 @@ export function parseViewerSettings(stored: string | null): ViewerSettings {
 		}
 		const screen = PLAYER_SCREENS.find((name) => name === values.playerScreen);
 		if (screen) settings.playerScreen = screen;
+		if (typeof values.playbackHolds === "boolean") {
+			settings.playbackHolds = values.playbackHolds;
+		}
+		const speed = PLAYBACK_SPEEDS.find(
+			(candidate) => candidate === values.playbackSpeed,
+		);
+		if (speed) settings.playbackSpeed = speed;
 		return settings;
 	} catch {
 		return DEFAULT_VIEWER_SETTINGS;

@@ -204,6 +204,8 @@ export class TimelineRulerComponent {
 	readonly markers: Locator;
 	/** The markers' labels drawn on the ruler, where there is room or hovered */
 	readonly markerLabels: Locator;
+	/** A dot for each action playback holds on */
+	readonly actions: Locator;
 
 	/** @param scope Where the viewer is, when that is in a frame of `page` */
 	constructor(page: Page, scope: Page | FrameLocator = page) {
@@ -224,6 +226,7 @@ export class TimelineRulerComponent {
 		this.filmstrip = new RulerFilmstrip(scope);
 		this.markers = this.root.getByTestId("step-ruler-marker");
 		this.markerLabels = this.root.getByTestId("step-ruler-marker-label");
+		this.actions = this.root.getByTestId("step-ruler-action");
 	}
 
 	/** Where on screen a share of the whole test is, on the step bar */
@@ -373,6 +376,13 @@ export class StepViewerComponent {
 	readonly pauseButton: Locator;
 	/** Reads the playback speed, as in "2×"; clicking moves to the next one */
 	readonly speedButton: Locator;
+	/**
+	 * Turns holding on each action on and off, pressed while on; there only
+	 * in traces with actions. `data-holding` is set while playback waits.
+	 */
+	readonly holdsButton: Locator;
+	/** What the test did at the moment on show, drawn over the screenshot */
+	readonly actionOverlay: Locator;
 
 	constructor(scope: Page | FrameLocator) {
 		this.root = scope.getByRole("region", { name: "Step viewer" });
@@ -419,6 +429,10 @@ export class StepViewerComponent {
 			exact: true,
 		});
 		this.speedButton = playback.getByRole("button", { name: "Playback speed" });
+		this.holdsButton = playback.getByRole("button", {
+			name: "Hold on each action",
+		});
+		this.actionOverlay = this.screen.getByTestId("action-overlay");
 	}
 
 	page(number: number): Locator {

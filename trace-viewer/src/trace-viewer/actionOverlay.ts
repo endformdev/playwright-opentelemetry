@@ -1,4 +1,5 @@
 import type { TraceAction } from "../trace-info-loader";
+import type { ActionHoldPhase } from "./actionHolds";
 
 export interface Point {
 	x: number;
@@ -47,6 +48,11 @@ export interface ActionOverlay {
 	box?: Rect;
 	/** Where a drag started */
 	dragFrom?: Point;
+	/**
+	 * The part of a playback hold the action is drawn in: aiming, with only
+	 * where the input is about to land, or with the input just landed
+	 */
+	hold?: Pick<ActionHoldPhase, "phase" | "progress">;
 }
 
 /**
@@ -55,13 +61,18 @@ export interface ActionOverlay {
  * its `end`.
  * Any newer action on the same page replaces the one before it.
  *
+ * While playback holds on the action, the mark says which part of the hold it
+ * is in, and the element's box stays for all of it.
+ *
  * @param actions Ordered by start time
  * @param atMs The moment on display, in the screenshots' clock
+ * @param held The hold playback is waiting at, if any
  */
 export function findActionOverlay(
 	actions: TraceAction[],
 	pageId: string,
 	atMs: number,
+	held: ActionHoldPhase | null = null,
 ): ActionOverlay | null {
 	let action: TraceAction | undefined;
 	for (const candidate of actions) {
@@ -74,15 +85,20 @@ export function findActionOverlay(
 
 	// Ease out: stays clear just after a fast call, then melts away.
 	const fade = afterMs / ACTION_HOLD_MS;
+	const hold = held?.action === action ? held : null;
 	const keepBox =
-		!action.point || action.failed || afterMs < POINTER_BOX_HOLD_MS;
+		!action.point ||
+		action.failed ||
+		afterMs < POINTER_BOX_HOLD_MS ||
+		hold !== null;
 	return {
 		method: action.method,
 		failed: action.failed,
-		opacity: 1 - fade * fade,
+		opacity: hold ? 1 : 1 - fade * fade,
 		...(action.point ? { point: action.point } : {}),
 		...(action.box && keepBox ? { box: action.box } : {}),
 		...(action.dragFrom && action.point ? { dragFrom: action.dragFrom } : {}),
+		...(hold ? { hold: { phase: hold.phase, progress: hold.progress } } : {}),
 	};
 }
 
@@ -173,6 +189,7 @@ export function placeActionOverlay(
 		...(point ? { point } : {}),
 		...(box ? { box } : {}),
 		...(dragFrom ? { dragFrom } : {}),
+		...(overlay.hold ? { hold: overlay.hold } : {}),
 	};
 }
 

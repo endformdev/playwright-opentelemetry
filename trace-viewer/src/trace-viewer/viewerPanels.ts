@@ -1,4 +1,4 @@
-import type { ViewerSettings } from "./viewerSettings";
+import { DEFAULT_VIEWER_SETTINGS, type ViewerSettings } from "./viewerSettings";
 
 /**
  * Which regions of the trace viewer are shown, controlled by the `view`
@@ -100,10 +100,10 @@ export function readViewerPanelsFromQueryParams(): ViewerPanels | null {
 /** The panels that the viewer settings menu can also toggle. */
 export function viewerSettingsFromPanels(panels: ViewerPanels): ViewerSettings {
 	return {
+		...DEFAULT_VIEWER_SETTINGS,
 		stepViewer: panels.viewer,
 		steps: panels.steps,
 		browser: panels.browser,
 		external: panels.external,
-		playerScreen: "big-screen",
 	};
 }
