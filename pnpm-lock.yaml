@@ -115,6 +115,9 @@ importers:
       '@zip.js/zip.js':
         specifier: 'catalog:'
         version: 2.8.26
+      endform:
+        specifier: ^0.85.2
+        version: 0.85.2
       h3:
         specifier: 'catalog:'
         version: 2.0.1-rc.22
@@ -2580,6 +2583,40 @@ packages:
   empathic@2.0.1:
     resolution: {integrity: sha512-YGRs8knHhKHVShLkFET/rWAU8kmHbOV5LwN938RHI0pljAJ1Gf6SzXsSmRaEzcXTtOOmVqJ5+WtQPL5uigY50Q==}
     engines: {node: '>=14'}
+
+  endform-darwin-arm64@0.85.2:
+    resolution: {integrity: sha512-EwjW/qDz39iSho0Jg2BGcKXuDZ+szoCKI4xgkjNKDReo2UtIlvac4+yjatzB1/nrw9gEl5UlYu8PURjTJVzP4w==}
+    cpu: [arm64]
+    os: [darwin]
+
+  endform-darwin-x86@0.85.2:
+    resolution: {integrity: sha512-+IUCdHshDcwMjxIXojGR7pmhMy31v8Egh8glQRU7eEhcompDIThQwKHNnW7LjVZvn+ZFzp+i6mInEnSa3j5XvA==}
+    cpu: [x64]
+    os: [darwin]
+
+  endform-linux-arm64@0.85.2:
+    resolution: {integrity: sha512-RHoiT63RudzjFnkydNaERX+1JJ0Z9NW0JonNyVEi3SJyjyAN9cB3GtuEqP4NFJA8Um4Iz8rfgX/udajX4OlUEQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  endform-linux-x86@0.85.2:
+    resolution: {integrity: sha512-l29L5duI+IfwxYaWsWUjpiesIstOKYAyapM0sWtzMi6PZLKD+6H07q44tGqTEAIbtRTgL1COgxcrensGk0KW6w==}
+    cpu: [x64]
+    os: [linux]
+
+  endform-win32-arm64@0.85.2:
+    resolution: {integrity: sha512-JxrDb8c7/VBa4Ga5whs7vWnGe6x7/pyZH1SlYXxUu2CwViv/Qg7NsFpt2YRn7XXHk/qa2zX+qbcm4QRBDi6tEw==}
+    cpu: [arm64]
+    os: [win32]
+
+  endform-win32-x86@0.85.2:
+    resolution: {integrity: sha512-qXcPgQnOaaYVucarJ69Al1AH9U5IGjUAqpyn9OPI4DmB8cNZBT2izjQJIgwDTzUt/40OG0JxqtuMFr9LwWa2kA==}
+    cpu: [x64]
+    os: [win32]
+
+  endform@0.85.2:
+    resolution: {integrity: sha512-A1wfzAj5Nti++d2xo8ToWCtIX06QhWkesZT6RKiSgH+oCwnhE3bxj27M9ZNk7+lv6Led1JIeXb8XLgyJUh1S1Q==}
+    hasBin: true
 
   enhanced-resolve@5.21.6:
     resolution: {integrity: sha512-aNnGCvbJ/RIyWo1IuhNdVjnNF+EjH9wpzpNHt+ci/m9He9LJvUN8wrCcXjp9cWsGNAuvSpVFTx/vraAFQ8qGjQ==}
@@ -6326,6 +6363,33 @@ snapshots:
   electron-to-chromium@1.5.375: {}
 
   empathic@2.0.1: {}
+
+  endform-darwin-arm64@0.85.2:
+    optional: true
+
+  endform-darwin-x86@0.85.2:
+    optional: true
+
+  endform-linux-arm64@0.85.2:
+    optional: true
+
+  endform-linux-x86@0.85.2:
+    optional: true
+
+  endform-win32-arm64@0.85.2:
+    optional: true
+
+  endform-win32-x86@0.85.2:
+    optional: true
+
+  endform@0.85.2:
+    optionalDependencies:
+      endform-darwin-arm64: 0.85.2
+      endform-darwin-x86: 0.85.2
+      endform-linux-arm64: 0.85.2
+      endform-linux-x86: 0.85.2
+      endform-win32-arm64: 0.85.2
+      endform-win32-x86: 0.85.2
 
   enhanced-resolve@5.21.6:
     dependencies:

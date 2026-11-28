@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
 	PLAYWRIGHT_SOURCE_HEADER,
 	PLAYWRIGHT_SOURCE_REPORTER,
@@ -54,10 +55,13 @@ interface ResourceSpan {
 }
 
 /**
- * Helper to generate unique trace IDs with a prefix
+ * A new trace ID on every call, starting with `prefix` to tell tests' traces
+ * apart. The test trace API server keeps everything sent to it, so a retry, or
+ * a `beforeAll` that runs again on another Endform machine, must not add its
+ * spans to a trace an earlier attempt sent.
  */
-export function generateTraceId(prefix: string): string {
-	return `${prefix}`.padEnd(32, "0").slice(0, 32);
+export function generateTraceId(prefix = ""): string {
+	return `${prefix}${randomUUID().replaceAll("-", "")}`.slice(0, 32);
 }
 
 /**

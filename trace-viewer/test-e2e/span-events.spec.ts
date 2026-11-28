@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
-import { SPAN_EVENTS_TRACE_ID_FILE } from "./setup/global-setup";
+import { reporterTraceId } from "./reporter-traces";
 
 interface OtlpAttribute {
 	key: string;
@@ -68,7 +67,7 @@ test("shows browser console and exception events on spans", async ({
 	page,
 	request,
 }) => {
-	const traceId = readFileSync(SPAN_EVENTS_TRACE_ID_FILE, "utf-8").trim();
+	const traceId = await reporterTraceId(request, "span-events");
 	const response = await request.get(
 		`${TRACE_API_URL}/playwright-otel-trace-viewer/v1/${traceId}/traces`,
 	);

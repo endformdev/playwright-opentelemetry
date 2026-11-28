@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import {
 	type APIRequestContext,
 	expect,
@@ -14,10 +13,7 @@ import {
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
 import { createScreenshotsZipFromOffsets } from "./screenshot-zip";
-import {
-	BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
-	MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE,
-} from "./setup/global-setup";
+import { reporterTraceId, reporterTraceZip } from "./reporter-traces";
 import { TraceDataBuilder } from "./test-data-builder";
 
 /** A 4s checkout test: three steps between its hooks, on two pages. */
@@ -192,12 +188,10 @@ test("narrowing in on part of a test with the ruler, then seeing the whole of it
 
 test("following a real test across its two pages, by step and by playing it", async ({
 	page,
+	request,
 }) => {
 	await page.setViewportSize({ width: 1440, height: 1000 });
-	const traceId = readFileSync(
-		MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE,
-		"utf-8",
-	).trim();
+	const traceId = await reporterTraceId(request, "multi-context-screenshots");
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
 	const { ruler, stepViewer } = viewer;
@@ -261,12 +255,11 @@ test("following a real test across its two pages, by step and by playing it", as
 
 test("opening a trace file and stepping through it in the player", async ({
 	page,
+	request,
 }) => {
 	await page.setViewportSize({ width: 1440, height: 1000 });
 	const viewer = new TraceViewerPage(page);
-	await viewer.loadTraceFromZip(
-		readFileSync(BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE, "utf-8").trim(),
-	);
+	await viewer.loadTraceFromZip(await reporterTraceZip(request));
 	const { ruler, stepViewer } = viewer;
 	await expect(viewer.header.testName).toBeVisible();
 	// Screenshots come out of the file, through the service worker.

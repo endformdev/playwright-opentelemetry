@@ -68,7 +68,7 @@ test("lets a typo in the API URL be corrected after a 404", async ({
 }) => {
 	const viewer = new TraceViewerPage(page);
 	const traceId = generateTraceId("aa11bb22cc33dd44ee55ff66");
-	const typoTraceId = `${traceId.slice(0, -1)}9`;
+	const typoTraceId = `${traceId.slice(0, -1)}${traceId.endsWith("9") ? "8" : "9"}`;
 	const traceName = "Trace URL typo can be corrected";
 
 	await new TraceDataBuilder(traceId, Date.now())

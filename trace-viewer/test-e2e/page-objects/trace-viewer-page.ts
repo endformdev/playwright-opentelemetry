@@ -547,9 +547,11 @@ export class TraceViewerPage {
 		await this.page.getByRole("button", { name: "Load" }).click();
 	}
 
-	async loadTraceFromZip(zipPath: string): Promise<void> {
+	async loadTraceFromZip(
+		zip: Parameters<Locator["setInputFiles"]>[0],
+	): Promise<void> {
 		await this.goto();
-		await this.page.locator('input[type="file"]').setInputFiles(zipPath);
+		await this.page.locator('input[type="file"]').setInputFiles(zip);
 	}
 
 	/** A list of values repeats the parameter, as `highlight` does. */

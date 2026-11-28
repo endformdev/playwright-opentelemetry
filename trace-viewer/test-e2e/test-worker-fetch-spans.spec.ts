@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
-import { TEST_WORKER_FETCH_TRACE_ID_FILE } from "./setup/global-setup";
+import { reporterTraceId } from "./reporter-traces";
 
 interface OtlpAttribute {
 	key: string;
@@ -43,7 +42,7 @@ test("renders test worker fetch fixture spans from the reporter API flow", async
 	page,
 	request,
 }) => {
-	const traceId = readFileSync(TEST_WORKER_FETCH_TRACE_ID_FILE, "utf-8").trim();
+	const traceId = await reporterTraceId(request, "test-worker-fetch");
 	const spans = await loadTraceSpans(request, traceId);
 	const testSpan = requiredSpan(
 		spans,

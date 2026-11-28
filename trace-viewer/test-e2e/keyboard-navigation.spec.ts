@@ -169,6 +169,9 @@ async function sendNavigationTrace(
 	await viewer.loadTraceFromApi(builder.getTraceId());
 	await expect(viewer.header.testName).toHaveText("Keyboard navigation");
 	await expect(viewer.steps.spanByName("Open page")).toBeVisible();
+	// The player shows until the viewer finds the trace has no screenshots, and
+	// while it shows, it takes the arrow keys.
+	await expect(viewer.stepViewer.root).toBeHidden();
 	return { viewer, ids: { beforeHooks, openPage, click, verify } };
 }
 

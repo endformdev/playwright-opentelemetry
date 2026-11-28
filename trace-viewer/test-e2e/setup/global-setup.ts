@@ -2,43 +2,50 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
-export const BROWSER_PAGE_SPANS_TRACE_ID_FILE = path.resolve(
-	"test-results/browser-page-spans-trace-id.txt",
-);
+/**
+ * Traces the nested reporter run below makes for the specs to load. The run
+ * writes each one's trace ID to a file, and the specs get them from the trace
+ * API server (see `../reporter-traces.ts`), because on Endform they run on
+ * another machine.
+ */
+export const REPORTER_TRACES = [
+	"browser-page-spans",
+	"error-spans",
+	"span-events",
+	"multi-context-screenshots",
+	"test-worker-fetch",
+	"native-api-request",
+] as const;
+
+export type ReporterTrace = (typeof REPORTER_TRACES)[number];
+
+export function reporterTraceIdFile(trace: ReporterTrace): string {
+	return path.resolve(`test-results/${trace}-trace-id.txt`);
+}
+
+/** Holds the path of the trace ZIP the `browser-page-spans` test stored. */
 export const BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE = path.resolve(
 	"test-results/browser-page-spans-trace-zip-path.txt",
 );
-export const ERROR_SPANS_TRACE_ID_FILE = path.resolve(
-	"test-results/error-spans-trace-id.txt",
-);
-export const SPAN_EVENTS_TRACE_ID_FILE = path.resolve(
-	"test-results/span-events-trace-id.txt",
-);
-export const MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE = path.resolve(
-	"test-results/multi-context-screenshots-trace-id.txt",
-);
-export const TEST_WORKER_FETCH_TRACE_ID_FILE = path.resolve(
-	"test-results/test-worker-fetch-trace-id.txt",
-);
-export const NATIVE_API_REQUEST_TRACE_ID_FILE = path.resolve(
-	"test-results/native-api-request-trace-id.txt",
-);
+
+/** `browser-page-spans` → `BROWSER_PAGE_SPANS_TRACE_ID_FILE`, as the reporter's config reads it. */
+function traceIdFileEnvVar(trace: ReporterTrace): string {
+	return `${trace.toUpperCase().replaceAll("-", "_")}_TRACE_ID_FILE`;
+}
 
 export default async function globalSetup() {
 	try {
 		const env = { ...process.env };
 		// The nested reporter run only generates fixture data; keep debug mode on the outer trace-viewer run.
 		delete env.PWDEBUG;
-		mkdirSync(path.dirname(BROWSER_PAGE_SPANS_TRACE_ID_FILE), {
+		const outputFiles = [
+			...REPORTER_TRACES.map(reporterTraceIdFile),
+			BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
+		];
+		mkdirSync(path.dirname(BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE), {
 			recursive: true,
 		});
-		rmSync(BROWSER_PAGE_SPANS_TRACE_ID_FILE, { force: true });
-		rmSync(BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE, { force: true });
-		rmSync(ERROR_SPANS_TRACE_ID_FILE, { force: true });
-		rmSync(SPAN_EVENTS_TRACE_ID_FILE, { force: true });
-		rmSync(MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE, { force: true });
-		rmSync(TEST_WORKER_FETCH_TRACE_ID_FILE, { force: true });
-		rmSync(NATIVE_API_REQUEST_TRACE_ID_FILE, { force: true });
+		for (const file of outputFiles) rmSync(file, { force: true });
 
 		execFileSync("pnpm", ["--filter", "../reporter", "test:e2e"], {
 			env: {
@@ -48,57 +55,21 @@ export default async function globalSetup() {
 				// Clear OTLP endpoint to avoid conflicts
 				OTEL_EXPORTER_OTLP_ENDPOINT: "",
 				OTEL_EXPORTER_OTLP_HEADERS: "",
-				BROWSER_PAGE_SPANS_TRACE_ID_FILE,
+				...Object.fromEntries(
+					REPORTER_TRACES.map((trace) => [
+						traceIdFileEnvVar(trace),
+						reporterTraceIdFile(trace),
+					]),
+				),
 				BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
-				ERROR_SPANS_TRACE_ID_FILE,
-				SPAN_EVENTS_TRACE_ID_FILE,
-				MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE,
-				TEST_WORKER_FETCH_TRACE_ID_FILE,
-				NATIVE_API_REQUEST_TRACE_ID_FILE,
 			},
 			stdio: "pipe",
 		});
 
-		if (!existsSync(BROWSER_PAGE_SPANS_TRACE_ID_FILE)) {
-			throw new Error(
-				`Reporter e2e run did not write ${BROWSER_PAGE_SPANS_TRACE_ID_FILE}`,
-			);
-		}
-
-		if (!existsSync(BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE)) {
-			throw new Error(
-				`Reporter e2e run did not write ${BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE}`,
-			);
-		}
-
-		if (!existsSync(ERROR_SPANS_TRACE_ID_FILE)) {
-			throw new Error(
-				`Reporter e2e run did not write ${ERROR_SPANS_TRACE_ID_FILE}`,
-			);
-		}
-
-		if (!existsSync(SPAN_EVENTS_TRACE_ID_FILE)) {
-			throw new Error(
-				`Reporter e2e run did not write ${SPAN_EVENTS_TRACE_ID_FILE}`,
-			);
-		}
-
-		if (!existsSync(MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE)) {
-			throw new Error(
-				`Reporter e2e run did not write ${MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE}`,
-			);
-		}
-
-		if (!existsSync(TEST_WORKER_FETCH_TRACE_ID_FILE)) {
-			throw new Error(
-				`Reporter e2e run did not write ${TEST_WORKER_FETCH_TRACE_ID_FILE}`,
-			);
-		}
-
-		if (!existsSync(NATIVE_API_REQUEST_TRACE_ID_FILE)) {
-			throw new Error(
-				`Reporter e2e run did not write ${NATIVE_API_REQUEST_TRACE_ID_FILE}`,
-			);
+		for (const file of outputFiles) {
+			if (!existsSync(file)) {
+				throw new Error(`Reporter e2e run did not write ${file}`);
+			}
 		}
 
 		const traceZipPath = readFileSync(
