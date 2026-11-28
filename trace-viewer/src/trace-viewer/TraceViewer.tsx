@@ -452,7 +452,9 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	// draw them.
 	const canHold = () =>
 		props.traceInfo.actions().length > 0 && !showPlayerFilmstrip();
-	const holdsOn = () => canHold() && settings().playbackHolds;
+	// A memo, so the holds aren't rebuilt (dropping the one playback is
+	// waiting at) when some other setting, like the speed, changes.
+	const holdsOn = createMemo(() => canHold() && settings().playbackHolds);
 	const actionHolds = createMemo(() => {
 		if (!holdsOn()) return [];
 		const screenshots = props.traceInfo.screenshots() ?? [];

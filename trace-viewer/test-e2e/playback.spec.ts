@@ -407,22 +407,40 @@ test("holds on each action while playing", async ({ page, request }) => {
 		await stepViewer.pauseButton.click();
 	});
 
+	await test.step("Changing the speed during a hold keeps the hold", async () => {
+		await stepViewer.holdsButton.click();
+		await expect(stepViewer.speedButton).toHaveText("2×");
+		await ruler.clickAt(0.55);
+		await stepViewer.playButton.click();
+		await page.clock.runFor(250);
+		await expectHeldAt(2500);
+		await stepViewer.speedButton.click();
+		await expect(stepViewer.speedButton).toHaveText("0.5×");
+		await expectHeldAt(2500);
+		await expect(overlay).toHaveAttribute("data-hold-phase", "aim");
+		await page.clock.runFor(380);
+		await expectHeldAt(2500);
+		await expect(overlay).toHaveAttribute("data-hold-phase", "landed");
+		await stepViewer.pauseButton.click();
+	});
+
 	await page.clock.resume();
 
-	await test.step("The choice is kept for the next trace", async () => {
+	await test.step("The choices are kept for the next trace", async () => {
+		await page.reload();
+		await expect(stepViewer.holdsButton).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await expect(stepViewer.speedButton).toHaveText("0.5×");
+		// A chosen speed stays, with holds or without.
+		await stepViewer.holdsButton.click();
+		await expect(stepViewer.speedButton).toHaveText("0.5×");
 		await page.reload();
 		await expect(stepViewer.holdsButton).toHaveAttribute(
 			"aria-pressed",
 			"false",
 		);
-		await stepViewer.holdsButton.click();
-		await expect(stepViewer.speedButton).toHaveText("2×");
-		// A chosen speed stays, with holds or without.
-		await stepViewer.speedButton.click();
-		await expect(stepViewer.speedButton).toHaveText("0.5×");
-		await stepViewer.holdsButton.click();
-		await expect(stepViewer.speedButton).toHaveText("0.5×");
-		await page.reload();
 		await expect(stepViewer.speedButton).toHaveText("0.5×");
 	});
 });
