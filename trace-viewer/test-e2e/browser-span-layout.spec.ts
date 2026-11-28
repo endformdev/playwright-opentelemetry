@@ -147,6 +147,9 @@ test("keeps nested browser spans visually below their parents", async ({
 	await expect(viewer.header.testName).toHaveText("Browser span layout test");
 	await expect(viewer.browserSpans.spanById(parentSpanId)).toBeVisible();
 	await expect(viewer.browserSpans.spanById(childSpanId)).toBeVisible();
+	// The player shows until the viewer finds the trace has no screenshots, and
+	// the spans move up when it goes.
+	await expect(viewer.stepViewer.root).toBeHidden();
 
 	const parent = await viewer.browserSpans.spanDataById(parentSpanId);
 	const child = await viewer.browserSpans.spanDataById(childSpanId);
