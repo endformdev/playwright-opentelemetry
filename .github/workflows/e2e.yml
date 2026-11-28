@@ -31,6 +31,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Endform lists the tests before it starts the web servers, and the specs
+      # import the trace API package's build.
+      - name: Build packages
+        run: pnpm --filter ./trace-api --filter ./reporter build
+
       # The trace viewer suite's global setup runs the reporter suite here, with
       # plain Playwright, to make the traces the viewer specs load.
       - name: Install Chromium
