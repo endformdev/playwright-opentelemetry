@@ -11,6 +11,7 @@ import {
 import { useTraceDataLoader } from "../trace-data-loader/useTraceDataLoader";
 import { isErrorSpan, type Span } from "../trace-data-loader/exportToSpans";
 import type { TraceInfo } from "../trace-info-loader";
+import { computeActionHolds, getActionHoldPhase } from "./actionHolds";
 import { DetailsPanel } from "./components/DetailsPanel";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { SpanTimelinePanel } from "./components/SpanTimelinePanel";
@@ -34,9 +35,11 @@ import {
 	PLAYER_BIG_SCREEN_SIZE_PERCENT,
 } from "./panelSizing";
 import { ResizablePanel } from "./ResizablePanel";
+import { getDefaultPlaybackSpeed, nextPlaybackSpeed } from "./playback";
 import type { NavigationDirection } from "./spanNavigation";
 import type { SpanSelectionPlacement } from "./spanSelection";
 import { ScreenshotFilmstrip } from "./ScreenshotFilmstrip";
+import { findScreenshotAtTime } from "./screenshots";
 import { describeStepRulerTime } from "./stepRulerSegments";
 import { StepViewer, type StepViewerComparison } from "./StepViewer";
 import { type RulerMarker, TimelineRuler } from "./TimelineRuler";
@@ -443,10 +446,37 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			? comparisonToggledOn()
 			: null;
 
+	// Playback can wait on each action for a moment, where the big screen
+	// marks it: on the pinned page, else the page with the latest frame. Only
+	// traces that record their actions have any, and the filmstrip doesn't
+	// draw them.
+	const canHold = () =>
+		props.traceInfo.actions().length > 0 && !showPlayerFilmstrip();
+	// A memo, so the holds aren't rebuilt (dropping the one playback is
+	// waiting at) when some other setting, like the speed, changes.
+	const holdsOn = createMemo(() => canHold() && settings().playbackHolds);
+	const actionHolds = createMemo(() => {
+		if (!holdsOn()) return [];
+		const screenshots = props.traceInfo.screenshots() ?? [];
+		const pinnedPageId = stepViewer.pinnedPageId();
+		return computeActionHolds(
+			props.traceInfo.actions(),
+			props.testStartTimeMs(),
+			(atMs) =>
+				pinnedPageId ?? findScreenshotAtTime(screenshots, atMs)?.pageId ?? null,
+		);
+	});
+	const playbackSpeed = () =>
+		settings().playbackSpeed ?? getDefaultPlaybackSpeed(holdsOn());
 	const playback = usePlayback({
 		endMs: () => props.traceData.totalDurationMs(),
 		enabled: () => showStepViewer() && !props.traceData.isLoading(),
+		speed: playbackSpeed,
+		holds: actionHolds,
 	});
+	const actionHold = createMemo(() =>
+		getActionHoldPhase(actionHolds(), playback.held()),
+	);
 
 	/** Time hovered in the span panels, which the ruler marks too */
 	const spanHoverTimeMs = () => {
@@ -876,6 +906,7 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			screenshot={stepViewer.screenshot()}
 			screenshotAtMs={screenshotAtMs()}
 			actions={props.traceInfo.actions()}
+			actionHold={actionHold()}
 			screenshotsLoading={
 				props.traceInfo.screenshots.loading || stepViewer.screenshotPending()
 			}
@@ -895,9 +926,16 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			onActivate={stepViewer.activate}
 			onNavigate={stepViewer.navigate}
 			playing={playback.playing()}
-			playbackSpeed={playback.speed()}
+			playbackSpeed={playbackSpeed()}
 			onTogglePlayback={playback.toggle}
-			onCycleSpeed={playback.cycleSpeed}
+			onCycleSpeed={() =>
+				setSetting("playbackSpeed", nextPlaybackSpeed(playbackSpeed()))
+			}
+			holds={canHold() ? settings().playbackHolds : null}
+			holding={playback.playing() && actionHold() !== null}
+			onToggleHolds={() =>
+				setSetting("playbackHolds", !settings().playbackHolds)
+			}
 			action={props.action}
 			ruler={
 				<Show when={showRuler()}>

@@ -5,7 +5,7 @@ sidebar:
   order: 3
 ---
 
-The trace viewer shows a trace ZIP or a [Trace API](output-formats.md#trace-api) URL alongside the test's screenshots, highlighting where clicks, fills, drags, and failed actions landed on each page.
+The trace viewer shows a trace ZIP or a [Trace API](output-formats.md#trace-api) URL alongside the test's screenshots, highlighting where clicks, fills, drags, and failed actions landed on each page. Playing the test back, it holds on each of those actions for a moment, so a test that ran in seconds can still be followed; a button beside the playback speed turns the holds off.
 
 Open the [example trace](https://trace.endform.dev/?traceSource=https%3A%2F%2Fdemo-traces.endform.dev%2Fotel-traces%2Fplaywright-tutorial%2Fpayment-server-error%2Fv2.zip) to explore a complete failure with connected Playwright, browser, and backend spans, or go to the [hosted trace viewer](https://trace.endform.dev) to load your own trace ZIP.
 

@@ -5,6 +5,7 @@ import {
 	VIEWER_PANEL_IDS,
 	viewerSettingsFromPanels,
 } from "./viewerPanels";
+import { DEFAULT_VIEWER_SETTINGS } from "./viewerSettings";
 
 /** The shown panel ids, or null when the URL leaves it to the saved settings */
 function shownPanels(query: string): ViewerPanelId[] | null {
@@ -62,14 +63,14 @@ describe("parseViewerPanels", () => {
 });
 
 describe("viewerSettingsFromPanels", () => {
-	it("maps the panels the settings menu covers", () => {
+	it("maps the panels the settings menu covers, the rest by default", () => {
 		const panels = parseViewerPanels(new URLSearchParams("view=player"))!;
 		expect(viewerSettingsFromPanels(panels)).toEqual({
+			...DEFAULT_VIEWER_SETTINGS,
 			stepViewer: true,
 			steps: false,
 			browser: false,
 			external: false,
-			playerScreen: "big-screen",
 		});
 	});
 });

@@ -373,6 +373,13 @@ export class StepViewerComponent {
 	readonly pauseButton: Locator;
 	/** Reads the playback speed, as in "2×"; clicking moves to the next one */
 	readonly speedButton: Locator;
+	/**
+	 * Turns holding on each action on and off, pressed while on; there only
+	 * in traces with actions. `data-holding` is set while playback waits.
+	 */
+	readonly holdsButton: Locator;
+	/** What the test did at the moment on show, drawn over the screenshot */
+	readonly actionOverlay: Locator;
 
 	constructor(scope: Page | FrameLocator) {
 		this.root = scope.getByRole("region", { name: "Step viewer" });
@@ -419,6 +426,10 @@ export class StepViewerComponent {
 			exact: true,
 		});
 		this.speedButton = playback.getByRole("button", { name: "Playback speed" });
+		this.holdsButton = playback.getByRole("button", {
+			name: "Hold on each action",
+		});
+		this.actionOverlay = this.screen.getByTestId("action-overlay");
 	}
 
 	page(number: number): Locator {

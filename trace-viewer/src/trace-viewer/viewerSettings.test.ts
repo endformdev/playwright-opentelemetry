@@ -25,6 +25,23 @@ describe("parseViewerSettings", () => {
 		).toEqual(DEFAULT_VIEWER_SETTINGS);
 	});
 
+	it("keeps stored playback choices and ignores invalid ones", () => {
+		expect(
+			parseViewerSettings(
+				JSON.stringify({ playbackHolds: false, playbackSpeed: 0.5 }),
+			),
+		).toEqual({
+			...DEFAULT_VIEWER_SETTINGS,
+			playbackHolds: false,
+			playbackSpeed: 0.5,
+		});
+		expect(
+			parseViewerSettings(
+				JSON.stringify({ playbackHolds: "no", playbackSpeed: 3 }),
+			),
+		).toEqual(DEFAULT_VIEWER_SETTINGS);
+	});
+
 	it("keeps stored booleans and fills in missing or invalid keys", () => {
 		expect(
 			parseViewerSettings(

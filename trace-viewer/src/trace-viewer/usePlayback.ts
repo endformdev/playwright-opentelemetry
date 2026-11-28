@@ -3,6 +3,7 @@ import {
 	batch,
 	createEffect,
 	createSignal,
+	on,
 	onCleanup,
 } from "solid-js";
 import { useHoverContext } from "./contexts/HoverContext";
@@ -10,9 +11,15 @@ import { useViewportContext } from "./contexts/ViewportContext";
 import {
 	advancePlayback,
 	followPlayhead,
+	getHeldPlayback,
 	getPlaybackStartMs,
-	nextPlaybackSpeed,
+	type HeldPlayback,
+	isPlaybackOver,
+	type PlaybackHold,
+	type PlaybackPosition,
 	type PlaybackSpeed,
+	rejoinPlayback,
+	startPlayback,
 } from "./playback";
 
 export interface PlaybackOptions {
@@ -20,14 +27,20 @@ export interface PlaybackOptions {
 	endMs: Accessor<number>;
 	/** Whether the playback controls are on screen and Space toggles playing */
 	enabled: Accessor<boolean>;
+	/** Takes effect at once, even mid-playback */
+	speed: Accessor<PlaybackSpeed>;
+	/** The moments playback waits at, in time order; none to play straight through */
+	holds: Accessor<readonly PlaybackHold[]>;
 }
 
 export interface Playback {
 	playing: Accessor<boolean>;
-	speed: Accessor<PlaybackSpeed>;
+	/**
+	 * The hold playback is waiting at, also once paused there; null while it
+	 * moves and when the time on show is no longer playback's
+	 */
+	held: Accessor<HeldPlayback | null>;
 	toggle: () => void;
-	/** Moves on to the next speed; takes effect at once, even mid-playback */
-	cycleSpeed: () => void;
 	/** Takes Space when playback applies; true if handled */
 	handleKeyDown: (event: KeyboardEvent) => boolean;
 }
@@ -35,21 +48,27 @@ export interface Playback {
 /**
  * Plays the test back in real time (scaled by the speed): the timeline is
  * locked at a moving time, so the step viewer, details panel and time line
- * all follow along, and the view pages along to keep it on screen.
+ * all follow along, and the view pages along to keep it on screen. At a hold
+ * the time stands still for the hold's duration, at any speed.
  *
  * Playback owns the lock while it plays; any other lock or unlock (a click on
  * the timeline, Escape, arrow keys, the step viewer) pauses it where it is.
+ * Paused and played again from where it stopped, it carries on: a hold it
+ * was part way through takes only the rest of its time.
  */
 export function usePlayback(options: PlaybackOptions): Playback {
 	const { lock, lockedTimeMs, lockSource } = useHoverContext();
 	const { viewport, animateTo } = useViewportContext();
 
 	const [playing, setPlaying] = createSignal(false);
-	const [speed, setSpeed] = createSignal<PlaybackSpeed>(1);
+	const [held, setHeld] = createSignal<HeldPlayback | null>(null, {
+		equals: (previous, next) =>
+			previous?.index === next?.index && previous?.heldMs === next?.heldMs,
+	});
 
 	let frame: number | undefined;
 	let lastFrameAt: number | undefined;
-	let timeMs = 0;
+	let position: PlaybackPosition = startPlayback(0);
 
 	const pause = () => {
 		if (frame !== undefined) cancelAnimationFrame(frame);
@@ -58,10 +77,11 @@ export function usePlayback(options: PlaybackOptions): Playback {
 	};
 	onCleanup(pause);
 
-	const showTime = () => {
+	const showPosition = () => {
 		batch(() => {
-			lock(timeMs, null, "playback");
-			const next = followPlayhead(viewport(), timeMs);
+			lock(position.timeMs, null, "playback");
+			setHeld(getHeldPlayback(position, options.holds(), options.endMs()));
+			const next = followPlayhead(viewport(), position.timeMs);
 			if (next) animateTo(next);
 		});
 	};
@@ -70,23 +90,36 @@ export function usePlayback(options: PlaybackOptions): Playback {
 		const endMs = options.endMs();
 		const elapsedMs = lastFrameAt === undefined ? 0 : now - lastFrameAt;
 		lastFrameAt = now;
-		timeMs = advancePlayback(timeMs, elapsedMs, speed(), endMs);
-		showTime();
-		if (timeMs >= endMs) {
+		position = advancePlayback(
+			position,
+			elapsedMs,
+			options.speed(),
+			endMs,
+			options.holds(),
+		);
+		showPosition();
+		if (isPlaybackOver(position, options.holds(), endMs)) {
 			pause();
 			return;
 		}
 		frame = requestAnimationFrame(tick);
 	};
 
+	/** Whether the time on show is still where playback left it */
+	const isWherePlaybackLeftIt = () =>
+		lockSource() === "playback" && lockedTimeMs() === position.timeMs;
+
 	const play = () => {
 		const endMs = options.endMs();
 		if (endMs <= 0) return;
-		timeMs = getPlaybackStartMs(lockedTimeMs(), viewport(), endMs);
+		const startMs = getPlaybackStartMs(lockedTimeMs(), viewport(), endMs);
+		if (!isWherePlaybackLeftIt() || startMs !== position.timeMs) {
+			position = startPlayback(startMs, options.holds());
+		}
 		lastFrameAt = undefined;
 		batch(() => {
 			setPlaying(true);
-			showTime();
+			showPosition();
 		});
 		frame = requestAnimationFrame(tick);
 	};
@@ -102,6 +135,23 @@ export function usePlayback(options: PlaybackOptions): Playback {
 		if (!options.enabled() || lockSource() !== "playback") pause();
 	});
 
+	// A hold is over once the time on show is someone else's.
+	createEffect(() => {
+		if (!isWherePlaybackLeftIt()) setHeld(null);
+	});
+
+	// Other holds, as when they are switched on or off, apply from here on.
+	createEffect(
+		on(
+			options.holds,
+			(holds) => {
+				position = rejoinPlayback(position.timeMs, holds);
+				setHeld(null);
+			},
+			{ defer: true },
+		),
+	);
+
 	const handleKeyDown = (event: KeyboardEvent) => {
 		if (!options.enabled() || event.key !== " ") return false;
 		// A focused button takes Space itself.
@@ -116,11 +166,5 @@ export function usePlayback(options: PlaybackOptions): Playback {
 		return true;
 	};
 
-	return {
-		playing,
-		speed,
-		toggle,
-		cycleSpeed: () => setSpeed(nextPlaybackSpeed),
-		handleKeyDown,
-	};
+	return { playing, held, toggle, handleKeyDown };
 }

@@ -11,6 +11,7 @@ import type {
 	TestStatus,
 	TraceAction,
 } from "../trace-info-loader";
+import type { ActionHoldPhase } from "./actionHolds";
 import { layOutComparison, type ScreenshotSize } from "./comparisonLayout";
 import { ScreenshotWithActions } from "./ScreenshotWithActions";
 import { ScreenshotSkeleton, skeletonPhaseStyle } from "./TraceViewerSkeleton";
@@ -46,6 +47,8 @@ export interface StepViewerProps extends Omit<
 	screenshotAtMs: number | null;
 	/** Where the test's actions landed, drawn over its screenshots */
 	actions: TraceAction[];
+	/** The action playback is waiting at, and which part of its hold it is in */
+	actionHold: ActionHoldPhase | null;
 	screenshotsLoading: boolean;
 	/** The screenshots have loaded and the test took none */
 	noScreenshots: boolean;
@@ -95,6 +98,7 @@ export function StepViewer(props: StepViewerProps) {
 		"screenshot",
 		"screenshotAtMs",
 		"actions",
+		"actionHold",
 		"screenshotsLoading",
 		"noScreenshots",
 		"testStatus",
@@ -108,6 +112,7 @@ export function StepViewer(props: StepViewerProps) {
 			screenshot={props.screenshot}
 			screenshotAtMs={props.screenshotAtMs}
 			actions={props.actions}
+			actionHold={props.actionHold}
 			screenshotsLoading={props.screenshotsLoading}
 			noScreenshots={props.noScreenshots}
 			onImageLoad={onImageLoad}
@@ -158,6 +163,7 @@ function PrimaryScreen(props: {
 	screenshot: ScreenshotInfo | null;
 	screenshotAtMs: number | null;
 	actions: TraceAction[];
+	actionHold: ActionHoldPhase | null;
 	screenshotsLoading: boolean;
 	noScreenshots: boolean;
 	onImageLoad?: (image: HTMLImageElement) => void;
@@ -196,6 +202,7 @@ function PrimaryScreen(props: {
 					screenshot={screenshot()}
 					actions={props.actions}
 					atMs={props.screenshotAtMs ?? screenshot().timestamp}
+					held={props.actionHold}
 					alt={`Step viewer screenshot at ${screenshot().timestamp}`}
 					onImageLoad={props.onImageLoad}
 				/>

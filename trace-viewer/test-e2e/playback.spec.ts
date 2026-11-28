@@ -85,6 +85,10 @@ test("plays the test back in real time at the chosen speed", async ({
 		return { traceMs: endTimeMs - startTimeMs, realMs: Date.now() - startedAt };
 	};
 
+	await test.step("A trace without actions has none to hold on", async () => {
+		await expect(stepViewer.holdsButton).toHaveCount(0);
+	});
+
 	await test.step("The speed button cycles between normal, double and half speed", async () => {
 		await expect(stepViewer.speedButton).toHaveText("1×");
 		await stepViewer.speedButton.click();
@@ -220,5 +224,223 @@ test("plays the test back in real time at the chosen speed", async ({
 		const seekMs = await timeMsOf(lockedLine);
 		expect(seekMs).toBeGreaterThan(900);
 		expect(seekMs).toBeLessThan(1100);
+	});
+});
+
+test("holds on each action while playing", async ({ page, request }) => {
+	await page.setViewportSize({ width: 1440, height: 1000 });
+	const traceId = randomUUID().replaceAll("-", "");
+	const testStartTime = Date.now();
+
+	const builder = new TraceDataBuilder(traceId, testStartTime).addTestSpan(
+		"Holds",
+		4000,
+	);
+	builder.addStepSpanAndGetId("Before Hooks", 500, { startOffsetMs: 0 });
+	const step = (title: string, startOffsetMs: number) =>
+		builder.addStepSpanAndGetId(title, 10, {
+			startOffsetMs,
+			attributes: { "test.step.category": "pw:api" },
+		});
+	step("Fill", 995);
+	step("Click", 1005);
+	step("Click", 2495);
+	builder.addStepSpanAndGetId("After Hooks", 400, { startOffsetMs: 3500 });
+	await builder.send(request);
+
+	const box = { x: 540, y: 310, width: 200, height: 100 };
+	const actionAt = (startMs: number, method: string) => ({
+		pageId: "page-0",
+		start: testStartTime + startMs,
+		end: testStartTime + startMs + 4,
+		method,
+		box,
+		...(method === "click" ? { point: { x: 640, y: 360 } } : {}),
+	});
+	const screenshotsZip = await createScreenshotsZipFromOffsets({
+		testStartTime,
+		screenshotOffsetsMs: [100, 900, 1100, 2400, 2600, 3600],
+		pageId: "page-0",
+		viewport: { width: 1280, height: 720 },
+		// A fill and a click on each other's heels, then a click on its own.
+		actions: [
+			actionAt(1000, "fill"),
+			actionAt(1010, "click"),
+			actionAt(2500, "click"),
+		],
+	});
+	const upload = await request.put(
+		`${TRACE_API_URL}/playwright-otel-reporter/v1/screenshots.zip`,
+		{
+			data: Buffer.from(await screenshotsZip.arrayBuffer()),
+			headers: { "Content-Type": "application/zip", "X-Trace-Id": traceId },
+		},
+	);
+	expect(upload.ok()).toBeTruthy();
+
+	const viewer = new TraceViewerPage(page);
+	await viewer.loadTraceFromApi(traceId);
+	await viewer.leaveOpeningStep();
+	const { stepViewer, ruler } = viewer;
+	const lockedLine = viewer.root.locator("[data-locked-time-line]");
+	const overlay = stepViewer.actionOverlay;
+
+	const expectHeldAt = async (timeMs: number) => {
+		await expect(stepViewer.holdsButton).toHaveAttribute(
+			"data-holding",
+			"true",
+		);
+		await expect(lockedLine).toHaveAttribute("data-time-ms", String(timeMs));
+	};
+	const expectMoving = async () => {
+		await expect(stepViewer.pauseButton).toBeVisible();
+		await expect(stepViewer.holdsButton).not.toHaveAttribute("data-holding");
+	};
+
+	await test.step("With actions to hold on, playback holds and moves at double speed", async () => {
+		await expect(stepViewer.holdsButton).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await expect(stepViewer.speedButton).toHaveText("2×");
+	});
+
+	// From here the page's clock only moves when told to, so each part of a
+	// hold can be looked at. Holds last 380 + 320 ms; 200 + 180 ms between
+	// actions close together.
+	await page.clock.install();
+	await page.clock.pauseAt(Date.now() + 1000);
+
+	await test.step("Playback waits where an action is about to land, then with it landed", async () => {
+		// From 2200 ms, 150 ms away at double speed.
+		await ruler.clickAt(0.55);
+		await stepViewer.playButton.click();
+		await page.clock.runFor(250);
+		await expectHeldAt(2500);
+		// First only where the click is going: the element and a closing ring.
+		await expect(overlay).toHaveAttribute("data-hold-phase", "aim");
+		await expect(overlay.getByTestId("action-overlay-aim")).toBeVisible();
+		await expect(overlay.getByTestId("action-overlay-box")).toBeVisible();
+		await expect(overlay.getByTestId("action-overlay-point")).toHaveCount(0);
+
+		// Then the click itself, at the same moment of the test.
+		await page.clock.runFor(380);
+		await expectHeldAt(2500);
+		await expect(overlay).toHaveAttribute("data-hold-phase", "landed");
+		await expect(overlay.getByTestId("action-overlay-point")).toBeVisible();
+		await expect(overlay.getByTestId("action-overlay-landed")).toBeVisible();
+		await expect(overlay.getByTestId("action-overlay-aim")).toHaveCount(0);
+
+		// It moves on by itself once the hold is over.
+		await page.clock.runFor(400);
+		await expectMoving();
+		expect(await timeMsOf(lockedLine)).toBeGreaterThan(2500);
+		await expect(overlay).not.toHaveAttribute("data-hold-phase");
+		await stepViewer.pauseButton.click();
+	});
+
+	await test.step("Pausing on a hold keeps it, and playing again finishes it", async () => {
+		await ruler.clickAt(0.55);
+		await stepViewer.playButton.click();
+		await page.clock.runFor(250);
+		await expectHeldAt(2500);
+		await stepViewer.pauseButton.click();
+		await page.clock.runFor(1000);
+		await expect(lockedLine).toHaveAttribute("data-time-ms", "2500");
+		await expect(overlay).toHaveAttribute("data-hold-phase", "aim");
+
+		// It takes up the hold where it was: starting over, it would still be
+		// aiming after this long.
+		await stepViewer.playButton.click();
+		await page.clock.runFor(360);
+		await expectHeldAt(2500);
+		await expect(overlay).toHaveAttribute("data-hold-phase", "landed");
+		await stepViewer.pauseButton.click();
+	});
+
+	await test.step("Seeking away from a hold ends it", async () => {
+		await expect(overlay).toHaveAttribute("data-hold-phase", "landed");
+		await ruler.clickAt(0.2);
+		await expect(stepViewer.holdsButton).not.toHaveAttribute("data-holding");
+		await expect(overlay).toHaveCount(0);
+	});
+
+	await test.step("Actions close together are each held on, for less", async () => {
+		// From 800 ms, 100 ms away at double speed.
+		await ruler.clickAt(0.2);
+		await stepViewer.playButton.click();
+		await page.clock.runFor(180);
+		await expectHeldAt(1000);
+		await expect(overlay).toHaveAttribute("data-method", "fill");
+		await expect(overlay).toHaveAttribute("data-hold-phase", "aim");
+		// A fill has no point: only its element is marked.
+		await expect(overlay.getByTestId("action-overlay-aim")).toHaveCount(0);
+
+		// On to the click 10 ms later, after 560 ms on the fill.
+		await page.clock.runFor(560);
+		await expectHeldAt(1010);
+		await expect(overlay).toHaveAttribute("data-method", "click");
+		await expect(overlay).toHaveAttribute("data-hold-phase", "aim");
+		// Aiming for 200 ms this time.
+		await page.clock.runFor(200);
+		await expect(overlay).toHaveAttribute("data-hold-phase", "landed");
+		await page.clock.runFor(400);
+		await expectMoving();
+		await stepViewer.pauseButton.click();
+	});
+
+	await test.step("With holds off, playback runs straight through at normal speed", async () => {
+		await stepViewer.holdsButton.click();
+		await expect(stepViewer.holdsButton).toHaveAttribute(
+			"aria-pressed",
+			"false",
+		);
+		await expect(stepViewer.speedButton).toHaveText("1×");
+
+		await ruler.clickAt(0.2);
+		await stepViewer.playButton.click();
+		await page.clock.runFor(420);
+		await expectMoving();
+		const timeMs = await timeMsOf(lockedLine);
+		expect(timeMs).toBeGreaterThan(1100);
+		expect(timeMs).toBeLessThan(1300);
+		await stepViewer.pauseButton.click();
+	});
+
+	await test.step("Changing the speed during a hold keeps the hold", async () => {
+		await stepViewer.holdsButton.click();
+		await expect(stepViewer.speedButton).toHaveText("2×");
+		await ruler.clickAt(0.55);
+		await stepViewer.playButton.click();
+		await page.clock.runFor(250);
+		await expectHeldAt(2500);
+		await stepViewer.speedButton.click();
+		await expect(stepViewer.speedButton).toHaveText("0.5×");
+		await expectHeldAt(2500);
+		await expect(overlay).toHaveAttribute("data-hold-phase", "aim");
+		await page.clock.runFor(380);
+		await expectHeldAt(2500);
+		await expect(overlay).toHaveAttribute("data-hold-phase", "landed");
+		await stepViewer.pauseButton.click();
+	});
+
+	await page.clock.resume();
+
+	await test.step("The choices are kept for the next trace", async () => {
+		await page.reload();
+		await expect(stepViewer.holdsButton).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await expect(stepViewer.speedButton).toHaveText("0.5×");
+		// A chosen speed stays, with holds or without.
+		await stepViewer.holdsButton.click();
+		await expect(stepViewer.speedButton).toHaveText("0.5×");
+		await page.reload();
+		await expect(stepViewer.holdsButton).toHaveAttribute(
+			"aria-pressed",
+			"false",
+		);
+		await expect(stepViewer.speedButton).toHaveText("0.5×");
 	});
 });

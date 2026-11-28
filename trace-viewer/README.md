@@ -9,7 +9,7 @@ A trace viewer designed around tests, part of [Playwright OpenTelemetry](https:/
 
 ## Overview
 
-The viewer reads OpenTelemetry trace data directly rather than a proprietary test-result format. The layout plays the test back above a time-aligned flame graph: a large screenshot of the page (or, chosen in the settings menu, a filmstrip with a row of frames per page), a control bar to step through the test or play it, and a step ruler that scrubs through the whole test and shows a screenshot filmstrip as you hover it. The flame graph below is separated into three views that match how you investigate a failure:
+The viewer reads OpenTelemetry trace data directly rather than a proprietary test-result format. The layout plays the test back above a time-aligned flame graph: a large screenshot of the page (or, chosen in the settings menu, a filmstrip with a row of frames per page), a control bar to step through the test or play it, holding for a moment on each action the trace recorded, and a step ruler that scrubs through the whole test and shows a screenshot filmstrip as you hover it. The flame graph below is separated into three views that match how you investigate a failure:
 
 - **Test steps** for the Playwright test, hooks, fixtures, and actions
 - **Browser spans** for navigation, routes, JavaScript, fonts, images, fetches, and other requests

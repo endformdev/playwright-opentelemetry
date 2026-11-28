@@ -3,6 +3,7 @@ import {
 	ChevronRight,
 	Columns2,
 	Maximize2,
+	MousePointerClick,
 	Pause,
 	Pin,
 	Play,
@@ -30,6 +31,14 @@ export interface PlayerControlBarProps {
 	playbackSpeed: PlaybackSpeed;
 	onTogglePlayback: () => void;
 	onCycleSpeed: () => void;
+	/**
+	 * Whether playback waits on each action, or null when it has none to wait
+	 * on, when there is no button for it
+	 */
+	holds: boolean | null;
+	/** Playback is waiting on an action right now */
+	holding: boolean;
+	onToggleHolds: () => void;
 	pages: StepViewerPage[];
 	pinnedPageId: string | null;
 	/** The page of the screenshot on screen */
@@ -59,9 +68,10 @@ const BUTTON_CLASS =
 
 /**
  * The player's one row of controls, under the screenshot: the transport
- * (previous step, play/pause, next step, speed), the step the viewer is on,
- * with several pages a picker to pin one of them, and when the embedding page
- * asks for one, a button for its action.
+ * (previous step, play/pause, next step, speed, and in a trace with actions
+ * whether playback holds on them), the step the viewer is on, with several
+ * pages a picker to pin one of them, and when the embedding page asks for
+ * one, a button for its action.
  */
 export function PlayerControlBar(props: PlayerControlBarProps) {
 	const active = () => props.stopIndex !== null;
@@ -134,6 +144,28 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 				>
 					{formatPlaybackSpeed(props.playbackSpeed)}
 				</button>
+				<Show when={props.holds !== null}>
+					<button
+						type="button"
+						class="ml-0.5 inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md ring-1 transition-colors"
+						classList={{
+							"bg-fill-playhead text-gray-950 ring-fill-playhead":
+								props.holding,
+							"text-gray-900 ring-gray-300 hover:ring-gray-400":
+								!!props.holds && !props.holding,
+							"text-gray-400 ring-gray-200 hover:text-gray-700 hover:ring-gray-300":
+								!props.holds,
+						}}
+						aria-label="Hold on each action"
+						aria-pressed={!!props.holds}
+						title="Hold on each action"
+						data-testid="playback-holds"
+						data-holding={props.holding ? "true" : undefined}
+						onClick={props.onToggleHolds}
+					>
+						<MousePointerClick size={14} aria-hidden="true" />
+					</button>
+				</Show>
 			</div>
 
 			<Show when={props.stopCount > 0}>
