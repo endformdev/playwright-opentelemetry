@@ -66,8 +66,6 @@ export interface TimelineRulerProps {
 	filmstripPlacement: "above" | "below";
 	/** Moments or ranges to point out, e.g. the highlighted spans */
 	markers?: RulerMarker[];
-	/** When the test's actions happened, dotted on the step bar */
-	actionTimesMs?: number[];
 }
 
 export interface RulerMarker {
@@ -115,8 +113,7 @@ interface RulerDragState {
 /**
  * The step ruler: the whole test as a scrubber. A solid bar along the top,
  * filled green up to the playhead, with a line at each step's edges and the
- * hooks hatched at either end; the time ticks run below it. The test's
- * actions can be dotted on the bar, where playback waits. When zoomed, the
+ * hooks hatched at either end; the time ticks run below it. When zoomed, the
  * visible window is drawn over the ticks and can be dragged or resized.
  *
  * Hovering anywhere on the ruler opens a filmstrip of the whole test, lined
@@ -534,17 +531,6 @@ export function TimelineRuler(props: TimelineRulerProps) {
 									}}
 									style={{ left: `${toPercent(timeMs)}%` }}
 									data-testid="step-ruler-edge"
-								/>
-							)}
-						</For>
-						{/* Actions: a dot on the bar where each one's input began */}
-						<For each={props.actionTimesMs ?? []}>
-							{(timeMs) => (
-								<div
-									class="pointer-events-none absolute top-3 -ml-0.5 h-1 w-1 rounded-full bg-blue-600 ring-1 ring-white/80"
-									style={{ left: `${toPercent(timeMs)}%` }}
-									data-testid="step-ruler-action"
-									data-time-ms={timeMs}
 								/>
 							)}
 						</For>

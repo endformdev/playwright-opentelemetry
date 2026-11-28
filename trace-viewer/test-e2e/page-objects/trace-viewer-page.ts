@@ -204,8 +204,6 @@ export class TimelineRulerComponent {
 	readonly markers: Locator;
 	/** The markers' labels drawn on the ruler, where there is room or hovered */
 	readonly markerLabels: Locator;
-	/** A dot for each action playback holds on */
-	readonly actions: Locator;
 
 	/** @param scope Where the viewer is, when that is in a frame of `page` */
 	constructor(page: Page, scope: Page | FrameLocator = page) {
@@ -226,7 +224,6 @@ export class TimelineRulerComponent {
 		this.filmstrip = new RulerFilmstrip(scope);
 		this.markers = this.root.getByTestId("step-ruler-marker");
 		this.markerLabels = this.root.getByTestId("step-ruler-marker-label");
-		this.actions = this.root.getByTestId("step-ruler-action");
 	}
 
 	/** Where on screen a share of the whole test is, on the step bar */

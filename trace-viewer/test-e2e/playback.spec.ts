@@ -87,7 +87,6 @@ test("plays the test back in real time at the chosen speed", async ({
 
 	await test.step("A trace without actions has none to hold on", async () => {
 		await expect(stepViewer.holdsButton).toHaveCount(0);
-		await expect(viewer.ruler.actions).toHaveCount(0);
 	});
 
 	await test.step("The speed button cycles between normal, double and half speed", async () => {
@@ -304,7 +303,6 @@ test("holds on each action while playing", async ({ page, request }) => {
 			"true",
 		);
 		await expect(stepViewer.speedButton).toHaveText("2×");
-		await expect(ruler.actions).toHaveCount(3);
 	});
 
 	// From here the page's clock only moves when told to, so each part of a
@@ -398,7 +396,6 @@ test("holds on each action while playing", async ({ page, request }) => {
 			"false",
 		);
 		await expect(stepViewer.speedButton).toHaveText("1×");
-		await expect(ruler.actions).toHaveCount(0);
 
 		await ruler.clickAt(0.2);
 		await stepViewer.playButton.click();

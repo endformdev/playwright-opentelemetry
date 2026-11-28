@@ -475,10 +475,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 	const actionHold = createMemo(() =>
 		getActionHoldPhase(actionHolds(), playback.held()),
 	);
-	/** Where playback waits, dotted on the step ruler */
-	const actionTimesMs = createMemo(() => [
-		...new Set(actionHolds().map((hold) => hold.timeMs)),
-	]);
 
 	/** Time hovered in the span panels, which the ruler marks too */
 	const spanHoverTimeMs = () => {
@@ -806,7 +802,6 @@ function TraceViewerInner(props: TraceViewerInnerProps) {
 			showFilmstrip={!showPlayerFilmstrip()}
 			filmstripPlacement={showStepViewer() ? "above" : "below"}
 			markers={rulerMarkers()}
-			actionTimesMs={actionTimesMs()}
 		/>
 	);
 

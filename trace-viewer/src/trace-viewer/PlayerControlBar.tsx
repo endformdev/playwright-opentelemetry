@@ -158,11 +158,7 @@ export function PlayerControlBar(props: PlayerControlBarProps) {
 						}}
 						aria-label="Hold on each action"
 						aria-pressed={!!props.holds}
-						title={
-							props.holds
-								? "Playback holds on each action: click to play straight through"
-								: "Playback runs straight through: click to hold on each action"
-						}
+						title="Hold on each action"
 						data-testid="playback-holds"
 						data-holding={props.holding ? "true" : undefined}
 						onClick={props.onToggleHolds}
