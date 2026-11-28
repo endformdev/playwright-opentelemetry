@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import {
 	type APIRequestContext,
 	expect,
@@ -6,12 +5,12 @@ import {
 	test,
 } from "@playwright/test";
 import { TraceViewerPage } from "./page-objects/trace-viewer-page";
-import { ERROR_SPANS_TRACE_ID_FILE } from "./setup/global-setup";
 import {
 	generateTraceId,
 	SpanKind,
 	TraceDataBuilder,
 } from "./test-data-builder";
+import { reporterTraceId } from "./reporter-traces";
 
 const LONG_NESTED_TRACE_DURATION_MS = 120_000;
 const NESTED_EXPECTATION_START_MS = 61_234;
@@ -89,8 +88,11 @@ async function boundingBoxFor(locator: Locator) {
 	return box;
 }
 
-test("shows reporter error spans in the header dropdown", async ({ page }) => {
-	const traceId = readFileSync(ERROR_SPANS_TRACE_ID_FILE, "utf-8").trim();
+test("shows reporter error spans in the header dropdown", async ({
+	page,
+	request,
+}) => {
+	const traceId = await reporterTraceId(request, "error-spans");
 	const viewer = new TraceViewerPage(page);
 
 	await viewer.loadTraceFromApi(traceId);

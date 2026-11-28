@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { type APIRequestContext, expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
-import { MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE } from "./setup/global-setup";
 import { createScreenshotsZipFromOffsets } from "./screenshot-zip";
 import { TraceDataBuilder } from "./test-data-builder";
+import { reporterTraceId } from "./reporter-traces";
 
 test.beforeEach(async ({ page }) => {
 	await page.setViewportSize({ width: 1440, height: 1000 });
@@ -44,11 +43,11 @@ function frameAt(
 	return String(testStartTime + offset);
 }
 
-test("the ruler's filmstrip shows a row per browser page", async ({ page }) => {
-	const traceId = readFileSync(
-		MULTI_CONTEXT_SCREENSHOTS_TRACE_ID_FILE,
-		"utf-8",
-	).trim();
+test("the ruler's filmstrip shows a row per browser page", async ({
+	page,
+	request,
+}) => {
+	const traceId = await reporterTraceId(request, "multi-context-screenshots");
 	const viewer = new TraceViewerPage(page);
 	await viewer.loadTraceFromApi(traceId);
 	const { ruler, stepViewer } = viewer;

@@ -1,13 +1,9 @@
-import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
-import {
-	BROWSER_PAGE_SPANS_TRACE_ID_FILE,
-	BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
-} from "./setup/global-setup";
+import { reporterTraceId, reporterTraceZip } from "./reporter-traces";
 
 const TEST_NAME = "playwright.dev browser page navigation trace";
 const TRACE_MARKER = "browser-page-span-e2e";
@@ -177,10 +173,7 @@ test("renders browser page, route, and network spans from independent trace frag
 	page,
 	request,
 }) => {
-	const traceId = readFileSync(
-		BROWSER_PAGE_SPANS_TRACE_ID_FILE,
-		"utf-8",
-	).trim();
+	const traceId = await reporterTraceId(request, "browser-page-spans");
 	const spans = await loadTraceSpans(request, traceId);
 
 	const homePage = pageSpan(spans, "/");
@@ -284,14 +277,12 @@ test("renders browser page, route, and network spans from independent trace frag
 	);
 });
 
-test("renders browser spans from reporter trace zip", async ({ page }) => {
-	const traceZipPath = readFileSync(
-		BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
-		"utf-8",
-	).trim();
-
+test("renders browser spans from reporter trace zip", async ({
+	page,
+	request,
+}) => {
 	const viewer = new TraceViewerPage(page);
-	await viewer.loadTraceFromZip(traceZipPath);
+	await viewer.loadTraceFromZip(await reporterTraceZip(request));
 
 	await expect(viewer.header.testName).toHaveText(TEST_NAME);
 	await expect(viewer.browserSpans.root).toBeVisible();

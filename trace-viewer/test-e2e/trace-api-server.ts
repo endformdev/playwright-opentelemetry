@@ -9,10 +9,14 @@ import {
 	type TraceApiHandlerConfig,
 } from "@playwright-opentelemetry/trace-api";
 import { defineEventHandler, getRouterParam, H3, serve } from "h3";
+import {
+	BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE,
+	REPORTER_TRACES,
+	type ReporterTrace,
+	reporterTraceIdFile,
+} from "./setup/global-setup";
 
 const PORT = 9295;
-const BROWSER_PAGE_SPANS_TRACE_ZIP_PATH_FILE =
-	"test-results/browser-page-spans-trace-zip-path.txt";
 
 const traceIds = new Set<string>();
 
@@ -108,6 +112,34 @@ app.get(
 			headers: {
 				"access-control-allow-origin": "*",
 				"content-type": "application/zip",
+			},
+		});
+	}),
+);
+
+app.get(
+	"/fixtures/reporter-traces/:trace/trace-id",
+	defineEventHandler((event) => {
+		const trace = getRouterParam(event, "trace");
+		if (!REPORTER_TRACES.includes(trace as ReporterTrace)) {
+			return new Response(`Unknown reporter trace ${trace}`, {
+				headers: { "access-control-allow-origin": "*" },
+				status: 404,
+			});
+		}
+
+		const file = reporterTraceIdFile(trace as ReporterTrace);
+		if (!existsSync(file)) {
+			return new Response(`${file} has not been generated`, {
+				headers: { "access-control-allow-origin": "*" },
+				status: 404,
+			});
+		}
+
+		return new Response(readFileSync(file, "utf-8").trim(), {
+			headers: {
+				"access-control-allow-origin": "*",
+				"content-type": "text/plain",
 			},
 		});
 	}),

@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
-import { NATIVE_API_REQUEST_TRACE_ID_FILE } from "./setup/global-setup";
+import { reporterTraceId } from "./reporter-traces";
 
 interface OtlpAttribute {
 	key: string;
@@ -43,10 +42,7 @@ test("renders native Playwright request fixture spans from the reporter API flow
 	page,
 	request,
 }) => {
-	const traceId = readFileSync(
-		NATIVE_API_REQUEST_TRACE_ID_FILE,
-		"utf-8",
-	).trim();
+	const traceId = await reporterTraceId(request, "native-api-request");
 	const spans = await loadTraceSpans(request, traceId);
 	const testSpan = requiredSpan(
 		spans,

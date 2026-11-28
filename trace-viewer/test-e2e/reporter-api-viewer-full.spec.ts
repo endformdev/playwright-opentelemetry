@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import {
 	TRACE_API_URL,
 	TraceViewerPage,
 } from "./page-objects/trace-viewer-page";
-import { BROWSER_PAGE_SPANS_TRACE_ID_FILE } from "./setup/global-setup";
+import { reporterTraceId } from "./reporter-traces";
 
 test.describe("reporter, trace-api, trace-viewer flow", () => {
 	test("loads and displays a real trace from reporter e2e tests", async ({
@@ -21,10 +20,7 @@ test.describe("reporter, trace-api, trace-viewer flow", () => {
 
 		// Load the trace of a test that navigates so it has browser spans: not
 		// every reporter e2e test navigates.
-		const traceId = readFileSync(
-			BROWSER_PAGE_SPANS_TRACE_ID_FILE,
-			"utf8",
-		).trim();
+		const traceId = await reporterTraceId(request, "browser-page-spans");
 		expect(traceIds).toContain(traceId);
 		const viewer = new TraceViewerPage(page);
 		await viewer.loadTraceFromApi(traceId);

@@ -1,0 +1,45 @@
+name: E2E
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    # Pull requests from forks get no secrets, so they can't run on Endform.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The trace viewer suite's global setup runs the reporter suite here, with
+      # plain Playwright, to make the traces the viewer specs load.
+      - name: Install Chromium
+        run: pnpm --filter ./reporter exec playwright install --with-deps chromium
+
+      # Runs the trace viewer specs on Endform. Its web servers (a production
+      # build of the viewer, wrangler dev and the trace API) run here, and
+      # Endform's browsers reach them through the CLI.
+      - name: Run e2e tests on Endform
+        run: pnpm --filter ./trace-viewer test:e2e:endform
+        env:
+          ENDFORM_API_KEY: ${{ secrets.ENDFORM_API_KEY }}
